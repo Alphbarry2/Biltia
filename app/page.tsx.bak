@@ -1,0 +1,839 @@
+"use client";
+
+import { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  Mic,
+  MicOff,
+  ArrowRight,
+  Check,
+  ChevronDown,
+  Building2,
+  FileText,
+  Calendar,
+  Users,
+  Shield,
+  Clock,
+  Package,
+  HardHat,
+  Zap,
+  Menu,
+  X,
+} from "lucide-react";
+
+// ── Motion — easing signature expo-out ─────────────────────────────────────────
+const EASE = [0.16, 1, 0.3, 1] as const;
+
+const up = (delay = 0) => ({
+  initial: { opacity: 0, y: 22 },
+  animate: { opacity: 1, y: 0 },
+  transition: { duration: 0.7, ease: EASE, delay },
+});
+
+const inview = (delay = 0) => ({
+  initial: { opacity: 0, y: 28 },
+  whileInView: { opacity: 1, y: 0 },
+  viewport: { once: true, margin: "-60px" },
+  transition: { duration: 0.7, ease: EASE, delay },
+});
+
+// ── Navbar ─────────────────────────────────────────────────────────────────────
+function Navbar() {
+  const [open, setOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const fn = () => setScrolled(window.scrollY > 24);
+    window.addEventListener("scroll", fn);
+    return () => window.removeEventListener("scroll", fn);
+  }, []);
+
+  const links: [string, string][] = [
+    ["Comment ça marche", "#comment-ca-marche"],
+    ["Exemples", "#exemples"],
+    ["Tarifs", "#tarifs"],
+  ];
+
+  return (
+    <nav className="fixed top-4 inset-x-0 z-50 px-4">
+      <div
+        className={`mx-auto flex items-center justify-between gap-6 h-14 pl-5 pr-2 rounded-full max-w-3xl transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+          scrolled
+            ? "bg-card/70 backdrop-blur-xl ring-1 ring-foreground/[0.06] shadow-depth-2"
+            : "bg-card/40 backdrop-blur-md ring-1 ring-foreground/[0.04]"
+        }`}
+      >
+        <a href="#" className="flex items-center gap-2.5 group">
+          <div className="w-7 h-7 rounded-lg bg-accent flex items-center justify-center shadow-depth-1 transition-transform duration-500 group-hover:scale-110">
+            <span className="text-white font-display font-bold text-xs leading-none">B</span>
+          </div>
+          <span className="font-display font-semibold text-foreground text-base">Batify</span>
+        </a>
+
+        <div className="hidden md:flex items-center gap-7">
+          {links.map(([label, href]) => (
+            <a
+              key={label}
+              href={href}
+              className="text-muted-foreground hover:text-foreground text-[13px] font-medium transition-colors"
+            >
+              {label}
+            </a>
+          ))}
+        </div>
+
+        <div className="hidden md:flex items-center gap-2">
+          <a href="/login" className="px-3 text-muted-foreground hover:text-foreground text-[13px] font-medium transition-colors">
+            Se connecter
+          </a>
+          <a
+            href="/signup"
+            className="press group/btn flex items-center gap-2 pl-4 pr-1.5 py-1.5 bg-primary text-white text-[13px] font-medium rounded-full shadow-depth-1 hover:shadow-depth-2"
+          >
+            Commencer
+            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-white/15 transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover/btn:translate-x-0.5 group-hover/btn:-translate-y-0.5">
+              <ArrowRight className="w-3.5 h-3.5" strokeWidth={1.75} />
+            </span>
+          </a>
+        </div>
+
+        <button onClick={() => setOpen(!open)} className="md:hidden text-foreground pr-3">
+          {open ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+        </button>
+      </div>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.3, ease: EASE }}
+            className="md:hidden overflow-hidden border-t border-border bg-card"
+          >
+            <div className="px-6 py-5 flex flex-col gap-4">
+              {links.map(([label, href]) => (
+                <a key={label} href={href} className="text-muted-foreground text-sm font-medium" onClick={() => setOpen(false)}>
+                  {label}
+                </a>
+              ))}
+              <div className="flex gap-3 pt-2 border-t border-border">
+                <a href="/login" className="flex-1 py-2.5 text-center text-sm font-medium text-foreground border border-border rounded-xl">
+                  Se connecter
+                </a>
+                <a href="/signup" className="flex-1 py-2.5 text-center text-sm font-semibold bg-primary text-white rounded-xl">
+                  Commencer
+                </a>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </nav>
+  );
+}
+
+// ── Hero ───────────────────────────────────────────────────────────────────────
+const PLACEHOLDERS = [
+  "Un tableau de mes chantiers avec le client, l'avancement et les factures émises…",
+  "Un suivi de mes sous-traitants avec les certifs QUALIBAT et alertes d'expiration…",
+  "Un planning pour mes chantiers avec les équipes, les jalons et les dépendances…",
+  "Une fiche de pointage des heures par chantier et par ouvrier, export CSV…",
+  "Un devis BTP au format AFNOR avec calcul automatique des marges et de la TVA…",
+];
+
+const CHIPS = [
+  { label: "Fiche Chantier", prompt: "Je veux une fiche de suivi de mes chantiers avec le nom du client, l'adresse, l'état d'avancement en %, le montant HT, les factures émises et ce qui reste à encaisser." },
+  { label: "Devis BTP", prompt: "Je veux un outil de création de devis BTP au format AFNOR avec désignation, quantité, unité, prix unitaire, calcul automatique du total HT et TTC avec TVA 10%." },
+  { label: "Sous-traitants", prompt: "Je veux un tableau de suivi de mes sous-traitants avec SIRET, QUALIBAT, attestation URSSAF, date d'expiration et une alerte rouge 30 jours avant." },
+  { label: "Pointage", prompt: "Je veux un tableau de pointage des heures de mes ouvriers par chantier avec date, heures normales, heures supp et un total par semaine." },
+];
+
+function HeroSection() {
+  const router = useRouter();
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [input, setInput] = useState("");
+  const [phIndex, setPhIndex] = useState(0);
+  const [isListening, setIsListening] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (input) return;
+    const id = setInterval(() => setPhIndex((i) => (i + 1) % PLACEHOLDERS.length), 3200);
+    return () => clearInterval(id);
+  }, [input]);
+
+  const handleSubmit = () => {
+    if (!input.trim()) return;
+    sessionStorage.setItem("batify_prompt", input.trim());
+    router.push("/signup?from=prompt");
+  };
+
+  const toggleVoice = () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as any;
+    const SR = w.SpeechRecognition ?? w.webkitSpeechRecognition;
+    if (!SR) { alert("Utilisez Chrome pour la reconnaissance vocale."); return; }
+    if (isListening) { recognitionRef.current?.stop(); setIsListening(false); return; }
+    const r = new SR();
+    r.lang = "fr-FR"; r.continuous = false; r.interimResults = false;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    r.onresult = (e: any) => {
+      const t = e.results[0][0].transcript;
+      setInput((prev) => (prev ? prev + " " + t : t));
+    };
+    r.onend = () => setIsListening(false);
+    r.onerror = () => setIsListening(false);
+    r.start(); recognitionRef.current = r; setIsListening(true);
+  };
+
+  return (
+    <section className="relative min-h-screen flex items-center justify-center overflow-hidden pt-16">
+      {/* Fond : grille très légère + halo terracotta derrière le titre */}
+      <div className="absolute inset-0 pointer-events-none">
+        <div
+          className="absolute inset-0 opacity-[0.03]"
+          style={{
+            backgroundImage:
+              "linear-gradient(#0F172A 1px, transparent 1px), linear-gradient(90deg, #0F172A 1px, transparent 1px)",
+            backgroundSize: "48px 48px",
+            maskImage: "radial-gradient(ellipse 70% 55% at 50% 35%, black 25%, transparent 75%)",
+          }}
+        />
+        <div
+          className="animate-glow absolute top-[12%] left-1/2 -translate-x-1/2 w-[700px] h-[480px]"
+          style={{ background: "radial-gradient(ellipse at center, rgba(20,184,166,0.10) 0%, transparent 60%)" }}
+        />
+      </div>
+
+      <div className="relative z-10 w-full max-w-3xl mx-auto px-6 py-20 flex flex-col items-center text-center">
+        <motion.div {...up(0)}>
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-border bg-card/70 backdrop-blur shadow-depth-1 mb-7">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-60" />
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-accent" />
+            </span>
+            <span className="text-xs text-foreground/70 font-semibold tracking-wide">
+              Le logiciel BTP qui se construit à votre voix
+            </span>
+          </div>
+        </motion.div>
+
+        <motion.h1
+          {...up(0.1)}
+          className="font-display text-[42px] sm:text-6xl md:text-[68px] font-bold leading-[1.02] text-foreground mb-5"
+        >
+          Votre logiciel de gestion BTP,
+          <br />
+          <span className="text-accent">créé en 90 secondes.</span>
+        </motion.h1>
+
+        <motion.p {...up(0.25)} className="text-[17px] text-muted-foreground max-w-xl leading-[1.7] mb-10">
+          Fini Excel qui plante et les ERP que personne n'utilise. Décrivez en
+          français votre besoin — devis, suivi de chantier, pointage — et Batify
+          génère l'application sur mesure. Sans développeur, sans formation.
+        </motion.p>
+
+        {/* Champ — encadré comme un objet précieux */}
+        <motion.div {...up(0.4)} className="w-full">
+          <div className="input-glow w-full rounded-2xl border border-border bg-card">
+            <div className="relative px-5 pt-5 pb-3 min-h-[96px] text-left">
+              {!input && (
+                <AnimatePresence mode="wait">
+                  <motion.span
+                    key={phIndex}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.4 }}
+                    className="absolute top-5 left-5 right-5 text-muted-foreground/70 text-base leading-relaxed pointer-events-none select-none"
+                  >
+                    {PLACEHOLDERS[phIndex]}
+                  </motion.span>
+                </AnimatePresence>
+              )}
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={(e) => {
+                  setInput(e.target.value);
+                  e.target.style.height = "auto";
+                  e.target.style.height = e.target.scrollHeight + "px";
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(); }
+                }}
+                rows={3}
+                className="relative z-10 w-full bg-transparent text-foreground text-base leading-relaxed resize-none focus:outline-none min-h-[80px]"
+                style={{ caretColor: "#14b8a6" }}
+              />
+            </div>
+
+            <div className="flex items-center justify-between px-4 pb-4 gap-3">
+              <div className="flex items-center gap-1.5 overflow-x-auto flex-1 min-w-0">
+                <button
+                  onClick={toggleVoice}
+                  className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                    isListening
+                      ? "bg-[#fdf2f0] text-danger border border-[#f0c8c0]"
+                      : "text-muted-foreground hover:text-accent-deep hover:bg-accent-soft border border-transparent"
+                  }`}
+                >
+                  {isListening ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+                  <span className="hidden sm:inline">{isListening ? "Écoute…" : "Voix"}</span>
+                </button>
+
+                <div className="w-px h-4 bg-border mx-1 flex-shrink-0" />
+
+                {CHIPS.map((chip) => (
+                  <button
+                    key={chip.label}
+                    onClick={() => { setInput(chip.prompt); textareaRef.current?.focus(); }}
+                    className="flex-shrink-0 text-xs text-muted-foreground hover:text-accent-deep px-2.5 py-1.5 rounded-full hover:bg-accent-soft border border-transparent transition-all whitespace-nowrap"
+                  >
+                    {chip.label}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                onClick={handleSubmit}
+                disabled={!input.trim()}
+                className="flex-shrink-0 flex items-center gap-2 px-5 py-2.5 bg-primary text-white text-sm font-bold rounded-xl shadow-depth-1 hover:shadow-depth-2 transition-all disabled:opacity-30 disabled:cursor-not-allowed disabled:shadow-none"
+              >
+                Générer <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          <p className="text-xs text-muted-foreground/80 mt-3 text-center">
+            Appuyez sur Entrée pour générer · 50 crédits offerts à l'inscription
+          </p>
+        </motion.div>
+
+        <motion.div {...up(0.55)} className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 mt-10 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <div className="flex -space-x-2">
+              {["A", "M", "P", "L"].map((l) => (
+                <div key={l} className="w-6 h-6 rounded-full bg-accent border-2 border-background flex items-center justify-center">
+                  <span className="text-[9px] font-bold text-white">{l}</span>
+                </div>
+              ))}
+            </div>
+            <span className="font-medium text-foreground/70 tabular">847 artisans en attente</span>
+          </div>
+          <span className="text-border">·</span>
+          <span>Données hébergées en France 🇫🇷</span>
+          <span className="text-border">·</span>
+          <span>Aucune carte bancaire</span>
+        </motion.div>
+      </div>
+    </section>
+  );
+}
+
+// ── Trust bar (marquee) ──────────────────────────────────────────────────────────
+function TrustBar() {
+  const logos = ["QUALIBAT", "EBP Bâtiment", "Batigest", "URSSAF", "Chorus Pro", "Stripe", "RGE", "Qualibois"];
+  return (
+    <section className="py-12 border-y border-border bg-muted/40 overflow-hidden">
+      <p className="text-center text-[10px] font-bold text-muted-foreground uppercase tracking-[0.18em] mb-7">
+        Compatible avec votre écosystème BTP
+      </p>
+      <div className="relative">
+        <div className="flex w-max animate-marquee gap-12">
+          {[...logos, ...logos].map((name, i) => (
+            <span key={i} className="text-sm font-display font-bold text-muted-foreground/70 whitespace-nowrap">
+              {name}
+            </span>
+          ))}
+        </div>
+        {/* fondus latéraux */}
+        <div className="absolute inset-y-0 left-0 w-24 bg-gradient-to-r from-[#f7f5ef] to-transparent pointer-events-none" />
+        <div className="absolute inset-y-0 right-0 w-24 bg-gradient-to-l from-[#f7f5ef] to-transparent pointer-events-none" />
+      </div>
+    </section>
+  );
+}
+
+// ── Section label helper ─────────────────────────────────────────────────────────
+function Label({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-[10px] font-bold text-accent uppercase tracking-[0.18em] mb-4">
+      {children}
+    </p>
+  );
+}
+
+// ── Value (problème → solution) ──────────────────────────────────────────────────
+function ValueSection() {
+  const rows = [
+    { before: "Tout repose sur un fichier Excel — et sur une seule personne.", after: "Une app fiable, accessible par toute l'équipe, depuis le chantier." },
+    { before: "Les ERP type Batigest sont trop lourds : personne ne les ouvre.", after: "Une interface simple, pensée pour des gants et un téléphone." },
+    { before: "20 à 30 % du temps passe en paperasse non facturée.", after: "Devis, pointage et suivi automatisés. Vous facturez plus." },
+    { before: "Les logiciels génériques ne parlent pas votre métier.", after: "Batify comprend votre jargon : DPGF, DOE, lot TCE, QUALIBAT." },
+  ];
+
+  return (
+    <section className="py-28 px-6">
+      <div className="max-w-5xl mx-auto">
+        <motion.div {...inview()} className="text-center mb-14 max-w-2xl mx-auto">
+          <Label>Pourquoi Batify</Label>
+          <h2 className="font-display text-4xl sm:text-5xl font-bold leading-[1.05] text-foreground">
+            650 000 entreprises du BTP.
+            <br />
+            <span className="text-muted-foreground/60">Aucun outil vraiment fait pour elles.</span>
+          </h2>
+        </motion.div>
+
+        <div className="grid sm:grid-cols-2 gap-4">
+          {rows.map((row, i) => (
+            <motion.div
+              key={i}
+              {...inview(i * 0.08)}
+              whileHover={{ y: -3 }}
+              transition={{ duration: 0.4, ease: EASE }}
+              className="rounded-2xl bg-card border border-border p-6 shadow-depth-1 hover:shadow-depth-2 transition-shadow"
+            >
+              <div className="flex items-start gap-3 mb-4 pb-4 border-b border-border">
+                <div className="mt-0.5 w-5 h-5 rounded-full bg-[#fdf2f0] flex items-center justify-center flex-shrink-0">
+                  <X className="w-3 h-3 text-danger" />
+                </div>
+                <p className="text-sm text-muted-foreground leading-relaxed line-through decoration-border">{row.before}</p>
+              </div>
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 w-5 h-5 rounded-full bg-accent-soft flex items-center justify-center flex-shrink-0">
+                  <Check className="w-3 h-3 text-accent-deep" />
+                </div>
+                <p className="text-sm font-medium text-foreground leading-relaxed">{row.after}</p>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ── How it works ────────────────────────────────────────────────────────────────
+function HowItWorksSection() {
+  const steps = [
+    { icon: <Mic className="w-6 h-6" />, title: "Décrivez", body: "En vocal ou texte, dans votre langue, avec votre jargon BTP — DPGF, DOE, lot TCE, sous-traitant. Batify comprend." },
+    { icon: <Zap className="w-6 h-6" />, title: "Regardez", body: "L'application se génère et se déploie en direct sous vos yeux. Vous voyez chaque composant apparaître en 90 secondes." },
+    { icon: <ArrowRight className="w-6 h-6" />, title: "Utilisez", body: "Un lien à votre nom. Vos équipes y accèdent partout, sans compte. Itérez en vocal : « Ajoute une alerte si l'avancement prend 7 jours de retard. »" },
+  ];
+
+  return (
+    <section id="comment-ca-marche" className="py-28 px-6 border-y border-border bg-muted/40">
+      <div className="max-w-6xl mx-auto">
+        <motion.div {...inview()} className="text-center mb-16">
+          <Label>Comment ça marche</Label>
+          <h2 className="font-display text-4xl sm:text-5xl font-bold text-foreground">3 étapes. 90 secondes.</h2>
+        </motion.div>
+
+        <div className="grid md:grid-cols-3 gap-6">
+          {steps.map((step, i) => (
+            <motion.div
+              key={step.title}
+              {...inview(i * 0.12)}
+              className="relative rounded-3xl bg-card border border-border p-8 shadow-depth-1 hover:shadow-depth-2 transition-shadow overflow-hidden"
+            >
+              <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-accent to-accent-deep" />
+              <div className="absolute top-6 right-6 font-display text-5xl font-bold text-muted tabular select-none">0{i + 1}</div>
+              <div className="w-12 h-12 rounded-xl bg-primary flex items-center justify-center text-white mb-5 shadow-depth-1">{step.icon}</div>
+              <h3 className="font-display font-bold text-foreground text-xl mb-3">{step.title}</h3>
+              <p className="text-muted-foreground text-sm leading-relaxed">{step.body}</p>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ── Showcase (mockups encadrés comme objets précieux) ────────────────────────────
+function ShowcaseSection() {
+  const apps = [
+    {
+      title: "Suivi Chantiers",
+      rows: [
+        { name: "Villa Dumont", pct: 78, val: "24 500 €" },
+        { name: "Résidence Pré", pct: 100, val: "67 200 €" },
+        { name: "École Bellev.", pct: 32, val: "12 000 €" },
+      ],
+    },
+    {
+      title: "Sous-traitants",
+      badges: [
+        { name: "Électricité Martin", status: "Valide", ok: true },
+        { name: "Plomberie Roux", status: "Expire bientôt", ok: false },
+        { name: "Maçonnerie BTP35", status: "Valide", ok: true },
+      ],
+    },
+    {
+      title: "Devis BTP",
+      lines: [
+        { ref: "A1", desc: "Terrassement m²", total: "2 160 €" },
+        { ref: "A2", desc: "Béton fondations", total: "4 275 €" },
+        { ref: "B1", desc: "Maçonnerie briques", total: "8 400 €" },
+      ],
+    },
+  ];
+
+  return (
+    <section id="exemples" className="py-28 px-6">
+      <div className="max-w-6xl mx-auto">
+        <motion.div {...inview()} className="text-center mb-14">
+          <Label>Exemples générés</Label>
+          <h2 className="font-display text-4xl sm:text-5xl font-bold text-foreground mb-4">Des apps prêtes à l'emploi.</h2>
+          <p className="text-muted-foreground max-w-lg mx-auto leading-relaxed">
+            Chaque application est générée en moins de 90 secondes, hébergée à votre nom et adaptée à votre jargon BTP.
+          </p>
+        </motion.div>
+
+        <div className="grid md:grid-cols-3 gap-6">
+          {apps.map((app, i) => (
+            <motion.div
+              key={app.title}
+              {...inview(i * 0.12)}
+              whileHover={{ y: -4 }}
+              transition={{ duration: 0.4, ease: EASE }}
+              className="rounded-3xl bg-card border border-border overflow-hidden shadow-depth-2 hover:shadow-depth-3 transition-shadow"
+            >
+              <div className="flex items-center gap-1.5 px-4 py-3 border-b border-border bg-muted/40">
+                <div className="w-2.5 h-2.5 rounded-full bg-border" />
+                <div className="w-2.5 h-2.5 rounded-full bg-border" />
+                <div className="w-2.5 h-2.5 rounded-full bg-border" />
+                <div className="flex-1 mx-3 bg-card border border-border rounded h-4 flex items-center px-2">
+                  <span className="text-[10px] text-muted-foreground/70">batify.fr/app/{app.title.toLowerCase().replace(/ /g, "-")}</span>
+                </div>
+              </div>
+
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs font-bold uppercase tracking-wide text-accent">{app.title}</p>
+                  <div className="w-6 h-6 rounded-md bg-accent-soft flex items-center justify-center">
+                    <span className="text-accent-deep text-[10px] font-black">B</span>
+                  </div>
+                </div>
+
+                {app.rows && (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-3 text-[10px] text-muted-foreground/70 pb-1 border-b border-border">
+                      <span>Chantier</span><span>Avancement</span><span className="text-right">Facturé</span>
+                    </div>
+                    {app.rows.map((row, j) => (
+                      <div key={row.name} className="grid grid-cols-3 items-center text-[11px]">
+                        <span className="text-foreground/80 truncate">{row.name}</span>
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-10 h-1.5 bg-muted rounded-full overflow-hidden">
+                            <motion.div
+                              initial={{ width: 0 }}
+                              whileInView={{ width: `${row.pct}%` }}
+                              viewport={{ once: true }}
+                              transition={{ duration: 0.9, ease: EASE, delay: 0.2 + j * 0.1 }}
+                              className={`h-full rounded-full ${row.pct === 100 ? "bg-success" : "bg-accent"}`}
+                            />
+                          </div>
+                          <span className="text-muted-foreground tabular">{row.pct}%</span>
+                        </div>
+                        <span className="text-foreground text-right font-semibold tabular">{row.val}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {app.badges && (
+                  <div className="space-y-2">
+                    {app.badges.map((b) => (
+                      <div key={b.name} className={`flex items-center justify-between p-2 rounded-lg ${b.ok ? "criticality-success" : "criticality-warning"}`}>
+                        <span className="text-[11px] text-foreground/80 truncate">{b.name}</span>
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${b.ok ? "text-success bg-white/60" : "text-warning bg-white/60"}`}>{b.status}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {app.lines && (
+                  <div className="space-y-1.5">
+                    <div className="grid grid-cols-4 text-[10px] text-muted-foreground/70 pb-1 border-b border-border">
+                      <span>Ref</span><span className="col-span-2">Désignation</span><span className="text-right">Total</span>
+                    </div>
+                    {app.lines.map((l) => (
+                      <div key={l.ref} className="grid grid-cols-4 text-[11px]">
+                        <span className="text-muted-foreground/70">{l.ref}</span>
+                        <span className="col-span-2 text-foreground/80 truncate">{l.desc}</span>
+                        <span className="text-foreground text-right font-semibold tabular">{l.total}</span>
+                      </div>
+                    ))}
+                    <div className="flex justify-between pt-2 border-t border-border">
+                      <span className="text-[10px] text-muted-foreground/70">Total HT</span>
+                      <span className="text-[11px] font-bold text-foreground tabular">14 835 €</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ── Templates ─────────────────────────────────────────────────────────────────
+function TemplatesSection() {
+  const templates = [
+    { icon: <HardHat className="w-4 h-4" />, name: "Fiche Chantier", tag: "Suivi" },
+    { icon: <FileText className="w-4 h-4" />, name: "Devis BTP", tag: "Commercial" },
+    { icon: <Users className="w-4 h-4" />, name: "Sous-traitants", tag: "Conformité" },
+    { icon: <Calendar className="w-4 h-4" />, name: "Planning", tag: "Planning" },
+    { icon: <Clock className="w-4 h-4" />, name: "Pointage", tag: "RH" },
+    { icon: <Package className="w-4 h-4" />, name: "Matériaux", tag: "Logistique" },
+    { icon: <Building2 className="w-4 h-4" />, name: "DOE Auto", tag: "Documentation" },
+    { icon: <Shield className="w-4 h-4" />, name: "Carnet SAV", tag: "SAV" },
+  ];
+
+  return (
+    <section className="py-28 px-6 border-t border-border bg-muted/40">
+      <div className="max-w-6xl mx-auto">
+        <motion.div {...inview()} className="mb-12">
+          <Label>Templates inclus</Label>
+          <h2 className="font-display text-4xl sm:text-5xl font-bold text-foreground">
+            Faits pour votre métier.
+            <br />
+            <span className="text-muted-foreground/60">Pas pour un DAF.</span>
+          </h2>
+        </motion.div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {templates.map((t, i) => (
+            <motion.div
+              key={t.name}
+              {...inview(i * 0.05)}
+              whileHover={{ y: -3 }}
+              className="group flex items-center gap-3 p-4 rounded-2xl bg-card border border-border shadow-depth-1 hover:shadow-depth-2 transition-all cursor-pointer"
+            >
+              <div className="w-9 h-9 rounded-lg bg-accent-soft flex items-center justify-center text-accent-deep group-hover:bg-accent group-hover:text-white transition-colors">
+                {t.icon}
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-foreground truncate">{t.name}</p>
+                <p className="text-[11px] text-muted-foreground/70">{t.tag}</p>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+
+        <motion.p {...inview(0.2)} className="text-sm text-muted-foreground/80 mt-5">
+          + Générez n'importe quel autre outil par description vocale.
+        </motion.p>
+      </div>
+    </section>
+  );
+}
+
+// ── Pricing ───────────────────────────────────────────────────────────────────
+function PricingSection() {
+  const plans = [
+    { name: "Artisan", price: "29", desc: "Indépendant · Auto-entrepreneur", credits: "50 crédits/mois", features: ["1 utilisateur", "Apps mobile + desktop", "8 templates BTP", "Génération voix + texte", "Hébergement inclus", "Support email"], highlight: false },
+    { name: "PME", price: "89", desc: "5 à 20 salariés", credits: "200 crédits/mois", badge: "Populaire", features: ["5 utilisateurs", "Tout Artisan inclus", "QUALIBAT + URSSAF live", "Alertes expiration auto", "Lien public à votre nom", "Support prioritaire"], highlight: true },
+    { name: "Pro", price: "249", desc: "20 à 100 salariés", credits: "600 crédits/mois", features: ["Illimité", "Tout PME inclus", "Chorus Pro", "EBP / Batigest", "Mode hors-ligne", "Support dédié"], highlight: false },
+  ];
+
+  return (
+    <section id="tarifs" className="py-28 px-6 border-t border-border">
+      <div className="max-w-6xl mx-auto">
+        <motion.div {...inview()} className="text-center mb-14">
+          <Label>Tarifs</Label>
+          <h2 className="font-display text-4xl sm:text-5xl font-bold text-foreground mb-3">Simple. Transparent.</h2>
+          <p className="text-muted-foreground max-w-md mx-auto">
+            Vous payez les générations, pas les saisies. Crédits reportés 2 mois.
+          </p>
+        </motion.div>
+
+        <div className="grid md:grid-cols-3 gap-5 items-start">
+          {plans.map((plan, i) => (
+            <motion.div
+              key={plan.name}
+              {...inview(i * 0.1)}
+              className={`relative flex flex-col rounded-3xl border p-7 transition-shadow overflow-hidden ${
+                plan.highlight
+                  ? "border-accent bg-card shadow-depth-3 md:-mt-3"
+                  : "border-border bg-card shadow-depth-1 hover:shadow-depth-2"
+              }`}
+            >
+              {plan.highlight && <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-accent to-accent-deep" />}
+              {plan.badge && (
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-accent text-white text-[11px] font-bold rounded-full whitespace-nowrap shadow-depth-1">
+                  {plan.badge}
+                </div>
+              )}
+
+              <div className="mb-6">
+                <p className="font-display font-bold text-foreground text-lg mb-0.5">{plan.name}</p>
+                <p className="text-sm text-muted-foreground">{plan.desc}</p>
+                <div className="mt-5 flex items-baseline gap-1">
+                  <span className="font-display text-5xl font-bold text-foreground tabular">{plan.price}€</span>
+                  <span className="text-muted-foreground text-sm">/mois</span>
+                </div>
+                <p className="text-sm text-muted-foreground mt-1">{plan.credits}</p>
+              </div>
+
+              <ul className="space-y-2.5 flex-1 mb-7">
+                {plan.features.map((f) => (
+                  <li key={f} className="flex items-center gap-2.5 text-sm">
+                    <Check className="w-4 h-4 text-accent flex-shrink-0" />
+                    <span className="text-foreground/80">{f}</span>
+                  </li>
+                ))}
+              </ul>
+
+              <a
+                href="/signup"
+                className={`flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold transition-all ${
+                  plan.highlight
+                    ? "bg-primary text-white shadow-depth-1 hover:shadow-depth-2"
+                    : "bg-muted text-foreground hover:bg-border"
+                }`}
+              >
+                Commencer
+              </a>
+            </motion.div>
+          ))}
+        </div>
+
+        <motion.p {...inview(0.3)} className="text-center text-sm text-muted-foreground/80 mt-6">
+          200 premiers inscrits → accès bêta gratuit · Sans engagement
+        </motion.p>
+      </div>
+    </section>
+  );
+}
+
+// ── FAQ ───────────────────────────────────────────────────────────────────────
+function FAQSection() {
+  const [open, setOpen] = useState<number | null>(null);
+  const faqs = [
+    { q: "Ai-je besoin de coder ?", a: "Non. Si vous savez expliquer ce que vous voulez à un collègue, vous savez utiliser Batify. Vous décrivez, l'application apparaît." },
+    { q: "Comment fonctionnent les crédits ?", a: "Chaque génération d'app consomme 2 crédits. Les modifications consomment 1 crédit. La saisie de données dans une app existante est toujours gratuite. Les crédits non utilisés sont reportés sur 2 mois." },
+    { q: "Mes applications sont-elles hébergées ?", a: "Oui. Chaque app générée est mise en ligne automatiquement, à une adresse à son nom (batify.fr/app/votre-app), accessible partout depuis un simple lien — sur le chantier, au bureau, par vos équipes." },
+    { q: "Mes données sont-elles en sécurité ?", a: "Oui. Toutes les données sont hébergées en France. Chaque application est isolée. Vos données ne sont jamais utilisées pour entraîner des modèles." },
+    { q: "Compatible avec Batigest ou EBP ?", a: "Les connecteurs EBP et Batigest arrivent sur le plan Pro. En attendant, toutes les apps exportent en CSV et Excel, compatibles avec tous les ERP du marché." },
+  ];
+
+  return (
+    <section className="py-28 px-6 border-t border-border bg-muted/40">
+      <div className="max-w-2xl mx-auto">
+        <motion.div {...inview()} className="text-center mb-12">
+          <h2 className="font-display text-4xl font-bold text-foreground">Questions fréquentes</h2>
+        </motion.div>
+        <div className="space-y-2">
+          {faqs.map(({ q, a }, i) => (
+            <motion.div key={i} {...inview(i * 0.05)} className="border border-border rounded-2xl overflow-hidden bg-card shadow-depth-1">
+              <button onClick={() => setOpen(open === i ? null : i)} className="w-full flex items-center justify-between px-6 py-5 text-left hover:bg-muted/40 transition-colors">
+                <span className="font-semibold text-foreground text-sm pr-4">{q}</span>
+                <ChevronDown className={`w-4 h-4 text-muted-foreground flex-shrink-0 transition-transform duration-300 ${open === i ? "rotate-180" : ""}`} />
+              </button>
+              <AnimatePresence>
+                {open === i && (
+                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.3, ease: EASE }} className="overflow-hidden">
+                    <p className="px-6 pb-5 text-sm text-muted-foreground leading-relaxed">{a}</p>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ── Final CTA ─────────────────────────────────────────────────────────────────
+function CTASection() {
+  const router = useRouter();
+  const [input, setInput] = useState("");
+  const handleSubmit = () => {
+    if (!input.trim()) return;
+    sessionStorage.setItem("batify_prompt", input.trim());
+    router.push("/signup?from=prompt");
+  };
+
+  return (
+    <section className="py-28 px-6">
+      <div className="max-w-4xl mx-auto">
+        <motion.div {...inview()} className="relative overflow-hidden rounded-[28px] bg-primary px-8 py-16 sm:px-16 text-center shadow-depth-4">
+          <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-accent to-accent-deep" />
+          <div className="absolute top-[-120px] right-[-80px] w-80 h-80 rounded-full pointer-events-none" style={{ background: "radial-gradient(circle, rgba(20,184,166,0.35) 0%, transparent 65%)" }} />
+          <div className="absolute bottom-[-140px] left-[-60px] w-80 h-80 rounded-full pointer-events-none" style={{ background: "radial-gradient(circle, rgba(20,184,166,0.18) 0%, transparent 65%)" }} />
+
+          <div className="relative">
+            <h2 className="font-display text-3xl sm:text-5xl font-bold text-white mb-4">Décrivez votre première app.</h2>
+            <p className="text-white/70 mb-9 max-w-md mx-auto leading-relaxed">
+              50 crédits offerts à l'inscription. Aucune carte bancaire. Votre outil sur mesure, hébergé, en 90 secondes.
+            </p>
+
+            <div className="flex flex-col sm:flex-row gap-2 max-w-lg mx-auto bg-card rounded-2xl p-2 shadow-depth-2">
+              <input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+                placeholder="Un suivi de mes chantiers avec…"
+                className="flex-1 px-4 py-3 bg-transparent text-foreground placeholder-muted-foreground/70 text-sm focus:outline-none"
+              />
+              <button onClick={handleSubmit} className="flex items-center justify-center gap-2 px-6 py-3 bg-accent text-white text-sm font-bold rounded-xl hover:bg-accent-deep transition-colors whitespace-nowrap">
+                Générer mon app <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-white/50 mt-4">Rejoignez 847 artisans BTP déjà en attente.</p>
+          </div>
+        </motion.div>
+      </div>
+    </section>
+  );
+}
+
+// ── Footer ────────────────────────────────────────────────────────────────────
+function Footer() {
+  return (
+    <footer className="border-t border-border py-10 px-6 bg-muted/40">
+      <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-6">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-lg bg-accent flex items-center justify-center">
+            <span className="text-white font-display font-bold text-[11px] leading-none">B</span>
+          </div>
+          <span className="font-display font-bold text-foreground">Batify</span>
+          <span className="text-muted-foreground/70 text-sm ml-2">© 2025 · Fait pour les artisans français</span>
+        </div>
+        <div className="flex items-center gap-6">
+          {["CGU", "Confidentialité", "Contact"].map((l) => (
+            <a key={l} href="#" className="text-sm text-muted-foreground/70 hover:text-foreground transition-colors">{l}</a>
+          ))}
+        </div>
+      </div>
+    </footer>
+  );
+}
+
+// ── Main ────────────────────────────────────────────────────────────────────────
+export default function Home() {
+  return (
+    <main className="bg-background min-h-screen">
+      <Navbar />
+      <HeroSection />
+      <TrustBar />
+      <ValueSection />
+      <HowItWorksSection />
+      <ShowcaseSection />
+      <TemplatesSection />
+      <PricingSection />
+      <FAQSection />
+      <CTASection />
+      <Footer />
+    </main>
+  );
+}
