@@ -1,0 +1,41 @@
+-- ============================================================
+-- BATIFY — Schéma de référence
+-- Source of truth: voir migrations/001_security_foundation.sql
+--
+-- Principes appliqués :
+--   Zero Trust | Multi-tenancy | RBAC | RLS | Audit Logs
+-- ============================================================
+
+-- Lancer dans l'ordre :
+--   psql ... -f migrations/001_security_foundation.sql
+--
+-- Ou via Supabase Dashboard > SQL Editor > importer le fichier
+-- de migration.
+
+-- ============================================================
+-- Résumé des tables
+-- ============================================================
+--
+-- public.tenants           — organisations
+-- public.tenant_members    — appartenance user ↔ tenant (+ rôle)
+-- public.apps              — applications métier (liées à un tenant)
+-- public.app_members       — accès fin par app au sein d'un tenant
+-- public.user_credits      — crédits IA par utilisateur
+-- public.audit_logs        — journal immuable des actions sensibles
+--
+-- ============================================================
+-- Fonctions utilitaires (security definer)
+-- ============================================================
+--
+-- public.my_tenant_role(tenant_id)   → member_role | null
+-- public.is_app_member(app_id)       → boolean
+-- public.log_audit(...)              → void
+-- public.deduct_credits(user, n)     → boolean
+-- public.handle_new_user()           → trigger (signup)
+-- public.set_updated_at()            → trigger
+--
+-- ============================================================
+-- RLS : toutes les tables ont RLS activé
+-- Policies : SELECT / INSERT / UPDATE / DELETE
+--   filtrent sur tenant_id + app_id + rôle utilisateur
+-- ============================================================

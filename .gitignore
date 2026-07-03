@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+**/node_modules
 /.pnp
 .pnp.*
 .yarn/*
@@ -35,6 +36,11 @@ yarn-error.log*
 
 # vercel
 .vercel
+
+# claude code / agent tooling (skills, symlinks, nested worktrees)
+# excluded so Tailwind v4's content scanner doesn't recurse into them
+/.claude/
+/.agents/
 
 # typescript
 *.tsbuildinfo
