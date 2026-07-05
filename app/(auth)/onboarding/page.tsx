@@ -116,6 +116,35 @@ export default function OnboardingPage() {
       } catch { /* best-effort */ }
     }
     void enablePushNotifications();
+
+    // Offre Pro choisie depuis la page tarifs (« choisir Pro ») : on lance le
+    // paiement Stripe MAINTENANT. Après paiement, retour dans l'app avec les
+    // crédits du palier (attribués par le webhook), les 300 crédits d'inscription
+    // étant préservés (forfait + bonus). En cas d'échec, on ne bloque pas l'accès.
+    try {
+      const pending = localStorage.getItem("biltia_pending_plan");
+      if (pending) {
+        localStorage.removeItem("biltia_pending_plan");
+        const { credits, cycle } = JSON.parse(pending) as {
+          credits: number;
+          cycle: string;
+        };
+        const res = await fetch("/api/billing/checkout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ plan: "pro", credits, cycle }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data?.url) {
+          window.location.href = data.url as string; // → Stripe Checkout
+          return;
+        }
+        console.error("[onboarding] checkout indisponible", data?.error);
+      }
+    } catch (e) {
+      console.error("[onboarding] plan en attente", e);
+    }
+
     const savedPrompt = sessionStorage.getItem("biltia_prompt");
     router.refresh();
     router.push(savedPrompt ? "/generate" : "/dashboard");

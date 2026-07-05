@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase";
 import { getActiveMembership } from "@/lib/tenant";
 import { SubscriptionBanner } from "@/components/subscription-banner";
 import { WorkspaceSwitcher } from "@/components/workspace-switcher";
+import { BiltiaLogo } from "@/components/brand";
 import {
   Home,
   Boxes,
@@ -96,10 +97,7 @@ function Sidebar({
       <div className={`flex items-center h-[64px] border-b border-[#EDEDE9] flex-shrink-0 ${collapsed ? "justify-center px-0" : "justify-between px-4"}`}>
         {!collapsed && (
           <Link href="/dashboard" className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-[9px] bg-[#0A0A0A] flex items-center justify-center">
-              <span className="text-white font-bold text-xs leading-none">B</span>
-            </div>
-            <span className="text-[#0A0A0A] font-bold text-sm tracking-[-0.02em]">Biltia</span>
+            <BiltiaLogo className="h-[22px] w-auto text-[#0A0A0A]" />
           </Link>
         )}
         {onClose ? (
@@ -303,10 +301,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 <Menu className="w-[18px] h-[18px]" />
               </button>
               <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-md bg-[#0A0A0A] flex items-center justify-center">
-                  <span className="text-white font-bold text-xs leading-none">B</span>
-                </div>
-                <span className="font-bold text-[#0A0A0A] text-sm tracking-[-0.02em]">Biltia</span>
+                <BiltiaLogo className="h-5 w-auto text-[#0A0A0A]" />
               </div>
             </div>
           )}

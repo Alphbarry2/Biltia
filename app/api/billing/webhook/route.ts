@@ -3,13 +3,22 @@
 // Sécurité : signature vérifiée via STRIPE_WEBHOOK_SECRET. Écritures DB via le
 // client service_role (contourne la RLS ; jamais exposé au navigateur).
 //
-// Politique crédits (validée) : RESET au forfait.
-//   • checkout.session.completed / invoice.paid → balance = crédits du palier.
-//   • customer.subscription.updated              → sync (plan, statut, période).
-//   • customer.subscription.deleted              → retour au plan Free.
+// Politique crédits (validée) :
+//   • checkout.session.completed                    → forfait + 300 bonus (1ʳᵉ souscription).
+//   • invoice.paid (subscription_create)            → forfait + 300 bonus (idempotent).
+//   • invoice.paid (subscription_cycle)             → forfait seul (renouvellement mensuel).
+//   • invoice.paid (subscription_update = upgrade)  → RIEN : la route
+//        /api/billing/change-plan a déjà ajouté la DIFFÉRENCE (modèle B).
+//   • customer.subscription.updated                 → sync (plan, statut, période).
+//   • customer.subscription.deleted                 → retour au plan Free (gel).
+//
+// Bonus d'inscription : 300 crédits sont TOUJOURS accordés à la création du
+// compte (trigger DB handle_new_user), même si l'utilisateur passe Pro dans la
+// foulée ; la 1ʳᵉ souscription les préserve (forfait + 300).
 
 import { getStripe, findTierByPriceId } from "@/lib/stripe";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { SIGNUP_FREE_CREDITS } from "@/lib/plans";
 import type Stripe from "stripe";
 
 export const runtime = "nodejs";
@@ -138,13 +147,22 @@ async function freezeTenant(
 }
 
 /**
- * Applique l'état d'un abonnement Stripe à notre DB. Si `resetCredits`, remet le
- * solde de crédits au forfait du palier (souscription / renouvellement).
+ * Politique de crédits appliquée par applySubscription :
+ *   • "none"    → on ne touche pas au solde (sync abo uniquement).
+ *   • "reset"   → solde = crédits du palier (renouvellement mensuel).
+ *   • "welcome" → solde = crédits du palier + BONUS d'inscription (1ʳᵉ
+ *                 souscription : on PRÉSERVE les 300 crédits offerts).
+ */
+type CreditMode = "none" | "reset" | "welcome";
+
+/**
+ * Applique l'état d'un abonnement Stripe à notre DB, et recharge le solde de
+ * l'owner selon `creditMode`.
  */
 async function applySubscription(
   db: AnyDb,
   sub: Stripe.Subscription,
-  resetCredits: boolean
+  creditMode: CreditMode
 ): Promise<void> {
   const resolved = await resolveTenant(db, sub);
   if (!resolved) {
@@ -180,15 +198,17 @@ async function applySubscription(
     { onConflict: "tenant_id" }
   );
 
-  // Reset des crédits au forfait (souscription / renouvellement). Les crédits
-  // sont per-user (table user_credits) → on recharge l'owner du workspace.
-  // NB : la RPC set_credit_balance n'existe pas en prod ; le client service_role
-  // écrit directement dans user_credits (contourne la RLS).
-  if (resetCredits && match && ownerUserId) {
+  // Recharge des crédits selon le mode. Les crédits sont per-user (table
+  // user_credits) → on recharge l'owner du workspace. NB : la RPC
+  // set_credit_balance n'existe pas en prod ; le client service_role écrit
+  // directement dans user_credits (contourne la RLS). L'écriture est un SET
+  // (idempotent) : re-livraison d'un même événement Stripe = même solde.
+  if (creditMode !== "none" && match && ownerUserId) {
+    const bonus = creditMode === "welcome" ? SIGNUP_FREE_CREDITS : 0;
     await db.from("user_credits").upsert(
       {
         user_id: ownerUserId,
-        balance: match.tier.credits,
+        balance: match.tier.credits + bonus,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "user_id" }
@@ -232,7 +252,9 @@ export async function POST(req: Request) {
             : session.subscription?.id;
         if (subId) {
           const sub = await stripe.subscriptions.retrieve(subId);
-          await applySubscription(db, sub, /* resetCredits */ true);
+          // 1ʳᵉ souscription (Checkout) → forfait + bonus d'inscription préservé.
+          // Idempotent avec l'invoice.paid "subscription_create" (même SET).
+          await applySubscription(db, sub, "welcome");
         }
         break;
       }
@@ -244,21 +266,33 @@ export async function POST(req: Request) {
         const inv = invoice as unknown as {
           subscription?: string | { id: string };
           parent?: { subscription_details?: { subscription?: string | { id: string } } };
+          billing_reason?: string;
         };
         const rawSub =
           inv.subscription ?? inv.parent?.subscription_details?.subscription;
         const subId = typeof rawSub === "string" ? rawSub : rawSub?.id;
         if (subId) {
           const sub = await stripe.subscriptions.retrieve(subId);
-          // Renouvellement mensuel → reset au forfait.
-          await applySubscription(db, sub, /* resetCredits */ true);
+          // Motif de la facture → politique de crédits :
+          //   • "subscription_update" (prorata d'upgrade) : NE PAS toucher — la
+          //     route /api/billing/change-plan a déjà ajouté la différence (modèle B).
+          //   • "subscription_create" (1ʳᵉ souscription)  : forfait + 300 bonus.
+          //   • sinon ("subscription_cycle" = renouvellement) : reset au forfait.
+          const reason = inv.billing_reason;
+          const mode: CreditMode =
+            reason === "subscription_update"
+              ? "none"
+              : reason === "subscription_create"
+                ? "welcome"
+                : "reset";
+          await applySubscription(db, sub, mode);
         }
         break;
       }
 
       case "customer.subscription.updated": {
         const sub = event.data.object as Stripe.Subscription;
-        await applySubscription(db, sub, /* resetCredits */ false);
+        await applySubscription(db, sub, "none");
         // Si la relance a échoué et Stripe marque l'abo `unpaid`/`canceled`
         // (plutôt que de le supprimer), on gèle ici aussi.
         if (FROZEN_STATUSES.has(sub.status)) {

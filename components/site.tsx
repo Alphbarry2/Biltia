@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { BiltiaLogo } from "@/components/brand";
 import {
   motion, AnimatePresence, useInView, useReducedMotion,
   useMotionValue, useSpring,
@@ -166,16 +167,15 @@ export function SiteNav() {
 
   return (
     <>
-      <nav className={`fixed top-0 inset-x-0 z-50 transition-all duration-500 ${scrolled ? "glass border-0" : "bg-transparent"}`}>
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-[64px] flex items-center justify-between">
+      <nav className="fixed top-0 inset-x-0 z-50 px-3 sm:px-5 pt-3 sm:pt-4">
+        <div className={`max-w-6xl mx-auto h-[58px] px-3 sm:px-4 flex items-center justify-between rounded-2xl border transition-all duration-300 ${scrolled ? "bg-white/85 backdrop-blur-xl border-[#E7E7EF] shadow-[0_12px_44px_rgba(60,40,120,0.12)]" : "bg-white/70 backdrop-blur-md border-[#ECECF2] shadow-[0_6px_28px_rgba(60,40,120,0.07)]"}`}>
           <div className="flex items-center gap-2">
             <button onClick={() => setOpen(true)} aria-label="Menu"
               className="md:hidden w-9 h-9 rounded-[11px] bg-black/[0.05] hover:bg-black/[0.09] flex items-center justify-center transition-colors">
               <Menu className="w-[18px] h-[18px] text-[#0A0A0A]" />
             </button>
             <Link href="/" className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-[9px] bg-[#0A0A0A] flex items-center justify-center"><span className="text-white font-bold text-[12px] leading-none">B</span></div>
-              <span className="font-bold text-[#0A0A0A] text-[16px] tracking-[-0.02em]">Biltia</span>
+              <BiltiaLogo className="h-[26px] w-auto text-[#0A0A0A]" />
             </Link>
           </div>
 
@@ -525,8 +525,7 @@ export function SiteFooter() {
       <div className="max-w-6xl mx-auto grid sm:grid-cols-[1.2fr_1fr_1fr] gap-8 mb-10">
         <div>
           <div className="flex items-center gap-2.5 mb-3">
-            <div className="w-7 h-7 rounded-lg bg-[#0A0A0A] flex items-center justify-center"><span className="text-white font-bold text-[11px] leading-none">B</span></div>
-            <span className="font-bold text-[#0A0A0A]">Biltia</span>
+            <BiltiaLogo className="h-6 w-auto text-[#0A0A0A]" />
           </div>
           <p className="text-[13px] text-[#7A7A86] max-w-[240px] leading-relaxed">L&apos;OS conversationnel du BTP. Dictez votre problème, repartez avec la solution.</p>
         </div>
@@ -550,8 +549,8 @@ export function SiteFooter() {
       </div>
       <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 pt-6 border-t border-[#EDEDEB]">
         <span className="text-[13px] text-[#B0B0B8]">© 2026 Biltia</span>
-        <div className="flex items-center gap-6">
-          {[["CGU", "#"], ["Confidentialité", "#"]].map(([l, href]) => (<a key={l} href={href} className="text-[13px] text-[#9A9AA6] hover:text-[#0A0A0A] transition-colors">{l}</a>))}
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          {[["Mentions légales", "/mentions-legales"], ["CGU", "/cgu"], ["CGV", "/cgv"], ["Confidentialité", "/confidentialite"]].map(([l, href]) => (<a key={l} href={href} className="text-[13px] text-[#9A9AA6] hover:text-[#0A0A0A] transition-colors">{l}</a>))}
         </div>
       </div>
     </footer>

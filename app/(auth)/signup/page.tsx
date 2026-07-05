@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase";
@@ -20,6 +20,24 @@ export default function SignupPage() {
   const [error, setError] = useState("");
   const [awaitingEmail, setAwaitingEmail] = useState(false);
   const turnstileRef = useRef<TurnstileHandle>(null);
+
+  // « Choisir Pro » depuis la page tarifs arrive avec ?plan=pro&credits=…&cycle=…
+  // On mémorise le palier choisi pour lancer le paiement APRÈS l'onboarding
+  // (localStorage survit à la confirmation email, sur le même navigateur).
+  useEffect(() => {
+    try {
+      const p = new URLSearchParams(window.location.search);
+      if (p.get("plan") === "pro") {
+        const credits = Number(p.get("credits"));
+        const cycle = p.get("cycle") === "annual" ? "annual" : "monthly";
+        if (Number.isFinite(credits) && credits > 0) {
+          localStorage.setItem("biltia_pending_plan", JSON.stringify({ credits, cycle }));
+        }
+      }
+    } catch {
+      /* localStorage indisponible : on dégrade sans bloquer l'inscription. */
+    }
+  }, []);
 
   const hasLength = password.length >= 8;
   const hasDigit = /\d/.test(password);
@@ -160,7 +178,7 @@ export default function SignupPage() {
       </form>
 
       <p className="mt-4 text-center text-xs text-[#9A9AA6]">
-        En créant un compte, vous acceptez nos <a href="#" className="underline transition-colors hover:text-[#0A0A0A]">CGU</a> et notre <a href="#" className="underline transition-colors hover:text-[#0A0A0A]">politique de confidentialité</a>.
+        En créant un compte, vous acceptez nos <a href="/cgu" className="underline transition-colors hover:text-[#0A0A0A]">CGU</a> et notre <a href="/confidentialite" className="underline transition-colors hover:text-[#0A0A0A]">politique de confidentialité</a>.
       </p>
       <p className="mt-5 text-center text-sm text-[#6E6E6C]">
         Déjà un compte ?{" "}

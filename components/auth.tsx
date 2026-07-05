@@ -95,15 +95,18 @@ export function AuthScene() {
       <div className="absolute bottom-[-10%] right-[0%] h-[46%] w-[46%] rounded-full blur-[110px] animate-drift-d" style={{ background: "radial-gradient(circle, rgba(251,146,60,0.4), transparent 66%)" }} />
       <div className="bg-grain pointer-events-none absolute inset-0 opacity-[0.045]" />
 
-      {/* Pastilles flottantes */}
-      <span className="glass animate-float absolute left-[9%] top-[13%] z-10 rounded-full px-3.5 py-1.5 text-[12px] font-semibold text-[#4A4A56]">
-        ✦ 300 crédits offerts
+      {/* Pastilles flottantes (réparties dans les 4 coins, dégagées du centre) */}
+      <span className="glass animate-float absolute left-[5%] top-[9%] z-10 inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[12px] font-semibold text-[#4A4A56]">
+        <span className="h-1.5 w-1.5 rounded-full bg-gradient-to-br from-indigo-500 to-violet-500" /> 300 crédits offerts
       </span>
-      <span className="glass animate-float delay-300 absolute right-[10%] top-[22%] z-10 rounded-full px-3.5 py-1.5 text-[12px] font-semibold text-[#4A4A56]">
-        Devis PDF en 2 min
+      <span className="glass animate-float delay-300 absolute right-[5%] top-[8%] z-10 inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[12px] font-semibold text-[#4A4A56]">
+        <span className="h-1.5 w-1.5 rounded-full bg-gradient-to-br from-pink-500 to-rose-500" /> Devis PDF en 2 min
       </span>
-      <span className="glass animate-float delay-500 absolute bottom-[15%] right-[13%] z-10 rounded-full px-3.5 py-1.5 text-[12px] font-semibold text-[#4A4A56]">
-        Suivi de chantier
+      <span className="glass animate-float delay-500 absolute left-[6%] bottom-[16%] z-10 inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[12px] font-semibold text-[#4A4A56]">
+        <span className="h-1.5 w-1.5 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500" /> Agents autonomes
+      </span>
+      <span className="glass animate-float delay-600 absolute right-[6%] bottom-[13%] z-10 inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[12px] font-semibold text-[#4A4A56]">
+        <span className="h-1.5 w-1.5 rounded-full bg-gradient-to-br from-orange-400 to-amber-500" /> Suivi de chantier
       </span>
 
       {/* Mini-conversation (décorative) */}
@@ -155,7 +158,7 @@ export function AuthScene() {
       </div>
 
       <p className="absolute bottom-7 z-10 px-6 text-center text-[13px] font-medium text-[#5B5B66]">
-        Décrivez votre problème. Biltia livre la solution.
+        Décrivez votre problème. Biltia livre la solution, vos agents s&apos;occupent du reste.
       </p>
     </div>
   );
