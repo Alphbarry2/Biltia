@@ -12,7 +12,11 @@ const nextConfig: NextConfig = {
   // Le repo vit sur le Bureau (synchronisé iCloud) : iCloud corrompt le cache
   // de build en déplaçant les fichiers en cours d'écriture. Les dossiers
   // « *.nosync » ne sont jamais synchronisés par iCloud.
-  distDir: ".next.nosync",
+  // MAIS sur Vercel (Linux, pas d'iCloud) le builder Next.js attend la sortie
+  // dans « .next » : un distDir custom fait échouer le déploiement
+  // (« output directory ".next" not found »). On garde donc .next.nosync en
+  // local uniquement, et le .next standard sur Vercel (VERCEL=1 au build).
+  distDir: process.env.VERCEL ? ".next" : ".next.nosync",
   // ESLint reste actif en dev et en CI, mais ne bloque pas `next build` en prod :
   // les erreurs de style (no-unused-vars, no-unescaped-entities, no-explicit-any,
   // no-html-link-for-pages) n'ont aucun impact runtime et faisaient échouer le
