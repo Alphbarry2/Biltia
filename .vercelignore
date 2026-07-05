@@ -1,9 +1,11 @@
-# Dépendances / build (iCloud: variantes .nosync renommées)
+# Dépendances / build (iCloud: variantes .nosync + doublons « node_modules 8 »
+# qu'iCloud fabrique tout seul, dont un symlink CASSÉ qui fait échouer le build
+# Vercel — « ENOENT stat node_modules 8 »).
 # NB: ne PAS ignorer `.next` (sans suffixe) : Vercel applique .vercelignore aussi
 # à la SORTIE du build distant, l'ignorer supprimerait le build fraîchement généré.
-# Seules les variantes locales .nosync (iCloud) sont exclues de l'upload.
-node_modules.nosync
-.next.nosync
+# Le motif node_modules* couvre le symlink, la variante .nosync et les doublons.
+node_modules*
+.next.nosync*
 
 # Git / outillage local
 .git
