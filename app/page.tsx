@@ -8,6 +8,7 @@ import {
   ArrowRight, ArrowUpRight, Mic, MicOff,
   FileText, LayoutGrid, MessageCircle, Zap,
   Users, Building2, HardHat, Clock, FolderKanban,
+  Bot, CheckCircle, Pause,
 } from "lucide-react";
 import { PRODUCTS } from "@/lib/products";
 import {
@@ -18,15 +19,17 @@ import {
 // ── Héros ────────────────────────────────────────────────────────────────────
 
 const PLACEHOLDERS = [
+  "Relance mes devis sans réponse tous les jours à 9h…",
   "Sors-moi l'avenant pour le carrelage validé, 45 m²…",
-  "Quels chantiers sont en retard cette semaine ?",
   "Un suivi de mes chantiers avec l'avancement…",
-  "Vérifie les prix de ces 30 bons de livraison…",
+  "Chaque soir à 18h, fais le point sur mes impayés…",
+  "Quels chantiers sont en retard cette semaine ?",
 ];
 function FormatPills() {
   const items = [
-    { l: "Document", I: FileText }, { l: "Application", I: LayoutGrid },
-    { l: "Réponse", I: MessageCircle }, { l: "Automatisation", I: Zap },
+    { l: "Agent autonome", I: Bot }, { l: "Application", I: LayoutGrid },
+    { l: "Document", I: FileText }, { l: "Réponse", I: MessageCircle },
+    { l: "Automatisation", I: Zap },
   ];
   const [a, setA] = useState(0);
   const reduce = useReducedMotion();
@@ -94,8 +97,8 @@ function HeroSection() {
           <span className="block text-[#0A0A0A] text-[36px] sm:text-[54px] md:text-[64px]">Moins d&apos;administratif,</span>
           <span className="block text-gradient animate-gradient-x text-[56px] sm:text-[86px] md:text-[104px] leading-[0.86] pb-2">plus de chantier.</span>
         </h1>
-        <p className="text-[17px] sm:text-[19px] text-[#5B5B66] max-w-[540px] leading-[1.55] mt-8 mb-11 animate-reveal-up delay-200">
-          Un document, un outil, une analyse ou une automatisation : décrivez votre problème, Biltia livre la solution.
+        <p className="text-[17px] sm:text-[19px] text-[#5B5B66] max-w-[440px] leading-[1.55] mt-8 mb-11 animate-reveal-up delay-200">
+          Vous décrivez. Biltia résout. Vos <span className="font-semibold text-[#0A0A0A]">agents autonomes</span> font le reste, 24h/24.
         </p>
         <div className="w-full max-w-2xl animate-reveal-up delay-300">
           {/* Deux lueurs discrètes (haut-droite / bas-gauche) tournent autour de la carte (.chatframe). */}
@@ -240,10 +243,35 @@ function AutoResult() {
     </div>
   );
 }
+function AgentResult() {
+  return (
+    <div className="rounded-2xl border border-[#ECECEA] bg-white p-4">
+      <div className="flex items-start justify-between mb-3">
+        <div>
+          <p className="text-[13px] font-semibold text-[#0F172A]">Relance des devis en attente</p>
+          <p className="text-[11px] text-[#9CA3AF]">tous les jours à 09:00 · prochain passage demain</p>
+        </div>
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 text-[10px] font-semibold border border-emerald-100"><CheckCircle className="w-2.5 h-2.5" /> Actif</span>
+      </div>
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between rounded-lg bg-[#FAFAF9] border border-[#F1F1EC] px-3 py-2">
+          <span className="text-[11.5px] text-[#0F172A]">✓ Relance envoyée à Dubois SARL</span>
+          <span className="text-[10px] text-[#9CA3AF] tabular-nums">hier 09:00</span>
+        </div>
+        <div className="flex items-center justify-between rounded-lg bg-[#FAFAF9] border border-[#F1F1EC] px-3 py-2">
+          <span className="text-[11.5px] text-[#0F172A]">✓ Devis D-2026-04 accepté, relances stoppées</span>
+          <span className="text-[10px] text-[#9CA3AF] tabular-nums">lun. 09:00</span>
+        </div>
+      </div>
+      <p className="text-[10px] text-[#9CA3AF] mt-2.5">Chaque passage est tracé. Vous pouvez le mettre en pause à tout moment.</p>
+    </div>
+  );
+}
 type Scenario = { problem: string; route: string; icon: React.ReactNode; result: React.ReactNode };
 const SCENARIOS: Scenario[] = [
-  { problem: "Sors-moi l'avenant pour le carrelage validé, 45 m² à 42 €/m².", route: "Document", icon: <FileText className="w-3 h-3" />, result: <DocResult /> },
+  { problem: "Relance mes devis sans réponse tous les jours à 9h.", route: "Agent autonome", icon: <Bot className="w-3 h-3" />, result: <AgentResult /> },
   { problem: "Un suivi de mes chantiers avec l'avancement et le reste à facturer.", route: "Application", icon: <LayoutGrid className="w-3 h-3" />, result: <AppResult /> },
+  { problem: "Sors-moi l'avenant pour le carrelage validé, 45 m² à 42 €/m².", route: "Document", icon: <FileText className="w-3 h-3" />, result: <DocResult /> },
   { problem: "Quels chantiers sont en retard cette semaine ?", route: "Réponse", icon: <MessageCircle className="w-3 h-3" />, result: <AnswerResult /> },
   { problem: "Vérifie les prix de ces 30 bons de livraison vs mes devis.", route: "Automatisation", icon: <Zap className="w-3 h-3" />, result: <AutoResult /> },
 ];
@@ -321,6 +349,68 @@ function DemoSection() {
   );
 }
 
+// ── Agents autonomes (« recruter ») ──────────────────────────────────────────
+
+function AgentsSection() {
+  const missions = [
+    "Relance mes devis sans réponse tous les jours à 9h.",
+    "Chaque soir à 18h, fais le point sur mes factures impayées.",
+    "Préviens-moi dès qu'un document d'un sous-traitant expire.",
+  ];
+  return (
+    <section id="agents" className="relative px-5 sm:px-8 py-28 sm:py-36 overflow-hidden">
+      <div className="absolute top-[10%] right-[-6%] w-[40vw] h-[40vw] max-w-[520px] rounded-full blur-[130px] pointer-events-none animate-drift-b" style={{ background: "radial-gradient(circle, rgba(34,211,238,0.16), transparent 68%)" }} />
+      <div className="relative max-w-6xl mx-auto grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+        <Reveal className="order-2 lg:order-1">
+          <div className="glass rounded-[26px] p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-600 to-cyan-500 flex items-center justify-center"><Bot className="w-4 h-4 text-white" /></div>
+                <div><p className="text-[13px] font-semibold text-[#0A0A0A] leading-tight">Relance des devis en attente</p><p className="text-[11px] text-[#9A9AA6]">tous les jours à 09:00</p></div>
+              </div>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-semibold border border-emerald-200"><CheckCircle className="w-3 h-3" /> Actif</span>
+            </div>
+            <div className="space-y-2 mb-4">
+              {[
+                { t: "Relance envoyée à Dubois SARL", d: "aujourd'hui 09:00" },
+                { t: "Devis D-2026-04 accepté, relances stoppées", d: "hier 09:00" },
+                { t: "Il me manque l'email de Martin, je vous l'ai demandé", d: "lun. 09:00", warn: true },
+              ].map((r) => (
+                <div key={r.t} className={`flex items-center justify-between rounded-xl px-3.5 py-2.5 border ${r.warn ? "bg-amber-50/70 border-amber-200" : "bg-white/70 border-white/60"}`}>
+                  <span className="text-[12.5px] text-[#0A0A0A]">{r.warn ? "⚠️" : "✓"} {r.t}</span>
+                  <span className="text-[10.5px] text-[#9A9AA6] tabular-nums flex-shrink-0 ml-3">{r.d}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-[#8B8B96]">
+              <span className="inline-flex items-center gap-1.5"><Pause className="w-3 h-3" /> Pause à tout moment</span>
+              <span>≈ 10 crédits / passage, inclus dans le forfait</span>
+            </div>
+          </div>
+        </Reveal>
+        <Reveal delay={0.15} className="order-1 lg:order-2">
+          <h2 className="text-[36px] sm:text-[52px] font-black text-[#0A0A0A] tracking-[-0.03em] leading-[0.98] mb-5">Des employés autonomes, <span className="text-gradient">au travail 24h/24.</span></h2>
+          <p className="text-[16px] text-[#5B5B66] leading-relaxed mb-5 max-w-md">
+            Les relances, les contrôles du soir, les rappels d&apos;échéances : dites-le une seule fois, et un agent s&apos;en occupe tous les jours, en temps et en heure, pendant que vous êtes sur le chantier. Il connaît vos clients, vos chantiers et vos devis. Il vous rend compte de chaque passage.
+          </p>
+          <ul className="space-y-2.5 mb-6 max-w-md">
+            {missions.map((m) => (
+              <li key={m} className="flex items-start gap-2.5 text-[14px] text-[#4A4A56]">
+                <span className="mt-1 w-1.5 h-1.5 rounded-full bg-gradient-to-br from-violet-500 to-cyan-400 flex-shrink-0" />
+                <span>«&nbsp;{m}&nbsp;»</span>
+              </li>
+            ))}
+          </ul>
+          <p className="text-[13.5px] text-[#8B8B96] leading-relaxed mb-6 max-w-md">
+            Un agent qui relance vos clients chaque matin utilise environ 300 crédits par mois : l&apos;équivalent de 15&nbsp;€ de votre forfait. Un salarié pour la même corvée&nbsp;: 4&nbsp;000&nbsp;€.
+          </p>
+          <Link href="/produits/agents" className="inline-flex items-center gap-1.5 text-[14px] font-semibold text-[#0A0A0A] hover:gap-2.5 transition-all">Découvrir les agents <ArrowRight className="w-4 h-4" /></Link>
+        </Reveal>
+      </div>
+    </section>
+  );
+}
+
 // ── Workspace ────────────────────────────────────────────────────────────────
 
 function WorkspaceSection() {
@@ -372,6 +462,7 @@ function PhilosophySection() {
         <p className="text-[30px] sm:text-[46px] font-black text-[#0A0A0A] leading-[1.1] tracking-[-0.03em]">
           Moins de temps derrière un écran. <span className="text-gradient">Plus de temps sur vos chantiers.</span>
         </p>
+        <p className="text-[16px] sm:text-[18px] text-[#8B8B96] mt-5">Et pendant ce temps, vos agents travaillent.</p>
       </Reveal>
     </section>
   );
@@ -430,6 +521,7 @@ export default function Home() {
     <main className="bg-[#FCFCFD] min-h-screen overflow-x-hidden text-[#0A0A0A]">
       <SiteNav />
       <HeroSection />
+      <AgentsSection />
       <ProductsSection />
       <DemoSection />
       <TemplatesSection />

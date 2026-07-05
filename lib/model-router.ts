@@ -24,12 +24,13 @@ import {
   type ModelCapability,
   type ModelEntry,
   CAPABILITY_RANKING,
+  TIER_SIMPLE,
   executableModelFor,
   fallbackChain,
   recommendedModelFor,
 } from "./models";
 
-const SELECTOR_MODEL = "claude-haiku-4-5";
+const SELECTOR_MODEL = TIER_SIMPLE;
 
 export type SelectMethod = "llm" | "heuristic" | "forced" | "default";
 

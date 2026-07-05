@@ -29,8 +29,19 @@ import { sendEmail, hasMailerKey } from "./mailer";
 import { sendPushToUser } from "./push";
 import { trackAiUsage } from "./ai-usage";
 import { logActivity } from "./activity";
+import { isFounderEmail } from "./founder";
+import { TIER_SIMPLE, TIER_MEDIUM, TIER_COMPLEX } from "./models";
 
-const EXEC_MODEL = "claude-haiku-4-5";
+// MODÈLE PAR MISSION (règle user 2026-07-05) : figé au recrutement selon la
+// complexité (simple=Haiku, medium=Sonnet, complex=Opus), whitelisté ici —
+// une valeur inattendue stockée en base ne peut jamais viser un autre modèle.
+const ALLOWED_EXEC_MODELS = new Set([TIER_SIMPLE, TIER_MEDIUM, TIER_COMPLEX]);
+function pickExecModel(action: AgentAction): string {
+  if (action.model && ALLOWED_EXEC_MODELS.has(action.model)) return action.model;
+  // Anciennes règles (sans modèle stocké) : un contrôle de données = Sonnet,
+  // un message/rappel = Haiku.
+  return action.type === "report" ? TIER_MEDIUM : TIER_SIMPLE;
+}
 
 export type AgentRuleRow = {
   id: string;
@@ -77,6 +88,7 @@ const COMPOSE_TOOL: Anthropic.Tool = {
  */
 async function compose(opts: {
   mode: "email" | "notify" | "report";
+  model: string;
   instruction: string;
   recipientNames: string;
   companyName: string;
@@ -96,6 +108,7 @@ async function compose(opts: {
     !!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.startsWith("your_");
   if (!hasKey) return null;
 
+  const execModel = opts.model;
   const roleLine =
     opts.mode === "email"
       ? `Ton livrable : un EMAIL envoyé au nom de l'entreprise « ${opts.companyName} » à : ${opts.recipientNames}. Signe au nom de l'entreprise. Jamais de placeholder ([nom], XXX) : si une donnée manque, formule sans elle.`
@@ -116,7 +129,7 @@ Quand la mission du passage est accomplie, TERMINE OBLIGATOIREMENT en appelant l
 
   try {
     const loop = await runAgentLoop({
-      model: EXEC_MODEL,
+      model: execModel,
       system,
       userMessage: "Exécute le passage d'aujourd'hui.",
       db: opts.db,
@@ -235,6 +248,19 @@ export async function executeRule(
 
   try {
     const action = rule.action;
+    const execModel = pickExecModel(action);
+
+    // Email du créateur : sert au reply-to (envois) ET à l'exemption fondateur.
+    let creatorEmail: string | null = null;
+    if (rule.created_by) {
+      try {
+        const { data: creator } = await admin.auth.admin.getUserById(rule.created_by);
+        creatorEmail = creator.user?.email ?? null;
+      } catch {
+        // sans email : pas de reply-to, pas d'exemption — débit normal
+      }
+    }
+    const founder = isFounderEmail(creatorEmail);
 
     // Envoi sortant : vérifier les MOYENS avant de rédiger (échec précoce et clair).
     if (action.type === "send_email") {
@@ -265,6 +291,7 @@ export async function executeRule(
     // ── Exécution agentique du passage (accès workspace complet). ───────────
     const composed = await compose({
       mode: action.type === "send_email" ? "email" : action.type === "report" ? "report" : "notify",
+      model: execModel,
       instruction: action.contentInstruction || rule.instruction,
       recipientNames: (action.recipients ?? []).map((r) => r.name).join(", ") || "vous",
       companyName,
@@ -281,35 +308,54 @@ export async function executeRule(
       return { status: "failed", summary: "rédaction impossible" };
     }
 
-    // Journalisation du coût (tarification agents : décision reportée — on trace,
-    // on ne débite pas encore).
+    // ── DÉBIT ADAPTATIF (décision user 2026-07-05) : chaque passage est
+    // journalisé (ai_usage) ET débité à son COÛT RÉEL — un rappel Haiku ≈ 5 cr,
+    // une analyse Sonnet/Opus ≈ 20-65 cr. Fondateur : journalisé, jamais débité.
+    // Solde insuffisant : le travail de CE passage est déjà livré (~qq centimes,
+    // assumé) ; l'agent est mis en PAUSE pour la suite + notification — jamais
+    // de solde négatif, jamais d'échec silencieux.
+    let creditsUsed = 0;
     if (rule.created_by) {
-      void trackAiUsage({
-        supabase: admin,
-        userId: rule.created_by,
-        tenantId: rule.tenant_id,
-        action: "agent_run",
-        model: EXEC_MODEL,
-        inputTokens: composed.usage.inputTokens,
-        outputTokens: composed.usage.outputTokens,
-      }).catch(() => {});
+      try {
+        const tracked = await trackAiUsage({
+          supabase: admin,
+          userId: rule.created_by,
+          tenantId: rule.tenant_id,
+          action: "agent_run",
+          model: execModel,
+          inputTokens: composed.usage.inputTokens,
+          outputTokens: composed.usage.outputTokens,
+        });
+        if (!founder) {
+          const { data: debited } = await admin.rpc("deduct_credits_for_user", {
+            p_user_id: rule.created_by,
+            p_amount: tracked,
+          });
+          if (debited) {
+            creditsUsed = tracked;
+          } else {
+            const reason = "crédits épuisés — rechargez puis relancez l'agent";
+            const summary = `Passage effectué (${tracked} cr non débités, solde insuffisant) — agent mis en pause.`;
+            await admin.from("agent_runs").update({ credits_used: 0 }).eq("id", run.id);
+            await finishRun("blocked", summary, { subject: composed.subject });
+            await reschedule(reason);
+            await notifyOwner("Agent en pause : crédits épuisés", `« ${rule.title} » : ${reason}.`);
+            return { status: "blocked", summary };
+          }
+        }
+      } catch {
+        // Le metering ne casse jamais un passage déjà réussi.
+      }
     }
+    // Trace le coût du passage dans son journal (visible dans /agents).
+    await admin.from("agent_runs").update({ credits_used: creditsUsed }).eq("id", run.id);
 
     // ── Livraison. ───────────────────────────────────────────────────────────
     if (action.type === "send_email") {
       // REPLY-TO = l'email de l'artisan : l'envoi part du domaine Biltia
       // (Resend), mais la RÉPONSE du client atterrit dans SA boîte — sans ça,
       // les réponses aux relances se perdraient chez Biltia.
-      let replyTo: string | undefined;
-      if (rule.created_by) {
-        try {
-          const { data: creator } = await admin.auth.admin.getUserById(rule.created_by);
-          const email = creator.user?.email;
-          if (email && email.includes("@")) replyTo = email;
-        } catch {
-          // sans reply-to l'envoi reste valide, juste moins pratique
-        }
-      }
+      const replyTo = creatorEmail && creatorEmail.includes("@") ? creatorEmail : undefined;
 
       const sent = await sendEmail({
         to: action.recipients.map((r) => r.email),

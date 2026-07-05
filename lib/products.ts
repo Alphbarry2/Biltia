@@ -25,6 +25,25 @@ export type Product = {
 
 export const PRODUCTS: Product[] = [
   {
+    slug: "agents",
+    name: "Agents autonomes",
+    tagline: "Des employés IA qui travaillent tous les jours",
+    icon: "Bot",
+    accent: ["#7C3AED", "#22D3EE"],
+    hero: "Dites-le une fois. C'est fait tous les jours.",
+    sub: "Relances clients, contrôles du soir, rappels d'échéances : confiez la mission une seule fois, Biltia l'exécute seul, en temps et en heure, et vous rend compte.",
+    features: [
+      { title: "Recruté en une phrase", body: "« Relance mes devis sans réponse tous les jours à 9h. » C'est tout : l'agent est au travail dès le lendemain." },
+      { title: "Fiable et transparent", body: "Chaque passage est tracé dans un journal. S'il lui manque une info (un email, un numéro), il vous la demande au lieu d'inventer." },
+      { title: "Sous votre contrôle", body: "Pause, reprise, suppression en un clic. Le coût est annoncé au recrutement et débité au réel, jamais de surprise." },
+    ],
+    examples: [
+      "Relance le client Martin tous les jours à midi jusqu'à sa réponse.",
+      "Chaque soir à 18h, vérifie mes factures impayées et fais-moi le point.",
+      "Préviens-moi dès qu'un document d'un sous-traitant expire.",
+    ],
+  },
+  {
     slug: "documents",
     name: "Documents intelligents",
     tagline: "Avenants, PV, devis, courriers, prêts à signer",

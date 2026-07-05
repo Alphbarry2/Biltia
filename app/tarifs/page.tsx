@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Check, ChevronDown, ArrowRight, ArrowUpRight, MessageCircle, FileText, LayoutGrid } from "lucide-react";
+import { Check, ChevronDown, ArrowRight, ArrowUpRight, MessageCircle, FileText, LayoutGrid, Bot } from "lucide-react";
 import {
   getPlan, getTier, formatEur, groupTiers, ENTERPRISE,
   tierDisplayMonthlyEur, annualTotalEur,
@@ -13,10 +13,11 @@ import { Reveal, Spot, InteractiveMesh, SiteNav, SiteFooter, EASE } from "@/comp
 
 const FAQ: { q: string; a: string }[] = [
   { q: "Comment je commence ?", a: "Vous créez un compte et vous utilisez Biltia gratuitement, tout de suite. Vous avez 300 crédits offerts pour découvrir l'outil et créer votre première application. Quand ils sont épuisés, vous passez à Pro en choisissant votre volume de crédits." },
-  { q: "Qu'est-ce qu'un crédit ?", a: "Un crédit reflète le travail réel de l'IA sur votre demande, pas un jeton technique. Une question simple coûte quelques crédits ; créer une application complète en coûte davantage. Pour les grosses créations, l'estimation s'affiche avant de lancer." },
+  { q: "Qu'est-ce qu'un crédit ?", a: "Un crédit reflète le travail réel de l'IA sur votre demande, pas un jeton technique. Une question simple coûte quelques crédits ; créer une application complète ou faire travailler un agent tous les jours en coûte davantage. Pour les grosses créations et au recrutement d'un agent, l'estimation s'affiche avant de lancer." },
+  { q: "Combien coûte un agent ?", a: "Recruter un agent est gratuit : vous dictez la mission, c'est tout. Ensuite, chaque passage est débité selon la complexité : environ 10 crédits pour un message ou un rappel, 25 pour un contrôle de vos données, 50 pour une analyse complète. Un agent quotidien simple utilise donc environ 300 crédits par mois, inclus dans votre forfait. L'estimation est annoncée au recrutement, le coût réel de chaque passage est visible dans son journal, et si vos crédits s'épuisent l'agent se met en pause : jamais de facture surprise." },
   { q: "Mensuel ou annuel ?", a: "Comme vous voulez. L'engagement annuel vous fait économiser 2 mois (environ 17 %) sur le même volume de crédits. Vous pouvez basculer depuis vos paramètres à tout moment." },
   { q: "Les fonctionnalités changent-elles selon le prix ?", a: "Non. Pro donne accès à tout l'outil, sans fonctionnalité bridée : que vous preniez le plus petit ou le plus gros volume de crédits, vous avez exactement les mêmes capacités. Vous payez l'usage, pas un catalogue d'options à débloquer. Seules les briques revendeur et grand compte (marque blanche, URL personnalisée, multi-métiers, SSO, DPA) passent par l'offre Entreprise, sur devis." },
-  { q: "Que se passe-t-il si je dépasse mes crédits ?", a: "Vous pouvez recharger à tout moment, ou passer à un palier supérieur. Rien n'est facturé sans votre accord." },
+  { q: "Que se passe-t-il si je dépasse mes crédits ?", a: "Vous pouvez recharger à tout moment, ou passer à un palier supérieur. Vos agents se mettent en pause en attendant, et rien n'est facturé sans votre accord." },
   { q: "Mes données sont-elles en sécurité ?", a: "Oui. Vos données sont hébergées en France, isolées par entreprise, et jamais utilisées pour entraîner des modèles d'IA." },
 ];
 
@@ -150,81 +151,74 @@ function CreditSelect({ plan, value, cycle, onChange }: { plan: Plan; value: num
   );
 }
 
-// ── Visuel « ce que vous faites avec vos crédits » ────────────────────────────
-const PROJECTION_VOLUMES = [1000, 4000, 12000];
-const PROJECTION_TASKS = [
-  { Icon: MessageCircle, label: "Questions rapides", sub: "Taux de TVA, relance client, mémo de chantier", cost: 10, grad: "from-indigo-500 to-violet-500" },
-  { Icon: FileText, label: "Devis & documents", sub: "Devis, PV de réception, PPSPS prêts à imprimer", cost: 35, grad: "from-violet-500 to-fuchsia-500" },
-  { Icon: LayoutGrid, label: "Applications créées", sub: "Suivi de chantier, planning, mini-CRM déployés en ligne", cost: 250, grad: "from-fuchsia-500 to-pink-500" },
+// ── « Projetez-vous » : ticket d'un mois type, volume au choix ────────────────
+// PANIER CUMULATIF (les lignes s'ADDITIONNENT, la somme fait pile le volume) —
+// jamais de barres ni de « ≈400 au choix » : les deux anciennes versions se
+// lisaient de travers (barre lue comme un coût, nombre lu comme un prix).
+// Coûts unitaires : question 10 cr · document 35 · app 250 · agent quotidien
+// 300/mois. Volumes = vrais paliers Pro (le prix affiché vient de lib/plans).
+const MONTH_MIX: { vol: number; agents: number; apps: number; docs: number; questions: number }[] = [
+  { vol: 1000, agents: 1, apps: 1, docs: 8, questions: 17 },      // 300+250+280+170
+  { vol: 2000, agents: 2, apps: 2, docs: 20, questions: 20 },     // 600+500+700+200
+  { vol: 4000, agents: 3, apps: 4, docs: 40, questions: 70 },     // 900+1000+1400+700
+  { vol: 12000, agents: 8, apps: 12, docs: 160, questions: 100 }, // 2400+3000+5600+1000
 ];
 
-function CreditProjection() {
-  const [vol, setVol] = useState(4000);
-  const counts = PROJECTION_TASKS.map((t) => Math.floor(vol / t.cost));
-  const max = Math.max(...counts);
+function MonthTicket() {
+  const [vol, setVol] = useState(1000);
+  const mix = MONTH_MIX.find((m) => m.vol === vol) ?? MONTH_MIX[0];
+  const tier = getTier("pro", vol);
+  const lines = [
+    { n: mix.agents, label: mix.agents > 1 ? "agents autonomes, au travail chaque jour" : "agent autonome, au travail chaque jour", c: mix.agents * 300 },
+    { n: mix.apps, label: mix.apps > 1 ? "applications sur mesure" : "application sur mesure", c: mix.apps * 250 },
+    { n: mix.docs, label: "devis & documents", c: mix.docs * 35 },
+    { n: mix.questions, label: "questions rapides", c: mix.questions * 10 },
+  ];
   return (
-    <div className="glass rounded-[26px] p-6 sm:p-8">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#7C3AED]">Projetez-vous</p>
-          <p className="mt-1 text-[17px] font-bold tracking-[-0.01em] text-[#0A0A0A]">Ce qu&apos;un mois de crédits permet</p>
+    <div className="relative overflow-hidden rounded-[26px] p-6 sm:p-7 h-full text-white" style={{ background: "linear-gradient(150deg, #1E1B3A 0%, #3B2B6E 52%, #5B2B7E 100%)" }}>
+      <div className="pointer-events-none absolute -right-14 -top-16 h-48 w-48 rounded-full blur-[80px]" style={{ background: "radial-gradient(circle, rgba(236,72,153,0.35), transparent 70%)" }} />
+      <div className="relative">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-white/50">Projetez-vous : votre mois avec</p>
+          <div className="inline-flex rounded-full bg-white/10 p-1">
+            {MONTH_MIX.map((m) => (
+              <button
+                key={m.vol}
+                onClick={() => setVol(m.vol)}
+                className={`rounded-full px-3 py-1.5 text-[12px] font-semibold tabular-nums transition-all ${vol === m.vol ? "bg-white text-[#1E1B3A]" : "text-white/65 hover:text-white"}`}
+              >
+                {m.vol.toLocaleString("fr-FR")}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="inline-flex rounded-full border border-[#E6E1F0] bg-white/70 p-1">
-          {PROJECTION_VOLUMES.map((v) => (
-            <button
-              key={v}
-              onClick={() => setVol(v)}
-              className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold tabular-nums transition-all ${vol === v ? "bg-gradient-to-r from-indigo-500 to-pink-500 text-white shadow-[0_6px_16px_rgba(139,92,246,0.35)]" : "text-[#5B5B66] hover:text-[#0A0A0A]"}`}
-            >
-              {v.toLocaleString("fr-FR")}
-            </button>
+        <div className="space-y-3.5">
+          {lines.map((l) => (
+            <div key={l.label} className="flex items-baseline gap-2">
+              <span className="text-[15px] font-black tabular-nums">{l.n.toLocaleString("fr-FR")}</span>
+              <span className="text-[13.5px] text-white/85">{l.label}</span>
+              <span className="flex-1 border-b border-dotted border-white/25 translate-y-[-3px]" />
+              <span className="text-[13px] tabular-nums text-white/60">{l.c.toLocaleString("fr-FR")}</span>
+            </div>
           ))}
         </div>
+        <div className="mt-5 border-t border-white/15 pt-4 flex items-baseline justify-between">
+          <span className="text-[14px] font-bold">Le tout, dans le même mois</span>
+          <span className="text-[17px] font-black tabular-nums">{vol.toLocaleString("fr-FR")} cr</span>
+        </div>
+        <p className="mt-1.5 text-[12.5px] text-white/55">
+          {tier ? <>Soit le forfait à {formatEur(tier.priceEur)}/mois.</> : null} Un exemple de répartition : à vous de doser autrement.
+        </p>
       </div>
-
-      <div className="mt-7 space-y-6">
-        {PROJECTION_TASKS.map((t, i) => {
-          const count = counts[i];
-          const w = Math.max(7, Math.round((count / max) * 100));
-          return (
-            <div key={t.label}>
-              <div className="mb-2 flex items-end justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <span className={`grid h-9 w-9 flex-shrink-0 place-items-center rounded-xl bg-gradient-to-br ${t.grad} text-white shadow-[0_6px_16px_rgba(139,92,246,0.28)]`}>
-                    <t.Icon className="h-[18px] w-[18px]" />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-[14px] font-bold text-[#0A0A0A] leading-tight">{t.label}</p>
-                    <p className="text-[12px] text-[#8B8B96] leading-snug">{t.sub}</p>
-                  </div>
-                </div>
-                <div className="flex-shrink-0 text-right">
-                  <span className="text-[19px] font-black tabular-nums text-[#0A0A0A]">≈ {count.toLocaleString("fr-FR")}</span>
-                  <span className="block text-[11px] text-[#9A9AA6]">/ mois</span>
-                </div>
-              </div>
-              <div className="h-2.5 w-full overflow-hidden rounded-full bg-[#EEEBF5]">
-                <motion.div
-                  className={`h-full rounded-full bg-gradient-to-r ${t.grad}`}
-                  initial={false}
-                  animate={{ width: `${w}%` }}
-                  transition={{ duration: 0.5, ease: EASE }}
-                />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      <p className="mt-6 text-[12px] text-[#9A9AA6] leading-relaxed">Estimations moyennes, mélange possible. Le coût réel dépend de la longueur et de la complexité de chaque tâche : une estimation s&apos;affiche avant les grosses créations.</p>
     </div>
   );
 }
 
+
 export default function TarifsPage() {
   const pro = getPlan("pro");
   const [cycle, setCycle] = useState<BillingCycle>("monthly");
-  const [proCredits, setProCredits] = useState<number>(pro.defaultCredits ?? 4000);
+  const [proCredits, setProCredits] = useState<number>(pro.defaultCredits ?? 1000);
   const [openIdx, setOpenIdx] = useState<number | null>(0);
 
   const tier = getTier("pro", proCredits);
@@ -327,46 +321,58 @@ export default function TarifsPage() {
       {/* Comment fonctionnent les crédits */}
       <section className="relative px-5 sm:px-8 py-24 sm:py-28 border-t border-[#EDEDEB] overflow-hidden">
         <div className="max-w-6xl mx-auto">
-          <Reveal className="max-w-2xl mb-14">
+          <Reveal className="max-w-2xl mb-12">
             <h2 className="text-[34px] sm:text-[44px] font-black text-[#0A0A0A] tracking-[-0.03em]">Comment marchent les <span className="text-gradient">crédits.</span></h2>
-            <p className="text-[16px] text-[#5B5B66] leading-[1.6] mt-4">Un crédit, ce n&apos;est pas une requête ni un jeton technique : c&apos;est une part du travail réel fait par l&apos;IA. Une question simple consomme quelques crédits, créer une application complète en consomme davantage. Vous ne voyez jamais de tokens, seulement des crédits.</p>
+            <p className="text-[16px] text-[#5B5B66] leading-[1.6] mt-4">Un crédit paie du travail fait. Une question en utilise quelques-uns, une application beaucoup plus. C&apos;est tout.</p>
           </Reveal>
 
-          {/* Visuel de projection + scénarios */}
-          <div className="grid gap-5 lg:grid-cols-[1.05fr_1fr] items-start mb-6">
-            <Reveal><CreditProjection /></Reveal>
-            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-1">
-              {[
-                { tag: "Tâches rapides", range: "5 à 15 crédits", ex: "« Quel taux de TVA pour une rénovation ? » ou relancer un client sur son devis." },
-                { tag: "Documents & devis", range: "20 à 50 crédits", ex: "Générer un devis, un PV de réception ou un PPSPS prêt à imprimer." },
-                { tag: "Créer un outil", range: "150 à 300 crédits", ex: "Une application de suivi de chantier multi-équipes, déployée en ligne." },
-              ].map((c, i) => (
-                <Reveal key={c.tag} delay={i * 0.08}>
-                  <div className="glass rounded-[22px] p-5 h-full">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[#7C3AED] mb-2">{c.tag}</p>
-                    <p className="text-[22px] font-black tracking-[-0.02em] text-[#0A0A0A] mb-2">{c.range}</p>
-                    <p className="text-[13px] text-[#5B5B66] leading-relaxed">{c.ex}</p>
-                  </div>
-                </Reveal>
-              ))}
-            </div>
+          <div className="grid gap-5 lg:grid-cols-2 items-stretch max-w-5xl">
+            {/* Le tarif de chaque tâche (menu) */}
+            <Reveal>
+              <div className="glass rounded-[26px] p-6 sm:p-7 h-full">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#7C3AED] mb-4">Ce que ça coûte</p>
+                <div className="divide-y divide-black/[0.05]">
+                  {[
+                    { Icon: MessageCircle, grad: "from-indigo-500 to-violet-500", label: "Une question", sub: "« Quel taux de TVA ? », un client ajouté à la voix", c: "5 à 15" },
+                    { Icon: FileText, grad: "from-violet-500 to-fuchsia-500", label: "Un devis, un document", sub: "prêt à imprimer et à signer", c: "20 à 50" },
+                    { Icon: LayoutGrid, grad: "from-fuchsia-500 to-pink-500", label: "Une application", sub: "générée sur mesure, en ligne", c: "150 à 300" },
+                    { Icon: Bot, grad: "from-cyan-500 to-indigo-500", label: "Un passage d'agent", sub: "le recrutement, lui, est gratuit", c: "10 à 50" },
+                  ].map((r) => (
+                    <div key={r.label} className="flex items-center gap-3.5 py-4 first:pt-0 last:pb-0">
+                      <span className={`grid h-10 w-10 flex-shrink-0 place-items-center rounded-xl bg-gradient-to-br ${r.grad} text-white shadow-[0_6px_16px_rgba(139,92,246,0.28)]`}>
+                        <r.Icon className="h-[18px] w-[18px]" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[14.5px] font-bold text-[#0A0A0A] leading-tight">{r.label}</p>
+                        <p className="text-[12px] text-[#8B8B96] leading-snug">{r.sub}</p>
+                      </div>
+                      <span className="flex-shrink-0 rounded-full bg-[#F1ECFB] px-3 py-1.5 text-[13px] font-bold tabular-nums text-[#6D4AE0]">{r.c} cr</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </Reveal>
+
+            {/* Un mois type, façon devis, volume au choix */}
+            <Reveal delay={0.08}>
+              <MonthTicket />
+            </Reveal>
           </div>
 
-          {/* Comment c'est calculé */}
-          <div className="grid sm:grid-cols-3 gap-5">
-            {[
-              { t: "Vous payez le travail réel", d: "Chaque crédit reflète le vrai coût des meilleurs modèles (Claude, GPT, Gemini). Pas de licence par utilisateur, pas de minimum." },
-              { t: "Le cache réduit la facture", d: "Biltia réutilise le contexte d'une tâche à l'autre : les demandes répétées coûtent moins que si tout était recalculé à chaque fois." },
-              { t: "Estimation avant les gros travaux", d: "Pour une création importante, une estimation en crédits s'affiche avant de lancer. Vous gardez le contrôle, comme un devis." },
-            ].map((c, i) => (
-              <Reveal key={c.t} delay={i * 0.06}>
-                <div className="rounded-[22px] p-6 h-full border border-[#EDEDEB] bg-white/50">
-                  <p className="font-bold text-[15px] text-[#0A0A0A] mb-2">{c.t}</p>
-                  <p className="text-[13.5px] text-[#5B5B66] leading-relaxed">{c.d}</p>
-                </div>
-              </Reveal>
-            ))}
-          </div>
+          {/* Trois garanties, une ligne */}
+          <Reveal delay={0.12}>
+            <div className="mt-6 flex flex-wrap gap-2.5 max-w-5xl">
+              {[
+                "Estimation affichée avant les grosses créations",
+                "Crédits épuisés : les agents se mettent en pause, jamais de surprise",
+                "Saisie manuelle, imports et exports : toujours gratuits",
+              ].map((t) => (
+                <span key={t} className="inline-flex items-center gap-2 rounded-full border border-[#E6E1F0] bg-white/70 px-3.5 py-2 text-[12.5px] font-medium text-[#4A4A56]">
+                  <Check className="h-3.5 w-3.5 flex-shrink-0 text-[#7C3AED]" strokeWidth={2.5} /> {t}
+                </span>
+              ))}
+            </div>
+          </Reveal>
         </div>
       </section>
 

@@ -20,15 +20,42 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import Anthropic from "@anthropic-ai/sdk";
+import { TIER_SIMPLE, TIER_MEDIUM, TIER_COMPLEX } from "./models";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { getEntitlementsForTenant } from "./entitlements";
 
-const PARSE_MODEL = "claude-haiku-4-5";
+const PARSE_MODEL = TIER_SIMPLE;
 const PARIS_TZ = "Europe/Paris";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export type AgentActionType = "send_email" | "notify" | "report";
 export type AgentRecipientKind = "client" | "employee" | "team" | "me";
+export type AgentComplexity = "simple" | "medium" | "complex";
+
+// ── COMPLEXITÉ → MODÈLE → ESTIMATION (règle user 2026-07-05) ─────────────────
+// Tâche hyper simple → Haiku ; moyenne → Sonnet ; complexe → Opus. Le débit
+// réel par passage est calculé sur le coût mesuré (agent-executor) ; ces
+// estimations servent à ANNONCER honnêtement le prix au recrutement.
+export const COMPLEXITY_MODEL: Record<AgentComplexity, string> = {
+  simple: TIER_SIMPLE,
+  medium: TIER_MEDIUM,
+  complex: TIER_COMPLEX,
+};
+// Alignées sur le DÉBIT RÉEL constaté (coût mesuré × creditsForCost, arrondi
+// au palier de 5) ET sur la page tarifs publique — annoncer 5 et débiter 10
+// serait la surprise qu'on a juré d'éviter.
+export const COMPLEXITY_ESTIMATE: Record<AgentComplexity, number> = {
+  simple: 10,   // message/rappel bref, une lecture ciblée (Haiku)
+  medium: 25,   // contrôle d'une partie du workspace + rédaction (Sonnet)
+  complex: 50,  // analyse transversale/raisonnement lourd (Opus)
+};
+
+/** Passages par mois selon le planning (tous les jours = ~30). */
+export function runsPerMonth(days: number[]): number {
+  const d = (days ?? []).filter((x) => x >= 1 && x <= 7);
+  return d.length === 0 ? 30 : Math.round(d.length * 4.33);
+}
 
 export type AgentSchedule = {
   /** "HH:MM" heure de Paris. */
@@ -49,6 +76,12 @@ export type AgentAction = {
   contentInstruction: string;
   /** Données du workspace à examiner (report) : « devis en attente »… */
   dataFocus: string;
+  /** Complexité de la mission → choisit le modèle (Haiku/Sonnet/Opus). */
+  complexity: AgentComplexity;
+  /** Modèle d'exécution figé au recrutement (whitelisté par l'exécuteur). */
+  model: string;
+  /** Estimation annoncée : crédits par passage (le débit réel fait foi). */
+  estimatedCreditsPerRun: number;
 };
 
 export type MissingInfo = {
@@ -67,6 +100,7 @@ export type ParsedRule = {
   days: number[];
   contentInstruction: string;
   dataFocus: string;
+  complexity: AgentComplexity;
   usage?: { model: string; inputTokens: number; outputTokens: number };
 };
 
@@ -197,8 +231,14 @@ const PARSE_TOOL: Anthropic.Tool = {
         type: "string",
         description: "Pour report : quelles données examiner (« pointages manquants », « devis sans réponse »…). Vide sinon.",
       },
+      complexity: {
+        type: "string",
+        enum: ["simple", "medium", "complex"],
+        description:
+          "Poids de la mission À CHAQUE passage. simple = un message/rappel bref, une lecture ciblée (« envoie un message à Karim »). medium = examiner une partie des données puis rédiger (« vérifie mes factures impayées et relance »). complex = analyse TRANSVERSALE de l'activité, détection de patterns/anomalies, raisonnement lourd (« analyse toute mon activité et signale ce qui cloche »).",
+      },
     },
-    required: ["title", "action_type", "recipient_kind", "recipient_name", "time", "days", "content_instruction", "data_focus"],
+    required: ["title", "action_type", "recipient_kind", "recipient_name", "time", "days", "content_instruction", "data_focus", "complexity"],
     additionalProperties: false,
   },
 };
@@ -259,6 +299,8 @@ export function parseInstructionHeuristic(instruction: string): ParsedRule {
     days,
     contentInstruction: instruction.slice(0, 500),
     dataFocus: actionType === "report" ? instruction.slice(0, 200) : "",
+    // Repli prudent : un contrôle de données = medium, un message = simple.
+    complexity: actionType === "report" ? "medium" : "simple",
   };
 }
 
@@ -295,6 +337,9 @@ export async function parseInstruction(instruction: string): Promise<ParsedRule>
       ? i.days.filter((d): d is number => typeof d === "number" && d >= 1 && d <= 7)
       : [];
 
+    const complexity: AgentComplexity =
+      i.complexity === "medium" || i.complexity === "complex" ? i.complexity : "simple";
+
     return {
       title: typeof i.title === "string" && i.title.trim() ? i.title.trim().slice(0, 80) : instruction.slice(0, 60),
       actionType,
@@ -307,6 +352,7 @@ export async function parseInstruction(instruction: string): Promise<ParsedRule>
           ? i.content_instruction.trim().slice(0, 600)
           : instruction.slice(0, 500),
       dataFocus: typeof i.data_focus === "string" ? i.data_focus.trim().slice(0, 200) : "",
+      complexity,
       usage: {
         model: PARSE_MODEL,
         inputTokens: msg.usage.input_tokens,
@@ -414,6 +460,21 @@ export async function resolveRecipients(
   return { ok: true, recipients: [{ name: row.nom, email: row.email, entity: table, id: row.id }] };
 }
 
+// ── Canaux d'envoi pas encore branchés (WhatsApp / SMS automatiques) ─────────
+// L'agent ne sait envoyer aujourd'hui que par email et notification. WhatsApp
+// automatique = un chantier (API Meta, templates approuvés, coût par message)
+// pas encore livré. On détecte la demande pour NE PAS créer un agent qui
+// n'enverra jamais, et NE PAS basculer sur l'email en silence.
+export function mentionsUnsupportedChannel(instruction: string): "WhatsApp" | "SMS" | null {
+  const t = instruction
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase();
+  if (/what'?s?\s?app/.test(t) || /\bwa\.me\b/.test(t)) return "WhatsApp";
+  if (/\bsms\b/.test(t) || /\btexto\b/.test(t)) return "SMS";
+  return null;
+}
+
 // ── Création (orchestration) ─────────────────────────────────────────────────
 
 export type CreateRuleResult = {
@@ -440,6 +501,46 @@ export async function createAgentRule(opts: {
 }): Promise<CreateRuleResult> {
   const { supabase, userId, userEmail, tenantId, instruction } = opts;
 
+  // ── QUOTA FREE : 1 agent actif. Le mur des crédits fait le reste sur Pro. ──
+  try {
+    const ent = await getEntitlementsForTenant(supabase, tenantId);
+    if (ent.plan === "free") {
+      const { count } = await supabase
+        .from("agent_rules")
+        .select("id", { count: "exact", head: true })
+        .eq("tenant_id", tenantId);
+      if ((count ?? 0) >= 1) {
+        return {
+          ok: false,
+          ruleId: null,
+          blocked: false,
+          message:
+            "Le plan Gratuit inclut **1 agent actif**. Pour recruter une équipe entière d'agents, passez à Pro dans **Paramètres → Facturation**.",
+        };
+      }
+    }
+  } catch {
+    // Entitlements indisponibles → ne bloque pas le recrutement (fail-open).
+  }
+
+  // ── Canal pas encore branché : refus honnête + bascule (« jamais muet »). ──
+  // Détecté AVANT le parsing : on ne crée pas d'agent voué à l'échec et on
+  // n'envoie surtout pas un email « à la place » sans le dire. Zéro fausse
+  // promesse, on propose ce qui marche vraiment maintenant.
+  const unsupportedChannel = mentionsUnsupportedChannel(instruction);
+  if (unsupportedChannel) {
+    return {
+      ok: false,
+      ruleId: null,
+      blocked: false,
+      message:
+        `📱 L'envoi **automatique par ${unsupportedChannel}** n'est pas encore actif sur votre compte. ` +
+        `Aujourd'hui, un agent peut prévenir vos clients ou vos équipes par **email** ou par **notification**. ` +
+        `Dites-moi « **fais-le par email** » (ou « par notification ») et je programme ce rappel tout de suite — ` +
+        `je vous préviendrai dès que l'envoi ${unsupportedChannel} automatique sera disponible.`,
+    };
+  }
+
   const parsed = await parseInstruction(instruction);
   const schedule: AgentSchedule = { time: parsed.time, days: parsed.days, tz: PARIS_TZ };
 
@@ -464,6 +565,9 @@ export async function createAgentRule(opts: {
     recipients,
     contentInstruction: parsed.contentInstruction,
     dataFocus: parsed.dataFocus,
+    complexity: parsed.complexity,
+    model: COMPLEXITY_MODEL[parsed.complexity],
+    estimatedCreditsPerRun: COMPLEXITY_ESTIMATE[parsed.complexity],
   };
 
   const blocked = blockedReason !== null;
@@ -499,9 +603,14 @@ export async function createAgentRule(opts: {
   }
 
   const planning = describeSchedule(schedule);
+  // Transparence prix : estimation annoncée AU RECRUTEMENT (le débit réel,
+  // calculé sur le coût mesuré de chaque passage, fait foi et est visible
+  // dans Agents). Jamais de surprise.
+  const perMonth = action.estimatedCreditsPerRun * runsPerMonth(parsed.days);
+  const priceLine = `Coût estimé : ~${action.estimatedCreditsPerRun} crédits par passage (~${perMonth}/mois — ajusté au réel, visible dans **Agents**).`;
   let message: string;
   if (blocked) {
-    message = `🤖 Agent recruté : **${parsed.title}** (${planning}). ⚠️ Mais avant de démarrer : ${blockedReason}.${
+    message = `🤖 Agent recruté : **${parsed.title}** (${planning}). ${priceLine} ⚠️ Mais avant de démarrer : ${blockedReason}.${
       missing?.field === "email"
         ? ` Donnez-moi l'email (ex : « son email est jean@exemple.fr ») ou complétez la fiche dans le Workspace — je démarre dès que je l'ai.`
         : ""
@@ -509,7 +618,7 @@ export async function createAgentRule(opts: {
   } else {
     message = `🤖 Agent recruté : **${parsed.title}** — ${planning}. Premier passage : ${
       nextRun ? formatRunDate(nextRun) : "à planifier"
-    }. Chaque passage est tracé dans **Agents** (pause, journal, suppression). Je m'en occupe.`;
+    }. ${priceLine} Je m'en occupe.`;
   }
 
   return { ok: true, ruleId: inserted.id, blocked, message, usage: parsed.usage };

@@ -97,10 +97,20 @@ function LoginForm() {
       setError("Entrez d'abord votre adresse email, puis recliquez sur « Mot de passe oublié ? ».");
       return;
     }
+    // Turnstile : la demande de reset est aussi protégée côté Supabase quand le
+    // CAPTCHA est activé — sans token, elle serait rejetée en silence.
+    if (turnstileEnabled && !captchaToken) {
+      setError("Confirmez que vous n'êtes pas un robot, puis recliquez sur « Mot de passe oublié ? ».");
+      return;
+    }
     const supabase = createClient();
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
       redirectTo: `${window.location.origin}/reset-password`,
+      captchaToken: captchaToken ?? undefined,
     });
+    // Le token est à usage unique : consommé ici, on réarme le widget.
+    turnstileRef.current?.reset();
+    setCaptchaToken(null);
     if (error) setError(error.message);
     else setResetSent(true);
   };

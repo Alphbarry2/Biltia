@@ -33,7 +33,12 @@ type AgentRule = {
   title: string;
   instruction: string;
   schedule: AgentSchedule;
-  action: { type: string; recipients?: { name: string }[] };
+  action: {
+    type: string;
+    recipients?: { name: string }[];
+    complexity?: string;
+    estimatedCreditsPerRun?: number;
+  };
   status: string;
   blocked_reason: string | null;
   missing: AgentMissing;
@@ -49,6 +54,7 @@ type AgentRun = {
   status: string;
   summary: string;
   error: string | null;
+  credits_used: number;
   created_at: string;
 };
 
@@ -249,6 +255,18 @@ export default function AgentsPage() {
                         <span className="text-[#9A9A97]"> · dernier : {formatDate(r.last_run_at)}</span>
                       )}
                     </p>
+                    {/* Transparence prix : estimation + consommé réel (50 derniers passages). */}
+                    <p className="text-[11.5px] text-[#9A9A97] mt-0.5 tabular-nums">
+                      {typeof r.action?.estimatedCreditsPerRun === "number" && (
+                        <>≈ {r.action.estimatedCreditsPerRun} crédits/passage</>
+                      )}
+                      {(() => {
+                        const spent = runs
+                          .filter((x) => x.rule_id === r.id)
+                          .reduce((n, x) => n + (x.credits_used ?? 0), 0);
+                        return spent > 0 ? <> · {spent} crédits consommés récemment</> : null;
+                      })()}
+                    </p>
                   </div>
                   <div className="flex items-center gap-1.5 flex-shrink-0">
                     {r.status === "active" ? (
@@ -342,7 +360,10 @@ export default function AgentsPage() {
                         {rule && <span className="font-semibold">{rule.title} — </span>}
                         {run.summary || run.error || run.status}
                       </p>
-                      <p className="text-[11px] text-[#9A9A97]">{formatDate(run.created_at)}</p>
+                      <p className="text-[11px] text-[#9A9A97] tabular-nums">
+                        {formatDate(run.created_at)}
+                        {(run.credits_used ?? 0) > 0 && <> · {run.credits_used} cr</>}
+                      </p>
                     </div>
                   </div>
                 );

@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { TIER_SIMPLE } from "@/lib/models";
 import { createClient } from "@/lib/supabase-server";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
 import { trackAiUsage } from "@/lib/ai-usage";
@@ -22,7 +23,7 @@ import {
 // vite : le questionnaire ne doit jamais être sacrifié pour cause de lenteur.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CLARIFY_MODEL = "claude-haiku-4-5";
+const CLARIFY_MODEL = TIER_SIMPLE;
 const LLM_TIMEOUT_MS = 4000;
 
 const PROPOSE_TOOL = {

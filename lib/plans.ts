@@ -132,7 +132,7 @@ export const PLANS: Record<PlanId, Plan> = {
     tagline: "L'outil complet, sans limite de features",
     audience: "Pour les indépendants, artisans et TPE",
     tiers: PRO_TIERS,
-    defaultCredits: 4000,
+    defaultCredits: 1000,
     features: [
       "Tout l'outil, aucune fonctionnalité bridée",
       "Applications en ligne illimitées",

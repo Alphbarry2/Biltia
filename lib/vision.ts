@@ -13,9 +13,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type Anthropic from "@anthropic-ai/sdk";
+import { TIER_MEDIUM } from "./models";
 
-/** Modèle vision par défaut (PDF + image natifs). */
-export const VISION_MODEL = "claude-sonnet-4-6";
+/** Modèle vision par défaut (PDF + image natifs) — palier moyen (Sonnet). */
+export const VISION_MODEL = TIER_MEDIUM;
 
 /** Types MIME acceptés. PDF → bloc `document` ; images → bloc `image`. */
 export const ALLOWED_MEDIA_TYPES = [

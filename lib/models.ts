@@ -98,6 +98,22 @@ export const MODELS: Record<string, ModelEntry> = {
       "Modèle le plus capable : réflexion profonde toujours active, horizons longs, tâches agentiques les plus dures. À réserver aux raisonnements critiques (coût élevé).",
     wired: true,
   },
+  "claude-sonnet-5": {
+    id: "claude-sonnet-5",
+    provider: "anthropic",
+    label: "Claude Sonnet 5",
+    modality: "text",
+    capabilities: ["writing", "code", "design"],
+    contextWindow: 1_000_000,
+    // On facture au tarif STANDARD (3/15, en vigueur au 2026-09-01) alors que
+    // l'intro (2/10 jusqu'au 2026-08-31) s'applique côté Anthropic : jamais de
+    // sous-facturation, bascule automatique, marge bonus pendant l'intro.
+    // ⚠️ Nouveau tokenizer : ~+30 % de tokens pour le même texte que Sonnet 4.6.
+    pricing: { input: 3, output: 15, cachedInput: 0.3 }, // réel (platform.claude.com) 2026-07
+    strengths:
+      "Successeur de Sonnet 4.6, meilleur et au même prix standard (moins cher pendant l'intro). Équilibre qualité/coût pour la rédaction, les documents, la vision et la génération courante.",
+    wired: true,
+  },
   "claude-sonnet-4-6": {
     id: "claude-sonnet-4-6",
     provider: "anthropic",
@@ -107,7 +123,7 @@ export const MODELS: Record<string, ModelEntry> = {
     contextWindow: 1_000_000,
     pricing: { input: 3, output: 15, cachedInput: 0.3 },
     strengths:
-      "Équilibre qualité/coût idéal pour la rédaction, les documents et la génération courante. Modèle par défaut historique de la génération Biltia.",
+      "Ancien palier moyen (remplacé par Sonnet 5). Conservé au catalogue pour le pricing de l'historique ai_usage.",
     wired: true,
   },
   "claude-haiku-4-5": {
@@ -117,7 +133,7 @@ export const MODELS: Record<string, ModelEntry> = {
     modality: "text",
     capabilities: ["fast", "writing"],
     contextWindow: 200_000,
-    pricing: { input: 0.8, output: 4, cachedInput: 0.08 },
+    pricing: { input: 1, output: 5, cachedInput: 0.1 }, // réel (platform.claude.com) 2026-07 — l'ancien 0.8/4 était le tarif Haiku 3.5 (retiré)
     strengths:
       "Rapide et bon marché : classification, routage, extractions courtes. Déjà utilisé par les routeurs métier et polymorphe.",
     wired: true,
@@ -282,11 +298,20 @@ export const CAPABILITY_RANKING: Record<ModelCapability, string[]> = {
   image: ["gpt-image-2", "gemini-3-pro-image", "gemini-3.1-flash-image"],
   // Données : GPT-5.5 (tableurs/analyse) & Gemini 3.1 Pro (très long contexte).
   data: ["gpt-5.5", "gemini-3.1-pro", "claude-opus-4-8"],
-  // Rédaction générale : Sonnet 4.6 (équilibre) — défaut sûr et câblé.
-  writing: ["claude-sonnet-4-6", "gpt-5.4", "gemini-3.5-flash", "claude-opus-4-8"],
+  // Rédaction générale : Sonnet 5 (équilibre) — défaut sûr et câblé.
+  writing: ["claude-sonnet-5", "gpt-5.4", "gemini-3.5-flash", "claude-opus-4-8"],
   // Rapide / routage interne : Haiku (câblé) puis les nanos des autres marques.
   fast: ["claude-haiku-4-5", "gpt-5.4-nano", "gemini-3.1-flash-lite"],
 };
+
+// ── LES 3 PALIERS OFFICIELS (décision user 2026-07-05) ───────────────────────
+// Tâche hyper simple → Haiku ; tâche moyenne/mi-complexe → Sonnet ; tâche
+// complexe → Opus. TOUJOURS les derniers modèles Anthropic : quand Anthropic
+// sort un successeur, on ne change QUE ces trois constantes (le pricing du
+// catalogue suit, ai-usage.ts calcule les crédits automatiquement).
+export const TIER_SIMPLE = "claude-haiku-4-5";
+export const TIER_MEDIUM = "claude-sonnet-5";
+export const TIER_COMPLEX = "claude-opus-4-8";
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 

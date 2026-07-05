@@ -22,6 +22,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import Anthropic from "@anthropic-ai/sdk";
+import { TIER_SIMPLE } from "./models";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { embedTexts, hasEmbeddingKey } from "./embeddings";
 
@@ -31,7 +32,7 @@ import { embedTexts, hasEmbeddingKey } from "./embeddings";
 export const MIN_DISTINCT_TENANTS = 5;
 
 /** Modèle léger pour la synthèse d'insight (cohérent kind-router). */
-const SYNTH_MODEL = "claude-haiku-4-5";
+const SYNTH_MODEL = TIER_SIMPLE;
 
 /** Garde-fou coût : nombre max de groupes synthétisés par exécution. */
 const MAX_GROUPS_PER_RUN = 8;

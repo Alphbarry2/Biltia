@@ -25,6 +25,7 @@ import { logActivity } from "@/lib/activity";
 import { sendPushToUser } from "@/lib/push";
 import { createAgentRule } from "@/lib/agent-rules";
 import { runAgentLoop, buildWorkspaceToolsSystem } from "@/lib/agent-tools";
+import { TIER_SIMPLE, TIER_MEDIUM, TIER_COMPLEX } from "@/lib/models";
 
 const client = new Anthropic();
 
@@ -33,12 +34,13 @@ const client = new Anthropic();
 // Opus 4.8 : « grosses » applications de gestion (suivi de chantiers, planning,
 // facturation, multi-entités workspace, multi-utilisateurs) ou HTML existant
 // volumineux à régénérer. Le surcoût est répercuté au réel via trackAiUsage.
-const MODEL_STANDARD = "claude-sonnet-4-6";
-const MODEL_HEAVY = "claude-opus-4-8";
+// Paliers officiels (lib/models.ts) : simple=Haiku, moyen=Sonnet 5, complexe=Opus.
+const MODEL_STANDARD = TIER_MEDIUM;
+const MODEL_HEAVY = TIER_COMPLEX;
 // Les réponses texte (copilote) privilégient la vitesse : Haiku répond en
 // 2-4 s là où Sonnet en met 8-15. Le savoir factuel (TVA, normes) est ancré
 // par le prompt + RAG, pas par la taille du modèle.
-const ANSWER_MODEL = "claude-haiku-4-5";
+const ANSWER_MODEL = TIER_SIMPLE;
 const MAX_TOKENS = 16000;
 
 function pickBuildModel(opts: {
@@ -672,7 +674,7 @@ export async function POST(req: Request) {
 
       try {
         const loop = await runAgentLoop({
-          model: "claude-haiku-4-5",
+          model: TIER_SIMPLE,
           system: `Tu es l'OPÉRATEUR du workspace de Biltia, l'OS opérationnel du BTP. L'utilisateur te demande une opération sur SES données. Tu l'exécutes avec les outils, puis tu confirmes.
 
 ${buildWorkspaceToolsSystem()}
@@ -693,7 +695,7 @@ ${buildWorkspaceToolsSystem()}
           userId: user.id,
           tenantId,
           action: "data_op",
-          model: "claude-haiku-4-5",
+          model: TIER_SIMPLE,
           inputTokens: loop.usage.inputTokens,
           outputTokens: loop.usage.outputTokens,
           sector: sector ?? undefined,
@@ -1111,30 +1113,37 @@ L'utilisateur a choisi son thème à la création : changer les couleurs lors d'
     }
 
     // ── Crédits : coût réel + réconciliation du hold (best-effort) ────────────
+    // TOUJOURS journalisé (avant, l'auto-fix des non-fondateurs était invisible
+    // dans ai_usage → fuite de marge intraçable). Débit :
+    //   • création/modification : reconcile du hold vers le coût réel (existant) ;
+    //   • auto-fix (hold 0)     : débité à son coût réel (décision user 2026-07-05
+    //     — le prix du flux reflète le vrai total). Solde insuffisant → on ne
+    //     bloque pas (l'app est déjà réparée) : la passe est offerte mais tracée.
     let realCredits = holdCredits;
-    if (holdCredits > 0 || founder) {
-      try {
-        const tracked = await trackAiUsage({
-          supabase,
-          userId: user.id,
-          tenantId,
-          action: isModification ? "edit_app" : "create_app",
-          model: buildModel,
-          inputTokens: inTok,
-          outputTokens: outTok,
-          agent: route.agent,
-          sector: sector ?? undefined,
-          promptType: isModification ? "modify" : "create",
-        });
-        if (founder) {
-          realCredits = 0; // journalisé pour le suivi des coûts, jamais débité
-        } else {
-          realCredits = tracked;
-          await reconcileCredits(supabase, createAdminClient(), user.id, holdCredits, realCredits);
-        }
-      } catch (meterErr) {
-        console.error("Metering failed after generation:", meterErr);
+    try {
+      const tracked = await trackAiUsage({
+        supabase,
+        userId: user.id,
+        tenantId,
+        action: isModification ? "edit_app" : "create_app",
+        model: buildModel,
+        inputTokens: inTok,
+        outputTokens: outTok,
+        agent: route.agent,
+        sector: sector ?? undefined,
+        promptType: isAutoFix ? "autofix" : isModification ? "modify" : "create",
+      });
+      if (founder) {
+        realCredits = 0; // journalisé pour le suivi des coûts, jamais débité
+      } else if (holdCredits > 0) {
+        realCredits = tracked;
+        await reconcileCredits(supabase, createAdminClient(), user.id, holdCredits, realCredits);
+      } else if (isAutoFix) {
+        const { data: debited } = await supabase.rpc("deduct_credits", { p_amount: tracked });
+        realCredits = debited ? tracked : 0;
       }
+    } catch (meterErr) {
+      console.error("Metering failed after generation:", meterErr);
     }
 
     // ── Tracking (best-effort) — avec tenant_id ───────────────────────────────

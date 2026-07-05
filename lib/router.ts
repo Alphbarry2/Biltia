@@ -10,11 +10,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import Anthropic from "@anthropic-ai/sdk";
+import { TIER_SIMPLE } from "./models";
 import { AGENTS, AGENT_LIST } from "./agents";
 import type { AgentKey } from "./sectors";
 import { agentForSector } from "./sectors";
 
-const ROUTER_MODEL = "claude-haiku-4-5";
+const ROUTER_MODEL = TIER_SIMPLE;
 
 export type RouteMethod = "llm" | "heuristic" | "sector" | "default";
 

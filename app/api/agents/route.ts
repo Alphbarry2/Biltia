@@ -60,7 +60,7 @@ export async function GET() {
       .limit(100),
     supabase
       .from("agent_runs")
-      .select("id, rule_id, run_key, status, summary, error, created_at, finished_at")
+      .select("id, rule_id, run_key, status, summary, error, credits_used, created_at, finished_at")
       .eq("tenant_id", membership.tenant_id)
       .order("created_at", { ascending: false })
       .limit(50),

@@ -22,13 +22,14 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import Anthropic from "@anthropic-ai/sdk";
+import { TIER_SIMPLE } from "./models";
 import { classifyKindHeuristic, looksLikePureQuestion } from "./kind-heuristic";
 import type { BiltiaKind, KindResult } from "./kind-heuristic";
 
 export { classifyKindHeuristic, looksLikePureQuestion };
 export type { BiltiaKind, KindMethod, KindResult } from "./kind-heuristic";
 
-const KIND_MODEL = "claude-haiku-4-5";
+const KIND_MODEL = TIER_SIMPLE;
 
 export const DOC_TYPES = [
   "avenant",

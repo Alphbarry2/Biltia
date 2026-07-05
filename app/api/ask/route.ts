@@ -13,6 +13,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import Anthropic from "@anthropic-ai/sdk";
+import { TIER_MEDIUM } from "@/lib/models";
 import { routeRequest } from "@/lib/router";
 import { classifyQuestionTopic } from "@/lib/question-topics";
 import { getCategory } from "@/lib/sectors";
@@ -27,7 +28,7 @@ import { ENTITIES, ALLOWED_ENTITIES } from "@/lib/data-entities";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const client = new Anthropic();
-const MODEL = "claude-sonnet-4-6";
+const MODEL = TIER_MEDIUM;
 const MAX_TOKENS = 1500;
 const MAX_TURNS = 5;
 

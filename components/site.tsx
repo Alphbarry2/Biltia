@@ -8,7 +8,7 @@ import {
 } from "framer-motion";
 import {
   Menu, X, ChevronDown, ChevronLeft, ChevronRight, ArrowRight,
-  FileText, LayoutGrid, Zap, ScanLine, MessageCircle, FolderKanban,
+  FileText, LayoutGrid, Zap, ScanLine, MessageCircle, FolderKanban, Bot,
 } from "lucide-react";
 import { PRODUCTS } from "@/lib/products";
 import { TEMPLATE_PREVIEWS, type TemplatePreview } from "@/lib/template-previews";
@@ -18,7 +18,7 @@ export const BLACK = "bg-[#0A0A0A] text-white hover:bg-[#222] transition-colors"
 export const GRAD = "bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 text-white";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const PRODUCT_ICONS: Record<string, any> = { FileText, LayoutGrid, Zap, ScanLine, MessageCircle, FolderKanban };
+export const PRODUCT_ICONS: Record<string, any> = { FileText, LayoutGrid, Zap, ScanLine, MessageCircle, FolderKanban, Bot };
 
 // ── Primitives ───────────────────────────────────────────────────────────────
 
