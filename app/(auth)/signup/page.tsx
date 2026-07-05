@@ -10,8 +10,10 @@ import { Eye, EyeOff, ArrowRight, Check, MailCheck } from "lucide-react";
 
 export default function SignupPage() {
   const router = useRouter();
+  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -22,19 +24,29 @@ export default function SignupPage() {
   const hasLength = password.length >= 8;
   const hasDigit = /\d/.test(password);
   const passwordOk = hasLength && hasDigit;
+  const passwordsMatch = confirmPassword.length > 0 && password === confirmPassword;
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!fullName.trim()) { setError("Indiquez votre nom pour personnaliser votre espace."); return; }
     if (!passwordOk) { setError("Le mot de passe ne respecte pas encore les deux critères."); return; }
+    if (!passwordsMatch) { setError("Les deux mots de passe ne correspondent pas."); return; }
     if (turnstileEnabled && !captchaToken) { setError("Confirmez que vous n'êtes pas un robot."); return; }
     setLoading(true);
     setError("");
 
     const supabase = createClient();
+    // full_name : lu par le greeting (« Quel problème réglons-nous, Alpha ? ») et
+    // les paramètres. emailRedirectTo : le lien de confirmation revient sur notre
+    // callback, qui aiguille vers l'onboarding.
     const { data, error: signUpError } = await supabase.auth.signUp({
       email,
       password,
-      options: captchaToken ? { captchaToken } : undefined,
+      options: {
+        data: { full_name: fullName.trim() },
+        emailRedirectTo: `${window.location.origin}/auth/callback?next=/onboarding`,
+        ...(captchaToken ? { captchaToken } : {}),
+      },
     });
 
     if (signUpError) {
@@ -84,6 +96,12 @@ export default function SignupPage() {
 
       <form onSubmit={handleSignup} className="space-y-4">
         <div>
+          <label htmlFor="signup-name" className={AUTH_LABEL}>Votre nom</label>
+          <input id="signup-name" type="text" value={fullName} onChange={(e) => setFullName(e.target.value)}
+            placeholder="Alpha Barry" required autoComplete="name" className={AUTH_INPUT} />
+        </div>
+
+        <div>
           <label htmlFor="signup-email" className={AUTH_LABEL}>Adresse email</label>
           <input id="signup-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
             placeholder="vous@entreprise.fr" required autoComplete="email" className={AUTH_INPUT} />
@@ -112,6 +130,16 @@ export default function SignupPage() {
                 </span>
               ))}
             </div>
+          )}
+        </div>
+
+        <div>
+          <label htmlFor="signup-confirm" className={AUTH_LABEL}>Confirmez le mot de passe</label>
+          <input id="signup-confirm" type={showPassword ? "text" : "password"} value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Ressaisissez le mot de passe" required
+            autoComplete="new-password" className={AUTH_INPUT} />
+          {confirmPassword.length > 0 && !passwordsMatch && (
+            <p className="mt-2 text-[12px] font-medium text-rose-500">Les deux mots de passe ne correspondent pas.</p>
           )}
         </div>
 

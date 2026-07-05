@@ -1,0 +1,64 @@
+<!--
+  BILTIA — Email « Confirmer l'inscription »
+  À coller dans Supabase → Authentication → Email Templates → « Confirm signup ».
+  Variable utilisée : {{ .ConfirmationURL }} (Supabase vérifie puis redirige vers
+  le Site URL / redirect configuré, càd /auth/callback → onboarding).
+  HTML e-mail : styles inline + tableaux (compatibilité Outlook/Gmail/Apple Mail).
+-->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0;padding:0;background-color:#F4F4F7;">
+  <tr>
+    <td align="center" style="padding:32px 16px;">
+      <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="width:480px;max-width:100%;background-color:#ffffff;border-radius:24px;overflow:hidden;box-shadow:0 12px 40px rgba(20,20,40,0.10);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Arial,sans-serif;">
+        <!-- Bandeau dégradé signature -->
+        <tr>
+          <td style="background-color:#7C3AED;background-image:linear-gradient(135deg,#6366F1 0%,#A855F7 45%,#EC4899 100%);padding:36px 40px;text-align:center;">
+            <div style="font-size:22px;font-weight:800;letter-spacing:-0.02em;color:#ffffff;">Biltia</div>
+            <div style="font-size:12px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:rgba(255,255,255,0.82);margin-top:4px;">L'OS des pros du bâtiment</div>
+          </td>
+        </tr>
+        <!-- Corps -->
+        <tr>
+          <td style="padding:36px 40px 8px;">
+            <h1 style="margin:0 0 12px;font-size:23px;font-weight:800;letter-spacing:-0.02em;color:#0A0A0A;">Bienvenue chez Biltia.</h1>
+            <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#4A4A56;">
+              Il reste une étape : confirmez votre adresse email pour activer votre compte et vos <strong style="color:#0A0A0A;">300 crédits offerts</strong>.
+            </p>
+          </td>
+        </tr>
+        <!-- Bouton bulletproof -->
+        <tr>
+          <td style="padding:8px 40px 8px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+              <tr>
+                <td align="center">
+                  <a href="{{ .ConfirmationURL }}" target="_blank" style="display:inline-block;background-color:#7C3AED;background-image:linear-gradient(135deg,#6366F1 0%,#A855F7 45%,#EC4899 100%);color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;padding:15px 34px;border-radius:14px;">
+                    Confirmer mon adresse
+                  </a>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <!-- Lien de secours -->
+        <tr>
+          <td style="padding:20px 40px 0;">
+            <p style="margin:0;font-size:12.5px;line-height:1.6;color:#9A9AA6;">
+              Le bouton ne fonctionne pas ? Copiez ce lien dans votre navigateur :<br>
+              <a href="{{ .ConfirmationURL }}" target="_blank" style="color:#7C3AED;word-break:break-all;">{{ .ConfirmationURL }}</a>
+            </p>
+          </td>
+        </tr>
+        <!-- Pied -->
+        <tr>
+          <td style="padding:28px 40px 36px;">
+            <hr style="border:none;border-top:1px solid #ECECF2;margin:0 0 18px;">
+            <p style="margin:0;font-size:12px;line-height:1.6;color:#B0B0BC;">
+              Vous n'avez pas créé de compte Biltia ? Ignorez simplement cet email, aucun compte ne sera activé.
+            </p>
+          </td>
+        </tr>
+      </table>
+      <p style="margin:18px 0 0;font-size:11.5px;color:#B0B0BC;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Arial,sans-serif;">Biltia · Devis, chantiers et agents IA pour le BTP</p>
+    </td>
+  </tr>
+</table>

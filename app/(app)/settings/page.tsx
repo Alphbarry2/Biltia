@@ -4,6 +4,16 @@ import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase";
 import { getActiveMembership } from "@/lib/tenant";
 import { Dropdown } from "@/components/dropdown";
+import { COUNTRIES, normalizeCountry } from "@/lib/countries";
+import { CATEGORIES } from "@/lib/btp-catalog";
+
+// Métiers éditables en paramètres (mêmes catégories qu'à l'onboarding) +
+// « Autre » pour couvrir le multi-services. Multi-sélection : un artisan peut
+// être électricien ET chauffagiste.
+const METIERS = [
+  ...CATEGORIES.map((c) => ({ id: c.id, label: c.label, emoji: c.emoji })),
+  { id: "autre", label: "Autre / Multi-services", emoji: "🧰" },
+];
 import {
   User,
   Building2,
@@ -147,6 +157,8 @@ export default function SettingsPage() {
   // Entreprise (tenants.company_info : pays FR/BE, TVA, SIRET/BCE, adresse)
   const [companyName, setCompanyName] = useState("");
   const [companyInfo, setCompanyInfo] = useState({ country: "FR", vat: "", siret: "", address: "" });
+  // Spécialités du métier (multi) : sectors[0] = principale (aiguille les agents).
+  const [sectors, setSectors] = useState<string[]>([]);
   const [savingCompany, setSavingCompany] = useState(false);
 
   // Cerveau collectif : contribution (anonymisée) au corpus partagé. Opt-out.
@@ -209,8 +221,21 @@ export default function SettingsPage() {
       supabase.from("user_credits").select("balance").eq("user_id", user.id).single()
         .then(({ data }) => { if (data) setCredits(data.balance); });
 
-      supabase.from("profiles").select("full_name").eq("user_id", user.id).maybeSingle()
-        .then(({ data }) => { if (data?.full_name) setFullName(data.full_name); });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase as unknown as { from: (t: string) => any })
+        .from("profiles").select("full_name, sector, preferences").eq("user_id", user.id).maybeSingle()
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .then(({ data }: any) => {
+          if (data?.full_name) setFullName(data.full_name);
+          // Spécialités : principale (profiles.sector) + additionnelles
+          // (preferences.sectors), fusionnées et dédoublonnées.
+          const p = (data?.preferences ?? {}) as Record<string, unknown>;
+          const extra = Array.isArray(p.sectors) ? (p.sectors as unknown[]) : [];
+          const primary = data?.sector && data.sector !== "autre" ? [String(data.sector)] : [];
+          const all = Array.from(new Set([...primary, ...extra]))
+            .filter((s): s is string => typeof s === "string" && !!s);
+          setSectors(all);
+        });
 
       // Préférences IA (best-effort — colonne absente → défauts).
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -326,7 +351,7 @@ export default function SettingsPage() {
     supabase.from("tenants").select("company_info, contributes_to_brain").eq("id", tenantId).maybeSingle().then(({ data }) => {
       const ci = (data?.company_info ?? {}) as Record<string, string>;
       setCompanyInfo({
-        country: ci.country === "BE" ? "BE" : "FR",
+        country: normalizeCountry(ci.country),
         vat: ci.vat ?? "",
         siret: ci.siret ?? "",
         address: ci.address ?? "",
@@ -448,17 +473,46 @@ export default function SettingsPage() {
     setSavingCompany(true);
     try {
       const supabase = createClient();
+      const primarySector = sectors[0] ?? null;
+      // tenants : nom + fiche (pays, TVA…) + spécialité principale/liste.
       const { error: e } = await supabase
         .from("tenants")
-        .update({ name: companyName, company_info: companyInfo })
+        .update({
+          name: companyName,
+          company_info: { ...companyInfo, sector: primarySector, sectors },
+        })
         .eq("id", tenantId);
       if (e) throw e;
+
+      // profiles : la spécialité PRINCIPALE aiguille les agents (lib/router).
+      // Les additionnelles vivent dans preferences.sectors. Best-effort : un
+      // échec ici ne perd pas l'enregistrement de la fiche entreprise.
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const db = supabase as unknown as { from: (t: string) => any };
+          const { data: prof } = await db
+            .from("profiles").select("preferences").eq("user_id", user.id).maybeSingle();
+          const raw = (prof?.preferences && typeof prof.preferences === "object" ? prof.preferences : {}) as Record<string, unknown>;
+          await db
+            .from("profiles")
+            .update({ sector: primarySector ?? "autre", preferences: { ...raw, sectors } })
+            .eq("user_id", user.id);
+          if (primarySector) await supabase.auth.updateUser({ data: { sector: primarySector } });
+        }
+      } catch { /* la spécialité est best-effort */ }
+
       flash("Entreprise mise à jour.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Échec (seuls Propriétaire et Admin peuvent modifier).");
     }
     setSavingCompany(false);
   }
+
+  // Ajoute/retire une spécialité (la première cochée devient la principale).
+  const toggleSector = (id: string) =>
+    setSectors((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
   type BoolPref = "always_confirm" | "always_pdf" | "prefer_app" | "ai_notifications";
   const togglePref = (k: BoolPref) => setPrefs((p) => ({ ...p, [k]: !p[k] }));
@@ -742,10 +796,11 @@ export default function SettingsPage() {
                         onChange={(v) => setCompanyInfo((c) => ({ ...c, country: v }))}
                         ariaLabel="Pays de l'entreprise"
                         size="sm"
-                        options={[
-                          { value: "FR", label: "France", icon: <span>🇫🇷</span> },
-                          { value: "BE", label: "Belgique", icon: <span>🇧🇪</span> },
-                        ]}
+                        options={COUNTRIES.map((c) => ({
+                          value: c.value,
+                          label: c.label,
+                          icon: <span>{c.icon}</span>,
+                        }))}
                       />
                     </Field>
                   </div>
@@ -775,6 +830,44 @@ export default function SettingsPage() {
                       className={inputCls}
                     />
                   </Field>
+
+                  {/* Spécialité(s) du métier : multi-sélection. La 1re cochée
+                      devient la principale (aiguille les agents et les réponses). */}
+                  <div>
+                    <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-[#8B8B96]">
+                      Votre métier
+                      <span className="ml-1.5 font-medium normal-case tracking-normal text-[#9A9A97]">
+                        (plusieurs possibles — la 1re est la principale)
+                      </span>
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {METIERS.map((m) => {
+                        const idx = sectors.indexOf(m.id);
+                        const active = idx !== -1;
+                        return (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={() => toggleSector(m.id)}
+                            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12.5px] font-semibold transition-all active:scale-[0.97] ${
+                              active
+                                ? "border-[#7C3AED] bg-[#F3EFFC] text-[#0A0A0A]"
+                                : "border-[#E7E7E4] bg-white text-[#3A3A46] hover:border-[#C9BEF0]"
+                            }`}
+                          >
+                            <span className="text-[14px] leading-none">{m.emoji}</span>
+                            {m.label}
+                            {active && idx === 0 && (
+                              <span className="rounded-full bg-[#7C3AED] px-1.5 py-0.5 text-[9px] font-bold uppercase text-white">
+                                Principale
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   <button
                     onClick={saveCompany}
                     disabled={savingCompany}

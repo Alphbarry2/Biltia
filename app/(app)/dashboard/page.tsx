@@ -273,8 +273,11 @@ export default function DashboardPage() {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const nm = (user.user_metadata?.full_name as string) || user.email?.split("@")[0] || "";
-    setFirstName(nm.split(" ")[0]);
+    // Prénom = premier mot du nom saisi à l'inscription (user_metadata.full_name).
+    // Jamais le début de l'email : « Quel problème réglons-nous, mwiatou.barry224 ? »
+    // n'a aucun sens. Sans nom → greeting neutre (« … aujourd'hui ? »).
+    const nm = ((user.user_metadata?.full_name as string) || "").trim();
+    setFirstName(nm.split(" ")[0] ?? "");
     // Une app appartient à un workspace : on ne montre que celles du workspace actif.
     const membership = await getActiveMembership(supabase, user.id);
     if (!membership?.tenant_id) { setApps([]); setLoading(false); return; }

@@ -17,6 +17,7 @@ import { getActiveMembership } from "@/lib/tenant";
 import { enablePushNotifications } from "@/lib/push-client";
 import type { Json } from "@/lib/database.types";
 import { CATEGORIES } from "@/lib/btp-catalog";
+import { COUNTRIES } from "@/lib/countries";
 import { EASE } from "@/components/site";
 import { Dropdown } from "@/components/dropdown";
 import { ArrowRight, ChevronLeft, Check } from "lucide-react";
@@ -35,16 +36,8 @@ const GOALS = [
   { id: "decouverte", label: "Je découvre, tout simplement", emoji: "👀" },
 ];
 
-// Pays : vrai Dropdown maison. FR/BE = TVA/SIRET pris en charge partout ; les
-// autres sont stockés (utile pour la demande marché côté admin).
-const COUNTRIES = [
-  { value: "FR", label: "France", icon: "🇫🇷", hint: "TVA 20/10/5,5" },
-  { value: "BE", label: "Belgique", icon: "🇧🇪", hint: "TVA 21/6" },
-  { value: "LU", label: "Luxembourg", icon: "🇱🇺" },
-  { value: "CH", label: "Suisse", icon: "🇨🇭" },
-  { value: "CA", label: "Canada", icon: "🇨🇦" },
-  { value: "AUTRE", label: "Autre pays", icon: "🌍" },
-];
+// Pays : liste UNIQUE partagée avec les paramètres (lib/countries.ts) — plus
+// d'incohérence « 6 pays à l'inscription, FR/BE en paramètres ».
 
 // Effectif : buckets que le patron reconnaît immédiatement + clé d'analyse admin.
 const HEADCOUNTS = [
@@ -58,6 +51,7 @@ const HEADCOUNTS = [
 export default function OnboardingPage() {
   const router = useRouter();
   const [step, setStep] = useState<0 | 1 | 2>(0);
+  const [companyName, setCompanyName] = useState("");
   const [country, setCountry] = useState<string | null>(null);
   const [headcount, setHeadcount] = useState<string | null>(null);
   const [sector, setSector] = useState<string | null>(null);
@@ -106,10 +100,18 @@ export default function OnboardingPage() {
             .from("tenants").select("company_info").eq("id", membership.tenant_id).maybeSingle();
           const prev = (t?.company_info ?? {}) as Record<string, Json>;
           const company_info: Record<string, Json> = { ...prev };
+          const trimmedCompany = companyName.trim();
+          if (trimmedCompany) company_info.company_name = trimmedCompany;
           if (country) company_info.country = country;
           if (sector) company_info.sector = sector;
           if (headcount) company_info.headcount = headcount;
-          await supabase.from("tenants").update({ company_info }).eq("id", membership.tenant_id);
+          // tenants.name = le nom d'entreprise (repris dans l'en-tête des apps,
+          // les devis/factures, le sélecteur de workspace). company_info garde
+          // la copie « raison sociale ».
+          await supabase
+            .from("tenants")
+            .update(trimmedCompany ? { name: trimmedCompany, company_info } : { company_info })
+            .eq("id", membership.tenant_id);
         }
       } catch { /* best-effort */ }
     }
@@ -147,6 +149,17 @@ export default function OnboardingPage() {
             <p className="mb-6 text-sm text-[#6E6E6C]">Deux infos rapides — ça adapte la TVA, les documents et vos outils.</p>
 
             <div className="space-y-5">
+              <div>
+                <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-[#8B8B96]">Nom de votre entreprise</label>
+                <input
+                  type="text"
+                  value={companyName}
+                  onChange={(e) => setCompanyName(e.target.value)}
+                  placeholder="Ex. Barry Élec, SARL Dupont…"
+                  className="w-full rounded-xl border border-[#E7E7E4] bg-white px-4 py-3 text-[14px] text-[#0A0A0A] placeholder:text-[#B9B9B6] outline-none transition-all focus:border-[#7C3AED] focus:shadow-[0_0_0_3px_rgba(124,58,246,0.14)]"
+                />
+              </div>
+
               <Dropdown
                 label="Votre pays"
                 value={country}
@@ -180,7 +193,7 @@ export default function OnboardingPage() {
             <button
               type="button"
               onClick={() => setStep(1)}
-              disabled={!country || !headcount}
+              disabled={!companyName.trim() || !country || !headcount}
               className="mt-7 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 py-3 font-semibold text-white shadow-[0_8px_24px_rgba(139,92,246,0.4)] transition-all hover:shadow-[0_10px_30px_rgba(139,92,246,0.55)] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40"
             >
               Continuer <ArrowRight className="h-4 w-4" />
