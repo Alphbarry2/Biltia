@@ -1000,7 +1000,7 @@ export default function GeneratePage() {
     // d'app. Si l'API ne répond pas, on bascule sur les questions statiques
     // locales — on ne construit JAMAIS sans être passé par les questions.
     if (!isModification && classifyKindHeuristic(trimmed).kind === "module") {
-      setLoadingLabel("Je prépare quelques questions…");
+      setLoadingLabel("J'analyse votre besoin…");
       setExpectingBuild(false);
       setIsGenerating(true);
       try {
@@ -1015,6 +1015,17 @@ export default function GeneratePage() {
           });
           clearTimeout(clarifyTimeout);
           const data = await res.json();
+          // Le serveur (aiguilleur) a reconnu un AUTRE besoin qu'une app : agent
+          // (mission permanente), document/PDF, réponse ou contrôle de fichiers.
+          // Pas de questionnaire d'app : on laisse /api/generate router — c'est
+          // le correctif du bug « quel support ? » posé à « envoie un email tous
+          // les jours… ».
+          if (res.ok && data.skipClarify) {
+            setLoadingLabel(null);
+            setIsGenerating(false);
+            await executeGeneration(trimmed);
+            return;
+          }
           if (res.ok && Array.isArray(data.questions) && data.questions.length) {
             setClarify({ questions: data.questions, prompt: trimmed });
             return; // la génération partira à la validation (ou l'ignorance) du widget

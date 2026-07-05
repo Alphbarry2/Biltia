@@ -3,6 +3,7 @@ import { TIER_SIMPLE } from "@/lib/models";
 import { createClient } from "@/lib/supabase-server";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
 import { trackAiUsage } from "@/lib/ai-usage";
+import { classifyKind } from "@/lib/kind-router";
 import {
   type ClarifyQuestion,
   DEVICE_QUESTION,
@@ -84,10 +85,46 @@ export async function POST(req: Request) {
     prompt = typeof body.prompt === "string" ? body.prompt.slice(0, 2000) : "";
   } catch { /* corps vide toléré */ }
 
+  const hasKey = !!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.startsWith("your_");
+
+  // ── AIGUILLAGE D'ABORD ──────────────────────────────────────────────────────
+  // Le questionnaire « quel support / quelles colonnes » ne vaut QUE pour une
+  // vraie création d'application (module). Le client l'ouvre dès que son
+  // heuristique locale hésite (défaut = module) : on confirme donc ici, côté
+  // serveur, avec le vrai aiguilleur (Haiku). Si le besoin réel est un AGENT
+  // (« envoie un email tous les jours… »), un DOCUMENT/PDF, une RÉPONSE ou un
+  // CONTRÔLE de fichiers, on renvoie skipClarify et le client laisse
+  // /api/generate router correctement — plus jamais « quel support ? » posé à
+  // une mission d'agent. Échec de classif → on continue vers le questionnaire
+  // (comportement historique, jamais bloquant).
+  if (prompt && hasKey) {
+    try {
+      const k = await classifyKind({ prompt });
+      if (k.usage) {
+        try {
+          const membership = await getActiveMembershipServer(supabase, user.id);
+          if (membership) {
+            void trackAiUsage({
+              supabase,
+              userId: user.id,
+              tenantId: membership.tenant_id,
+              action: "classify_kind",
+              model: k.usage.model,
+              inputTokens: k.usage.inputTokens,
+              outputTokens: k.usage.outputTokens,
+            }).catch(() => {});
+          }
+        } catch { /* tracking best-effort */ }
+      }
+      if (k.kind !== "module") {
+        return Response.json({ skipClarify: true, kind: k.kind, docType: k.docType });
+      }
+    } catch { /* classif indisponible → questionnaire d'app (historique) */ }
+  }
+
   let specific: ClarifyQuestion[] = FALLBACK_SPECIFIC;
   let usage: { inputTokens: number; outputTokens: number } | null = null;
 
-  const hasKey = !!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.startsWith("your_");
   if (prompt && hasKey) {
     try {
       const client = new Anthropic();
