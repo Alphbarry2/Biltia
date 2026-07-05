@@ -99,6 +99,8 @@ export type ParsedRule = {
   time: string;
   days: number[];
   contentInstruction: string;
+  /** true = l'utilisateur dit d'envoyer quelque chose mais ne dit pas QUOI. */
+  contentMissing: boolean;
   dataFocus: string;
   complexity: AgentComplexity;
   usage?: { model: string; inputTokens: number; outputTokens: number };
@@ -227,6 +229,11 @@ const PARSE_TOOL: Anthropic.Tool = {
         type: "string",
         description: "Ce que l'agent doit dire/faire à chaque passage, reformulé clairement.",
       },
+      content_missing: {
+        type: "boolean",
+        description:
+          "true si l'utilisateur demande d'ENVOYER/ÉCRIRE quelque chose mais ne dit PAS quoi dire (ex : « envoie un message à Alpha tous les jours » → on ne sait pas quel message). false si le contenu est explicite ou clairement déductible (ex : « relance le devis en attente de Dupont », « rappelle-moi de faire mes factures », « vérifie mes impayés »).",
+      },
       data_focus: {
         type: "string",
         description: "Pour report : quelles données examiner (« pointages manquants », « devis sans réponse »…). Vide sinon.",
@@ -238,7 +245,7 @@ const PARSE_TOOL: Anthropic.Tool = {
           "Poids de la mission À CHAQUE passage. simple = un message/rappel bref, une lecture ciblée (« envoie un message à Karim »). medium = examiner une partie des données puis rédiger (« vérifie mes factures impayées et relance »). complex = analyse TRANSVERSALE de l'activité, détection de patterns/anomalies, raisonnement lourd (« analyse toute mon activité et signale ce qui cloche »).",
       },
     },
-    required: ["title", "action_type", "recipient_kind", "recipient_name", "time", "days", "content_instruction", "data_focus", "complexity"],
+    required: ["title", "action_type", "recipient_kind", "recipient_name", "time", "days", "content_instruction", "content_missing", "data_focus", "complexity"],
     additionalProperties: false,
   },
 };
@@ -252,6 +259,8 @@ REPÈRES :
 - « mes employés / l'équipe / les gars » → recipient_kind=team.
 - « à midi » = 12:00, « le matin » = 09:00, « le soir » = 18:00. Heure de Paris. Aucune heure dictée → 09:00.
 - « tous les jours » / rien de précisé → days VIDE. « chaque lundi » → [1]. « en semaine » → [1,2,3,4,5].
+
+CONTEXTE (comme un employé, ne rien inventer) : si la mission dit d'ENVOYER un message/mail mais ne dit PAS quoi dire, mets content_missing=true — Biltia demandera « quel message ? » plutôt que d'inventer. Si le contenu est explicite ou déductible d'une donnée du workspace (« relance le devis en attente », « rappelle-moi de faire mes factures », « vérifie mes impayés et fais le point »), content_missing=false.
 
 Réponds UNIQUEMENT en appelant l'outil parse_rule.`;
 
@@ -290,6 +299,13 @@ export function parseInstructionHeuristic(instruction: string): ParsedRule {
 
   const nameMatch = /client(?:e)?\s+([a-z][a-z' -]{1,40}?)(?=\s+(?:tous|chaque|a \d|le \d|du lundi|en semaine|$)|[,.!]|$)/.exec(text);
 
+  // « envoie un message à X » sans dire QUOI → contenu manquant. Conservateur :
+  // dès qu'un indice de contenu est présent (pour, dis-lui, relance, :…), false.
+  const contentMissing =
+    actionType !== "report" &&
+    /(envoi|ecris|message|mail|email)/.test(text) &&
+    !/(pour |dis|dire|relance|que |:|disant|rappelle-moi de|previe|signal|demande)/.test(text);
+
   return {
     title: instruction.slice(0, 60),
     actionType,
@@ -298,6 +314,7 @@ export function parseInstructionHeuristic(instruction: string): ParsedRule {
     time,
     days,
     contentInstruction: instruction.slice(0, 500),
+    contentMissing,
     dataFocus: actionType === "report" ? instruction.slice(0, 200) : "",
     // Repli prudent : un contrôle de données = medium, un message = simple.
     complexity: actionType === "report" ? "medium" : "simple",
@@ -351,6 +368,7 @@ export async function parseInstruction(instruction: string): Promise<ParsedRule>
         typeof i.content_instruction === "string" && i.content_instruction.trim()
           ? i.content_instruction.trim().slice(0, 600)
           : instruction.slice(0, 500),
+      contentMissing: i.content_missing === true,
       dataFocus: typeof i.data_focus === "string" ? i.data_focus.trim().slice(0, 200) : "",
       complexity,
       usage: {
@@ -558,6 +576,20 @@ export async function createAgentRule(opts: {
     }
   }
 
+  // ── Contenu manquant : « envoie un message à Alpha » sans dire QUOI ──────────
+  // Comme un employé, l'agent ne devine pas le message. Il naît bloqué et
+  // demande le contenu (le destinataire reste prioritaire : une question à la
+  // fois). report = examen de données, pas un message → jamais concerné.
+  if (
+    !blockedReason &&
+    parsed.contentMissing &&
+    (parsed.actionType === "send_email" || parsed.actionType === "notify")
+  ) {
+    const who = parsed.recipientName || (parsed.recipientKind === "me" ? "vous" : "le destinataire");
+    blockedReason = `je ne sais pas encore quel message envoyer à ${who}`;
+    missing = { entity: "content", id: null, name: who, field: "content" };
+  }
+
   const action: AgentAction = {
     type: parsed.actionType,
     recipientKind: parsed.recipientKind,
@@ -610,11 +642,13 @@ export async function createAgentRule(opts: {
   const priceLine = `Coût estimé : ~${action.estimatedCreditsPerRun} crédits par passage (~${perMonth}/mois — ajusté au réel, visible dans **Agents**).`;
   let message: string;
   if (blocked) {
-    message = `🤖 Agent recruté : **${parsed.title}** (${planning}). ${priceLine} ⚠️ Mais avant de démarrer : ${blockedReason}.${
+    const hint =
       missing?.field === "email"
         ? ` Donnez-moi l'email (ex : « son email est jean@exemple.fr ») ou complétez la fiche dans le Workspace — je démarre dès que je l'ai.`
-        : ""
-    } Retrouvez cet agent dans **Agents**.`;
+        : missing?.field === "content"
+          ? ` Dites-moi quoi envoyer (ex : « demande-lui une photo du chantier ») dans **Agents** — je démarre dès que je l'ai.`
+          : "";
+    message = `🤖 Agent recruté : **${parsed.title}** (${planning}). ${priceLine} ⚠️ Mais avant de démarrer : ${blockedReason}.${hint} Retrouvez cet agent dans **Agents**.`;
   } else {
     message = `🤖 Agent recruté : **${parsed.title}** — ${planning}. Premier passage : ${
       nextRun ? formatRunDate(nextRun) : "à planifier"

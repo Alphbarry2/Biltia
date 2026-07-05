@@ -138,7 +138,7 @@ export async function PATCH(req: Request) {
   if (!membership) return NextResponse.json({ error: "Aucun espace de travail." }, { status: 403 });
   const tenantId = membership.tenant_id;
 
-  let body: { id?: string; action?: string; email?: string };
+  let body: { id?: string; action?: string; email?: string; content?: string };
   try {
     body = await req.json();
   } catch {
@@ -220,10 +220,41 @@ export async function PATCH(req: Request) {
   }
 
   if (action === "provide") {
+    const missing = rule.missing as unknown as MissingInfo | null;
+
+    // ── Contenu manquant : l'utilisateur dit ENFIN quoi envoyer ──────────────
+    // On complète le message de l'agent (action.contentInstruction) et on le
+    // débloque. Le contenu vit dans l'agent (ce n'est pas une fiche workspace).
+    if (missing?.field === "content") {
+      const content = typeof body.content === "string" ? body.content.trim() : "";
+      if (content.length < 3) {
+        return NextResponse.json({ error: "Dites-moi quoi envoyer (message trop court)." }, { status: 400 });
+      }
+      const act = rule.action as unknown as AgentAction;
+      const next = computeNextRun(schedule);
+      await supabase
+        .from("agent_rules")
+        .update({
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          action: { ...act, contentInstruction: content.slice(0, 600) } as any,
+          status: "active",
+          blocked_reason: null,
+          missing: null,
+          next_run_at: next ? next.toISOString() : null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", id)
+        .eq("tenant_id", tenantId);
+      return NextResponse.json({
+        ok: true,
+        status: "active",
+        message: `Message enregistré, agent débloqué.${next ? ` Prochain passage : ${formatRunDate(next)}.` : ""}`,
+      });
+    }
+
     // L'utilisateur fournit l'info manquante (email). Elle est écrite DANS LA
     // FICHE du workspace — l'agent ET tout le reste de Biltia en profitent.
     const email = typeof body.email === "string" ? body.email.trim() : "";
-    const missing = rule.missing as unknown as MissingInfo | null;
     if (!email || !email.includes("@")) {
       return NextResponse.json({ error: "Email invalide." }, { status: 400 });
     }

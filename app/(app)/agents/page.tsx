@@ -102,6 +102,8 @@ export default function AgentsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [emailInputs, setEmailInputs] = useState<Record<string, string>>({});
+  // Message à fournir pour un agent bloqué faute de contenu (« quel message ? »).
+  const [contentInputs, setContentInputs] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     try {
@@ -281,7 +283,7 @@ export default function AgentsPage() {
                     ) : (
                       <button
                         onClick={() => command(r.id, "resume")}
-                        disabled={busy === r.id || (r.status === "blocked" && r.missing?.field === "email")}
+                        disabled={busy === r.id || (r.status === "blocked" && (r.missing?.field === "email" || r.missing?.field === "content"))}
                         title="Relancer"
                         className="p-2 rounded-lg border border-[#E7E7E4] text-[#6E6E6C] hover:border-[#C9BEF0] transition-colors disabled:opacity-50"
                       >
@@ -334,6 +336,24 @@ export default function AgentsPage() {
                           className="rounded-full bg-[#0A0A0A] px-3.5 py-1.5 text-[12px] font-semibold text-white hover:opacity-90 transition-opacity disabled:opacity-40"
                         >
                           Compléter et démarrer
+                        </button>
+                      </div>
+                    )}
+                    {r.missing?.field === "content" && (
+                      <div className="mt-2">
+                        <textarea
+                          value={contentInputs[r.id] ?? ""}
+                          onChange={(e) => setContentInputs((p) => ({ ...p, [r.id]: e.target.value }))}
+                          rows={2}
+                          placeholder="Quel message dois-je envoyer ? Ex : « demande-lui une photo du chantier »"
+                          className="w-full rounded-lg border border-[#E7E7E4] bg-white px-3 py-2 text-[12.5px] text-[#0A0A0A] placeholder:text-[#B9B9B6] focus:outline-none focus:border-[#C9BEF0] resize-none"
+                        />
+                        <button
+                          onClick={() => command(r.id, "provide", { content: contentInputs[r.id] ?? "" })}
+                          disabled={busy === r.id || (contentInputs[r.id] ?? "").trim().length < 3}
+                          className="mt-2 rounded-full bg-[#0A0A0A] px-3.5 py-1.5 text-[12px] font-semibold text-white hover:opacity-90 transition-opacity disabled:opacity-40"
+                        >
+                          Enregistrer et démarrer
                         </button>
                       </div>
                     )}
