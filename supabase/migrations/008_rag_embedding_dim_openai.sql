@@ -1,5 +1,5 @@
 -- ============================================================
--- BATIFY — Migration 008 : dimension d'embedding 1024 → 1536
+-- BILTIA — Migration 008 : dimension d'embedding 1024 → 1536
 -- ============================================================
 -- Bascule du fournisseur d'embeddings vers OpenAI `text-embedding-3-small`
 -- (1536 dimensions) au lieu de Mistral (1024). Aucune donnée n'ayant encore

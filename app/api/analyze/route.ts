@@ -14,7 +14,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase-server";
 import { createAdminClient } from "@/lib/supabase-admin";
-import { trackAiUsage } from "@/lib/ai-usage";
+import { trackAiUsage, reconcileCredits } from "@/lib/ai-usage";
+import { getActiveMembershipServer } from "@/lib/tenant-server";
+import { getEntitlementsForTenant, FROZEN_MESSAGE } from "@/lib/entitlements";
+import { isFounderEmail } from "@/lib/founder";
+import { logActivity } from "@/lib/activity";
 import {
   VISION_MODEL,
   EXTRACT_TOOL,
@@ -52,7 +56,7 @@ const ANALYZE_TOOL: Anthropic.Tool = {
 };
 
 function buildSystem(): string {
-  return `Tu es l'analyste documentaire de Batify, expert du BTP français. On te fournit un ou plusieurs documents (devis, facture, bon de livraison, courrier, plan, attestation…). Tu les LIS et tu en extrais fidèlement l'essentiel.
+  return `Tu es l'analyste documentaire de Biltia, expert du BTP français. On te fournit un ou plusieurs documents (devis, facture, bon de livraison, courrier, plan, attestation…). Tu les LIS et tu en extrais fidèlement l'essentiel.
 
 RÈGLES ABSOLUES :
 - N'invente JAMAIS une valeur. Si une information n'est pas visible dans le document, mets null (ou chaîne vide pour la réponse).
@@ -79,17 +83,17 @@ export async function POST(req: Request) {
       return Response.json({ error: "Authentification requise." }, { status: 401 });
     }
 
-    const { data: membership } = await supabase
-      .from("tenant_members")
-      .select("tenant_id, role")
-      .eq("user_id", user.id)
-      .not("accepted_at", "is", null)
-      .limit(1)
-      .single();
+    const membership = await getActiveMembershipServer(supabase, user.id);
     if (!membership) {
       return Response.json({ error: "Aucun espace de travail trouvé." }, { status: 403 });
     }
     const tenantId = membership.tenant_id;
+
+    // GEL LECTURE SEULE : un abonnement expiré ne peut plus lancer d'analyse IA.
+    const ent = await getEntitlementsForTenant(supabase, tenantId);
+    if (!ent.writable) {
+      return Response.json({ error: FROZEN_MESSAGE, frozen: true }, { status: 403 });
+    }
 
     let body: { files?: unknown; question?: string };
     try {
@@ -111,21 +115,26 @@ export async function POST(req: Request) {
 
     const question = typeof body.question === "string" ? body.question.trim().slice(0, 2000) : "";
 
-    // 1 crédit par document (remboursé si échec).
-    const creditCost = files.length;
-    const { data: credited } = await supabase.rpc("deduct_credits", { p_amount: creditCost });
-    if (!credited) {
-      return Response.json(
-        { error: "Crédits insuffisants. Rechargez votre compte pour continuer." },
-        { status: 402 }
-      );
+    // Pré-autorisation (hold) par fichier, réconciliée au coût réel après l'analyse.
+    // Compte fondateur : jamais de hold ni de débit (usage journalisé quand même).
+    const founder = isFounderEmail(user.email);
+    const HOLD = founder ? 0 : 25 * files.length;
+    if (HOLD > 0) {
+      const { data: credited } = await supabase.rpc("deduct_credits", { p_amount: HOLD });
+      if (!credited) {
+        return Response.json(
+          { error: "Crédits insuffisants. Rechargez votre compte pour continuer." },
+          { status: 402 }
+        );
+      }
     }
 
     async function refund() {
+      if (HOLD <= 0) return;
       const admin = createAdminClient();
       if (admin) {
         try {
-          await admin.rpc("refund_credits", { p_user_id: user!.id, p_amount: creditCost });
+          await admin.rpc("refund_credits", { p_user_id: user!.id, p_amount: HOLD });
         } catch (err) {
           console.error("Refund failed after analyze error:", err);
         }
@@ -168,9 +177,10 @@ export async function POST(req: Request) {
     const extraction = coerceExtraction(input);
     const answer = typeof input.reponse === "string" ? input.reponse.trim() : "";
 
-    // Tracking best-effort (ne bloque jamais la réponse).
+    // Tracking + réconciliation du hold au coût réel (best-effort).
+    let realCredits = HOLD;
     try {
-      await trackAiUsage({
+      const tracked = await trackAiUsage({
         supabase,
         userId: user.id,
         tenantId,
@@ -179,16 +189,30 @@ export async function POST(req: Request) {
         inputTokens: message.usage.input_tokens,
         outputTokens: message.usage.output_tokens,
       });
+      if (founder) {
+        realCredits = 0; // journalisé pour le suivi des coûts, jamais débité
+      } else {
+        realCredits = tracked;
+        await reconcileCredits(supabase, createAdminClient(), user.id, HOLD, realCredits);
+      }
     } catch {
       // ignore
     }
+
+    await logActivity(supabase, {
+      tenantId,
+      userId: user.id,
+      action: "document",
+      entityType: "analyse",
+      description: `Analyse IA : ${files.length} document(s) (${files.map((f) => f.name).join(", ").slice(0, 120)})`,
+    });
 
     return Response.json({
       kind: "analysis",
       extraction,
       answer,
       fileCount: files.length,
-      creditsUsed: creditCost,
+      creditsUsed: realCredits,
     });
   } catch (err) {
     console.error("Analyze error:", err);

@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase";
+import { Dropdown } from "@/components/dropdown";
 import {
   Boxes,
   HardHat,
@@ -22,14 +23,28 @@ import {
   X,
   Loader2,
   ChevronRight,
-  Building2,
-  Phone,
-  Mail,
-  MapPin,
-  Euro,
   Sparkles,
+  Upload,
+  Check,
+  AlertTriangle,
+  ArrowRight,
+  Trash2,
+  Download,
+  FileSpreadsheet,
+  MapPin,
+  Tags,
+  FileSignature,
+  Receipt,
+  Clock,
+  RefreshCw,
+  Gauge,
+  Plus,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { ENTITIES, FORM_FIELDS, RELATION_DISPLAY, type FormField } from "@/lib/data-entities";
+import { getActiveMembership } from "@/lib/tenant";
+import { AddToCalendar } from "@/components/add-to-calendar";
+import { getCurrentPosition, gpsLine, type CalendarEvent } from "@/lib/integrations";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Workspace — la mémoire de l'entreprise.
@@ -114,12 +129,12 @@ const ENTITY_META: Record<string, EntityMeta> = {
     title: (r) => r.nom ?? "Matériau",
     subtitle: (r) => joinTruthy(r.categorie, r.statut),
     search: (r) => joinTruthy(r.nom, r.reference, r.categorie),
-    detailFields: ["reference", "categorie", "quantite", "unite", "statut", "date_retour", "notes"],
+    detailFields: ["reference", "categorie", "quantite", "unite", "statut", "prix_achat_ht", "prix_vente_ht", "seuil_alerte", "date_retour", "notes"],
   },
   equipment: {
     label: "Équipement",
     icon: Wrench,
-    accent: "text-teal-600 bg-teal-50",
+    accent: "text-cyan-600 bg-cyan-50",
     title: (r) => r.nom ?? "Équipement",
     subtitle: (r) => joinTruthy(r.marque, r.statut),
     search: (r) => joinTruthy(r.nom, r.reference, r.marque, r.numero_serie),
@@ -130,9 +145,9 @@ const ENTITY_META: Record<string, EntityMeta> = {
     icon: Truck,
     accent: "text-rose-600 bg-rose-50",
     title: (r) => r.nom ?? "Fournisseur",
-    subtitle: (r) => joinTruthy(r.type, r.ville),
-    search: (r) => joinTruthy(r.nom, r.email, r.ville, r.siret),
-    detailFields: ["type", "email", "tel", "adresse", "ville", "code_postal", "siret", "notes"],
+    subtitle: (r) => joinTruthy(r.categorie === "sous_traitant" ? "Sous-traitant" : r.categorie, r.specialite, r.ville),
+    search: (r) => joinTruthy(r.nom, r.email, r.ville, r.siret, r.specialite),
+    detailFields: ["categorie", "specialite", "type", "email", "tel", "adresse", "ville", "code_postal", "siret", "assurance_decennale", "assurance_expire", "notes"],
   },
   tasks: {
     label: "Tâches",
@@ -143,12 +158,72 @@ const ENTITY_META: Record<string, EntityMeta> = {
     search: (r) => joinTruthy(r.title, r.description),
     detailFields: ["status", "priority", "due_date", "done_at", "description"],
   },
+  catalogue: {
+    label: "Catalogue",
+    icon: Tags,
+    accent: "text-teal-600 bg-teal-50",
+    title: (r) => r.designation ?? "Prestation",
+    subtitle: (r) => joinTruthy(r.type, r.prix_vente_ht != null ? `${r.prix_vente_ht} €` : null),
+    search: (r) => joinTruthy(r.designation, r.reference, r.corps_metier, r.type),
+    detailFields: ["type", "reference", "unite", "prix_achat_ht", "prix_vente_ht", "taux_tva", "corps_metier", "notes"],
+  },
+  devis: {
+    label: "Devis",
+    icon: FileSignature,
+    accent: "text-purple-600 bg-purple-50",
+    title: (r) => r.numero ?? "Devis",
+    subtitle: (r) => joinTruthy(r.statut, r.montant_ttc != null ? `${r.montant_ttc} € TTC` : null),
+    search: (r) => joinTruthy(r.numero, r.statut, r.conditions, r.notes),
+    detailFields: ["numero", "statut", "date_devis", "date_validite", "montant_ht", "montant_tva", "montant_ttc", "conditions", "notes"],
+  },
+  factures: {
+    label: "Factures",
+    icon: Receipt,
+    accent: "text-green-600 bg-green-50",
+    title: (r) => r.numero ?? "Facture",
+    subtitle: (r) => joinTruthy(r.type, r.statut, r.montant_ttc != null ? `${r.montant_ttc} € TTC` : null),
+    search: (r) => joinTruthy(r.numero, r.type, r.statut, r.notes),
+    detailFields: ["numero", "type", "statut", "date_facture", "date_echeance", "montant_ht", "montant_tva", "montant_ttc", "montant_paye", "notes"],
+  },
+  pointages: {
+    label: "Pointage",
+    icon: Clock,
+    accent: "text-blue-600 bg-blue-50",
+    title: (r) => (r.heures != null ? `${r.heures} h` : "Pointage"),
+    subtitle: (r) => joinTruthy(r.type, r.date_pointage),
+    search: (r) => joinTruthy(r.type, r.date_pointage, r.notes),
+    detailFields: ["date_pointage", "heures", "type", "valide", "notes"],
+  },
+  contrats: {
+    label: "Contrats",
+    icon: RefreshCw,
+    accent: "text-amber-600 bg-amber-50",
+    title: (r) => r.reference ?? "Contrat d'entretien",
+    subtitle: (r) => joinTruthy(r.type, r.periodicite, r.statut),
+    search: (r) => joinTruthy(r.reference, r.type, r.notes),
+    detailFields: ["reference", "type", "montant", "periodicite", "date_debut", "date_fin", "prochaine_echeance", "statut", "notes"],
+  },
+  parc_installe: {
+    label: "Parc installé",
+    icon: Gauge,
+    accent: "text-red-600 bg-red-50",
+    title: (r) => joinTruthy(r.marque, r.modele) || r.type || "Équipement",
+    subtitle: (r) => joinTruthy(r.type, r.localisation),
+    search: (r) => joinTruthy(r.marque, r.modele, r.numero_serie, r.type, r.localisation),
+    detailFields: ["type", "marque", "modele", "numero_serie", "localisation", "date_pose", "date_garantie", "dernier_entretien", "prochain_entretien", "notes"],
+  },
 };
 
-const ENTITY_ORDER = [
-  "chantiers", "clients", "employees", "documents",
-  "interventions", "materials", "equipment", "suppliers", "tasks",
+// Les entités groupées par thème — pour une vue d'ensemble LISIBLE (sections)
+// plutôt qu'un mur de tuiles à plat. ENTITY_ORDER en découle (chargement + recherche).
+const ENTITY_GROUPS: { title: string; entities: string[] }[] = [
+  { title: "Acteurs & chantiers", entities: ["chantiers", "clients", "employees"] },
+  { title: "Argent", entities: ["devis", "factures", "catalogue"] },
+  { title: "Service & récurrent", entities: ["interventions", "contrats", "parc_installe", "pointages"] },
+  { title: "Logistique", entities: ["materials", "equipment", "suppliers"] },
+  { title: "Suivi & documents", entities: ["documents", "tasks"] },
 ];
+const ENTITY_ORDER = ENTITY_GROUPS.flatMap((g) => g.entities);
 
 const FIELD_LABELS: Record<string, string> = {
   adresse: "Adresse", ville: "Ville", code_postal: "Code postal", budget: "Budget (€)",
@@ -160,6 +235,18 @@ const FIELD_LABELS: Record<string, string> = {
   marque: "Marque", numero_serie: "N° série", date_achat: "Achat", prochain_controle: "Prochain contrôle",
   date_prevue: "Prévue le", date_reelle: "Réalisée le", duree_heures: "Durée (h)", rapport: "Rapport",
   priority: "Priorité", due_date: "Échéance", done_at: "Terminée le",
+  // Couche argent + récurrent + parc installé
+  designation: "Désignation", prix_achat_ht: "Prix d'achat HT (€)", prix_vente_ht: "Prix de vente HT (€)",
+  taux_tva: "TVA (%)", numero: "Numéro", date_devis: "Date du devis", date_validite: "Validité",
+  montant_ht: "Montant HT (€)", montant_tva: "TVA (€)", montant_ttc: "Montant TTC (€)",
+  montant_paye: "Payé (€)", conditions: "Conditions", date_facture: "Date de facture", date_echeance: "Échéance",
+  prix_unitaire_ht: "PU HT (€)", total_ht: "Total HT (€)", position: "Position",
+  date_pointage: "Date", heures: "Heures", valide: "Validé",
+  montant: "Montant (€)", periodicite: "Périodicité", date_fin: "Fin", prochaine_echeance: "Prochaine échéance",
+  modele: "Modèle", localisation: "Emplacement", date_pose: "Posé le", date_garantie: "Garantie jusqu'au",
+  dernier_entretien: "Dernier entretien", prochain_entretien: "Prochain entretien",
+  seuil_alerte: "Seuil d'alerte", specialite: "Spécialité",
+  assurance_decennale: "Assurance décennale", assurance_expire: "Assurance expire le",
 };
 
 const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -184,9 +271,10 @@ async function listEntity(entity: string): Promise<Row[]> {
 // ─── Petit renderer de valeur de champ ──────────────────────────────────────
 function FieldRow({ k, v }: { k: string; v: unknown }) {
   if (v === null || v === undefined || v === "") return null;
-  const isDate = /_at$|date|expires|controle/.test(k) && typeof v === "string" && v.length >= 8;
+  const isDate = /_at$|date|expire|controle|entretien|echeance|garantie|validite|pose/.test(k) && typeof v === "string" && v.length >= 8;
   let display: React.ReactNode = String(v);
   if (k === "avancement") display = `${v}%`;
+  else if (typeof v === "boolean") display = v ? "Oui" : "Non";
   else if (isDate) display = fmtDate(String(v));
   else if (k === "url" && typeof v === "string") {
     display = (
@@ -246,29 +334,68 @@ function RelatedGroup({
 
 // ─── Panneau de détail (drawer) ─────────────────────────────────────────────
 function DetailDrawer({
-  entity, id, data, onClose, onOpen,
+  entity, id, data, onClose, onOpen, onRefresh,
 }: {
   entity: string;
   id: string;
   data: DataMap;
   onClose: () => void;
   onOpen: (entity: string, id: string) => void;
+  /** Recharge les données après une mutation faite depuis le drawer (GPS…). */
+  onRefresh?: () => void;
 }) {
   const meta = ENTITY_META[entity];
   const row = (data[entity] ?? []).find((r) => r.id === id);
+  // Relevé GPS (interventions) : position du téléphone → rapport.
+  const [gpsBusy, setGpsBusy] = useState(false);
+  const [gpsMsg, setGpsMsg] = useState<string | null>(null);
 
   const related = useMemo(() => {
     if (!row) return null;
+    const linkedTo = (e: string, fk: string) => (data[e] ?? []).filter((r) => r[fk] === row.id);
+    const find = (e: string, id: unknown) => (id ? (data[e] ?? []).find((r) => r.id === id) ?? null : null);
     if (entity === "chantiers") {
-      const byChantier = (e: string) => (data[e] ?? []).filter((r) => r.chantier_id === row.id);
+      const actors: { entity: string; row: Row }[] = [];
+      const cl = find("clients", row.client_id);
+      const chef = find("employees", row.chef_chantier_id);
+      if (cl) actors.push({ entity: "clients", row: cl });
+      if (chef) actors.push({ entity: "employees", row: chef });
       return {
-        client: (data.clients ?? []).find((c) => c.id === row.client_id) ?? null,
-        chef: (data.employees ?? []).find((e) => e.id === row.chef_chantier_id) ?? null,
-        documents: byChantier("documents"),
-        interventions: byChantier("interventions"),
-        materials: byChantier("materials"),
-        equipment: byChantier("equipment"),
-        tasks: byChantier("tasks"),
+        actors,
+        groups: [
+          { label: "Devis", entity: "devis", rows: linkedTo("devis", "chantier_id") },
+          { label: "Factures", entity: "factures", rows: linkedTo("factures", "chantier_id") },
+          { label: "Documents", entity: "documents", rows: linkedTo("documents", "chantier_id") },
+          { label: "Interventions", entity: "interventions", rows: linkedTo("interventions", "chantier_id") },
+          { label: "Matériaux", entity: "materials", rows: linkedTo("materials", "chantier_id") },
+          { label: "Équipement", entity: "equipment", rows: linkedTo("equipment", "chantier_id") },
+          { label: "Pointage", entity: "pointages", rows: linkedTo("pointages", "chantier_id") },
+          { label: "Tâches", entity: "tasks", rows: linkedTo("tasks", "chantier_id") },
+        ],
+      };
+    }
+    if (entity === "clients") {
+      return {
+        actors: [] as { entity: string; row: Row }[],
+        groups: [
+          { label: "Chantiers", entity: "chantiers", rows: linkedTo("chantiers", "client_id") },
+          { label: "Devis", entity: "devis", rows: linkedTo("devis", "client_id") },
+          { label: "Factures", entity: "factures", rows: linkedTo("factures", "client_id") },
+          { label: "Contrats", entity: "contrats", rows: linkedTo("contrats", "client_id") },
+          { label: "Parc installé", entity: "parc_installe", rows: linkedTo("parc_installe", "client_id") },
+          { label: "Interventions", entity: "interventions", rows: linkedTo("interventions", "client_id") },
+          { label: "Documents", entity: "documents", rows: linkedTo("documents", "client_id") },
+        ],
+      };
+    }
+    if (entity === "employees") {
+      return {
+        actors: [] as { entity: string; row: Row }[],
+        groups: [
+          { label: "Chantiers dirigés", entity: "chantiers", rows: linkedTo("chantiers", "chef_chantier_id") },
+          { label: "Interventions", entity: "interventions", rows: linkedTo("interventions", "employee_id") },
+          { label: "Tâches", entity: "tasks", rows: linkedTo("tasks", "assignee_id") },
+        ],
       };
     }
     return null;
@@ -282,13 +409,70 @@ function DetailDrawer({
   const parentClient = row.client_id ? (data.clients ?? []).find((c) => c.id === row.client_id) : null;
   const parentEmployee = row.employee_id ? (data.employees ?? []).find((e) => e.id === row.employee_id) : null;
 
+  // « Ajouter au calendrier » : interventions datées et tâches à échéance.
+  let calendarEvent: CalendarEvent | null = null;
+  const context = parentChantier?.nom ?? parentClient?.nom ?? null;
+  const location = parentChantier
+    ? [parentChantier.adresse, parentChantier.code_postal, parentChantier.ville].filter(Boolean).join(", ")
+    : null;
+  if (entity === "interventions" && row.date_prevue) {
+    const start = new Date(row.date_prevue);
+    if (!isNaN(start.getTime())) {
+      calendarEvent = {
+        title: `${row.type ?? "Intervention"}${context ? ` — ${context}` : ""}`,
+        start,
+        end: row.duree_heures ? new Date(start.getTime() + Number(row.duree_heures) * 3600_000) : null,
+        location,
+        description: row.description ?? null,
+      };
+    }
+  } else if (entity === "tasks" && row.due_date) {
+    const start = new Date(row.due_date);
+    if (!isNaN(start.getTime())) {
+      calendarEvent = {
+        title: row.title ?? "Tâche",
+        start,
+        allDay: true,
+        location,
+        description: row.description ?? null,
+      };
+    }
+  }
+
+  // Relevé GPS : ajoute la position du téléphone au rapport d'intervention.
+  const recordPosition = async () => {
+    if (gpsBusy) return;
+    setGpsBusy(true);
+    setGpsMsg(null);
+    try {
+      const p = await getCurrentPosition();
+      const line = gpsLine(p, new Date());
+      const rapport = row.rapport ? `${row.rapport}\n${line}` : line;
+      const res = await fetch("/api/data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entity: "interventions", action: "update", id: row.id, values: { rapport } }),
+      });
+      if (!res.ok) throw new Error("Enregistrement impossible. Réessayez.");
+      onRefresh?.();
+      setGpsMsg("Position enregistrée dans le rapport.");
+    } catch (e) {
+      setGpsMsg(e instanceof Error ? e.message : "Position impossible à relever.");
+    } finally {
+      setGpsBusy(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="flex-1 bg-black/25 backdrop-blur-[2px]" onClick={onClose} />
       <aside className="w-full max-w-[440px] h-full bg-white border-l border-[#EDEDE9] shadow-[-16px_0_50px_rgba(60,40,120,0.10)] flex flex-col animate-[slideIn_.3s_cubic-bezier(0.16,1,0.3,1)]">
         {/* Header */}
         <div className="flex items-start gap-3 p-5 border-b border-[#EDEDE9] flex-shrink-0">
-          <span className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${meta.accent}`}>
+          <span
+            className="grid h-11 w-11 flex-shrink-0 place-items-center rounded-[14px] text-white shadow-[0_8px_20px_rgba(80,50,160,0.24)]"
+            style={gradStyle(entity)}
+          >
             <Icon className="w-5 h-5" />
           </span>
           <div className="flex-1 min-w-0">
@@ -309,6 +493,28 @@ function DetailDrawer({
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
+          {/* Actions rapides : agenda de l'artisan + relevé GPS terrain */}
+          {(calendarEvent || entity === "interventions") && (
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                {calendarEvent && <AddToCalendar event={calendarEvent} />}
+                {entity === "interventions" && (
+                  <button
+                    type="button"
+                    onClick={recordPosition}
+                    disabled={gpsBusy}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-[#F3EFFC] text-[#7C3AED] border border-[#E2D9F8] text-xs font-semibold rounded-lg hover:bg-[#EAE2FA] hover:border-[#C9BEF0] transition-all disabled:opacity-60"
+                    title="Ajoute la position GPS du téléphone au rapport d'intervention"
+                  >
+                    {gpsBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MapPin className="h-3.5 w-3.5" />}
+                    Relever ma position
+                  </button>
+                )}
+              </div>
+              {gpsMsg && <p className="mt-2 text-[11px] leading-snug text-[#7C3AED]">{gpsMsg}</p>}
+            </div>
+          )}
+
           {/* Avancement (chantier) */}
           {entity === "chantiers" && (
             <div className="h-1.5 w-full bg-[#F1F1EC] rounded-full overflow-hidden">
@@ -329,21 +535,18 @@ function DetailDrawer({
             </div>
           )}
 
-          {/* Relations d'un chantier (le cœur du « tout est relié ») */}
+          {/* Relations (le cœur du « tout est relié ») */}
           {related && (
             <div className="space-y-5">
-              {(related.client || related.chef) && (
+              {related.actors.length > 0 && (
                 <div className="space-y-0.5">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9A9A97] px-3 mb-1">Acteurs</p>
-                  {related.client && <RelatedItem entity="clients" row={related.client} onOpen={onOpen} />}
-                  {related.chef && <RelatedItem entity="employees" row={related.chef} onOpen={onOpen} />}
+                  {related.actors.map((a) => <RelatedItem key={a.row.id} entity={a.entity} row={a.row} onOpen={onOpen} />)}
                 </div>
               )}
-              <RelatedGroup label="Documents" entity="documents" rows={related.documents} onOpen={onOpen} />
-              <RelatedGroup label="Interventions" entity="interventions" rows={related.interventions} onOpen={onOpen} />
-              <RelatedGroup label="Matériaux" entity="materials" rows={related.materials} onOpen={onOpen} />
-              <RelatedGroup label="Équipement" entity="equipment" rows={related.equipment} onOpen={onOpen} />
-              <RelatedGroup label="Tâches" entity="tasks" rows={related.tasks} onOpen={onOpen} />
+              {related.groups.map((g) => (
+                <RelatedGroup key={g.label} label={g.label} entity={g.entity} rows={g.rows} onOpen={onOpen} />
+              ))}
             </div>
           )}
 
@@ -364,46 +567,963 @@ function DetailDrawer({
 }
 
 // ─── Carte-tuile d'entité (vue d'ensemble) ──────────────────────────────────
+// Dégradés de puce d'icône par entité (135°, façon landing : chip coloré + icône
+// blanche + ombre teintée). C'est ce qui donne le « wow » vs des pastilles plates.
+const ENTITY_GRAD: Record<string, [string, string]> = {
+  chantiers: ["#8B7CF6", "#6D4AFF"],
+  clients: ["#4CC3F7", "#3B82F6"],
+  employees: ["#34D399", "#10B981"],
+  devis: ["#B57BF7", "#8B3FE8"],
+  factures: ["#34D07A", "#16A34A"],
+  catalogue: ["#2FD9C5", "#14B8A6"],
+  interventions: ["#FBBF5A", "#F59E0B"],
+  contrats: ["#FBA36B", "#F97316"],
+  parc_installe: ["#F98080", "#EF4444"],
+  pointages: ["#6FA8FB", "#3B82F6"],
+  materials: ["#FBA55A", "#EA580C"],
+  equipment: ["#3FD9EE", "#06B6D4"],
+  suppliers: ["#FB8098", "#F43F5E"],
+  documents: ["#8E9BF8", "#6366F1"],
+  tasks: ["#ED8BF9", "#D946EF"],
+};
+const entityGrad = (e: string): [string, string] => ENTITY_GRAD[e] ?? ["#8B7CF6", "#6D4AFF"];
+const gradStyle = (e: string) => {
+  const [c1, c2] = entityGrad(e);
+  return { background: `linear-gradient(135deg, ${c1}, ${c2})` };
+};
+
 function EntityTile({
   entity, rows, onClick,
 }: { entity: string; rows: Row[]; onClick: () => void }) {
   const meta = ENTITY_META[entity];
   const Icon = meta.icon;
+  const n = rows.length;
   return (
     <button
       onClick={onClick}
-      className="group text-left bg-white border border-[#E7E7E4] rounded-2xl p-5 transition-all duration-300 hover:border-[#C9C9C4] hover:-translate-y-0.5 hover:shadow-[0_16px_40px_rgba(0,0,0,0.06)]"
+      className="group flex flex-col text-left rounded-[20px] border border-[#EBEBF1] bg-white p-[18px] shadow-[0_12px_40px_rgba(60,40,120,0.06)] transition-all duration-300 hover:-translate-y-1 hover:border-[#DBD3F1] hover:shadow-[0_26px_64px_rgba(60,40,120,0.15)]"
     >
-      <div className="flex items-center justify-between mb-4">
-        <span className={`w-10 h-10 rounded-xl flex items-center justify-center ${meta.accent}`}>
-          <Icon className="w-5 h-5" />
+      <div className="mb-3.5 flex items-center justify-between">
+        <span
+          className="grid h-11 w-11 place-items-center rounded-[14px] text-white shadow-[0_8px_20px_rgba(80,50,160,0.24)] transition-transform duration-300 group-hover:scale-[1.06]"
+          style={gradStyle(entity)}
+        >
+          <Icon className="h-5 w-5" />
         </span>
-        <span className="text-2xl font-black text-[#0A0A0A] tabular-nums tracking-[-0.02em]">{rows.length}</span>
+        <span className={`text-[19px] font-black tabular-nums tracking-[-0.03em] transition-colors ${n ? "text-[#0A0A0A]" : "text-[#D3D3DC]"}`}>{n}</span>
       </div>
-      <h3 className="text-sm font-semibold text-[#0A0A0A]">{meta.label}</h3>
-      <p className="text-[12px] text-[#9A9A97] truncate mt-0.5">
-        {rows.length ? rows.slice(0, 3).map((r) => meta.title(r)).join(", ") : "Aucune donnée"}
+      <h3 className="text-[14px] font-semibold leading-tight tracking-[-0.01em] text-[#0A0A0A]">{meta.label}</h3>
+      <p className="mt-0.5 truncate text-[11.5px] text-[#9A9AA6]">
+        {n ? rows.slice(0, 2).map((r) => meta.title(r)).join(", ") : "Vide"}
       </p>
     </button>
   );
 }
 
-function SoonTile({ label, icon: Icon }: { label: string; icon: LucideIcon }) {
+// ─────────────────────────────────────────────────────────────────────────────
+// ─── Import CSV / Excel ──────────────────────────────────────────────────────
+// Mapping automatique en-têtes de fichier → champs de l'entité (corrigeable).
+const FIELD_SYNONYMS: Record<string, string[]> = {
+  // Volontairement SANS "client"/"fournisseur" ici (trop gloutons) : gérés par NAME_ALIASES.
+  nom: ["nom", "raison sociale", "societe", "denomination", "designation", "libelle", "name", "intitule"],
+  prenom: ["prenom", "firstname"],
+  email: ["email", "e-mail", "mail", "courriel"],
+  tel: ["telephone", "tel", "phone", "portable", "mobile", "gsm", "numero de tel", "numero de telephone"],
+  adresse: ["adresse", "rue", "address", "voie"],
+  ville: ["ville", "commune", "city", "localite"],
+  code_postal: ["code postal", "codepostal", "cp", "zip", "postal"],
+  siret: ["siret", "siren", "tva"],
+  type: ["type", "categorie", "nature", "segment"],
+  notes: ["notes", "note", "remarque", "commentaire", "observation", "comment"],
+  role: ["role", "poste", "fonction"],
+  corps_metier: ["corps de metier", "specialite", "metier", "trade"],
+  taux_horaire: ["taux horaire", "cout horaire", "taux", "tarif"],
+  date_embauche: ["date embauche", "embauche", "entree"],
+  budget: ["budget", "montant", "prix", "cout total", "cout ht"],
+  budget_engage: ["cout actuel", "depense", "engage", "consomme", "cout reel", "deja facture"],
+  statut: ["statut", "status", "etat"],
+  reference: ["reference", "ref", "code"],
+  marque: ["marque", "brand", "fabricant"],
+  numero_serie: ["numero de serie", "n serie", "serial", "serie"],
+  quantite: ["quantite", "qte", "quantity", "stock", "nombre"],
+  unite: ["unite", "unit"],
+  categorie: ["categorie", "famille"],
+  description: ["description", "desc", "details"],
+  title: ["titre", "title", "sujet"],
+  priority: ["priorite", "priority", "importance"],
+  due_date: ["echeance", "date limite", "deadline", "due"],
+  date_debut: ["date debut", "debut", "start", "demarrage"],
+  date_fin_prevue: ["date fin prevue", "fin prevue", "date fin", "fin", "livraison"],
+  avancement: ["avancement", "progression", "pourcentage"],
+};
+
+// Le champ "nom principal" de chaque entité + ses alias contextuels (colonne du titre).
+const NAME_FIELD: Record<string, string> = {
+  chantiers: "nom", clients: "nom", employees: "nom", documents: "nom",
+  suppliers: "nom", materials: "nom", equipment: "nom", interventions: "type", tasks: "title",
+  catalogue: "designation", devis: "numero", factures: "numero",
+  pointages: "date_pointage", contrats: "reference", parc_installe: "modele",
+};
+const NAME_ALIASES: Record<string, string[]> = {
+  chantiers: ["chantier", "projet", "nom du chantier", "nom chantier"],
+  clients: ["client", "nom du client", "nom client"],
+  suppliers: ["fournisseur", "sous-traitant", "soustraitant"],
+  employees: ["employe", "salarie", "ouvrier", "collaborateur"],
+  materials: ["materiau", "materiel", "article"],
+  equipment: ["equipement", "engin", "machine", "outil"],
+  documents: ["document", "piece"],
+  interventions: ["intervention", "prestation"],
+  tasks: ["tache", "todo"],
+};
+
+// Score de correspondance : exact > contient un synonyme long > inversé. Plus c'est spécifique, plus le score est haut.
+function scoreMatch(nh: string, candidates: string[]): number {
+  let best = 0;
+  for (const c of candidates) {
+    if (!c) continue;
+    if (nh === c) best = Math.max(best, 1000);
+    else if (nh.includes(c)) best = Math.max(best, 200 + c.length); // synonyme long = plus précis
+    else if (c.length >= 4 && nh.length >= 4 && c.includes(nh)) best = Math.max(best, 100 + nh.length);
+  }
+  return best;
+}
+
+function autoMapColumns(headers: string[], entity: string): Record<string, string> {
+  const writable = ENTITIES[entity].writable;
+  const nameField = NAME_FIELD[entity];
+  const map: Record<string, string> = {};
+  for (const h of headers) {
+    const nh = norm(String(h).trim());
+    if (!nh) { map[h] = ""; continue; }
+    let bestField = "";
+    let bestScore = 0;
+    for (const f of writable) {
+      const cands = [norm(f), norm(FIELD_LABELS[f] ?? ""), ...(FIELD_SYNONYMS[f] ?? [])];
+      if (f === nameField) cands.push(...(NAME_ALIASES[entity] ?? []));
+      const sc = scoreMatch(nh, cands);
+      if (sc > bestScore) { bestScore = sc; bestField = f; }
+    }
+    map[h] = bestScore > 0 ? bestField : "";
+  }
+  return map;
+}
+
+// ─── Conversion des valeurs pour coller aux types Postgres (sinon insert refusé) ─
+const NUM_FIELDS = new Set([
+  "budget", "budget_engage", "taux_horaire", "quantite", "duree_heures",
+  "montant_ht", "montant_tva", "montant_ttc", "montant_paye", "montant",
+  "prix_achat_ht", "prix_vente_ht", "prix_unitaire_ht", "total_ht", "taux_tva",
+  "heures", "seuil_alerte", "position",
+]);
+const DATE_FIELDS = new Set([
+  "date_debut", "date_fin_prevue", "date_fin_reelle", "date_embauche", "date_achat",
+  "date_retour", "expires_at", "prochain_controle", "due_date", "done_at", "date_prevue", "date_reelle",
+  "date_devis", "date_validite", "date_facture", "date_echeance", "date_fin", "prochaine_echeance",
+  "date_pointage", "date_pose", "date_garantie", "dernier_entretien", "prochain_entretien", "assurance_expire",
+]);
+const CHANTIER_STATUTS = ["en_attente", "en_cours", "en_retard", "termine", "annule"];
+
+function toISODate(s: string): string | undefined {
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const m = s.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/); // JJ/MM/AAAA (FR)
+  if (m) {
+    const d = m[1], mo = m[2];
+    const y = m[3].length === 2 ? "20" + m[3] : m[3];
+    return `${y}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+  return undefined;
+}
+function mapChantierStatut(s: string): string | undefined {
+  const t = norm(s);
+  if (CHANTIER_STATUTS.includes(t)) return t;
+  if (/(attente|venir|planifi|prevu)/.test(t)) return "en_attente";
+  if (/retard/.test(t)) return "en_retard";
+  if (/(cours|demarr|encours|realis)/.test(t)) return "en_cours";
+  if (/(termin|fini|livr|receptionn|factur|clotur|acheve)/.test(t)) return "termine";
+  if (/(annul|abandon)/.test(t)) return "annule";
+  return undefined;
+}
+// Renvoie la valeur convertie, ou undefined si inexploitable (le champ est alors ignoré).
+function coerceValue(entity: string, field: string, raw: unknown): string | number | undefined {
+  const s = String(raw ?? "").trim();
+  if (s === "") return undefined;
+  if (entity === "chantiers" && field === "statut") return mapChantierStatut(s);
+  if (field === "avancement") {
+    const n = parseInt(s.replace(/[^0-9]/g, ""), 10);
+    return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : undefined;
+  }
+  if (NUM_FIELDS.has(field)) {
+    const n = parseFloat(s.replace(/[^0-9.,-]/g, "").replace(/\s/g, "").replace(",", "."));
+    return Number.isFinite(n) ? n : undefined;
+  }
+  if (DATE_FIELDS.has(field)) return toISODate(s);
+  return s;
+}
+
+// Construit les lignes prêtes pour /api/data à partir d'un mapping colonne→champ.
+function rowsFromMapping(headers: string[], rows: XLSXRow[], mapping: Record<string, string>, entity: string) {
+  return rows
+    .map((r) => {
+      const o: Record<string, string | number> = {};
+      for (const h of headers) {
+        const f = mapping[h];
+        if (!f) continue;
+        const v = coerceValue(entity, f, r[h]);
+        if (v !== undefined) o[f] = v;
+      }
+      return o;
+    })
+    .filter((o) => Object.keys(o).length > 0);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type XLSXRow = Record<string, any>;
+
+function ImportModal({ entity, onClose, onImported }: { entity: string; onClose: () => void; onImported: () => void }) {
+  const def = ENTITIES[entity];
+  const meta = ENTITY_META[entity];
+  const writable = def.writable;
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [fileName, setFileName] = useState("");
+  const [rows, setRows] = useState<XLSXRow[]>([]);
+  const [headers, setHeaders] = useState<string[]>([]);
+  const [mapping, setMapping] = useState<Record<string, string>>({});
+  const [parsing, setParsing] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<number | null>(null);
+
+  const reset = () => { setHeaders([]); setRows([]); setFileName(""); setMapping({}); setError(null); };
+
+  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setError(null); setParsing(true); setFileName(file.name);
+    try {
+      const XLSX = await import("xlsx");
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array" });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json<XLSXRow>(sheet, { defval: "", raw: false });
+      if (!json.length) { setError("Le fichier semble vide."); setParsing(false); return; }
+      const hs = Object.keys(json[0]).filter((h) => h && !h.startsWith("__EMPTY"));
+      setHeaders(hs);
+      setRows(json);
+      setMapping(autoMapColumns(hs, entity));
+    } catch {
+      setError("Impossible de lire ce fichier. Formats acceptés : CSV, XLSX, XLS.");
+    } finally {
+      setParsing(false);
+    }
+  };
+
+  const mappedHeaders = headers.filter((h) => mapping[h]);
+  const doImport = async () => {
+    setImporting(true); setError(null);
+    const payload = rowsFromMapping(headers, rows, mapping, entity);
+    if (!payload.length) { setError("Aucune donnée à importer (vérifiez la correspondance des colonnes)."); setImporting(false); return; }
+    try {
+      const res = await fetch("/api/data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entity, action: "bulk_create", rows: payload }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Échec de l'import.");
+      setDone(j.inserted ?? payload.length);
+      onImported();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Échec de l'import.");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
-    <div className="bg-white/60 border border-dashed border-[#E7E7E4] rounded-2xl p-5 select-none">
-      <div className="flex items-center justify-between mb-4">
-        <span className="w-10 h-10 rounded-xl flex items-center justify-center bg-black/[0.03] text-[#C9C9C4]">
-          <Icon className="w-5 h-5" />
-        </span>
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-[#9A9A97] bg-black/[0.04] px-2 py-1 rounded-full">Bientôt</span>
+    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-[#0A0A0F]/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-2xl max-h-[88vh] bg-white rounded-[24px] shadow-[0_50px_130px_rgba(20,20,50,0.4)] flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between px-6 h-16 border-b border-[#ECECF2] flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <span className={`w-9 h-9 rounded-xl flex items-center justify-center ${meta.accent}`}><Upload className="w-5 h-5" /></span>
+            <div>
+              <h3 className="font-bold text-[#0A0A0A]">Importer des {meta.label.toLowerCase()}</h3>
+              <p className="text-[12px] text-[#9A9A97]">Fichier CSV ou Excel (.xlsx, .xls)</p>
+            </div>
+          </div>
+          <button onClick={onClose} aria-label="Fermer" className="w-9 h-9 rounded-full hover:bg-black/[0.05] flex items-center justify-center text-[#6E6E7A]"><X className="w-[18px] h-[18px]" /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          {done !== null ? (
+            <div className="flex flex-col items-center justify-center py-10 text-center">
+              <span className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-4"><Check className="w-7 h-7" /></span>
+              <h4 className="text-lg font-bold text-[#0A0A0A] mb-1">{done} {meta.label.toLowerCase()} importés</h4>
+              <p className="text-sm text-[#6E6E6C] max-w-xs">Ils sont dans votre workspace, et vos applications générées les verront automatiquement.</p>
+              <button onClick={onClose} className="mt-6 px-5 py-2.5 rounded-full bg-[#0A0A0A] text-white text-sm font-semibold hover:bg-[#222] transition-colors">Terminé</button>
+            </div>
+          ) : headers.length === 0 ? (
+            <div>
+              <button onClick={() => fileRef.current?.click()} className="w-full border-2 border-dashed border-[#E2E2EA] rounded-2xl py-12 flex flex-col items-center justify-center gap-3 hover:border-violet-300 hover:bg-violet-50/40 transition-colors">
+                {parsing ? <Loader2 className="w-8 h-8 text-violet-500 animate-spin" /> : <Upload className="w-8 h-8 text-[#9A9AA6]" />}
+                <span className="text-sm font-semibold text-[#0A0A0A]">{parsing ? "Lecture du fichier…" : "Choisir un fichier"}</span>
+                <span className="text-[12px] text-[#9A9A97]">CSV, XLSX ou XLS · la 1ʳᵉ ligne doit contenir les en-têtes de colonnes</span>
+              </button>
+              <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="hidden" onChange={onFile} />
+              <p className="mt-5 text-[12px] text-[#9A9A97] leading-relaxed">
+                Colonnes reconnues automatiquement : {writable.map((f) => FIELD_LABELS[f] ?? f).join(", ")}.
+              </p>
+            </div>
+          ) : (
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-[13px] text-[#6E6E6C]"><b className="text-[#0A0A0A] tabular-nums">{rows.length}</b> lignes · <span className="font-medium">{fileName}</span></p>
+                <button onClick={reset} className="text-[12px] font-medium text-violet-600 hover:opacity-80">Changer de fichier</button>
+              </div>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9A9A97] mb-2">Correspondance des colonnes</p>
+              <div className="space-y-1.5 mb-5">
+                {headers.map((h) => (
+                  <div key={h} className="flex items-center gap-2.5">
+                    <span className="flex-1 min-w-0 text-[13px] text-[#0A0A0A] truncate bg-[#F6F6F9] border border-[#ECECF2] rounded-lg px-3 py-2">{h}</span>
+                    <ArrowRight className="w-4 h-4 text-[#C9C9C4] flex-shrink-0" />
+                    <Dropdown
+                      value={mapping[h] ?? ""}
+                      onChange={(v) => setMapping((m) => ({ ...m, [h]: v }))}
+                      ariaLabel={`Correspondance de la colonne ${h}`}
+                      size="sm"
+                      className="flex-1 min-w-0"
+                      options={[
+                        { value: "", label: "Ignorer cette colonne" },
+                        ...writable.map((f) => ({ value: f, label: FIELD_LABELS[f] ?? f })),
+                      ]}
+                    />
+                  </div>
+                ))}
+              </div>
+              {mappedHeaders.length > 0 && (
+                <>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9A9A97] mb-2">Aperçu</p>
+                  <div className="overflow-x-auto border border-[#ECECF2] rounded-xl">
+                    <table className="w-full text-[12px]">
+                      <thead><tr className="bg-[#FAFAFC]">
+                        {mappedHeaders.map((h) => <th key={h} className="text-left font-semibold text-[#6E6E6C] px-3 py-2 whitespace-nowrap">{FIELD_LABELS[mapping[h]] ?? mapping[h]}</th>)}
+                      </tr></thead>
+                      <tbody>
+                        {rows.slice(0, 3).map((r, i) => (
+                          <tr key={i} className="border-t border-[#F1F1F5]">
+                            {mappedHeaders.map((h) => <td key={h} className="px-3 py-2 text-[#0A0A0A] whitespace-nowrap max-w-[160px] truncate">{String(r[h] ?? "")}</td>)}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {error && (
+            <div className="mt-4 flex items-start gap-2 text-[13px] text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2.5">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" /> <span>{error}</span>
+            </div>
+          )}
+        </div>
+
+        {done === null && headers.length > 0 && (
+          <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-[#ECECF2] flex-shrink-0">
+            <span className="text-[12px] text-[#9A9A97]">{mappedHeaders.length} colonne{mappedHeaders.length > 1 ? "s" : ""} mappée{mappedHeaders.length > 1 ? "s" : ""}</span>
+            <button onClick={doImport} disabled={importing || mappedHeaders.length === 0} className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 text-white font-semibold px-6 py-2.5 rounded-full shadow-[0_10px_26px_rgba(124,58,190,0.32)] hover:brightness-105 active:scale-[0.98] transition disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none">
+              {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+              Importer {rows.length} ligne{rows.length > 1 ? "s" : ""}
+            </button>
+          </div>
+        )}
       </div>
-      <h3 className="text-sm font-semibold text-[#9A9A97]">{label}</h3>
-      <p className="text-[12px] text-[#C9C9C4] mt-0.5">En cours de branchement</p>
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Import GLOBAL intelligent : un fichier dénormalisé → réparti et relié ───
+// Noms de feuille / fichier → entité (pour ranger automatiquement).
+const SHEET_SYNONYMS: Record<string, string[]> = {
+  chantiers: ["chantier", "chantiers", "projet", "projets"],
+  clients: ["client", "clients", "crm", "prospect", "prospects"],
+  employees: ["employe", "employes", "salarie", "salaries", "equipe", "equipes", "personnel", "ouvrier", "ouvriers", "main d'oeuvre"],
+  documents: ["document", "documents", "attestation", "attestations"],
+  interventions: ["intervention", "interventions", "sav", "depannage"],
+  materials: ["materiau", "materiaux", "materiel", "stock", "fourniture", "fournitures"],
+  equipment: ["equipement", "equipements", "engin", "engins", "outillage", "machine", "machines"],
+  suppliers: ["fournisseur", "fournisseurs", "sous-traitant", "sous-traitants", "soustraitant"],
+  tasks: ["tache", "taches", "todo", "todos"],
+  catalogue: ["catalogue", "tarif", "tarifs", "prix", "prestation", "prestations", "ouvrage", "ouvrages", "bordereau"],
+  devis: ["devis", "estimation", "estimations", "chiffrage"],
+  factures: ["facture", "factures", "facturation", "acompte", "acomptes", "situation", "situations"],
+  pointages: ["pointage", "pointages", "heures", "temps", "feuille d'heures", "feuille de temps"],
+  contrats: ["contrat", "contrats", "entretien", "maintenance", "abonnement", "abonnements"],
+  parc_installe: ["parc", "parc installe", "parc client", "equipements clients", "materiel installe", "installations"],
+};
+
+function detectEntity(sheetName: string, headers: string[]): string | null {
+  const n = norm(String(sheetName).trim());
+  if (n) {
+    for (const e of ENTITY_ORDER) {
+      const cands = [e, norm(ENTITY_META[e].label), ...(SHEET_SYNONYMS[e] ?? [])];
+      if (cands.some((c) => c && (n === c || n.includes(c) || c.includes(n)))) return e;
+    }
+  }
+  if (headers.length) {
+    let best: string | null = null;
+    let bestScore = 0;
+    for (const e of ENTITY_ORDER) {
+      const score = Object.values(autoMapColumns(headers, e)).filter(Boolean).length;
+      if (score > bestScore) { bestScore = score; best = e; }
+    }
+    if (bestScore >= 2) return best;
+  }
+  return null;
+}
+
+// Mots-clés d'en-tête qui désignent une entité RÉFÉRENCÉE (à créer + relier).
+const REF_KEYWORDS: Record<string, string[]> = {
+  clients: ["client"],
+  suppliers: ["fournisseur", "sous-traitant", "soustraitant"],
+  employees: ["employe", "salarie", "ouvrier", "responsable", "chef"],
+  materials: ["materiau", "materiel"],
+  equipment: ["equipement", "engin", "machine"],
+};
+// Colonnes FK de l'entité primaire vers les entités référencées.
+const FK_LINKS: Record<string, Record<string, string>> = {
+  chantiers: { clients: "client_id", employees: "chef_chantier_id" },
+  documents: { chantiers: "chantier_id", employees: "employee_id", clients: "client_id" },
+  materials: { chantiers: "chantier_id", suppliers: "fournisseur_id" },
+  equipment: { chantiers: "chantier_id" },
+  interventions: { chantiers: "chantier_id", clients: "client_id", employees: "employee_id", equipment: "equipment_id" },
+  tasks: { chantiers: "chantier_id", employees: "assignee_id" },
+  devis: { clients: "client_id", chantiers: "chantier_id" },
+  factures: { clients: "client_id", chantiers: "chantier_id" },
+  pointages: { employees: "employee_id", chantiers: "chantier_id" },
+  contrats: { clients: "client_id" },
+  parc_installe: { clients: "client_id", chantiers: "chantier_id" },
+};
+
+type ColSel = { entity: string; field: string }; // entity "" = ignorer
+type SheetPlan = { name: string; headers: string[]; rows: XLSXRow[]; primary: string; cols: Record<string, ColSel> };
+
+function fieldFor(header: string, entity: string): string {
+  if (!entity) return "";
+  const nh = norm(header.trim());
+  let stripped = nh;
+  for (const kw of REF_KEYWORDS[entity] ?? []) stripped = stripped.replace(kw, " ").trim();
+  const probe = stripped || nh;
+  return autoMapColumns([probe], entity)[probe] || NAME_FIELD[entity] || "";
+}
+
+function classifyColumns(headers: string[], primary: string): Record<string, ColSel> {
+  const cols: Record<string, ColSel> = {};
+  for (const h of headers) {
+    const nh = norm(h.trim());
+    if (!nh) { cols[h] = { entity: "", field: "" }; continue; }
+    let refE = "", kwLen = 0;
+    for (const [e, kws] of Object.entries(REF_KEYWORDS)) {
+      if (e === primary) continue;
+      for (const kw of kws) if (nh.includes(kw) && kw.length > kwLen) { refE = e; kwLen = kw.length; }
+    }
+    if (refE) { cols[h] = { entity: refE, field: fieldFor(h, refE) }; continue; }
+    const pf = autoMapColumns([h], primary)[h];
+    cols[h] = pf ? { entity: primary, field: pf } : { entity: "", field: "" };
+  }
+  return cols;
+}
+
+function bestPrimary(name: string, headers: string[]): string {
+  const byName = detectEntity(name, headers);
+  if (byName) return byName;
+  let best = "chantiers", bs = -1;
+  for (const e of ENTITY_ORDER) {
+    const s = Object.values(autoMapColumns(headers, e)).filter(Boolean).length;
+    if (s > bs) { bs = s; best = e; }
+  }
+  return best;
+}
+
+function planSummary(plan: SheetPlan): { entity: string; count: number }[] {
+  const { headers, rows, primary, cols } = plan;
+  const out: { entity: string; count: number }[] = [{ entity: primary, count: rows.length }];
+  const refByEntity: Record<string, string[]> = {};
+  for (const h of headers) { const c = cols[h]; if (c?.entity && c.entity !== primary) (refByEntity[c.entity] ??= []).push(h); }
+  for (const e of Object.keys(refByEntity)) {
+    const nameHeader = refByEntity[e].find((h) => cols[h].field === NAME_FIELD[e]);
+    if (!nameHeader) continue;
+    const uniq = new Set<string>();
+    for (const r of rows) { const nm = norm(String(r[nameHeader] ?? "").trim()); if (nm) uniq.add(nm); }
+    if (uniq.size) out.push({ entity: e, count: uniq.size });
+  }
+  return out;
+}
+
+// Éclate une feuille : crée les entités référencées (dédoublonnées) puis l'entité
+// primaire en la reliant (client_id, chef_chantier_id…).
+async function runSplitImport(plan: SheetPlan): Promise<Record<string, number>> {
+  const { headers, rows, primary, cols } = plan;
+  const counts: Record<string, number> = {};
+  const byEntity: Record<string, string[]> = {};
+  for (const h of headers) { const c = cols[h]; if (c?.entity) (byEntity[c.entity] ??= []).push(h); }
+  const fkTargets = FK_LINKS[primary] ?? {};
+  const refEntities = Object.keys(byEntity).filter((e) => e !== primary);
+  const nameToId: Record<string, Record<string, string>> = {};
+
+  for (const e of refEntities) {
+    const nameField = NAME_FIELD[e];
+    const nameHeader = byEntity[e].find((h) => cols[h].field === nameField);
+    if (!nameHeader) continue;
+    const existing = await listEntity(e);
+    const map: Record<string, string> = {};
+    for (const row of existing) { const nm = norm(String(row[nameField] ?? "")); if (nm && !map[nm]) map[nm] = row.id; }
+    const seen = new Set<string>();
+    let created = 0;
+    for (const r of rows) {
+      const nm = norm(String(r[nameHeader] ?? "").trim());
+      if (!nm || map[nm] || seen.has(nm)) continue;
+      seen.add(nm);
+      const rec: Record<string, string | number> = {};
+      for (const h of byEntity[e]) { const v = coerceValue(e, cols[h].field, r[h]); if (v !== undefined && rec[cols[h].field] === undefined) rec[cols[h].field] = v; }
+      if (!Object.keys(rec).length) continue;
+      try {
+        const res = await fetch("/api/data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entity: e, action: "create", values: rec }) });
+        const j = await res.json();
+        if (res.ok && j.data?.id) { map[nm] = j.data.id; created++; }
+      } catch { /* ligne suivante */ }
+    }
+    nameToId[e] = map;
+    counts[e] = created;
+  }
+
+  const primaryHeaders = byEntity[primary] ?? [];
+  const payload = rows.map((r) => {
+    const rec: Record<string, string | number> = {};
+    for (const h of primaryHeaders) { const v = coerceValue(primary, cols[h].field, r[h]); if (v !== undefined && rec[cols[h].field] === undefined) rec[cols[h].field] = v; }
+    for (const e of refEntities) {
+      const fk = fkTargets[e];
+      const nameHeader = byEntity[e].find((h) => cols[h].field === NAME_FIELD[e]);
+      if (fk && nameHeader) { const id = nameToId[e]?.[norm(String(r[nameHeader] ?? "").trim())]; if (id) rec[fk] = id; }
+    }
+    return rec;
+  }).filter((rec) => Object.keys(rec).length > 0);
+  if (payload.length) {
+    try {
+      const res = await fetch("/api/data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entity: primary, action: "bulk_create", rows: payload }) });
+      const j = await res.json();
+      if (res.ok) counts[primary] = j.inserted ?? payload.length;
+    } catch { /* ignore */ }
+  }
+  return counts;
+}
+
+function DispatchImportModal({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [fileNames, setFileNames] = useState<string[]>([]);
+  const [parsing, setParsing] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [plans, setPlans] = useState<SheetPlan[]>([]);
+  const [results, setResults] = useState<{ entity: string; count: number }[] | null>(null);
+
+  const reset = () => { setPlans([]); setFileNames([]); setError(null); };
+
+  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (!files.length) return;
+    setError(null); setParsing(true);
+    setFileNames(files.map((f) => f.name));
+    try {
+      const XLSX = await import("xlsx");
+      const allPlans: SheetPlan[] = [];
+      for (const file of files) {
+        try {
+          const buf = await file.arrayBuffer();
+          const wb = XLSX.read(buf, { type: "array" });
+          const isSingleCsv = /\.csv$/i.test(file.name);
+          const sheetNames = isSingleCsv ? [file.name.replace(/\.[^.]+$/, "")] : wb.SheetNames;
+          for (let si = 0; si < sheetNames.length; si++) {
+            const sheetKey = wb.SheetNames[si] ?? wb.SheetNames[0];
+            const json = XLSX.utils.sheet_to_json<XLSXRow>(wb.Sheets[sheetKey], { defval: "", raw: false });
+            const headers = json.length ? Object.keys(json[0]).filter((h) => h && !h.startsWith("__EMPTY")) : [];
+            if (!json.length || !headers.length) continue;
+            const name = sheetNames[si];
+            const primary = bestPrimary(name, headers);
+            allPlans.push({ name, headers, rows: json, primary, cols: classifyColumns(headers, primary) });
+          }
+        } catch { /* skip fichier illisible */ }
+      }
+      if (!allPlans.length) { setError("Aucune donnée trouvée dans les fichiers sélectionnés."); setParsing(false); return; }
+      setPlans(allPlans);
+    } catch {
+      setError("Impossible de lire ces fichiers. Formats acceptés : CSV, XLSX, XLS.");
+    } finally {
+      setParsing(false);
+    }
+  };
+
+  const setPrimary = (i: number, entity: string) =>
+    setPlans((ps) => ps.map((p, k) => (k === i ? { ...p, primary: entity, cols: classifyColumns(p.headers, entity) } : p)));
+  const setCol = (i: number, header: string, entity: string) =>
+    setPlans((ps) => ps.map((p, k) => (k === i ? { ...p, cols: { ...p.cols, [header]: { entity, field: entity ? fieldFor(header, entity) : "" } } } : p)));
+
+  const doImport = async () => {
+    setImporting(true); setError(null);
+    const agg: Record<string, number> = {};
+    for (const plan of plans) {
+      const c = await runSplitImport(plan);
+      for (const [e, n] of Object.entries(c)) agg[e] = (agg[e] ?? 0) + n;
+    }
+    const arr = Object.entries(agg).filter(([, n]) => n > 0).map(([entity, count]) => ({ entity, count }));
+    if (!arr.length) { setError("Rien n'a pu être importé. Vérifiez la répartition des colonnes."); setImporting(false); return; }
+    setResults(arr); onImported(); setImporting(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-[#0A0A0F]/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-2xl max-h-[88vh] bg-white rounded-[24px] shadow-[0_50px_130px_rgba(20,20,50,0.4)] flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between px-6 h-16 border-b border-[#ECECF2] flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <span className="w-9 h-9 rounded-xl flex items-center justify-center bg-gradient-to-br from-violet-500/15 to-pink-500/10 text-violet-600"><Upload className="w-5 h-5" /></span>
+            <div>
+              <h3 className="font-bold text-[#0A0A0A]">Importer vos données</h3>
+              <p className="text-[12px] text-[#9A9A97]">Plusieurs fichiers acceptés · répartis automatiquement</p>
+            </div>
+          </div>
+          <button onClick={onClose} aria-label="Fermer" className="w-9 h-9 rounded-full hover:bg-black/[0.05] flex items-center justify-center text-[#6E6E7A]"><X className="w-[18px] h-[18px]" /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          {results ? (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <span className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-4"><Check className="w-7 h-7" /></span>
+              <h4 className="text-lg font-bold text-[#0A0A0A] mb-3">Import terminé</h4>
+              <div className="flex flex-wrap items-center justify-center gap-2 max-w-sm">
+                {results.map((r) => (
+                  <span key={r.entity} className={`text-[13px] font-semibold px-3 py-1.5 rounded-full ${ENTITY_META[r.entity]?.accent ?? "bg-violet-50 text-violet-600"}`}>
+                    {r.count} {ENTITY_META[r.entity]?.label ?? r.entity}
+                  </span>
+                ))}
+              </div>
+              <p className="text-sm text-[#6E6E6C] mt-4 max-w-xs">Tout est rangé et relié dans votre workspace, et vos apps le verront.</p>
+              <button onClick={onClose} className="mt-6 px-5 py-2.5 rounded-full bg-[#0A0A0A] text-white text-sm font-semibold hover:bg-[#222] transition-colors">Terminé</button>
+            </div>
+          ) : plans.length === 0 ? (
+            <div>
+              <button onClick={() => fileRef.current?.click()} className="w-full border-2 border-dashed border-[#E2E2EA] rounded-2xl py-12 flex flex-col items-center justify-center gap-3 hover:border-violet-300 hover:bg-violet-50/40 transition-colors">
+                {parsing ? <Loader2 className="w-8 h-8 text-violet-500 animate-spin" /> : <Upload className="w-8 h-8 text-[#9A9AA6]" />}
+                <span className="text-sm font-semibold text-[#0A0A0A]">{parsing ? "Analyse des fichiers…" : "Choisir un ou plusieurs fichiers"}</span>
+                <span className="text-[12px] text-[#9A9A97] max-w-sm text-center">CSV ou Excel · sélectionnez plusieurs fichiers en même temps. Biltia détecte chaque type de données et les répartit au bon endroit.</span>
+              </button>
+              <input ref={fileRef} type="file" multiple accept=".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="hidden" onChange={onFile} />
+            </div>
+          ) : (
+            <div className="space-y-5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  {fileNames.length === 1 ? (
+                    <p className="text-[13px] text-[#6E6E6C] truncate"><span className="font-medium text-[#0A0A0A]">{fileNames[0]}</span></p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {fileNames.map((n) => (
+                        <span key={n} className="text-[12px] font-medium bg-violet-50 text-violet-700 border border-violet-100 rounded-full px-2.5 py-0.5 truncate max-w-[200px]">{n}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <button onClick={reset} className="flex-shrink-0 text-[12px] font-medium text-violet-600 hover:opacity-80">Changer</button>
+              </div>
+              {plans.map((plan, i) => {
+                const summary = planSummary(plan);
+                return (
+                  <div key={i} className="border border-[#ECECF2] rounded-2xl p-4">
+                    <div className="flex items-center justify-between gap-3 mb-3">
+                      <div className="min-w-0">
+                        <p className="text-[13px] font-semibold text-[#0A0A0A] truncate">{plan.name}</p>
+                        <p className="text-[11px] text-[#9A9A97]">{plan.rows.length} lignes · {plan.headers.length} colonnes</p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className="text-[11px] text-[#9A9A97]">Type principal</span>
+                        <Dropdown
+                          value={plan.primary}
+                          onChange={(v) => setPrimary(i, v)}
+                          ariaLabel="Type principal"
+                          size="sm"
+                          className="w-40"
+                          options={ENTITY_ORDER.map((e) => ({ value: e, label: ENTITY_META[e].label }))}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {summary.map((s) => (
+                        <span key={s.entity} className={`text-[12px] font-semibold px-2.5 py-1 rounded-full ${ENTITY_META[s.entity]?.accent ?? "bg-violet-50 text-violet-600"}`}>
+                          {s.count} {ENTITY_META[s.entity]?.label ?? s.entity}
+                        </span>
+                      ))}
+                    </div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9A9A97] mb-2">Répartition des colonnes</p>
+                    <div className="space-y-1.5">
+                      {plan.headers.map((h) => {
+                        const sel = plan.cols[h] ?? { entity: "", field: "" };
+                        return (
+                          <div key={h} className="flex items-center gap-2.5">
+                            <span className="flex-1 min-w-0 text-[13px] text-[#0A0A0A] truncate bg-[#F6F6F9] border border-[#ECECF2] rounded-lg px-3 py-2">{h}</span>
+                            <ArrowRight className="w-4 h-4 text-[#C9C9C4] flex-shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <Dropdown
+                                value={sel.entity}
+                                onChange={(v) => setCol(i, h, v)}
+                                ariaLabel={`Entité de la colonne ${h}`}
+                                size="sm"
+                                options={[
+                                  { value: "", label: "Ignorer" },
+                                  ...ENTITY_ORDER.map((e) => ({ value: e, label: ENTITY_META[e].label })),
+                                ]}
+                              />
+                              {sel.entity && sel.field && (
+                                <span className="block text-[10.5px] text-[#9A9A97] mt-0.5 ml-1 truncate">
+                                  {FIELD_LABELS[sel.field] ?? sel.field}{sel.entity !== plan.primary && sel.field === NAME_FIELD[sel.entity] ? " · relié" : ""}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {error && (
+            <div className="mt-4 flex items-start gap-2 text-[13px] text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2.5">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" /> <span>{error}</span>
+            </div>
+          )}
+        </div>
+
+        {!results && plans.length > 0 && (
+          <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-[#ECECF2] flex-shrink-0">
+            <span className="text-[12px] text-[#9A9A97]">{plans.length} feuille{plans.length > 1 ? "s" : ""} · {plans.reduce((s, p) => s + p.rows.length, 0)} lignes au total</span>
+            <button onClick={doImport} disabled={importing} className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 text-white font-semibold px-6 py-2.5 rounded-full shadow-[0_10px_26px_rgba(124,58,190,0.32)] hover:brightness-105 active:scale-[0.98] transition disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none">
+              {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+              Importer et répartir
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Export CSV / Excel ──────────────────────────────────────────────────────
+// Miroir de l'import : le patron télécharge ses données (pour sa fiduciaire).
+// Le fichier est généré côté serveur (/api/export) : auth + tenant + RLS.
+function downloadFile(url: string) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+// ─── AJOUT MANUEL : modal générique pilotée par FORM_FIELDS ──────────────────
+// Chaque entité expose ses champs PERTINENTS (curés dans lib/data-entities.ts).
+// Les champs de relation (client_id…) sont des <select> peuplés depuis le
+// workspace — jamais de saisie libre d'un nom qui existe déjà.
+function AddRecordModal({ entity, onClose, onCreated }: { entity: string; onClose: () => void; onCreated: () => void }) {
+  const fields = FORM_FIELDS[entity] ?? [];
+  const [values, setValues] = useState<Record<string, string | boolean>>({});
+  const [relOptions, setRelOptions] = useState<Record<string, { id: string; label: string }[]>>({});
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Options des relations : chargées une fois à l'ouverture.
+  useEffect(() => {
+    const relations = [...new Set(fields.filter((f) => f.type === "relation" && f.relation).map((f) => f.relation as string))];
+    relations.forEach(async (rel) => {
+      try {
+        const res = await fetch("/api/data", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ entity: rel, action: "list", order: "created_at", ascending: false, limit: 200 }),
+        });
+        const j = await res.json();
+        const cols = RELATION_DISPLAY[rel] ?? ["nom"];
+        const opts = ((j.data ?? []) as Row[]).map((r) => ({
+          id: String(r.id),
+          label: cols.map((c) => r[c]).filter(Boolean).join(" ") || "(sans nom)",
+        }));
+        setRelOptions((prev) => ({ ...prev, [rel]: opts }));
+      } catch {
+        /* select vide = optionnel */
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entity]);
+
+  const set = (key: string, v: string | boolean) => setValues((prev) => ({ ...prev, [key]: v }));
+
+  const submit = async () => {
+    // Champs requis d'abord — message clair plutôt qu'une erreur SQL.
+    for (const f of fields) {
+      if (f.required && !String(values[f.key] ?? "").trim()) {
+        setError(`« ${f.label} » est requis.`);
+        return;
+      }
+    }
+    setSaving(true);
+    setError(null);
+    const payload: Record<string, unknown> = {};
+    for (const f of fields) {
+      const v = values[f.key];
+      if (f.type === "checkbox") payload[f.key] = v === true;
+      else if (typeof v === "string" && v.trim() !== "") payload[f.key] = f.type === "number" ? Number(v) : v.trim();
+    }
+    try {
+      const res = await fetch("/api/data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entity, action: "create", values: payload }),
+      });
+      const j = await res.json();
+      if (!res.ok) {
+        setError(j.error ?? "Enregistrement impossible.");
+        setSaving(false);
+        return;
+      }
+      onCreated();
+      onClose();
+    } catch {
+      setError("Enregistrement impossible.");
+      setSaving(false);
+    }
+  };
+
+  const inputCls =
+    "w-full rounded-xl border border-[#E7E7EE] bg-white px-3.5 py-2.5 text-[13.5px] text-[#0A0A0A] placeholder-[#B4B8C2] focus:outline-none focus:border-violet-400 focus:ring-4 focus:ring-violet-500/10 transition-all";
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="relative w-full max-w-lg max-h-[85vh] overflow-y-auto bg-white rounded-3xl shadow-[0_30px_90px_rgba(20,20,50,0.25)] p-6">
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="text-[16px] font-bold text-[#0A0A0A] tracking-[-0.02em]">
+            Ajouter — {ENTITIES[entity]?.label ?? entity}
+          </h3>
+          <button onClick={onClose} className="text-[#9A9A97] hover:text-[#0A0A0A] transition-colors" aria-label="Fermer">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+          {fields.map((f: FormField) => (
+            <div key={f.key} className={f.type === "textarea" ? "sm:col-span-2" : ""}>
+              <label className="block text-[12px] font-semibold text-[#6E6E6C] mb-1.5">
+                {f.label} {f.required && <span className="text-rose-500">*</span>}
+              </label>
+              {f.type === "select" ? (
+                <select value={String(values[f.key] ?? "")} onChange={(e) => set(f.key, e.target.value)} className={inputCls}>
+                  <option value="">—</option>
+                  {(f.options ?? []).map((o) => (
+                    <option key={o} value={o}>{o.replace(/_/g, " ")}</option>
+                  ))}
+                </select>
+              ) : f.type === "relation" ? (
+                <select value={String(values[f.key] ?? "")} onChange={(e) => set(f.key, e.target.value)} className={inputCls}>
+                  <option value="">—</option>
+                  {(relOptions[f.relation ?? ""] ?? []).map((o) => (
+                    <option key={o.id} value={o.id}>{o.label}</option>
+                  ))}
+                </select>
+              ) : f.type === "textarea" ? (
+                <textarea rows={2} value={String(values[f.key] ?? "")} onChange={(e) => set(f.key, e.target.value)} placeholder={f.placeholder} className={inputCls} />
+              ) : f.type === "checkbox" ? (
+                <label className="inline-flex items-center gap-2 py-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={values[f.key] === true}
+                    onChange={(e) => set(f.key, e.target.checked)}
+                    className="w-4 h-4 rounded border-[#D4D4DE] text-violet-600 focus:ring-violet-500/40"
+                  />
+                  <span className="text-[13px] text-[#0A0A0A]">Oui</span>
+                </label>
+              ) : (
+                <input
+                  type={f.type === "number" ? "number" : f.type === "date" ? "date" : f.type === "email" ? "email" : f.type === "tel" ? "tel" : "text"}
+                  value={String(values[f.key] ?? "")}
+                  onChange={(e) => set(f.key, e.target.value)}
+                  placeholder={f.placeholder}
+                  className={inputCls}
+                />
+              )}
+            </div>
+          ))}
+        </div>
+
+        {error && (
+          <p className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-[13px] text-rose-700">{error}</p>
+        )}
+
+        <div className="flex items-center justify-end gap-2.5 mt-6">
+          <button onClick={onClose} className="rounded-full border border-[#E7E7E4] px-4 py-2 text-[13px] font-semibold text-[#0A0A0A] hover:border-[#C9C9C4] transition-colors">
+            Annuler
+          </button>
+          <button
+            onClick={submit}
+            disabled={saving}
+            className="inline-flex items-center gap-1.5 rounded-full bg-[#0A0A0A] px-4 py-2 text-[13px] font-semibold text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />} Ajouter
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ExportButton({ entity, label = "Exporter" }: { entity: string; label?: string }) {
+  const [open, setOpen] = useState(false);
+  const isAll = entity === "all";
+  const go = (format: "xlsx" | "csv") => {
+    downloadFile(`/api/export?entity=${encodeURIComponent(entity)}&format=${format}`);
+    setOpen(false);
+  };
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-[#0A0A0A] bg-white border border-[#E7E7EE] rounded-full px-3.5 py-1.5 hover:border-[#C9C9C4] transition-colors"
+      >
+        <Download className="w-3.5 h-3.5" /> {label}
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 mt-1.5 z-50 w-52 bg-white border border-[#ECECF2] rounded-xl shadow-[0_18px_50px_rgba(20,20,50,0.18)] overflow-hidden py-1">
+            <button onClick={() => go("xlsx")} className="flex items-center gap-2.5 w-full text-left px-3.5 py-2.5 text-[13px] text-[#0A0A0A] hover:bg-black/[0.04] transition-colors">
+              <FileSpreadsheet className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+              <span>Excel <span className="text-[#9A9A97]">(.xlsx{isAll ? ", tout" : ""})</span></span>
+            </button>
+            {!isAll && (
+              <button onClick={() => go("csv")} className="flex items-center gap-2.5 w-full text-left px-3.5 py-2.5 text-[13px] text-[#0A0A0A] hover:bg-black/[0.04] transition-colors">
+                <FileText className="w-4 h-4 text-sky-600 flex-shrink-0" />
+                <span>CSV <span className="text-[#9A9A97]">(pour la compta)</span></span>
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function WorkspacePage() {
   const [data, setData] = useState<DataMap>({});
   const [appsCount, setAppsCount] = useState<number | null>(null);
@@ -411,6 +1531,10 @@ export default function WorkspacePage() {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null); // entité sélectionnée (null = vue d'ensemble)
   const [drawer, setDrawer] = useState<{ entity: string; id: string } | null>(null);
+  const [importEntity, setImportEntity] = useState<string | null>(null);
+  const [importAll, setImportAll] = useState(false);
+  const [addEntity, setAddEntity] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -419,14 +1543,21 @@ export default function WorkspacePage() {
     );
     setData(Object.fromEntries(entries));
 
-    // Applications (modules) — lues en direct comme le fait le dashboard.
+    // Applications (modules) du workspace ACTIF uniquement — cloisonné comme les données.
     try {
       const supabase = createClient();
-      const { count } = await supabase
-        .from("modules")
-        .select("id", { count: "exact", head: true })
-        .eq("status", "active");
-      setAppsCount(count ?? 0);
+      const { data: { user } } = await supabase.auth.getUser();
+      const membership = user ? await getActiveMembership(supabase, user.id) : null;
+      if (!membership?.tenant_id) {
+        setAppsCount(0);
+      } else {
+        const { count } = await supabase
+          .from("modules")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "active")
+          .eq("tenant_id", membership.tenant_id);
+        setAppsCount(count ?? 0);
+      }
     } catch {
       setAppsCount(0);
     }
@@ -436,6 +1567,26 @@ export default function WorkspacePage() {
   useEffect(() => { load(); }, [load]);
 
   const openDrawer = useCallback((entity: string, id: string) => setDrawer({ entity, id }), []);
+
+  // Sélection multiple pour suppression, réinitialisée quand on change d'entité.
+  useEffect(() => { setSelectedIds(new Set()); }, [selected]);
+  const toggleSelect = (id: string) =>
+    setSelectedIds((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  const deleteSelected = async () => {
+    if (!selected || selectedIds.size === 0) return;
+    if (!window.confirm(`Supprimer ${selectedIds.size} élément(s) ? Cette action est définitive.`)) return;
+    await fetch("/api/data", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entity: selected, action: "bulk_delete", ids: Array.from(selectedIds) }),
+    });
+    setSelectedIds(new Set());
+    load();
+  };
 
   const total = useMemo(
     () => ENTITY_ORDER.reduce((n, k) => n + (data[k]?.length ?? 0), 0),
@@ -466,6 +1617,15 @@ export default function WorkspacePage() {
             <Boxes className="w-5 h-5 text-violet-600" />
           </span>
           <h1 className="text-2xl font-black text-[#0A0A0A] tracking-[-0.03em]">Workspace</h1>
+          <div className="ml-auto flex items-center gap-2">
+            {total > 0 && <ExportButton entity="all" label="Exporter" />}
+            <button
+              onClick={() => setImportAll(true)}
+              className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 text-white text-[13px] font-semibold px-4 py-2.5 rounded-full shadow-[0_8px_22px_rgba(124,58,190,0.30)] hover:brightness-105 active:scale-[0.98] transition"
+            >
+              <Upload className="w-4 h-4" /> Importer des données
+            </button>
+          </div>
         </div>
         <p className="text-[14px] text-[#6E6E6C] mb-6 ml-12">
           La mémoire de votre entreprise. {loading ? "Chargement…" : `${total} éléments reliés.`}
@@ -526,59 +1686,132 @@ export default function WorkspacePage() {
               ); })()}
               <h2 className="text-lg font-bold text-[#0A0A0A]">{ENTITY_META[selected].label}</h2>
               <span className="text-[13px] text-[#9A9A97] tabular-nums">{data[selected]?.length ?? 0}</span>
+              <div className="ml-auto flex items-center gap-2">
+                <ExportButton entity={selected} />
+                <button
+                  onClick={() => setImportEntity(selected)}
+                  className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-violet-700 bg-violet-50 border border-violet-200 rounded-full px-3.5 py-1.5 hover:bg-violet-100 transition-colors"
+                >
+                  <Upload className="w-3.5 h-3.5" /> Importer
+                </button>
+                {FORM_FIELDS[selected] && (
+                  <button
+                    onClick={() => setAddEntity(selected)}
+                    className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-white bg-[#0A0A0A] rounded-full px-3.5 py-1.5 hover:opacity-90 transition-opacity"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Ajouter
+                  </button>
+                )}
+              </div>
             </div>
             {(data[selected]?.length ?? 0) === 0 ? (
-              <p className="text-sm text-[#9A9A97] py-12 text-center">Aucune donnée pour le moment.</p>
-            ) : (
-              <div className="bg-white border border-[#E7E7E4] rounded-2xl p-2 divide-y divide-[#F1F1EC]">
-                {(data[selected] ?? []).map((row) => (
-                  <div key={row.id} className="py-0.5">
-                    <RelatedItem entity={selected} row={row} onOpen={openDrawer} />
-                  </div>
-                ))}
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <div className="w-12 h-12 rounded-2xl border border-[#E7E7EE] bg-[#FAFAFC] flex items-center justify-center mb-3 text-[#B4B8C2]">
+                  <Upload className="w-5 h-5" strokeWidth={1.5} />
+                </div>
+                <p className="text-[14px] font-semibold text-[#0A0A0A] mb-1">Aucun élément pour le moment</p>
+                <p className="text-[13px] text-[#9A9A97] max-w-xs leading-relaxed mb-4">
+                  Ajoutez une fiche à la main, ou importez vos {ENTITY_META[selected].label.toLowerCase()} en masse (Excel ou CSV).
+                </p>
+                {FORM_FIELDS[selected] && (
+                  <button
+                    onClick={() => setAddEntity(selected)}
+                    className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-white bg-[#0A0A0A] rounded-full px-4 py-2 hover:opacity-90 transition-opacity"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Ajouter {ENTITY_META[selected].label.toLowerCase().replace(/s$/, "")}
+                  </button>
+                )}
               </div>
+            ) : (
+              <>
+                {selectedIds.size > 0 && (
+                  <div className="flex items-center justify-between gap-3 mb-3 bg-violet-50 border border-violet-200 rounded-xl px-4 py-2.5">
+                    <span className="text-[13px] font-semibold text-violet-800 tabular-nums">
+                      {selectedIds.size} sélectionné{selectedIds.size > 1 ? "s" : ""}
+                    </span>
+                    <div className="flex items-center gap-3">
+                      <button onClick={() => setSelectedIds(new Set())} className="text-[13px] font-medium text-[#6E6E6C] hover:text-[#0A0A0A]">Annuler</button>
+                      <button onClick={deleteSelected} className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-full px-3.5 py-1.5 transition-colors">
+                        <Trash2 className="w-3.5 h-3.5" /> Supprimer
+                      </button>
+                    </div>
+                  </div>
+                )}
+                <div className="bg-white border border-[#E7E7E4] rounded-2xl p-2 divide-y divide-[#F1F1EC]">
+                  {(data[selected] ?? []).map((row) => (
+                    <div key={row.id} className={`flex items-center gap-1 pl-2.5 py-0.5 rounded-xl ${selectedIds.has(row.id) ? "bg-violet-50/70" : ""}`}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(row.id)}
+                        onChange={() => toggleSelect(row.id)}
+                        aria-label="Sélectionner"
+                        className="w-4 h-4 rounded border-[#D4D4DE] text-violet-600 focus:ring-violet-500/40 cursor-pointer flex-shrink-0"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <RelatedItem entity={selected} row={row} onOpen={openDrawer} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
           </div>
         ) : (
           // ─── Vue d'ensemble ─────────────────────────────────────────────
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {ENTITY_ORDER.map((entity) => (
-              <EntityTile key={entity} entity={entity} rows={data[entity] ?? []} onClick={() => setSelected(entity)} />
+          <div className="space-y-9">
+            {ENTITY_GROUPS.map((group) => (
+              <section key={group.title}>
+                <h2 className="mb-3 text-[11px] font-bold uppercase tracking-[0.09em] text-[#A6A6B2]">{group.title}</h2>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                  {group.entities.map((entity) => (
+                    <EntityTile key={entity} entity={entity} rows={data[entity] ?? []} onClick={() => setSelected(entity)} />
+                  ))}
+                </div>
+              </section>
             ))}
 
-            {/* Applications → renvoient vers la Bibliothèque */}
-            <Link
-              href="/library"
-              className="group text-left bg-white border border-[#E7E7E4] rounded-2xl p-5 transition-all duration-300 hover:border-[#C9C9C4] hover:-translate-y-0.5 hover:shadow-[0_16px_40px_rgba(0,0,0,0.06)]"
-            >
-              <div className="flex items-center justify-between mb-4">
-                <span className="w-10 h-10 rounded-xl flex items-center justify-center text-pink-600 bg-pink-50">
-                  <AppWindow className="w-5 h-5" />
-                </span>
-                <span className="text-2xl font-black text-[#0A0A0A] tabular-nums tracking-[-0.02em]">
-                  {appsCount ?? "—"}
-                </span>
-              </div>
-              <h3 className="text-sm font-semibold text-[#0A0A0A] flex items-center gap-1">
-                Applications <ChevronRight className="w-3.5 h-3.5 text-[#C9C9C4] group-hover:text-[#6E6E6C]" />
-              </h3>
-              <p className="text-[12px] text-[#9A9A97] mt-0.5">Voir dans la Bibliothèque</p>
-            </Link>
+            {/* Vos créations Biltia — objets plateforme (≠ données métier), vers la Bibliothèque */}
+            <section>
+              <h2 className="mb-3 text-[11px] font-bold uppercase tracking-[0.09em] text-[#A6A6B2]">Vos créations</h2>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                <Link href="/library" className="group flex flex-col text-left rounded-[20px] border border-[#EBEBF1] bg-white p-[18px] shadow-[0_12px_40px_rgba(60,40,120,0.06)] transition-all duration-300 hover:-translate-y-1 hover:border-[#DBD3F1] hover:shadow-[0_26px_64px_rgba(60,40,120,0.15)]">
+                  <div className="mb-3.5 flex items-center justify-between">
+                    <span className="grid h-11 w-11 place-items-center rounded-[14px] text-white shadow-[0_8px_20px_rgba(80,50,160,0.24)] transition-transform duration-300 group-hover:scale-[1.06]" style={{ background: "linear-gradient(135deg, #F472B6, #EC4899)" }}><AppWindow className="h-5 w-5" /></span>
+                    <span className={`text-[19px] font-black tabular-nums tracking-[-0.03em] ${appsCount ? "text-[#0A0A0A]" : "text-[#D3D3DC]"}`}>{appsCount ?? "—"}</span>
+                  </div>
+                  <h3 className="flex items-center gap-1 text-[14px] font-semibold leading-tight tracking-[-0.01em] text-[#0A0A0A]">Applications <ChevronRight className="h-3.5 w-3.5 text-[#C9C9C4] group-hover:text-[#6E6E6C]" /></h3>
+                  <p className="mt-0.5 text-[11.5px] text-[#9A9AA6]">Dans la Bibliothèque</p>
+                </Link>
 
-            <SoonTile label="Automatisations" icon={GitBranch} />
-            <SoonTile label="Conversations" icon={MessageSquare} />
+                <Link href="/library" className="group flex flex-col text-left rounded-[20px] border border-[#EBEBF1] bg-white p-[18px] shadow-[0_12px_40px_rgba(60,40,120,0.06)] transition-all duration-300 hover:-translate-y-1 hover:border-[#DBD3F1] hover:shadow-[0_26px_64px_rgba(60,40,120,0.15)]">
+                  <div className="mb-3.5 flex items-center justify-between">
+                    <span className="grid h-11 w-11 place-items-center rounded-[14px] text-white shadow-[0_8px_20px_rgba(80,50,160,0.24)] transition-transform duration-300 group-hover:scale-[1.06]" style={{ background: "linear-gradient(135deg, #818CF8, #6366F1)" }}><GitBranch className="h-5 w-5" /></span>
+                  </div>
+                  <h3 className="flex items-center gap-1 text-[14px] font-semibold leading-tight tracking-[-0.01em] text-[#0A0A0A]">Automatisations <ChevronRight className="h-3.5 w-3.5 text-[#C9C9C4] group-hover:text-[#6E6E6C]" /></h3>
+                  <p className="mt-0.5 text-[11.5px] text-[#9A9AA6]">Vos contrôles par lot</p>
+                </Link>
+
+                <Link href="/library" className="group flex flex-col text-left rounded-[20px] border border-[#EBEBF1] bg-white p-[18px] shadow-[0_12px_40px_rgba(60,40,120,0.06)] transition-all duration-300 hover:-translate-y-1 hover:border-[#DBD3F1] hover:shadow-[0_26px_64px_rgba(60,40,120,0.15)]">
+                  <div className="mb-3.5 flex items-center justify-between">
+                    <span className="grid h-11 w-11 place-items-center rounded-[14px] text-white shadow-[0_8px_20px_rgba(80,50,160,0.24)] transition-transform duration-300 group-hover:scale-[1.06]" style={{ background: "linear-gradient(135deg, #A78BFA, #8B5CF6)" }}><MessageSquare className="h-5 w-5" /></span>
+                  </div>
+                  <h3 className="flex items-center gap-1 text-[14px] font-semibold leading-tight tracking-[-0.01em] text-[#0A0A0A]">Conversations <ChevronRight className="h-3.5 w-3.5 text-[#C9C9C4] group-hover:text-[#6E6E6C]" /></h3>
+                  <p className="mt-0.5 text-[11.5px] text-[#9A9AA6]">L&apos;historique du chat</p>
+                </Link>
+              </div>
+            </section>
           </div>
         )}
 
-        {/* État vide global */}
-        {!loading && !searching && total === 0 && appsCount === 0 && (
+        {/* État vide global (vue d'ensemble uniquement) */}
+        {!loading && !searching && !selected && total === 0 && appsCount === 0 && (
           <div className="flex flex-col items-center justify-center py-8 text-center mt-4">
             <div className="w-14 h-14 rounded-2xl border border-[#E7E7EE] bg-[#FAFAFC] flex items-center justify-center mb-4">
               <Sparkles className="w-6 h-6 text-violet-600" strokeWidth={1.5} />
             </div>
             <h3 className="text-base font-bold text-[#0A0A0A] mb-1.5">Votre mémoire est encore vide</h3>
             <p className="text-sm text-[#6E6E6C] max-w-sm leading-relaxed">
-              Dès que Batify traitera vos chantiers, clients et documents, tout apparaîtra ici, relié.
+              Dès que Biltia traitera vos chantiers, clients et documents, tout apparaîtra ici, relié.
             </p>
           </div>
         )}
@@ -591,6 +1824,30 @@ export default function WorkspacePage() {
           data={data}
           onClose={() => setDrawer(null)}
           onOpen={openDrawer}
+          onRefresh={load}
+        />
+      )}
+
+      {importEntity && (
+        <ImportModal
+          entity={importEntity}
+          onClose={() => setImportEntity(null)}
+          onImported={load}
+        />
+      )}
+
+      {importAll && (
+        <DispatchImportModal
+          onClose={() => setImportAll(false)}
+          onImported={load}
+        />
+      )}
+
+      {addEntity && (
+        <AddRecordModal
+          entity={addEntity}
+          onClose={() => setAddEntity(null)}
+          onCreated={load}
         />
       )}
     </div>

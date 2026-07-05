@@ -1,5 +1,5 @@
 -- ============================================================
--- BATIFY — Migration 002 : BTP Workspace + Bug Fixes
+-- BILTIA — Migration 002 : BTP Workspace + Bug Fixes
 --
 -- 1. Fix deduct_credits (use auth.uid() internally)
 -- 2. Add refund_credits

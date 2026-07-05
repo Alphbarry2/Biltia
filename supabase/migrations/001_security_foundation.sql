@@ -1,5 +1,5 @@
 -- ============================================================
--- BATIFY — Security Foundation Migration
+-- BILTIA — Security Foundation Migration
 -- Implements: Multi-tenancy, RBAC, RLS, Audit Logs
 -- Every table has tenant_id + app_id isolation.
 -- ============================================================

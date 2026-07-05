@@ -119,7 +119,7 @@ export function InteractiveMesh({ strong = false, grid = true }: { strong?: bool
   return (
     <div ref={ref} className="absolute inset-0 isolate overflow-hidden pointer-events-none">
       <div className="absolute inset-0 bg-[#FCFCFD]" />
-      {/* Wash pastel multicolore (couleurs Batify), volontairement doux pour laisser voir la grille */}
+      {/* Wash pastel multicolore (couleurs Biltia), volontairement doux pour laisser voir la grille */}
       <div className="absolute -top-[16%] -left-[8%] w-[62vw] h-[62vw] max-w-[820px] rounded-full blur-[120px] animate-drift-a" style={{ background: `radial-gradient(circle, rgba(99,102,241,${0.26 * o}), transparent 68%)` }} />
       <div className="absolute -top-[6%] right-[-10%] w-[56vw] h-[56vw] max-w-[740px] rounded-full blur-[130px] animate-drift-c" style={{ background: `radial-gradient(circle, rgba(168,85,247,${0.22 * o}), transparent 68%)` }} />
       <div className="absolute bottom-[-22%] left-[6%] w-[60vw] h-[60vw] max-w-[800px] rounded-full blur-[130px] animate-drift-b" style={{ background: `radial-gradient(circle, rgba(236,72,153,${0.22 * o}), transparent 68%)` }} />
@@ -175,7 +175,7 @@ export function SiteNav() {
             </button>
             <Link href="/" className="flex items-center gap-2.5">
               <div className="w-7 h-7 rounded-[9px] bg-[#0A0A0A] flex items-center justify-center"><span className="text-white font-bold text-[12px] leading-none">B</span></div>
-              <span className="font-bold text-[#0A0A0A] text-[16px] tracking-[-0.02em]">Batify</span>
+              <span className="font-bold text-[#0A0A0A] text-[16px] tracking-[-0.02em]">Biltia</span>
             </Link>
           </div>
 
@@ -209,7 +209,8 @@ export function SiteNav() {
                 )}
               </AnimatePresence>
             </div>
-            <a href="/#demo" className="px-3.5 py-2 rounded-lg text-[14px] text-[#5B5B66] hover:text-[#0A0A0A] hover:bg-black/[0.04] transition-colors font-medium">En action</a>
+            <Link href="/#demo" className="px-3.5 py-2 rounded-lg text-[14px] text-[#5B5B66] hover:text-[#0A0A0A] hover:bg-black/[0.04] transition-colors font-medium">En action</Link>
+            <Link href="/blog" className="px-3.5 py-2 rounded-lg text-[14px] text-[#5B5B66] hover:text-[#0A0A0A] hover:bg-black/[0.04] transition-colors font-medium">Blog</Link>
             <Link href="/tarifs" className="px-3.5 py-2 rounded-lg text-[14px] text-[#5B5B66] hover:text-[#0A0A0A] hover:bg-black/[0.04] transition-colors font-medium">Tarifs</Link>
           </div>
 
@@ -242,7 +243,8 @@ export function SiteNav() {
                 })}
               </div>
               <div className="flex items-center gap-5 pt-2 text-[16px] font-semibold text-[#0A0A0A]">
-                <a href="/#demo" onClick={() => setOpen(false)}>En action</a>
+                <Link href="/#demo" onClick={() => setOpen(false)}>En action</Link>
+                <Link href="/blog" onClick={() => setOpen(false)}>Blog</Link>
                 <Link href="/tarifs" onClick={() => setOpen(false)}>Tarifs</Link>
                 <Link href="/login" onClick={() => setOpen(false)}>Se connecter</Link>
               </div>
@@ -524,7 +526,7 @@ export function SiteFooter() {
         <div>
           <div className="flex items-center gap-2.5 mb-3">
             <div className="w-7 h-7 rounded-lg bg-[#0A0A0A] flex items-center justify-center"><span className="text-white font-bold text-[11px] leading-none">B</span></div>
-            <span className="font-bold text-[#0A0A0A]">Batify</span>
+            <span className="font-bold text-[#0A0A0A]">Biltia</span>
           </div>
           <p className="text-[13px] text-[#7A7A86] max-w-[240px] leading-relaxed">L&apos;OS conversationnel du BTP. Dictez votre problème, repartez avec la solution.</p>
         </div>
@@ -539,14 +541,15 @@ export function SiteFooter() {
         <div>
           <p className="text-[12px] font-bold uppercase tracking-wider text-[#9A9AA6] mb-3">Entreprise</p>
           <ul className="space-y-2">
+            <li><Link href="/blog" className="text-[13.5px] text-[#5B5B66] hover:text-[#0A0A0A] transition-colors">Blog</Link></li>
             <li><Link href="/tarifs" className="text-[13.5px] text-[#5B5B66] hover:text-[#0A0A0A] transition-colors">Tarifs</Link></li>
-            <li><a href="/#demo" className="text-[13.5px] text-[#5B5B66] hover:text-[#0A0A0A] transition-colors">En action</a></li>
+            <li><Link href="/#demo" className="text-[13.5px] text-[#5B5B66] hover:text-[#0A0A0A] transition-colors">En action</Link></li>
             <li><a href="#" className="text-[13.5px] text-[#5B5B66] hover:text-[#0A0A0A] transition-colors">Contact</a></li>
           </ul>
         </div>
       </div>
       <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 pt-6 border-t border-[#EDEDEB]">
-        <span className="text-[13px] text-[#B0B0B8]">© 2026 Batify</span>
+        <span className="text-[13px] text-[#B0B0B8]">© 2026 Biltia</span>
         <div className="flex items-center gap-6">
           {[["CGU", "#"], ["Confidentialité", "#"]].map(([l, href]) => (<a key={l} href={href} className="text-[13px] text-[#9A9AA6] hover:text-[#0A0A0A] transition-colors">{l}</a>))}
         </div>

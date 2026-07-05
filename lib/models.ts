@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// CATALOGUE DE MODÈLES — le « parc » de LLM/modèles que Batify peut mobiliser.
+// CATALOGUE DE MODÈLES — le « parc » de LLM/modèles que Biltia peut mobiliser.
 //
 // Philosophie : on ne prend PAS tous les modèles. Pour CHAQUE cas d'usage du
 // produit (design, code, raisonnement profond, recherche, images, analyse de
@@ -65,7 +65,7 @@ export type ModelEntry = {
   strengths: string;
   /** Nécessite un outil web / grounding pour donner sa pleine valeur. */
   needsWeb?: boolean;
-  /** Exécutable aujourd'hui dans Batify (sinon : recommandable mais à brancher). */
+  /** Exécutable aujourd'hui dans Biltia (sinon : recommandable mais à brancher). */
   wired: boolean;
 };
 
@@ -81,9 +81,9 @@ export const MODELS: Record<string, ModelEntry> = {
     modality: "text",
     capabilities: ["design", "code", "reasoning", "writing"],
     contextWindow: 1_000_000,
-    pricing: { input: 15, output: 75, cachedInput: 1.5 },
+    pricing: { input: 5, output: 25, cachedInput: 0.5 }, // réel (platform.claude.com) 2026-07
     strengths:
-      "Référence pour le code et le design d'interfaces (HTML/CSS soigné) ; raisonnement adaptatif fort. Le meilleur choix câblé pour générer des apps/documents Batify.",
+      "Référence pour le code et le design d'interfaces (HTML/CSS soigné) ; raisonnement adaptatif fort. Le meilleur choix câblé pour générer des apps/documents Biltia.",
     wired: true,
   },
   "claude-fable-5": {
@@ -107,7 +107,7 @@ export const MODELS: Record<string, ModelEntry> = {
     contextWindow: 1_000_000,
     pricing: { input: 3, output: 15, cachedInput: 0.3 },
     strengths:
-      "Équilibre qualité/coût idéal pour la rédaction, les documents et la génération courante. Modèle par défaut historique de la génération Batify.",
+      "Équilibre qualité/coût idéal pour la rédaction, les documents et la génération courante. Modèle par défaut historique de la génération Biltia.",
     wired: true,
   },
   "claude-haiku-4-5": {
@@ -131,7 +131,7 @@ export const MODELS: Record<string, ModelEntry> = {
     modality: "text",
     capabilities: ["code", "reasoning", "data", "research"],
     contextWindow: 400_000,
-    pricing: { input: 1.25, output: 10, cachedInput: 0.125 }, // APPROX
+    pricing: { input: 5, output: 30, cachedInput: 0.5 }, // réel (developers.openai.com) 2026-07
     strengths:
       "Flagship OpenAI : code et débogage de pointe, agentique multi-outils, analyse de données et de documents, raisonnement. Excellent généraliste haut de gamme.",
     needsWeb: false,
@@ -156,7 +156,7 @@ export const MODELS: Record<string, ModelEntry> = {
     modality: "text",
     capabilities: ["code", "writing", "data"],
     contextWindow: 1_000_000,
-    pricing: { input: 1.25, output: 10, cachedInput: 0.125 }, // APPROX
+    pricing: { input: 2.5, output: 15, cachedInput: 0.25 }, // réel (developers.openai.com) 2026-07
     strengths:
       "Frontier « travail pro » : code, computer use, recherche d'outils, 1M de contexte. Robuste et efficient pour le volume.",
     wired: false,

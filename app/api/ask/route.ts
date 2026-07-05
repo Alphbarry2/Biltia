@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// /api/ask — COPILOTE UNIFIÉ de Batify (données du workspace + normes BTP).
+// /api/ask — COPILOTE UNIFIÉ de Biltia (données du workspace + normes BTP).
 //
 // L'artisan pose une question. Deux natures possibles, gérées au même endroit :
 //   • DONNÉES — « quels chantiers sont en retard ? », « quelles attestations
@@ -14,11 +14,15 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { routeRequest } from "@/lib/router";
+import { classifyQuestionTopic } from "@/lib/question-topics";
 import { getCategory } from "@/lib/sectors";
 import { retrieveContext, type RetrievedChunk } from "@/lib/rag";
 import { createClient } from "@/lib/supabase-server";
 import { createAdminClient } from "@/lib/supabase-admin";
-import { trackAiUsage } from "@/lib/ai-usage";
+import { trackAiUsage, reconcileCredits } from "@/lib/ai-usage";
+import { getActiveMembershipServer } from "@/lib/tenant-server";
+import { getEntitlementsForTenant, FROZEN_MESSAGE } from "@/lib/entitlements";
+import { isFounderEmail } from "@/lib/founder";
 import { ENTITIES, ALLOWED_ENTITIES } from "@/lib/data-entities";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -99,7 +103,7 @@ function buildSystemPrompt(chunks: RetrievedChunk[], today: string): string {
     "\n"
   );
 
-  return `Tu es le copilote de Batify, l'assistant du chef d'entreprise du BTP français. Tu réponds à DEUX types de questions, au même endroit :
+  return `Tu es le copilote de Biltia, l'assistant du chef d'entreprise du BTP français. Tu réponds à DEUX types de questions, au même endroit :
 
 ## 1. Questions sur SES DONNÉES (workspace)
 Ex : « quels chantiers sont en retard ? », « lesquels dépassent leur budget ? », « quelles attestations expirent ce mois ? », « combien d'employés actifs ? ».
@@ -153,17 +157,17 @@ export async function POST(req: Request) {
       return Response.json({ error: "Authentification requise." }, { status: 401 });
     }
 
-    const { data: membership } = await supabase
-      .from("tenant_members")
-      .select("tenant_id, role")
-      .eq("user_id", user.id)
-      .not("accepted_at", "is", null)
-      .limit(1)
-      .single();
+    const membership = await getActiveMembershipServer(supabase, user.id);
     if (!membership) {
       return Response.json({ error: "Aucun espace de travail trouvé." }, { status: 403 });
     }
     const tenantId = membership.tenant_id;
+
+    // GEL LECTURE SEULE : un abonnement expiré ne peut plus interroger l'IA.
+    const ent = await getEntitlementsForTenant(supabase, tenantId);
+    if (!ent.writable) {
+      return Response.json({ error: FROZEN_MESSAGE, frozen: true }, { status: 403 });
+    }
 
     let body: { question?: string };
     try {
@@ -180,20 +184,37 @@ export async function POST(req: Request) {
       return Response.json({ error: "Question trop longue (2000 caractères max)." }, { status: 400 });
     }
 
-    // 1 crédit par question (remboursé si échec).
-    const { data: credited } = await supabase.rpc("deduct_credits", { p_amount: 1 });
-    if (!credited) {
-      return Response.json(
-        { error: "Crédits insuffisants. Rechargez votre compte pour continuer." },
-        { status: 402 }
-      );
+    // Pré-autorisation (hold), réconciliée au coût réel après la réponse.
+    // Compte fondateur : jamais de hold ni de débit (usage journalisé quand même).
+    const founder = isFounderEmail(user.email);
+    const HOLD = founder ? 0 : 15;
+    if (HOLD > 0) {
+      const { data: credited } = await supabase.rpc("deduct_credits", { p_amount: HOLD });
+      if (!credited) {
+        // Signal d'upsell (best-effort) : l'utilisateur tape le mur des crédits.
+        try {
+          await supabase.from("app_events").insert({
+            user_id: user.id,
+            tenant_id: tenantId,
+            event_type: "credits_blocked",
+            metadata: { at: "ask", needed: HOLD },
+          });
+        } catch {
+          // le tracking ne bloque jamais la réponse
+        }
+        return Response.json(
+          { error: "Crédits insuffisants. Rechargez votre compte pour continuer." },
+          { status: 402 }
+        );
+      }
     }
 
     async function refund() {
+      if (HOLD <= 0) return;
       const admin = createAdminClient();
       if (admin) {
         try {
-          await admin.rpc("refund_credits", { p_user_id: user!.id, p_amount: 1 });
+          await admin.rpc("refund_credits", { p_user_id: user!.id, p_amount: HOLD });
         } catch (err) {
           console.error("Refund failed after ask error:", err);
         }
@@ -209,6 +230,19 @@ export async function POST(req: Request) {
     const sector = profile?.sector ?? null;
 
     const route = await routeRequest({ prompt: question, sector });
+    // Tracking best-effort du routage Haiku (invisible jusque-là dans ai_usage).
+    if (route.usage) {
+      void trackAiUsage({
+        supabase,
+        userId: user.id,
+        tenantId,
+        action: "route_agent",
+        model: route.usage.model,
+        inputTokens: route.usage.inputTokens,
+        outputTokens: route.usage.outputTokens,
+        sector: sector ?? undefined,
+      }).catch(() => {});
+    }
     const cat = route.agent !== "generalist" ? getCategory(route.agent) : undefined;
     const tradeIds = cat ? cat.subTrades.map((s) => s.id) : [];
 
@@ -280,9 +314,10 @@ export async function POST(req: Request) {
       );
     }
 
-    // Tracking best-effort.
+    // Tracking + réconciliation du hold au coût réel (best-effort).
+    let creditsUsed = HOLD;
     try {
-      await trackAiUsage({
+      const realCredits = await trackAiUsage({
         supabase,
         userId: user.id,
         tenantId,
@@ -293,8 +328,30 @@ export async function POST(req: Request) {
         agent: route.agent,
         sector: sector ?? undefined,
       });
+      if (founder) {
+        creditsUsed = 0; // journalisé pour le suivi des coûts, jamais débité
+      } else {
+        await reconcileCredits(supabase, createAdminClient(), user.id, HOLD, realCredits);
+        creditsUsed = realCredits;
+      }
     } catch {
       // ignore
+    }
+
+    // Sujet de la question (heuristique gratuite) → data admin « sur quoi les
+    // pros posent des questions ». Best-effort, jamais bloquant.
+    try {
+      await supabase.from("app_events").insert({
+        user_id: user.id,
+        tenant_id: tenantId,
+        event_type: "question_asked",
+        agent: route.agent,
+        sector,
+        prompt_length: question.length,
+        metadata: { topic: classifyQuestionTopic(question), question: question.slice(0, 200) },
+      });
+    } catch {
+      // le tracking ne bloque jamais la réponse
     }
 
     return Response.json({
@@ -302,7 +359,7 @@ export async function POST(req: Request) {
       sources: dedupeSources(chunks),
       ragUsed: chunks.length > 0,
       queried: [...queried],
-      creditsUsed: 1,
+      creditsUsed,
     });
   } catch (err) {
     console.error("Ask error:", err);

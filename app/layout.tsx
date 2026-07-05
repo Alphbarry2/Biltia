@@ -3,18 +3,18 @@ import type { Metadata, Viewport } from "next";
 import PWARegister from "@/components/pwa-register";
 
 export const metadata: Metadata = {
-  applicationName: "Batify",
+  applicationName: "Biltia",
   title: {
-    default: "Batify — l'OS conversationnel du BTP",
-    template: "%s · Batify",
+    default: "Biltia — l'OS conversationnel du BTP",
+    template: "%s · Biltia",
   },
   description:
-    "Décrivez votre problème, Batify livre la solution : document, application, réponse ou automatisation. L'OS conversationnel du BTP.",
+    "Décrivez votre problème, Biltia livre la solution : document, application, réponse ou automatisation. L'OS conversationnel du BTP.",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Batify",
+    title: "Biltia",
   },
   formatDetection: { telephone: false },
 };

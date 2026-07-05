@@ -48,7 +48,7 @@ function notFoundPage(slug: string): string {
     </div>
     <h1 class="text-2xl font-black text-[#111827] mb-2">Application introuvable</h1>
     <p class="text-[#6B7280] text-sm">L'application « ${slug} » n'existe pas ou n'est plus disponible.</p>
-    <a href="/" class="inline-block mt-6 px-5 py-2.5 bg-[#0F172A] text-white text-sm font-semibold rounded-xl">Retour à Batify</a>
+    <a href="/" class="inline-block mt-6 px-5 py-2.5 bg-[#0F172A] text-white text-sm font-semibold rounded-xl">Retour à Biltia</a>
   </div>
 </body></html>`;
 }

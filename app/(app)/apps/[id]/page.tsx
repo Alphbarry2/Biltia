@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase";
+import { ShareMenu } from "@/components/share-menu";
 import { ChevronLeft, Pencil, Loader2, AlertCircle, ExternalLink, Maximize2, Globe, Copy, CheckCircle } from "lucide-react";
 
 type App = {
@@ -11,6 +12,7 @@ type App = {
   name: string;
   description: string;
   html_content: string;
+  kind: string | null;
   created_at: string | null;
 };
 
@@ -24,6 +26,7 @@ export default function AppViewerPage() {
   const [isDeploying, setIsDeploying] = useState(false);
   const [deploymentUrl, setDeploymentUrl] = useState<string | null>(null);
   const [deployCopied, setDeployCopied] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const handleDeploy = async () => {
     if (isDeploying) return;
@@ -57,7 +60,7 @@ export default function AppViewerPage() {
       // La RLS garantit que seules les apps du tenant de l'user sont accessibles
       supabase
         .from("modules")
-        .select("id, name, description, html_content, created_at")
+        .select("id, name, description, html_content, kind, created_at")
         .eq("id", id)
         .neq("status", "archived")
         .single()
@@ -75,7 +78,7 @@ export default function AppViewerPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <Loader2 className="w-6 h-6 text-accent animate-spin" />
+        <Loader2 className="w-6 h-6 text-[#7C3AED] animate-spin" />
       </div>
     );
   }
@@ -83,11 +86,11 @@ export default function AppViewerPage() {
   if (error || !app) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4">
-        <div className="w-12 h-12 rounded-xl bg-[#fdf2f0] border border-border flex items-center justify-center">
-          <AlertCircle className="w-6 h-6 text-danger" />
+        <div className="w-12 h-12 rounded-xl bg-rose-50 border border-[#ECECF2] flex items-center justify-center">
+          <AlertCircle className="w-6 h-6 text-rose-600" />
         </div>
-        <p className="text-muted-foreground text-sm">{error}</p>
-        <Link href="/dashboard" className="text-accent-deep text-sm hover:text-foreground">
+        <p className="text-[#6E6E6C] text-sm">{error}</p>
+        <Link href="/dashboard" className="text-[#7C3AED] text-sm hover:text-[#0A0A0A]">
           ← Retour au dashboard
         </Link>
       </div>
@@ -96,19 +99,19 @@ export default function AppViewerPage() {
 
   if (fullscreen) {
     return (
-      <div className="fixed inset-0 z-50 bg-card flex flex-col">
-        <div className="flex items-center justify-between px-4 h-12 bg-card border-b border-border flex-shrink-0">
-          <span className="text-sm font-semibold text-foreground">{app.name}</span>
+      <div className="fixed inset-0 z-50 bg-white flex flex-col">
+        <div className="flex items-center justify-between px-4 h-12 bg-white border-b border-[#ECECF2] flex-shrink-0">
+          <span className="text-sm font-semibold text-[#0A0A0A]">{app.name}</span>
           <button
             onClick={() => setFullscreen(false)}
-            className="text-muted-foreground hover:text-foreground text-xs border border-border px-3 py-1 rounded-lg"
+            className="text-[#6E6E6C] hover:text-[#0A0A0A] text-xs border border-[#ECECF2] px-3 py-1 rounded-lg"
           >
             Quitter le plein écran
           </button>
         </div>
         <iframe
           srcDoc={app.html_content}
-          sandbox="allow-scripts allow-forms allow-same-origin"
+          sandbox="allow-scripts allow-forms allow-same-origin allow-modals"
           className="flex-1 w-full border-0"
           title={app.name}
         />
@@ -119,24 +122,31 @@ export default function AppViewerPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-5 h-14 border-b border-border bg-card flex-shrink-0">
+      <div className="flex items-center justify-between px-5 h-14 border-b border-[#ECECF2] bg-white flex-shrink-0">
         <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={() => router.push("/dashboard")}
-            className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
+            className="text-[#6E6E6C] hover:text-[#0A0A0A] transition-colors flex-shrink-0"
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
           <div className="min-w-0">
-            <h1 className="font-display font-bold text-foreground text-sm truncate">{app.name}</h1>
-            <p className="text-xs text-muted-foreground truncate hidden sm:block">{app.description}</p>
+            <h1 className="font-bold text-[#0A0A0A] text-sm truncate">{app.name}</h1>
+            <p className="text-xs text-[#6E6E6C] truncate hidden sm:block">{app.description}</p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Document officiel : envoi direct au client (WhatsApp, email, PDF). */}
+          {app.kind === "document" && (
+            <ShareMenu
+              getDocument={() => iframeRef.current?.contentDocument ?? null}
+              title={app.name}
+            />
+          )}
           <button
             onClick={() => setFullscreen(true)}
-            className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted transition-colors"
+            className="p-1.5 text-[#6E6E6C] hover:text-[#0A0A0A] rounded-lg hover:bg-[#F6F6F9] transition-colors"
             title="Plein écran"
           >
             <Maximize2 className="w-4 h-4" />
@@ -144,7 +154,7 @@ export default function AppViewerPage() {
           <button
             onClick={handleDeploy}
             disabled={isDeploying}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0D9488] text-white text-xs font-semibold rounded-lg hover:bg-[#0f766e] transition-all disabled:opacity-60"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#7C3AED] text-white text-xs font-semibold rounded-lg hover:bg-[#6D28D9] transition-all disabled:opacity-60"
             title="Déployer sur Vercel"
           >
             {isDeploying ? (
@@ -160,7 +170,7 @@ export default function AppViewerPage() {
           </button>
           <Link
             href={`/generate?edit=${id}`}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-muted border border-border text-foreground text-xs font-medium rounded-lg hover:bg-accent-soft hover:text-accent-deep transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#F6F6F9] border border-[#ECECF2] text-[#0A0A0A] text-xs font-medium rounded-lg hover:bg-[#F3EFFC] hover:text-[#7C3AED] transition-colors"
           >
             <Pencil className="w-3.5 h-3.5" />
             Modifier
@@ -170,15 +180,15 @@ export default function AppViewerPage() {
 
       {/* Deployment URL bar */}
       {deploymentUrl && (
-        <div className="flex items-center gap-2 px-5 py-2.5 bg-[#f0fdfa] border-b border-[#99f6e4] flex-shrink-0">
-          <Globe className="w-3.5 h-3.5 text-[#0D9488] flex-shrink-0" />
-          <span className="text-xs text-[#0D9488] font-medium flex-shrink-0 hidden sm:inline">Déployé :</span>
-          <code className="text-xs text-foreground bg-white border border-[#99f6e4] rounded-md px-2 py-1 truncate flex-1 min-w-0">
+        <div className="flex items-center gap-2 px-5 py-2.5 bg-[#F3EFFC] border-b border-[#E2D9F8] flex-shrink-0">
+          <Globe className="w-3.5 h-3.5 text-[#7C3AED] flex-shrink-0" />
+          <span className="text-xs text-[#7C3AED] font-medium flex-shrink-0 hidden sm:inline">Déployé :</span>
+          <code className="text-xs text-[#0A0A0A] bg-white border border-[#E2D9F8] rounded-md px-2 py-1 truncate flex-1 min-w-0">
             {deploymentUrl}
           </code>
           <button
             onClick={() => { navigator.clipboard.writeText(deploymentUrl); setDeployCopied(true); setTimeout(() => setDeployCopied(false), 2000); }}
-            className="flex items-center gap-1.5 px-2.5 py-1 bg-[#0D9488] text-white text-xs font-semibold rounded-md hover:bg-[#0f766e] transition-all flex-shrink-0"
+            className="flex items-center gap-1.5 px-2.5 py-1 bg-[#7C3AED] text-white text-xs font-semibold rounded-md hover:bg-[#6D28D9] transition-all flex-shrink-0"
           >
             {deployCopied ? <CheckCircle className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
             <span className="hidden sm:inline">{deployCopied ? "Copié" : "Copier"}</span>
@@ -187,7 +197,7 @@ export default function AppViewerPage() {
             href={deploymentUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="p-1.5 text-[#0D9488] hover:text-foreground rounded-md hover:bg-white transition-colors flex-shrink-0"
+            className="p-1.5 text-[#7C3AED] hover:text-[#0A0A0A] rounded-md hover:bg-white transition-colors flex-shrink-0"
           >
             <ExternalLink className="w-3.5 h-3.5" />
           </a>
@@ -197,8 +207,9 @@ export default function AppViewerPage() {
       {/* App iframe */}
       <div className="flex-1 bg-white overflow-hidden">
         <iframe
+          ref={iframeRef}
           srcDoc={app.html_content}
-          sandbox="allow-scripts allow-forms allow-same-origin"
+          sandbox="allow-scripts allow-forms allow-same-origin allow-modals"
           className="w-full h-full border-0"
           title={app.name}
         />

@@ -37,7 +37,7 @@ function FormatPills() {
   }, [reduce, items.length]);
   return (
     <div className="flex flex-wrap items-center justify-center gap-2 mt-8">
-      <span className="text-[13px] text-[#8B8B96]">Batify choisit</span>
+      <span className="text-[13px] text-[#8B8B96]">Biltia choisit</span>
       {items.map((it, k) => {
         const I = it.I; const on = k === a;
         return (
@@ -61,7 +61,7 @@ function HeroSection() {
   const recognitionRef = useRef<any>(null);
   const handleSubmit = () => {
     if (!input.trim()) return;
-    sessionStorage.setItem("batify_prompt", input.trim());
+    sessionStorage.setItem("biltia_prompt", input.trim());
     router.push("/signup?from=prompt");
   };
   const toggleVoice = () => {
@@ -87,7 +87,7 @@ function HeroSection() {
           Conçu pour les artisans du BTP
         </span>
         {/* Titres alternatifs à A/B tester :
-            "Vous apportez le problème. Batify apporte la solution."
+            "Vous apportez le problème. Biltia apporte la solution."
             "Parlez de votre problème. Repartez avec la solution."
             "Dites ce qui vous bloque." */}
         <h1 className="animate-reveal-up delay-100 font-black tracking-[-0.05em] leading-[0.88]">
@@ -95,10 +95,12 @@ function HeroSection() {
           <span className="block text-gradient animate-gradient-x text-[56px] sm:text-[86px] md:text-[104px] leading-[0.86] pb-2">plus de chantier.</span>
         </h1>
         <p className="text-[17px] sm:text-[19px] text-[#5B5B66] max-w-[540px] leading-[1.55] mt-8 mb-11 animate-reveal-up delay-200">
-          Un document, un outil, une analyse ou une automatisation : décrivez votre problème, Batify livre la solution.
+          Un document, un outil, une analyse ou une automatisation : décrivez votre problème, Biltia livre la solution.
         </p>
         <div className="w-full max-w-2xl animate-reveal-up delay-300">
-          <div className="bg-white rounded-[30px] p-2.5 border border-[#ECECF2] shadow-[0_20px_60px_rgba(60,40,120,0.12)] focus-within:shadow-[0_0_0_4px_rgba(139,92,246,0.14),0_24px_70px_rgba(60,40,120,0.18)] transition-shadow">
+          {/* Deux lueurs discrètes (haut-droite / bas-gauche) tournent autour de la carte (.chatframe). */}
+          <div className="chatframe" style={{ borderRadius: 30 }}>
+          <div className="chatcard bg-white rounded-[30px] p-2.5 border border-[#ECECF2] shadow-[0_20px_60px_rgba(60,40,120,0.12)] focus-within:shadow-[0_24px_70px_rgba(60,40,120,0.18)] transition-shadow">
             <div className="relative px-4 pt-4 pb-2 min-h-[72px] text-left">
               {!input && (
                 <span className="absolute top-4 left-4 right-4 text-[15px] sm:text-[16px] text-[#9A9AA6] pointer-events-none select-none leading-relaxed">
@@ -124,6 +126,7 @@ function HeroSection() {
               </button>
             </div>
           </div>
+          </div>
           <p className="text-[13px] text-[#9A9AA6] mt-4">On garde votre demande jusqu&apos;à l&apos;inscription, puis on la résout.</p>
         </div>
         <div className="animate-reveal-up delay-500"><FormatPills /></div>
@@ -141,7 +144,7 @@ function ProductsSection() {
       <div className="relative max-w-6xl mx-auto">
         <Reveal className="mb-12 max-w-2xl">
           <h2 className="text-[38px] sm:text-[56px] font-black text-[#0A0A0A] tracking-[-0.03em] leading-[0.98]">Une barre. <span className="text-gradient">Tous vos outils.</span></h2>
-          <p className="text-[16px] text-[#5B5B66] mt-4 leading-relaxed">Selon votre demande, Batify bascule sur le bon produit. Vous ne le choisissez jamais.</p>
+          <p className="text-[16px] text-[#5B5B66] mt-4 leading-relaxed">Selon votre demande, Biltia bascule sur le bon produit. Vous ne le choisissez jamais.</p>
         </Reveal>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {PRODUCTS.map((p, k) => {
@@ -271,7 +274,7 @@ function SolverDemo() {
     <div className="w-full rounded-[24px] bg-white/90 backdrop-blur-xl border border-white/70 shadow-[0_30px_80px_rgba(60,40,120,0.16)] overflow-hidden">
       <div className="flex items-center gap-2 px-5 py-3.5 border-b border-[#F1F1EC]">
         <div className="flex gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-rose-300" /><div className="w-2.5 h-2.5 rounded-full bg-amber-300" /><div className="w-2.5 h-2.5 rounded-full bg-emerald-300" /></div>
-        <span className="text-[11px] text-[#9CA3AF] ml-2">Batify, quel problème voulez-vous résoudre&nbsp;?</span>
+        <span className="text-[11px] text-[#9CA3AF] ml-2">Biltia, quel problème voulez-vous résoudre&nbsp;?</span>
       </div>
       <div className="p-5 sm:p-6 min-h-[320px] flex flex-col">
         <div className="flex justify-end mb-3">
@@ -283,12 +286,12 @@ function SolverDemo() {
           {phase === 1 && (
             <motion.div key="routing" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }} className="flex items-center gap-2.5 text-[#6B7280] mt-1">
               <span className="relative w-4 h-4 flex-shrink-0"><span className="absolute inset-0 rounded-full border-2 border-[#ECECEA]" /><motion.span className="absolute inset-0 rounded-full border-2 border-transparent border-t-[#7C3AED]" animate={{ rotate: 360 }} transition={{ duration: 0.8, repeat: Infinity, ease: "linear" }} /></span>
-              <span className="text-[12px]">Batify analyse la demande et le contexte…</span>
+              <span className="text-[12px]">Biltia analyse la demande et le contexte…</span>
             </motion.div>
           )}
           {phase === 2 && (
             <motion.div key={`res-${i}`} initial={reduce ? false : { opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.4, ease: EASE }} className="mt-1">
-              <div className="flex items-center gap-2 mb-2.5"><span className="text-[11px] text-[#9CA3AF]">Batify a choisi</span><span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold grad-border text-[#0A0A0A]">{sc.icon}{sc.route}</span></div>
+              <div className="flex items-center gap-2 mb-2.5"><span className="text-[11px] text-[#9CA3AF]">Biltia a choisi</span><span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold grad-border text-[#0A0A0A]">{sc.icon}{sc.route}</span></div>
               {sc.result}
             </motion.div>
           )}
@@ -332,7 +335,7 @@ function WorkspaceSection() {
       <div className="relative max-w-6xl mx-auto grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
         <Reveal>
           <h2 className="text-[36px] sm:text-[52px] font-black text-[#0A0A0A] tracking-[-0.03em] leading-[0.98] mb-5">Une mémoire <span className="text-gradient">qui grandit.</span></h2>
-          <p className="text-[16px] text-[#5B5B66] leading-relaxed mb-6 max-w-md">Chaque demande enrichit un espace unique : clients, chantiers, documents, équipes, applications et historique. Plus vous utilisez Batify, plus il devient pertinent.</p>
+          <p className="text-[16px] text-[#5B5B66] leading-relaxed mb-6 max-w-md">Chaque demande enrichit un espace unique : clients, chantiers, documents, équipes, applications et historique. Plus vous utilisez Biltia, plus il devient pertinent.</p>
           <Link href="/produits/workspace" className="inline-flex items-center gap-1.5 text-[14px] font-semibold text-[#0A0A0A] hover:gap-2.5 transition-all">Découvrir le Workspace <ArrowRight className="w-4 h-4" /></Link>
         </Reveal>
         <Reveal delay={0.15}>
@@ -379,7 +382,7 @@ function PhilosophySection() {
 function TemplatesSection() {
   const router = useRouter();
   const use = (t: { name: string }) => {
-    sessionStorage.setItem("batify_prompt", `Je veux ${t.name.toLowerCase()} pour mon entreprise.`);
+    sessionStorage.setItem("biltia_prompt", `Je veux ${t.name.toLowerCase()} pour mon entreprise.`);
     router.push("/signup?from=prompt");
   };
   return (
@@ -388,7 +391,7 @@ function TemplatesSection() {
       <div className="relative max-w-6xl mx-auto px-5 sm:px-8">
         <Reveal className="mb-12 max-w-2xl">
           <h2 className="text-[36px] sm:text-[56px] font-black text-[#0A0A0A] tracking-[-0.03em] leading-[0.98]">Prêts à l&apos;emploi. <span className="text-gradient">Ou sur mesure.</span></h2>
-          <p className="text-[16px] text-[#5B5B66] mt-4 leading-relaxed">Des applications complètes, en aperçu live. Cliquez sur un modèle, Batify l&apos;adapte à votre entreprise.</p>
+          <p className="text-[16px] text-[#5B5B66] mt-4 leading-relaxed">Des applications complètes, en aperçu live. Cliquez sur un modèle, Biltia l&apos;adapte à votre entreprise.</p>
         </Reveal>
       </div>
       <div className="relative max-w-[1500px] mx-auto px-3 sm:px-8">
@@ -403,7 +406,7 @@ function TemplatesSection() {
 function CTASection() {
   const router = useRouter();
   const [input, setInput] = useState("");
-  const go = () => { if (!input.trim()) return; sessionStorage.setItem("batify_prompt", input.trim()); router.push("/signup?from=prompt"); };
+  const go = () => { if (!input.trim()) return; sessionStorage.setItem("biltia_prompt", input.trim()); router.push("/signup?from=prompt"); };
   return (
     <section className="relative px-5 sm:px-8 py-32 sm:py-44 overflow-hidden">
       <InteractiveMesh strong grid={false} />

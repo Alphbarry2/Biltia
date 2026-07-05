@@ -2,7 +2,7 @@
 // Préférences IA par utilisateur.
 // Stockées dans profiles.preferences (jsonb) — voir migration 009.
 // Consommées : (1) à l'affichage dans Paramètres, (2) injectées dans le prompt
-// système de génération (buildPreferencesBlock) pour changer ce que Batify produit.
+// système de génération (buildPreferencesBlock) pour changer ce que Biltia produit.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type Tone = "pro" | "friendly" | "concise";

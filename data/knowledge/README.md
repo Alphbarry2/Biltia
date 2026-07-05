@@ -1,4 +1,4 @@
-# Bibliothèque de connaissances Batify (corpus RAG global)
+# Bibliothèque de connaissances Biltia (corpus RAG global)
 
 Chaque fichier `.md` de ce dossier (sauf ce README) est une **fiche curée**
 ingérée dans la bibliothèque **globale** du RAG (`knowledge_documents.tenant_id IS NULL`).

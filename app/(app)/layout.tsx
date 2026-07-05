@@ -4,24 +4,26 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
+import { getActiveMembership } from "@/lib/tenant";
+import { SubscriptionBanner } from "@/components/subscription-banner";
+import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 import {
   Home,
   Boxes,
   Library,
-  HardHat,
   Activity,
   Settings,
+  Plug,
   LogOut,
   Zap,
   Menu,
   X,
   ChevronRight,
-  BarChart3,
   PanelLeftClose,
   PanelLeftOpen,
+  Sparkles,
+  Bot,
 } from "lucide-react";
-
-const ADMIN_EMAIL = "barryalpha9755@gmail.com";
 
 function Sidebar({
   onClose,
@@ -37,22 +39,35 @@ function Sidebar({
   const [credits, setCredits] = useState<number | null>(null);
   const [email, setEmail] = useState("");
   const [userName, setUserName] = useState("");
+  const [isPaid, setIsPaid] = useState(false);
 
   useEffect(() => {
     const supabase = createClient();
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) {
-        setEmail(user.email ?? "");
-        const name = user.user_metadata?.full_name ?? user.email?.split("@")[0] ?? "";
-        setUserName(name);
-        supabase
-          .from("user_credits")
-          .select("balance")
-          .eq("user_id", user.id)
-          .single()
-          .then(({ data }) => {
-            if (data) setCredits(data.balance);
-          });
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user) return;
+      setEmail(user.email ?? "");
+      const name = user.user_metadata?.full_name ?? user.email?.split("@")[0] ?? "";
+      setUserName(name);
+      supabase
+        .from("user_credits")
+        .select("balance")
+        .eq("user_id", user.id)
+        .single()
+        .then(({ data }) => {
+          if (data) setCredits(data.balance);
+        });
+
+      // Abonnement actif ? → masque le CTA « Passer à Pro ».
+      const membership = await getActiveMembership(supabase, user.id);
+      if (membership?.tenant_id) {
+        const { data: sub } = await supabase
+          .from("subscriptions")
+          .select("plan, status")
+          .eq("tenant_id", membership.tenant_id)
+          .maybeSingle();
+        if (sub && sub.plan !== "free" && (sub.status === "active" || sub.status === "trialing")) {
+          setIsPaid(true);
+        }
       }
     });
   }, []);
@@ -66,13 +81,11 @@ function Sidebar({
   const nav = [
     { label: "Accueil", href: "/dashboard", icon: <Home className="w-4 h-4" /> },
     { label: "Workspace", href: "/workspace", icon: <Boxes className="w-4 h-4" /> },
+    { label: "Agents", href: "/agents", icon: <Bot className="w-4 h-4" /> },
     { label: "Bibliothèque", href: "/library", icon: <Library className="w-4 h-4" /> },
-    { label: "Expert BTP", href: "/expert", icon: <HardHat className="w-4 h-4" /> },
+    { label: "Connecteurs", href: "/connectors", icon: <Plug className="w-4 h-4" /> },
     { label: "Activité", href: "/activity", icon: <Activity className="w-4 h-4" /> },
     { label: "Paramètres", href: "/settings", icon: <Settings className="w-4 h-4" /> },
-    ...(email === ADMIN_EMAIL
-      ? [{ label: "Admin", href: "/admin", icon: <BarChart3 className="w-4 h-4" /> }]
-      : []),
   ];
 
   const initial = (email || userName || "?")[0].toUpperCase();
@@ -86,7 +99,7 @@ function Sidebar({
             <div className="w-7 h-7 rounded-[9px] bg-[#0A0A0A] flex items-center justify-center">
               <span className="text-white font-bold text-xs leading-none">B</span>
             </div>
-            <span className="text-[#0A0A0A] font-bold text-sm tracking-[-0.02em]">Batify</span>
+            <span className="text-[#0A0A0A] font-bold text-sm tracking-[-0.02em]">Biltia</span>
           </Link>
         )}
         {onClose ? (
@@ -102,6 +115,11 @@ function Sidebar({
             {collapsed ? <PanelLeftOpen className="w-[18px] h-[18px]" /> : <PanelLeftClose className="w-[18px] h-[18px]" />}
           </button>
         ) : null}
+      </div>
+
+      {/* Sélecteur d'espace (multi-entreprises : basculer, renommer, créer) */}
+      <div className={`flex-shrink-0 border-b border-[#EDEDE9] ${collapsed ? "px-1.5 py-1.5" : "px-2.5 py-1.5"}`}>
+        <WorkspaceSwitcher collapsed={collapsed} />
       </div>
 
       {/* Nav */}
@@ -131,6 +149,28 @@ function Sidebar({
           );
         })}
       </nav>
+
+      {/* Passer à Pro (masqué si déjà abonné) */}
+      {!isPaid && (
+        <div className="px-2.5 pb-2">
+          {collapsed ? (
+            <Link
+              href="/settings?section=billing"
+              title="Passer à Pro"
+              className="flex items-center justify-center py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 text-white shadow-[0_6px_16px_rgba(139,92,246,0.3)] transition-transform hover:scale-[1.03] active:scale-95"
+            >
+              <Sparkles className="w-4 h-4" />
+            </Link>
+          ) : (
+            <Link
+              href="/settings?section=billing"
+              className="flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 text-[13px] font-semibold text-white shadow-[0_8px_20px_rgba(139,92,246,0.32)] transition-transform hover:scale-[1.02] active:scale-[0.98]"
+            >
+              <Sparkles className="w-3.5 h-3.5" /> Passer à Pro
+            </Link>
+          )}
+        </div>
+      )}
 
       {/* Credits */}
       <div className="px-2.5 pb-3">
@@ -208,12 +248,25 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const isGenerate = pathname === "/generate";
 
   useEffect(() => {
-    try { setCollapsed(localStorage.getItem("batify_sidebar_collapsed") === "1"); } catch {}
+    try { setCollapsed(localStorage.getItem("biltia_sidebar_collapsed") === "1"); } catch {}
+  }, []);
+
+  // Préchauffage DEV : compile toutes les pages principales en arrière-plan
+  // dès l'arrivée dans l'app — chaque clic de sidebar devient instantané au
+  // lieu d'attendre le « Compiling… » à la première visite. Étalé pour ne pas
+  // saturer le CPU. Inutile en prod (tout est déjà compilé) → dev uniquement.
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+    const pages = ["/generate", "/library", "/workspace", "/settings", "/connectors", "/activity", "/expert"];
+    const timers = pages.map((p, i) =>
+      setTimeout(() => { fetch(p).catch(() => {}); }, 2000 + i * 1200)
+    );
+    return () => timers.forEach(clearTimeout);
   }, []);
   const toggleCollapsed = () =>
     setCollapsed((c) => {
       const n = !c;
-      try { localStorage.setItem("batify_sidebar_collapsed", n ? "1" : "0"); } catch {}
+      try { localStorage.setItem("biltia_sidebar_collapsed", n ? "1" : "0"); } catch {}
       return n;
     });
 
@@ -253,11 +306,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 <div className="w-6 h-6 rounded-md bg-[#0A0A0A] flex items-center justify-center">
                   <span className="text-white font-bold text-xs leading-none">B</span>
                 </div>
-                <span className="font-bold text-[#0A0A0A] text-sm tracking-[-0.02em]">Batify</span>
+                <span className="font-bold text-[#0A0A0A] text-sm tracking-[-0.02em]">Biltia</span>
               </div>
             </div>
           )}
 
+          <SubscriptionBanner />
           <main className="flex-1 overflow-auto">{children}</main>
         </div>
       </div>

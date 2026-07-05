@@ -4,7 +4,8 @@
 
 import { createClient } from "@/lib/supabase-server";
 import { getStripe, resolvePriceId } from "@/lib/stripe";
-import { isValidTier, type PlanId } from "@/lib/plans";
+import { isValidTier, type BillingCycle, type PlanId } from "@/lib/plans";
+import { getActiveMembershipServer } from "@/lib/tenant-server";
 import type Stripe from "stripe";
 
 export const runtime = "nodejs";
@@ -22,7 +23,7 @@ export async function POST(req: Request) {
     }
 
     // ── Corps ─────────────────────────────────────────────────────────────
-    let body: { plan?: string; credits?: number };
+    let body: { plan?: string; credits?: number; cycle?: string };
     try {
       body = await req.json();
     } catch {
@@ -31,6 +32,7 @@ export async function POST(req: Request) {
 
     const plan = body.plan as PlanId;
     const credits = Number(body.credits);
+    const cycle: BillingCycle = body.cycle === "annual" ? "annual" : "monthly";
     if (!isValidTier(plan, credits)) {
       return Response.json(
         { error: "Plan ou palier de crédits invalide." },
@@ -47,33 +49,23 @@ export async function POST(req: Request) {
       );
     }
 
-    const priceId = resolvePriceId(plan, credits);
+    const priceId = resolvePriceId(plan, credits, cycle);
     if (!priceId) {
       return Response.json(
-        { error: `Price Stripe non configuré pour ${plan} ${credits} crédits.` },
+        { error: `Price Stripe non configuré pour ${plan} ${credits} crédits (${cycle}).` },
         { status: 503 }
       );
     }
 
-    // `subscriptions` pas encore dans database.types.ts → accès non typé.
-    const db = supabase as unknown as { from: (t: string) => any };
-
     // Workspace (tenant) de l'utilisateur — l'abonnement est indexé par tenant_id.
-    const { data: membership } = await db
-      .from("tenant_members")
-      .select("tenant_id")
-      .eq("user_id", user.id)
-      .not("accepted_at", "is", null)
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle();
+    const membership = await getActiveMembershipServer(supabase, user.id);
     const tenantId: string | undefined = membership?.tenant_id ?? undefined;
     if (!tenantId) {
       return Response.json({ error: "Aucun espace de travail." }, { status: 403 });
     }
 
     // Réutilise le customer Stripe existant si connu (lecture RLS = son tenant).
-    const { data: sub } = await db
+    const { data: sub } = await supabase
       .from("subscriptions")
       .select("stripe_customer_id")
       .eq("tenant_id", tenantId)
@@ -89,9 +81,9 @@ export async function POST(req: Request) {
       mode: "subscription",
       line_items: [{ price: priceId, quantity: 1 }],
       client_reference_id: user.id,
-      metadata: { user_id: user.id, tenant_id: tenantId, plan, credits: String(credits) },
+      metadata: { user_id: user.id, tenant_id: tenantId, plan, credits: String(credits), cycle },
       subscription_data: {
-        metadata: { user_id: user.id, tenant_id: tenantId, plan, credits: String(credits) },
+        metadata: { user_id: user.id, tenant_id: tenantId, plan, credits: String(credits), cycle },
       },
       allow_promotion_codes: true,
       success_url: `${origin}/settings?checkout=success`,

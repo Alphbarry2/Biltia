@@ -1,4 +1,4 @@
-# Batify — Feuille de route « OS métier » (v2)
+# Biltia — Feuille de route « OS métier » (v2)
 
 > Document de séquencement. Mappe la vision en 19 phases à l'état **réel** du code et
 > de la base de données, classe chaque phase (Fait / Partiel / À faire), puis ordonne
@@ -8,7 +8,7 @@
 > repoussé, et ajout des **moteurs** manquants (Business Engine, Event Bus, AI Context
 > Engine, AI Memory, Template Engine, Workflow Engine). Voir §2 et §3.
 
-État constaté le 2026-06-27 (lecture du dépôt + base Supabase `Batify` / `docqrznkbtyctjqpvifu`).
+État constaté le 2026-06-27 (lecture du dépôt + base Supabase `Biltia` / `docqrznkbtyctjqpvifu`).
 
 ---
 
@@ -187,7 +187,7 @@ Prérequis absolu : on n'empile rien sur une base dont le dépôt ne décrit pas
 
 ### Étape 2 — Socle de données partagé · **L** *(Phases 9, 11, 12, 18 — débloque tout)*
 Le passage de « générateur de silos » à « OS ». Remplacer `localStorage` par de vraies données multi-tenant.
-- Route CRUD générique `/api/data` scopée tenant + RLS ; mini-SDK Batify (`batify.list/create/update/delete`)
+- Route CRUD générique `/api/data` scopée tenant + RLS ; mini-SDK Biltia (`biltia.list/create/update/delete`)
   injecté dans le HTML **à la place de localStorage** ([route.ts:23](../app/api/generate/route.ts#L23) à réécrire).
 - **Module pilote** : « suivi chantiers » écrit dans la vraie table `chantiers`.
 - **Sème ici** : la table `events` (chaque écriture émet) + le 1er incrément du **Context Engine**.

@@ -1,44 +1,149 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // ENTITLEMENTS — droits d'un utilisateur selon son abonnement. CÔTÉ SERVEUR.
 //
-// Source unique des règles : lib/plans.ts. Ce module résout le WORKSPACE (tenant)
-// de l'utilisateur puis lit la ligne `subscriptions` correspondante (indexée par
-// tenant_id dans le schéma de prod), et expose limites + features pour le gating.
-// Free par défaut si aucun workspace / aucun abonnement / erreur.
+// Source unique des règles d'ACCÈS. Deux notions distinctes (décision produit) :
+//   • ABONNEMENT = droit d'utiliser Biltia comme logiciel (créer/modifier une app,
+//     saisir un chantier à la main, faire tourner l'espace). → champ `writable`.
+//   • CRÉDITS   = actions IA qui produisent de la valeur neuve (gérés ailleurs,
+//     lib/ai-usage.ts + deduct_credits). Le CRUD manuel ne consomme JAMAIS de crédit.
 //
-// NB : la table `subscriptions` n'est pas encore dans database.types.ts. On
-// utilise donc un client structurel non typé (cf. lib/ai-usage.ts pour `ai_usage`).
+// Cycle de vie d'un abonnement payant :
+//   active | trialing            → plein accès (writable)
+//   past_due                     → FENÊTRE DE GRÂCE : accès complet + bandeau
+//                                  « paiement refusé » (paymentIssue). writable reste vrai.
+//   canceled | unpaid | …        → GEL : espace en LECTURE SEULE (frozen). Consultation
+//                                  et export restent ouverts ; toute écriture est refusée.
+//
+// Free (aucun abonnement) : essai / petit palier gratuit. Reste writable pour que
+// l'onboarding fonctionne (voir FREE_TENANT_WRITABLE ci-dessous).
+//
+// NB : la table `subscriptions` n'est pas dans database.types.ts → client structurel
+// non typé (cf. lib/ai-usage.ts pour `ai_usage`).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { getPlan, type PlanId, type PlanLimits } from "./plans";
 
 /** Vue minimale d'un client Supabase, compatible client typé ET service_role. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type QueryableClient = { from: (table: string) => any };
 
+// ── Cartographie des statuts Stripe ──────────────────────────────────────────
+const ACTIVE_STATUSES = new Set(["active", "trialing"]);
+/** Grâce : paiement échoué, accès maintenu ~5 j (config dunning Stripe). */
+const GRACE_STATUSES = new Set(["past_due"]);
+/** Gel : abonnement terminé → lecture seule. */
+const FROZEN_STATUSES = new Set([
+  "canceled",
+  "unpaid",
+  "incomplete",
+  "incomplete_expired",
+  "paused",
+]);
+
+/**
+ * POLITIQUE Free (jamais payé) : `true` = un tenant sans abonnement reste
+ * writable (essai + petit palier gratuit, onboarding non cassé). Passer à
+ * `false` pour figer aussi le Free en lecture seule dès que le déclencheur
+ * d'expiration de l'essai est défini (ex. crédits d'essai épuisés).
+ * Décision utilisateur en attente — voir [[project_pricing_billing]].
+ */
+export const FREE_TENANT_WRITABLE = true;
+
 export interface Entitlements {
+  /** Plan EFFECTIF pour le gating des features (frozen → "free"). */
   plan: PlanId;
+  /** Statut brut de l'abonnement ("active", "past_due", "canceled"…). */
   status: string;
-  creditsPerMonth: number;
+  /** Droit de CRÉER / MODIFIER (CRUD manuel + actions IA). Lecture toujours ouverte. */
+  writable: boolean;
+  /** Abonnement payant terminé → espace en lecture seule (bandeau rouge). */
+  frozen: boolean;
+  /** Paiement échoué, fenêtre de grâce en cours → bandeau orange « régularisez ». */
+  paymentIssue: boolean;
+  /** Fin de période courante (ISO) — info + point d'ancrage du décompte de grâce. */
+  periodEnd: string | null;
   limits: PlanLimits;
 }
 
 const FREE_ENTITLEMENTS: Entitlements = {
   plan: "free",
-  status: "active",
-  creditsPerMonth: 0,
+  status: "free",
+  writable: FREE_TENANT_WRITABLE,
+  frozen: false,
+  paymentIssue: false,
+  periodEnd: null,
   limits: getPlan("free").limits,
 };
 
+/** Un statut inconnu ne doit pas verrouiller un client légitime : fail-open sur
+ *  l'écriture, mais jamais plus permissif que "free" pour les features. */
+function isPaidPlanId(p: unknown): p is PlanId {
+  return p === "pro";
+}
+
 /**
- * Charge les droits de l'utilisateur. Dégrade vers Free si aucune ligne
- * d'abonnement ou en cas d'erreur (fail-safe : jamais plus permissif que Free).
+ * Résout les droits à partir du tenant DÉJÀ connu (évite de re-résoudre le
+ * membership quand l'appelant l'a déjà — routes API notamment).
+ */
+export async function getEntitlementsForTenant(
+  supabase: QueryableClient,
+  tenantId: string
+): Promise<Entitlements> {
+  try {
+    const { data } = await supabase
+      .from("subscriptions")
+      .select("plan, status, current_period_end")
+      .eq("tenant_id", tenantId)
+      .maybeSingle();
+
+    // Aucune ligne d'abonnement → tenant Free (essai).
+    if (!data) return FREE_ENTITLEMENTS;
+
+    const status: string = data.status ?? "free";
+    const periodEnd: string | null = data.current_period_end ?? null;
+
+    // GEL : abonnement payant terminé → lecture seule, features Free.
+    if (FROZEN_STATUSES.has(status)) {
+      return {
+        plan: "free",
+        status,
+        writable: false,
+        frozen: true,
+        paymentIssue: false,
+        periodEnd,
+        limits: getPlan("free").limits,
+      };
+    }
+
+    // Plan effectif conservé tant que l'abonnement n'est pas gelé (grâce incluse).
+    const plan: PlanId = isPaidPlanId(data.plan) ? data.plan : "free";
+    const paymentIssue = GRACE_STATUSES.has(status);
+
+    return {
+      plan,
+      status,
+      writable: true, // active | trialing | past_due (grâce) | statut inconnu
+      frozen: false,
+      paymentIssue,
+      periodEnd,
+      limits: getPlan(plan).limits,
+    };
+  } catch {
+    // Fail-safe : jamais plus permissif que Free (writable reste selon la politique Free).
+    return FREE_ENTITLEMENTS;
+  }
+}
+
+/**
+ * Charge les droits de l'utilisateur (résout d'abord son workspace). Dégrade
+ * vers Free si aucun workspace / aucun abonnement / erreur.
  */
 export async function getEntitlements(
   supabase: QueryableClient,
   userId: string
 ): Promise<Entitlements> {
   try {
-    // 1. Workspace (tenant) de l'utilisateur — le plus ancien accepté.
+    // Workspace (tenant) de l'utilisateur — le plus ancien accepté.
     const { data: membership } = await supabase
       .from("tenant_members")
       .select("tenant_id")
@@ -51,26 +156,7 @@ export async function getEntitlements(
     const tenantId: string | undefined = membership?.tenant_id;
     if (!tenantId) return FREE_ENTITLEMENTS;
 
-    // 2. Abonnement du workspace (schéma prod : indexé par tenant_id).
-    const { data } = await supabase
-      .from("subscriptions")
-      .select("plan, status")
-      .eq("tenant_id", tenantId)
-      .maybeSingle();
-
-    if (!data) return FREE_ENTITLEMENTS;
-
-    // Un abonnement non actif (past_due, canceled…) retombe sur les droits Free.
-    const active = data.status === "active" || data.status === "trialing";
-    const plan: PlanId = active ? (data.plan as PlanId) : "free";
-
-    return {
-      plan,
-      status: data.status ?? "active",
-      // Le palier mensuel n'est pas stocké dans le schéma prod (par-tenant).
-      creditsPerMonth: 0,
-      limits: getPlan(plan).limits,
-    };
+    return getEntitlementsForTenant(supabase, tenantId);
   } catch {
     return FREE_ENTITLEMENTS;
   }
@@ -80,3 +166,7 @@ export async function getEntitlements(
 export function canDeployLive(ent: Entitlements): boolean {
   return ent.limits.liveDeploy;
 }
+
+/** Message standard renvoyé quand une écriture est refusée pour cause de gel. */
+export const FROZEN_MESSAGE =
+  "Votre espace est en lecture seule : votre abonnement a expiré. Réactivez-le pour reprendre votre activité (vos données restent consultables et exportables).";

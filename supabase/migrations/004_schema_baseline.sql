@@ -1,5 +1,5 @@
 -- ============================================================
--- BATIFY — Migration 004 : Schema Baseline (snapshot prod)
+-- BILTIA — Migration 004 : Schema Baseline (snapshot prod)
 -- ============================================================
 -- Généré par introspection de la base de prod (docqrznkbtyctjqpvifu)
 -- le 2026-06-27, pour clore le DRIFT : les migrations 001/002 ne

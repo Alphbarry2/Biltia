@@ -117,7 +117,7 @@ export async function POST(req: Request) {
       return Response.json(
         {
           error:
-            "Le déploiement Live nécessite un plan Pro ou Business. Passez à un plan payant depuis vos paramètres.",
+            "Le déploiement Live nécessite un plan Pro. Passez à un plan payant depuis vos paramètres.",
           upgrade: true,
         },
         { status: 403 }
@@ -149,9 +149,23 @@ export async function POST(req: Request) {
       return Response.json({ error: "Application introuvable ou accès refusé." }, { status: 404 });
     }
 
+    // Les applications CONNECTÉES (SDK window.biltia → /api/data) exigent une
+    // session Biltia same-origin : déployées sur Vercel (autre domaine), leurs
+    // appels de données échoueraient pour tout le monde. On refuse honnêtement
+    // plutôt que de livrer une app cassée.
+    if (app.html_content.includes("window.biltia")) {
+      return Response.json(
+        {
+          error:
+            "Cette application est connectée aux données de votre workspace : elle fonctionne dans Biltia (votre équipe y accède via la Bibliothèque, connectée). Le déploiement externe est réservé aux applications autonomes.",
+        },
+        { status: 400 }
+      );
+    }
+
     // Determine project name (reuse if already deployed)
     const projectName =
-      app.vercel_project_id ?? `batify-${slugify(app.name)}-${app.id.slice(0, 8)}`;
+      app.vercel_project_id ?? `biltia-${slugify(app.name)}-${app.id.slice(0, 8)}`;
 
     // Ensure Vercel project exists
     await ensureProject(projectName);

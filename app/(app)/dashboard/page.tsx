@@ -1,21 +1,33 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
+import { getActiveMembership } from "@/lib/tenant";
+import { toPreviewHtml } from "@/lib/app-preview";
 import { InteractiveMesh, useTypewriter, TemplateGallery } from "@/components/site";
+import { VoiceRecorder } from "@/components/voice-recorder";
+import { ConnectToolsBadge } from "@/components/connections";
 import {
   Sparkles,
   ArrowUpRight,
   Trash2,
   MoreHorizontal,
-  Send,
+  ArrowUp,
   Mic,
-  MicOff,
+  Plus,
+  Upload,
+  Image as ImageIcon,
+  Camera,
+  MonitorUp,
+  Cloud,
   Clock,
   Pencil,
   Search,
+  X,
+  FileText,
+  Loader2,
 } from "lucide-react";
 
 type App = {
@@ -67,6 +79,8 @@ function AppPreviewCard({
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
+  // Aperçu figé : stub des données → pas de « Chargement du workspace… ».
+  const preview = useMemo(() => toPreviewHtml(app.html_content), [app.html_content]);
 
   return (
     <div
@@ -84,8 +98,9 @@ function AppPreviewCard({
         {app.html_content ? (
           <>
             <iframe
-              srcDoc={app.html_content}
+              srcDoc={preview}
               sandbox="allow-scripts"
+              loading="lazy"
               className="absolute top-0 left-0 border-0 pointer-events-none select-none"
               style={{
                 width: "1280px",
@@ -180,10 +195,79 @@ export default function DashboardPage() {
   const [firstName, setFirstName] = useState("");
   const [tab, setTab] = useState<"ateliers" | "modeles">("ateliers");
   const [query, setQuery] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const [plusOpen, setPlusOpen] = useState(false);
+  const [launching, setLaunching] = useState(false);
+  const launchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Navigation réussie = page démontée → on annule l'alerte d'échec.
+  useEffect(() => {
+    return () => {
+      if (launchTimerRef.current) clearTimeout(launchTimerRef.current);
+    };
+  }, []);
   const typed = useTypewriter(DASH_PLACEHOLDERS);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const recognitionRef = useRef<any>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const onFilesPicked = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = Array.from(e.target.files ?? []);
+    if (picked.length) setFiles((prev) => [...prev, ...picked].slice(0, 6));
+    e.target.value = "";
+  };
+  const removeFile = (i: number) => setFiles((prev) => prev.filter((_, k) => k !== i));
+
+  // Ouvre le sélecteur natif en adaptant le type de fichier / la caméra.
+  const openPicker = (opts: { accept: string; capture?: boolean }) => {
+    const el = fileInputRef.current;
+    if (!el) return;
+    el.accept = opts.accept;
+    el.multiple = !opts.capture; // la caméra ne prend qu'une photo à la fois
+    if (opts.capture) el.setAttribute("capture", "environment");
+    else el.removeAttribute("capture");
+    el.click();
+    setPlusOpen(false);
+  };
+
+  // Partage d'écran : capture une image de l'écran choisi et la joint.
+  const shareScreen = async () => {
+    setPlusOpen(false);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const md = navigator.mediaDevices as any;
+    if (!md?.getDisplayMedia) {
+      alert("Le partage d'écran n'est pas supporté par ce navigateur.");
+      return;
+    }
+    let stream: MediaStream | null = null;
+    try {
+      stream = await md.getDisplayMedia({ video: true });
+      const video = document.createElement("video");
+      video.srcObject = stream;
+      video.muted = true;
+      await video.play();
+      await new Promise((r) => setTimeout(r, 250)); // laisser arriver une image
+      const w = video.videoWidth || 1280;
+      const h = video.videoHeight || 720;
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext("2d")?.drawImage(video, 0, 0, w, h);
+      const blob: Blob | null = await new Promise((res) => canvas.toBlob(res, "image/png"));
+      if (blob) {
+        const file = new File([blob], `capture-ecran-${Date.now()}.png`, { type: "image/png" });
+        setFiles((prev) => [...prev, file].slice(0, 6));
+      }
+    } catch {
+      // annulé par l'utilisateur
+    } finally {
+      stream?.getTracks().forEach((t) => t.stop());
+    }
+  };
+
+  const openDrive = () => {
+    setPlusOpen(false);
+    window.open("https://drive.google.com", "_blank", "noopener,noreferrer");
+  };
 
   const fetchApps = async () => {
     const supabase = createClient();
@@ -191,10 +275,14 @@ export default function DashboardPage() {
     if (!user) return;
     const nm = (user.user_metadata?.full_name as string) || user.email?.split("@")[0] || "";
     setFirstName(nm.split(" ")[0]);
+    // Une app appartient à un workspace : on ne montre que celles du workspace actif.
+    const membership = await getActiveMembership(supabase, user.id);
+    if (!membership?.tenant_id) { setApps([]); setLoading(false); return; }
     const { data } = await supabase
       .from("modules")
       .select("id, name, slug, description, html_content, created_at, updated_at")
       .eq("status", "active")
+      .eq("tenant_id", membership.tenant_id)
       .order("updated_at", { ascending: false })
       .limit(20);
     setApps(data ?? []);
@@ -203,13 +291,37 @@ export default function DashboardPage() {
 
   useEffect(() => { fetchApps(); }, []);
 
+  // Préchauffe le générateur : l'appui sur Entrée doit ouvrir /generate
+  // INSTANTANÉMENT. En dev, ces requêtes compilent la page et la route des
+  // questions à l'avance ; en prod, elles priment le cache. Fire-and-forget.
+  useEffect(() => {
+    router.prefetch("/generate");
+    fetch("/generate").catch(() => {});
+    fetch("/api/clarify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}", // sans prompt → aucune dépense LLM, juste la compilation
+    }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleCreate = () => {
     const trimmed = input.trim();
-    if (!trimmed) return;
+    if ((!trimmed && files.length === 0) || launching) return;
+    // Retour visuel IMMÉDIAT : la compilation de /generate peut prendre 2-3 s
+    // en dev — sans spinner, l'envoi paraît mort.
+    setLaunching(true);
     // On lance la generation directement : pas d'ecran intermediaire.
-    sessionStorage.setItem("batify_prompt", trimmed);
-    sessionStorage.setItem("batify_autostart", "1");
+    const note = files.length ? `\n\n[Fichiers joints : ${files.map((f) => f.name).join(", ")}]` : "";
+    sessionStorage.setItem("biltia_prompt", (trimmed || "Adapte-moi un outil à partir des fichiers joints.") + note);
+    sessionStorage.setItem("biltia_autostart", "1");
     router.push("/generate");
+    // Toujours là après 10 s = navigation en échec (serveur arrêté, réseau) →
+    // on réarme le bouton et on prévient au lieu de rester muet.
+    launchTimerRef.current = setTimeout(() => {
+      setLaunching(false);
+      alert("Impossible d'ouvrir le générateur. Vérifiez que le serveur Biltia est bien démarré, puis réessayez.");
+    }, 10000);
   };
 
   // Ouvre un modèle dans l'atelier (aperçu live + chat). Les modifs créent une copie perso.
@@ -224,44 +336,14 @@ export default function DashboardPage() {
     }
   };
 
-  const startVoice = () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const w = window as any;
-    const SR = w.SpeechRecognition ?? w.webkitSpeechRecognition;
-    if (!SR) return;
-    const rec = new SR();
-    rec.lang = "fr-FR";
-    rec.continuous = true;
-    rec.interimResults = true;
-    let final = "";
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    rec.onresult = (e: any) => {
-      let interim = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const t = e.results[i][0].transcript;
-        if (e.results[i].isFinal) final += t + " ";
-        else interim += t;
-      }
-      setInput((final + interim).trimStart());
-    };
-    rec.onend = () => setIsListening(false);
-    rec.onerror = () => setIsListening(false);
-    rec.start();
-    recognitionRef.current = rec;
-    setIsListening(true);
-  };
-
-  const stopVoice = () => {
-    recognitionRef.current?.stop();
-    setIsListening(false);
-  };
-
   const handleDelete = async (id: string) => {
     if (!confirm("Supprimer cette application ?")) return;
     const supabase = createClient();
     await supabase.from("modules").update({ status: "archived" }).eq("id", id);
     setApps((prev) => prev.filter((a) => a.id !== id));
   };
+
+  const hasContent = input.trim().length > 0 || files.length > 0;
 
   const q = query.trim().toLowerCase();
   const filtered = q
@@ -273,61 +355,166 @@ export default function DashboardPage() {
       {/* Le fond maillé (quadrillage + halos) couvre toute la page : hero ET panneau */}
       <InteractiveMesh strong />
 
-      {/* Accueil plein écran, tout part d'ici */}
-      <section className="relative z-10 min-h-[86vh] flex flex-col items-center justify-center px-6 py-16">
-        <div className="relative z-10 w-full max-w-2xl mx-auto text-center">
-          <span className="glass inline-flex items-center gap-2 px-3.5 py-1.5 text-[#4A4A56] text-[13px] font-medium rounded-full mb-7">
-            <span className="w-1.5 h-1.5 rounded-full bg-gradient-to-br from-indigo-500 to-pink-500" />
-            Dictez, Batify exécute.
-          </span>
+      {/* Accueil plein écran, tout part d'ici (positionné un peu plus bas) */}
+      <section className="relative z-10 min-h-[86vh] flex flex-col items-center justify-center px-6 pt-[17vh] pb-14">
+        <div className="relative z-10 w-full max-w-[62rem] mx-auto text-center">
+          <ConnectToolsBadge />
 
-          <h1 className="text-[40px] sm:text-[58px] font-black text-[#0A0A0A] leading-[1.06] tracking-[-0.035em] mb-9 max-w-3xl">
+          <h1 className="text-[40px] sm:text-[58px] font-black text-[#0A0A0A] leading-[1.06] tracking-[-0.035em] mb-9 max-w-3xl mx-auto">
             Quel problème <span className="text-gradient">réglons-nous</span>{firstName ? `, ${firstName}` : " aujourd’hui"}&nbsp;?
           </h1>
 
-          {/* Barre de chat (opaque, pas de grille au travers) */}
-          <div className="bg-white rounded-[28px] p-2.5 border border-[#ECECF2] shadow-[0_20px_60px_rgba(60,40,120,0.12)] focus-within:shadow-[0_0_0_4px_rgba(139,92,246,0.14),0_24px_70px_rgba(60,40,120,0.18)] transition-shadow text-left">
-            <div className="relative px-4 pt-4 pb-2">
-              {!input && (
-                <span className="absolute top-4 left-4 right-4 text-[15px] text-[#9A9AA6] pointer-events-none select-none leading-relaxed">
-                  {typed}
-                  <span aria-hidden className="inline-block w-[2px] h-[0.95em] translate-y-[2px] bg-[#7C3AED]/80 ml-0.5 animate-blink" />
-                </span>
-              )}
-              <textarea
-                ref={textareaRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                rows={2}
-                className="relative w-full bg-transparent text-[#0A0A0A] text-[15px] resize-none focus:outline-none leading-relaxed min-h-[52px]"
-                onInput={(e) => {
-                  const el = e.currentTarget;
-                  el.style.height = "auto";
-                  el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
+          {/* Barre de chat, style Gemini/Lovable : + à gauche, micro à droite, envoi à la saisie.
+              Encadrée par une bordure multicolore animée permanente (.chatframe). */}
+          <div className="chatframe">
+          <div className="chatcard bg-white rounded-[28px] p-2.5 shadow-[0_18px_50px_rgba(60,40,120,0.10)] text-left">
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="image/*,.pdf,.csv,.xls,.xlsx,.doc,.docx,.txt"
+              onChange={onFilesPicked}
+              className="hidden"
+            />
+
+            {isListening ? (
+              <VoiceRecorder
+                initialText={input}
+                onCancel={() => setIsListening(false)}
+                onCommit={(text) => {
+                  setInput(text);
+                  setIsListening(false);
+                  requestAnimationFrame(() => textareaRef.current?.focus());
                 }}
               />
-            </div>
-            <div className="flex items-center justify-between gap-3 px-2 pb-1">
-              <button
-                onClick={isListening ? stopVoice : startVoice}
-                className={`flex items-center gap-1.5 text-[12.5px] font-medium px-3 py-2 rounded-full transition-colors ${
-                  isListening
-                    ? "bg-rose-100 text-rose-600"
-                    : "bg-black/[0.04] border border-black/[0.06] text-[#4A4A56] hover:bg-black/[0.07]"
-                }`}
-              >
-                {isListening ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
-                {isListening ? "Écoute…" : "Voix"}
-              </button>
-              <button
-                onClick={handleCreate}
-                aria-label="Lancer"
-                className="w-10 h-10 flex items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 via-violet-500 to-pink-500 text-white shadow-[0_6px_20px_rgba(139,92,246,0.4)] hover:shadow-[0_8px_28px_rgba(139,92,246,0.55)] active:scale-95 transition-all duration-200"
-              >
-                <Send className="w-[17px] h-[17px]" />
-              </button>
-            </div>
+            ) : (
+              <>
+                <div className="relative px-4 pt-4 pb-2">
+                  {!input && (
+                    <span className="absolute top-4 left-4 right-4 text-[15px] text-[#9A9AA6] pointer-events-none select-none leading-relaxed">
+                      {typed}
+                      <span aria-hidden className="inline-block w-[2px] h-[0.95em] translate-y-[2px] bg-[#7C3AED]/80 ml-0.5 animate-blink" />
+                    </span>
+                  )}
+                  <textarea
+                    ref={textareaRef}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    rows={2}
+                    className="relative w-full bg-transparent text-[#0A0A0A] text-[15px] resize-none focus:outline-none leading-relaxed min-h-[52px]"
+                    onInput={(e) => {
+                      const el = e.currentTarget;
+                      el.style.height = "auto";
+                      el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
+                    }}
+                  />
+                </div>
+
+                {files.length > 0 && (
+                  <div className="flex flex-wrap gap-2 px-3 pb-2">
+                    {files.map((f, i) => {
+                      const isImg = f.type.startsWith("image/");
+                      return (
+                        <div key={i} className="flex items-center gap-2 bg-[#F6F6F9] border border-[#ECECF2] rounded-xl pl-1.5 pr-2 py-1.5 max-w-[190px]">
+                          {isImg ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={URL.createObjectURL(f)} alt="" className="w-8 h-8 rounded-lg object-cover flex-shrink-0" />
+                          ) : (
+                            <span className="w-8 h-8 rounded-lg bg-white border border-[#ECECF2] flex items-center justify-center flex-shrink-0">
+                              <FileText className="w-4 h-4 text-[#7C3AED]" />
+                            </span>
+                          )}
+                          <span className="text-[12px] text-[#4A4A56] truncate">{f.name}</span>
+                          <button onClick={() => removeFile(i)} aria-label="Retirer le fichier" className="text-[#9A9AA6] hover:text-[#0A0A0A] flex-shrink-0">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between gap-3 px-2 pb-1">
+                  {/* Tout à gauche : le + -> menu (fichiers, photos, caméra, écran, Drive) */}
+                  <div className="relative">
+                    <button
+                      onClick={() => setPlusOpen((v) => !v)}
+                      aria-label="Ajouter"
+                      aria-expanded={plusOpen}
+                      className={`relative w-10 h-10 flex items-center justify-center rounded-full active:scale-95 transition-all ${
+                        plusOpen ? "bg-black/[0.06] text-[#0A0A0A]" : "text-[#4A4A56] hover:bg-black/[0.05]"
+                      }`}
+                    >
+                      <Plus className={`w-5 h-5 transition-transform duration-200 ${plusOpen ? "rotate-45" : ""}`} />
+                      {files.length > 0 && !plusOpen && (
+                        <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center rounded-full bg-[#7C3AED] text-white text-[10px] font-bold leading-none">
+                          {files.length}
+                        </span>
+                      )}
+                    </button>
+
+                    {plusOpen && (
+                      <>
+                        <div className="fixed inset-0 z-20" onClick={() => setPlusOpen(false)} />
+                        <div className="absolute top-full left-0 mt-2 z-30 w-60 origin-top-left animate-scale-in bg-white border border-[#ECECF2] rounded-2xl shadow-[0_16px_50px_rgba(60,40,120,0.16)] p-1.5">
+                          {([
+                            { icon: Upload, label: "Importer des fichiers", onClick: () => openPicker({ accept: "image/*,.pdf,.csv,.xls,.xlsx,.doc,.docx,.txt" }) },
+                            { icon: ImageIcon, label: "Importer des photos", onClick: () => openPicker({ accept: "image/*" }) },
+                            { icon: Camera, label: "Prendre une photo", onClick: () => openPicker({ accept: "image/*", capture: true }) },
+                            { icon: MonitorUp, label: "Partager l'écran", onClick: shareScreen },
+                          ] as const).map(({ icon: Icon, label, onClick }) => (
+                            <button
+                              key={label}
+                              onClick={onClick}
+                              className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-[13.5px] text-[#2A2A32] hover:bg-[#F4F4F7] transition-colors text-left"
+                            >
+                              <Icon className="w-[18px] h-[18px] text-[#7C3AED] flex-shrink-0" strokeWidth={1.9} />
+                              {label}
+                            </button>
+                          ))}
+                          <div className="my-1 border-t border-[#EFEFF3]" />
+                          <button
+                            onClick={openDrive}
+                            className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-[13.5px] text-[#2A2A32] hover:bg-[#F4F4F7] transition-colors text-left"
+                          >
+                            <Cloud className="w-[18px] h-[18px] text-[#7C3AED] flex-shrink-0" strokeWidth={1.9} />
+                            Google Drive
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* À droite : le micro, puis l'envoi qui apparaît dès qu'on écrit */}
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setIsListening(true)}
+                      title="Dictée vocale"
+                      aria-label="Dictée vocale"
+                      className="w-10 h-10 flex items-center justify-center rounded-full text-[#4A4A56] hover:bg-black/[0.05] active:scale-95 transition-all"
+                    >
+                      <Mic className="w-[19px] h-[19px]" />
+                    </button>
+                    {hasContent && (
+                      <button
+                        onClick={handleCreate}
+                        disabled={launching}
+                        aria-label="Envoyer"
+                        className="w-10 h-10 flex items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 via-violet-500 to-pink-500 text-white shadow-[0_6px_20px_rgba(139,92,246,0.4)] hover:shadow-[0_8px_28px_rgba(139,92,246,0.55)] active:scale-95 transition-all duration-200 animate-scale-in disabled:opacity-70"
+                      >
+                        {launching ? (
+                          <Loader2 className="w-[19px] h-[19px] animate-spin" />
+                        ) : (
+                          <ArrowUp className="w-[19px] h-[19px]" strokeWidth={2.5} />
+                        )}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
           </div>
 
           {/* Quick prompts */}
@@ -336,8 +523,8 @@ export default function DashboardPage() {
               <button
                 key={p}
                 onClick={() => {
-                  sessionStorage.setItem("batify_prompt", `Je veux ${p.toLowerCase()}`);
-                  sessionStorage.setItem("batify_autostart", "1");
+                  sessionStorage.setItem("biltia_prompt", `Je veux ${p.toLowerCase()}`);
+                  sessionStorage.setItem("biltia_autostart", "1");
                   router.push("/generate");
                 }}
                 className="glass text-[12.5px] px-3 py-1.5 text-[#4A4A56] rounded-full hover:bg-white transition-colors"
@@ -349,9 +536,9 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* Panneau arrondi et espacé : mes ateliers + modèles, avec recherche */}
-      <section className="relative z-10 px-4 sm:px-6 pt-4 pb-20">
-        <div className="max-w-7xl mx-auto rounded-[28px] bg-white border border-[#ECECF2] shadow-[0_14px_46px_rgba(60,40,120,0.06)] p-5 sm:p-7">
+      {/* Panneau arrondi et espacé : mes ateliers + modèles, avec recherche (plus large, descendu) */}
+      <section className="relative z-10 px-4 sm:px-6 pt-12 sm:pt-16 pb-20">
+        <div className="max-w-[1680px] mx-auto rounded-[28px] bg-white border border-[#ECECF2] shadow-[0_14px_46px_rgba(60,40,120,0.06)] p-5 sm:p-8">
           {/* En-tête discret : onglets + recherche */}
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
             <div className="inline-flex items-center gap-1 p-1 bg-[#F4F4F7] rounded-full self-start">
@@ -380,8 +567,8 @@ export default function DashboardPage() {
 
           {tab === "ateliers" ? (
             loading ? (
-              <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {[1, 2, 3, 4].map((i) => <SkeletonCard key={i} />)}
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
+                {[1, 2, 3, 4, 5].map((i) => <SkeletonCard key={i} />)}
               </div>
             ) : filtered.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-14 text-center">
@@ -392,11 +579,11 @@ export default function DashboardPage() {
                   {query ? "Aucune application trouvée" : "Aucune création pour l’instant"}
                 </h3>
                 <p className="text-[13px] text-[#6E6E6C] max-w-xs leading-relaxed">
-                  {query ? "Essayez un autre mot-clé, ou lancez une création là-haut." : "Décrivez votre première galère là-haut : Batify s’occupe du reste."}
+                  {query ? "Essayez un autre mot-clé, ou lancez une création là-haut." : "Décrivez votre première galère là-haut : Biltia s’occupe du reste."}
                 </p>
               </div>
             ) : (
-              <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
                 {filtered.map((app, i) => (
                   <AppPreviewCard key={app.id} app={app} index={i} onDelete={() => handleDelete(app.id)} />
                 ))}

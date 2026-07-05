@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getModel } from "./models";
+import { createAdminClient } from "./supabase-admin";
+import { CREDIT_COST_EUR } from "./plans";
 
 // Tarifs par 1M tokens (USD). Source unique de vérité : le catalogue `models.ts`
 // (tous fournisseurs). On garde ici un petit fallback pour d'anciens IDs Anthropic
@@ -27,6 +29,30 @@ function calcCost(
     (billableInput * p.input + cachedInputTokens * p.cachedInput + outputTokens * p.output) /
     1_000_000
   );
+}
+
+// ── Conversion coût → crédits ─────────────────────────────────────────────────
+// Le crédit est une monnaie interne : on débite proportionnellement au coût RÉEL,
+// donc la marge est STRUCTURELLE (marge = 1 − CREDIT_COST_EUR/prix_net, ≥ 90 %),
+// indépendante du modèle utilisé. Voir CREDIT_COST_EUR dans lib/plans.ts.
+
+/** Taux USD→EUR (coûts modèles facturés en USD, unité de marge en EUR). */
+const USD_TO_EUR = 0.92;
+
+/** Échelle ×10 : jamais de fraction. On arrondit au multiple de 5 SUPÉRIEUR
+ *  (l'arrondi vers le haut ne fait qu'ajouter de la marge), plancher 5 crédits. */
+const CREDIT_STEP = 5;
+const MIN_CREDITS = 5;
+
+/**
+ * Convertit un coût réel (USD, tous postes confondus) en crédits ENTIERS à
+ * débiter via public.deduct_credits(). Arrondi au palier de 5 supérieur.
+ */
+export function creditsForCost(costUsd: number): number {
+  const costEur = costUsd * USD_TO_EUR;
+  const raw = costEur / CREDIT_COST_EUR;
+  const stepped = Math.ceil(raw / CREDIT_STEP) * CREDIT_STEP;
+  return Math.max(MIN_CREDITS, stepped);
 }
 
 interface TrackUsageParams {
@@ -57,10 +83,17 @@ export async function trackAiUsage({
   agent,
   sector,
   promptType,
-}: TrackUsageParams): Promise<void> {
+}: TrackUsageParams): Promise<number> {
   const costUsd = calcCost(model, inputTokens, outputTokens, cachedInputTokens);
+  const credits = creditsForCost(costUsd);
 
-  await supabase.from("ai_usage").insert({
+  // La policy RLS d'ai_usage refuse l'INSERT au rôle authenticated (with_check
+  // false) : l'écriture DOIT passer par service_role, sinon elle échoue en
+  // silence et le reporting reste vide. `supabase` (session user) reste le repli.
+  const admin = createAdminClient();
+  const writer = admin ?? supabase;
+
+  const { error: usageError } = await writer.from("ai_usage").insert({
     user_id: userId,
     tenant_id: tenantId,
     app_id: appId ?? null,
@@ -70,8 +103,37 @@ export async function trackAiUsage({
     output_tokens: outputTokens,
     cached_input_tokens: cachedInputTokens,
     cost_usd: costUsd,
+    credits,
     agent: agent ?? null,
     sector: sector ?? null,
     prompt_type: promptType ?? null,
   });
+  if (usageError) console.error("ai_usage insert failed:", usageError.message);
+
+  // Renvoie les crédits réels pour réconciliation par l'appelant (reconcileCredits).
+  return credits;
+}
+
+/**
+ * Réconcilie un pré-débit (hold) avec le coût réel d'une action :
+ *  • réel > hold → prélève le surplus (deduct_credits, contexte user) ;
+ *  • réel < hold → rembourse le trop-perçu (refund_credits, service_role requis).
+ * Best-effort : ne jette jamais (la facturation ne doit pas casser la réponse).
+ */
+export async function reconcileCredits(
+  supabase: SupabaseClient,
+  admin: SupabaseClient | null,
+  userId: string,
+  held: number,
+  actual: number
+): Promise<void> {
+  try {
+    if (actual > held) {
+      await supabase.rpc("deduct_credits", { p_amount: actual - held });
+    } else if (actual < held && admin) {
+      await admin.rpc("refund_credits", { p_user_id: userId, p_amount: held - actual });
+    }
+  } catch (err) {
+    console.error("Credit reconciliation failed:", err);
+  }
 }

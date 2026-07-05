@@ -1,5 +1,5 @@
 -- ============================================================
--- BATIFY — Migration 006 : Facturation (plans, abonnements, crédits)
+-- BILTIA — Migration 006 : Facturation (plans, abonnements, crédits)
 --
 -- Contexte : tarifs validés le 2026-07-02.
 --   • Free     : 10 crédits à l'inscription, NON renouvelables, 1 app, 1 user,

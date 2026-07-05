@@ -7,7 +7,7 @@
 //
 // Le bouton « Imprimer / PDF » et le pavé de signature (canvas tactile) ne sont
 // PAS demandés au modèle : ils sont injectés côté serveur par
-// `injectDocumentRuntime` — même pattern robuste que `injectBatifySDK`, pour ne
+// `injectDocumentRuntime` — même pattern robuste que `injectBiltiaSDK`, pour ne
 // jamais dépendre du LLM sur la plomberie critique.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -112,29 +112,29 @@ const DOC_BUILD_RULES = `# COMMENT TU CONSTRUIS LE DOCUMENT
 ## BLOC CSS À INCLURE FIDÈLEMENT (copie-le dans le <style>)
 DEBUT_CSS
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-body{background:#EDEBE4;font-family:'Inter',system-ui,sans-serif;color:#0F172A;font-size:12px;line-height:1.55}
-.sheet{background:#fff;width:210mm;min-height:297mm;margin:24px auto;padding:22mm 20mm;box-shadow:0 6px 30px rgba(0,0,0,.12)}
-.doc-header{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;border-bottom:2px solid #0F172A;padding-bottom:14px;margin-bottom:22px}
+body{background:#F4F4F7;font-family:'Inter',system-ui,sans-serif;color:#0A0A0A;font-size:12px;line-height:1.55}
+.sheet{background:#fff;width:210mm;min-height:297mm;margin:24px auto;padding:22mm 20mm;border-radius:6px;box-shadow:0 6px 30px rgba(60,40,120,.14)}
+.doc-header{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;border-bottom:2px solid #0A0A0A;padding-bottom:14px;margin-bottom:22px}
 .emitter-name{font-size:17px;font-weight:800;letter-spacing:-.01em}
 .emitter-meta{font-size:10.5px;color:#6B7280;margin-top:4px;white-space:pre-line;line-height:1.5}
 .doc-ref{text-align:right;font-size:11px;color:#6B7280;white-space:pre-line;line-height:1.6}
 .doc-title{font-size:22px;font-weight:800;text-align:center;letter-spacing:.01em;margin:6px 0 4px;text-transform:uppercase}
 .doc-subtitle{text-align:center;color:#6B7280;margin-bottom:26px;font-size:12px}
 .parties{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px}
-.party{border:1px solid #E5E7EB;border-radius:8px;padding:12px 14px;background:#FAFAF7}
+.party{border:1px solid #ECECF2;border-radius:10px;padding:12px 14px;background:#FAFAFC}
 .party h4{font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;color:#9CA3AF;margin-bottom:6px;font-weight:700}
 .party p{font-size:11.5px;line-height:1.6}
 .section{margin-bottom:20px}
-.section h3{font-size:13px;font-weight:700;margin-bottom:10px;border-left:3px solid #0D9488;padding-left:9px}
+.section h3{font-size:13px;font-weight:700;margin-bottom:10px;border-left:3px solid #7C3AED;padding-left:9px}
 .section p{margin-bottom:8px;text-align:justify}
 table{width:100%;border-collapse:collapse;margin:10px 0}
 th,td{border:1px solid #E5E7EB;padding:8px 10px;text-align:left;font-size:11px;vertical-align:top}
-th{background:#F7F5EF;font-weight:700;text-transform:uppercase;font-size:9.5px;letter-spacing:.04em;color:#6B7280}
+th{background:#FAFAFC;font-weight:700;text-transform:uppercase;font-size:9.5px;letter-spacing:.04em;color:#6B7280}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .totals{width:62%;max-width:300px;margin-left:auto}
 .totals td{border:none;padding:5px 10px;font-size:12px}
 .totals td.num{font-weight:600}
-.totals tr.grand td{font-weight:800;font-size:15px;border-top:2px solid #0F172A;padding-top:8px;color:#0F172A}
+.totals tr.grand td{font-weight:800;font-size:15px;border-top:2px solid #0A0A0A;padding-top:8px;color:#0A0A0A}
 .signatures{display:grid;grid-template-columns:1fr 1fr;gap:26px;margin-top:44px}
 .sign-box{border:1px solid #E5E7EB;border-radius:8px;min-height:150px;padding:12px 14px;display:flex;flex-direction:column}
 .sign-box h4{font-size:12px;font-weight:700;margin-bottom:2px}
@@ -186,7 +186,7 @@ export function buildDocumentSystemPrompt(opts: {
   const ws = opts.workspace ? `\n${opts.workspace}\n` : "";
   const src = opts.sources ? `\n${opts.sources}\n` : "";
 
-  return `Tu es BatifyAI Documents, le générateur de documents officiels du BTP français. Tu transformes une demande dictée ou tapée — même en argot de chantier — en un document professionnel, juridiquement propre, prêt à imprimer, envoyer et signer.
+  return `Tu es BiltiaAI Documents, le générateur de documents officiels du BTP français. Tu transformes une demande dictée ou tapée — même en argot de chantier — en un document professionnel, juridiquement propre, prêt à imprimer, envoyer et signer.
 
 ${DOC_KNOWLEDGE}
 ${focus}${ws}${docTypeHint(opts.docType)}
@@ -199,16 +199,18 @@ Réponds UNIQUEMENT avec le code HTML complet du document. Aucune explication, a
 // ── Runtime injecté : barre « Imprimer / PDF » + pavés de signature ──────────
 
 const DOC_RUNTIME = `<style>
-.batify-doc-toolbar{position:fixed;top:0;left:0;right:0;z-index:99999;display:flex;gap:10px;justify-content:center;align-items:center;padding:10px 12px;background:#0F172A;box-shadow:0 2px 14px rgba(0,0,0,.22)}
-.batify-doc-toolbar button{font-family:'Inter',system-ui,sans-serif;font-weight:600;font-size:13px;border:none;border-radius:8px;padding:9px 18px;cursor:pointer}
-.batify-doc-toolbar .bd-print{background:#14B8A6;color:#fff}
-.batify-doc-toolbar .bd-clear{background:#1E293B;color:#E2E8F0}
-body.batify-has-toolbar{padding-top:58px}
-@media print{.batify-doc-toolbar{display:none!important}body.batify-has-toolbar{padding-top:0}}
+.biltia-doc-toolbar{position:fixed;top:0;left:0;right:0;z-index:99999;display:flex;gap:10px;justify-content:center;align-items:center;padding:10px 12px;background:#0A0A0A;box-shadow:0 2px 14px rgba(0,0,0,.22)}
+.biltia-doc-toolbar button{font-family:'Inter',system-ui,sans-serif;font-weight:600;font-size:13px;border:none;border-radius:10px;padding:9px 18px;cursor:pointer;transition:all .18s}
+.biltia-doc-toolbar .bd-print{background:linear-gradient(135deg,#6366F1,#A855F7 45%,#EC4899);color:#fff;box-shadow:0 4px 14px rgba(139,92,246,.4)}
+.biltia-doc-toolbar .bd-print:hover{box-shadow:0 6px 20px rgba(139,92,246,.55)}
+.biltia-doc-toolbar .bd-clear{background:#26262E;color:#ECECF2}
+.biltia-doc-toolbar .bd-wa{background:#25D366;color:#fff}
+body.biltia-has-toolbar{padding-top:58px}
+@media print{.biltia-doc-toolbar{display:none!important}body.biltia-has-toolbar{padding-top:0}}
 </style>
 <script>
 (function(){
-  if(window.__batifyDoc) return; window.__batifyDoc=true;
+  if(window.__biltiaDoc) return; window.__biltiaDoc=true;
   function ready(fn){ if(document.readyState!=='loading'){fn();} else {document.addEventListener('DOMContentLoaded',fn);} }
   function setupPad(c){
     var ctx=c.getContext('2d');
@@ -217,7 +219,7 @@ body.batify-has-toolbar{padding-top:58px}
     var dpr=window.devicePixelRatio||1;
     c.width=Math.round(r.width*dpr); c.height=Math.round(r.height*dpr);
     ctx.setTransform(dpr,0,0,dpr,0,0);
-    ctx.lineWidth=2; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.strokeStyle='#0F172A';
+    ctx.lineWidth=2; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.strokeStyle='#0A0A0A';
     var drawing=false,last=null;
     function pos(e){ var b=c.getBoundingClientRect(); var t=e.touches&&e.touches[0]; var src=t||e; return {x:src.clientX-b.left,y:src.clientY-b.top}; }
     function start(e){ e.preventDefault(); drawing=true; last=pos(e); }
@@ -227,12 +229,17 @@ body.batify-has-toolbar{padding-top:58px}
     c.addEventListener('touchstart',start,{passive:false}); c.addEventListener('touchmove',move,{passive:false}); c.addEventListener('touchend',end);
   }
   ready(function(){
-    var bar=document.createElement('div'); bar.className='batify-doc-toolbar';
-    bar.innerHTML='<button class="bd-print" type="button">🖨️ Imprimer / Enregistrer en PDF</button><button class="bd-clear" type="button">Effacer les signatures</button>';
-    document.body.appendChild(bar); document.body.classList.add('batify-has-toolbar');
+    var bar=document.createElement('div'); bar.className='biltia-doc-toolbar';
+    bar.innerHTML='<button class="bd-print" type="button">🖨️ Imprimer / Enregistrer en PDF</button><button class="bd-wa" type="button">Envoyer par WhatsApp</button><button class="bd-clear" type="button">Effacer les signatures</button>';
+    document.body.appendChild(bar); document.body.classList.add('biltia-has-toolbar');
     var pads=[].slice.call(document.querySelectorAll('canvas.sign-pad'));
     pads.forEach(setupPad);
     bar.querySelector('.bd-print').addEventListener('click',function(){ window.print(); });
+    bar.querySelector('.bd-wa').addEventListener('click',function(){
+      var t=(document.title||'Document')+' — préparé avec Biltia. Enregistrez-le en PDF (bouton Imprimer) pour le joindre.';
+      if(navigator.share){ navigator.share({ title: document.title||'Document', text: t }).catch(function(){}); return; }
+      window.open('https://wa.me/?text='+encodeURIComponent(t),'_blank');
+    });
     bar.querySelector('.bd-clear').addEventListener('click',function(){ pads.forEach(function(c){ c.getContext('2d').clearRect(0,0,c.width,c.height); }); });
   });
 })();
@@ -240,7 +247,7 @@ body.batify-has-toolbar{padding-top:58px}
 
 /** Insère la barre d'outils + le moteur de signature avant </body> (idempotent). */
 export function injectDocumentRuntime(html: string): string {
-  if (html.includes("__batifyDoc")) return html;
+  if (html.includes("__biltiaDoc")) return html;
   if (/<\/body>/i.test(html)) {
     return html.replace(/<\/body>/i, DOC_RUNTIME + "\n</body>");
   }

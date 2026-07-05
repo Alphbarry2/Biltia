@@ -17,6 +17,7 @@ export const runtime = "nodejs";
 // La table `subscriptions` n'est pas encore dans database.types.ts : on opère en
 // non typé sur le client service_role (cf. lib/entitlements.ts).
 type AnyDb = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   from: (t: string) => any;
   rpc: (fn: string, args: Record<string, unknown>) => Promise<unknown>;
 };
@@ -75,6 +76,65 @@ async function resolveTenant(
     .maybeSingle();
 
   return { tenantId, ownerUserId: owner?.user_id ?? userIdMeta };
+}
+
+const VERCEL_API = "https://api.vercel.com";
+
+// Statuts Stripe qui déclenchent le GEL (lecture seule + crédits à 0 + apps
+// dépubliées). `past_due` en est ABSENT : c'est la fenêtre de grâce (accès complet).
+const FROZEN_STATUSES = new Set(["canceled", "unpaid", "incomplete_expired", "paused"]);
+
+/**
+ * Dépublie (best-effort) les apps en ligne d'un tenant : la mise en ligne est
+ * une feature d'abonnement, on la coupe au gel. Ne throw jamais. No-op si
+ * VERCEL_TOKEN absent (déploiement non configuré → rien à couper).
+ */
+async function unpublishTenantApps(db: AnyDb, tenantId: string): Promise<void> {
+  const token = process.env.VERCEL_TOKEN;
+  if (!token) return;
+  try {
+    const { data: apps } = await db
+      .from("modules")
+      .select("id, vercel_project_id")
+      .eq("tenant_id", tenantId)
+      .not("deployment_url", "is", null);
+    const teamId = process.env.VERCEL_TEAM_ID;
+    for (const app of (apps ?? []) as Array<{ id: string; vercel_project_id: string | null }>) {
+      if (!app.vercel_project_id) continue;
+      try {
+        const url = new URL(`${VERCEL_API}/v9/projects/${app.vercel_project_id}`);
+        if (teamId) url.searchParams.set("teamId", teamId);
+        await fetch(url.toString(), {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        await db.from("modules").update({ deployment_url: null }).eq("id", app.id);
+      } catch (e) {
+        console.error("[billing/webhook] unpublish échec", app.id, e);
+      }
+    }
+  } catch (e) {
+    console.error("[billing/webhook] unpublishTenantApps", e);
+  }
+}
+
+/**
+ * GEL d'un workspace : les crédits du forfait EXPIRENT à la résiliation (ils
+ * étaient « pour ce mois »), et les apps en ligne sont dépubliées. Les données
+ * ne sont jamais supprimées (consultation + export restent ouverts).
+ */
+async function freezeTenant(
+  db: AnyDb,
+  tenantId: string,
+  ownerUserId: string | null
+): Promise<void> {
+  if (ownerUserId) {
+    await db.from("user_credits").upsert(
+      { user_id: ownerUserId, balance: 0, updated_at: new Date().toISOString() },
+      { onConflict: "user_id" }
+    );
+  }
+  await unpublishTenantApps(db, tenantId);
 }
 
 /**
@@ -199,6 +259,12 @@ export async function POST(req: Request) {
       case "customer.subscription.updated": {
         const sub = event.data.object as Stripe.Subscription;
         await applySubscription(db, sub, /* resetCredits */ false);
+        // Si la relance a échoué et Stripe marque l'abo `unpaid`/`canceled`
+        // (plutôt que de le supprimer), on gèle ici aussi.
+        if (FROZEN_STATUSES.has(sub.status)) {
+          const resolved = await resolveTenant(db, sub);
+          if (resolved) await freezeTenant(db, resolved.tenantId, resolved.ownerUserId);
+        }
         break;
       }
 
@@ -214,6 +280,8 @@ export async function POST(req: Request) {
               stripe_subscription_id: null,
             })
             .eq("tenant_id", resolved.tenantId);
+          // GEL : crédits du forfait à 0 + apps en ligne dépubliées.
+          await freezeTenant(db, resolved.tenantId, resolved.ownerUserId);
         }
         break;
       }

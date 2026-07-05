@@ -20,7 +20,7 @@ export const TEMPLATES: Template[] = [
     subcategory: "Gestion de projet",
     tagline: "Tous vos chantiers, d'un coup d'œil.",
     desc: "Tableau de bord complet pour suivre l'avancement, la facturation et les équipes de chaque chantier en temps réel.",
-    accent: "#14B8A6",
+    accent: "#EC4899",
     bg: "#F0FDFA",
     previewPath: "/t/suivi-chantiers",
     features: ["Avancement en %", "Suivi facturation", "Statuts chantier", "Filtres & recherche", "Export données"],

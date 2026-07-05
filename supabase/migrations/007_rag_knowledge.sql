@@ -1,7 +1,7 @@
 -- ============================================================
--- BATIFY — Migration 007 : RAG Knowledge Base (pgvector)
+-- BILTIA — Migration 007 : RAG Knowledge Base (pgvector)
 -- ============================================================
--- Donne à Batify un "cerveau" documentaire vérifiable au lieu de
+-- Donne à Biltia un "cerveau" documentaire vérifiable au lieu de
 -- la connaissance de mémoire du modèle (source d'hallucinations sur
 -- les normes / sections de câble / taux / calculs).
 --

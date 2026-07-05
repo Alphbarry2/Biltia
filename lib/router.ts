@@ -29,6 +29,9 @@ export type RouteResult = {
   confidence: number;
   /** Explication courte (debug / tracking). */
   reasoning?: string;
+  /** Tokens consommés SI le routage a appelé le LLM (Haiku). Absent sur le
+   *  chemin heuristique (gratuit). Sert au tracking de coût côté route. */
+  usage?: { model: string; inputTokens: number; outputTokens: number };
 };
 
 const AGENT_KEYS = AGENT_LIST.map((a) => a.key);
@@ -101,7 +104,7 @@ function agentCatalog(): string {
 }
 
 function buildRouterSystem(): string {
-  return `Tu es le ROUTEUR de Batify, un générateur d'applications de gestion pour le BTP français.
+  return `Tu es le ROUTEUR de Biltia, un générateur d'applications de gestion pour le BTP français.
 On te donne la description d'une application que veut un artisan/PME du bâtiment. Tu choisis l'agent spécialiste le plus adapté pour la construire.
 
 AGENTS DISPONIBLES :
@@ -175,6 +178,11 @@ async function routeWithLLM(
     method: "llm",
     confidence: typeof input.confidence === "number" ? input.confidence : 0.7,
     reasoning: "classification Haiku",
+    usage: {
+      model: ROUTER_MODEL,
+      inputTokens: message.usage.input_tokens,
+      outputTokens: message.usage.output_tokens,
+    },
   };
 }
 
@@ -191,10 +199,16 @@ export async function routeRequest(opts: {
 }): Promise<RouteResult> {
   const { prompt, sector, useLLM = true } = opts;
 
+  // HEURISTIQUE D'ABORD (gratuite). Le choix de l'agent métier est peu risqué
+  // (il ne conditionne que le bloc d'expertise injecté), donc on ne dépense un
+  // Haiku QUE lorsque l'heuristique doute : confiance < 0.8, soit 0-1 mot-clé
+  // métier détecté. Deux mots-clés concordants ou plus → décision directe.
+  const heuristic = routeHeuristic(prompt, sector);
+
   const hasKey =
     !!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.startsWith("your_");
 
-  if (useLLM && hasKey) {
+  if (useLLM && hasKey && heuristic.confidence < 0.8) {
     try {
       const llm = await routeWithLLM(prompt, sector);
       if (llm) return llm;
@@ -203,5 +217,5 @@ export async function routeRequest(opts: {
     }
   }
 
-  return routeHeuristic(prompt, sector);
+  return heuristic;
 }

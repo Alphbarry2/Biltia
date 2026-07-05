@@ -17,7 +17,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase-server";
 import { createAdminClient } from "@/lib/supabase-admin";
-import { trackAiUsage } from "@/lib/ai-usage";
+import { trackAiUsage, reconcileCredits } from "@/lib/ai-usage";
+import { getActiveMembershipServer } from "@/lib/tenant-server";
+import { getEntitlementsForTenant, FROZEN_MESSAGE } from "@/lib/entitlements";
+import { isFounderEmail } from "@/lib/founder";
+import { logActivity } from "@/lib/activity";
 import { VISION_MODEL, buildFileBlocks, validateFiles, ValidationError } from "@/lib/vision";
 
 const client = new Anthropic();
@@ -77,7 +81,7 @@ const REPORT_TOOL: Anthropic.Tool = {
 };
 
 function buildSystem(): string {
-  return `Tu es le contrôleur qualité de Batify, expert du BTP français. On te fournit un LOT de documents (bons de livraison, factures, devis, courriers…) et une instruction de contrôle. Tu les lis TOUS et tu produis un rapport.
+  return `Tu es le contrôleur qualité de Biltia, expert du BTP français. On te fournit un LOT de documents (bons de livraison, factures, devis, courriers…) et une instruction de contrôle. Tu les lis TOUS et tu produis un rapport.
 
 CE QUE TU VÉRIFIES (selon l'instruction) :
 - Doublons : même numéro/référence, ou même émetteur + même montant + même date.
@@ -110,17 +114,17 @@ export async function POST(req: Request) {
       return Response.json({ error: "Authentification requise." }, { status: 401 });
     }
 
-    const { data: membership } = await supabase
-      .from("tenant_members")
-      .select("tenant_id, role")
-      .eq("user_id", user.id)
-      .not("accepted_at", "is", null)
-      .limit(1)
-      .single();
+    const membership = await getActiveMembershipServer(supabase, user.id);
     if (!membership) {
       return Response.json({ error: "Aucun espace de travail trouvé." }, { status: 403 });
     }
     const tenantId = membership.tenant_id;
+
+    // GEL LECTURE SEULE : un abonnement expiré ne peut plus lancer d'automatisation.
+    const ent = await getEntitlementsForTenant(supabase, tenantId);
+    if (!ent.writable) {
+      return Response.json({ error: FROZEN_MESSAGE, frozen: true }, { status: 403 });
+    }
 
     let body: { files?: unknown; instruction?: string };
     try {
@@ -144,21 +148,26 @@ export async function POST(req: Request) {
         ? body.instruction.trim().slice(0, 2000)
         : "Contrôle ce lot : détecte doublons, incohérences de prix et totaux erronés.";
 
-    // 1 crédit par fichier (remboursé si échec).
-    const creditCost = files.length;
-    const { data: credited } = await supabase.rpc("deduct_credits", { p_amount: creditCost });
-    if (!credited) {
-      return Response.json(
-        { error: "Crédits insuffisants. Rechargez votre compte pour continuer." },
-        { status: 402 }
-      );
+    // Pré-autorisation (hold) par fichier, réconciliée au coût réel après le contrôle.
+    // Compte fondateur : jamais de hold ni de débit (usage journalisé quand même).
+    const founder = isFounderEmail(user.email);
+    const HOLD = founder ? 0 : 25 * files.length;
+    if (HOLD > 0) {
+      const { data: credited } = await supabase.rpc("deduct_credits", { p_amount: HOLD });
+      if (!credited) {
+        return Response.json(
+          { error: "Crédits insuffisants. Rechargez votre compte pour continuer." },
+          { status: 402 }
+        );
+      }
     }
 
     async function refund() {
+      if (HOLD <= 0) return;
       const admin = createAdminClient();
       if (admin) {
         try {
-          await admin.rpc("refund_credits", { p_user_id: user!.id, p_amount: creditCost });
+          await admin.rpc("refund_credits", { p_user_id: user!.id, p_amount: HOLD });
         } catch (err) {
           console.error("Refund failed after automate error:", err);
         }
@@ -225,8 +234,9 @@ export async function POST(req: Request) {
 
     const answer = typeof input.synthese === "string" ? input.synthese.trim() : "";
 
+    let realCredits = HOLD;
     try {
-      await trackAiUsage({
+      const tracked = await trackAiUsage({
         supabase,
         userId: user.id,
         tenantId,
@@ -235,9 +245,23 @@ export async function POST(req: Request) {
         inputTokens: message.usage.input_tokens,
         outputTokens: message.usage.output_tokens,
       });
+      if (founder) {
+        realCredits = 0; // journalisé pour le suivi des coûts, jamais débité
+      } else {
+        realCredits = tracked;
+        await reconcileCredits(supabase, createAdminClient(), user.id, HOLD, realCredits);
+      }
     } catch {
       // ignore
     }
+
+    await logActivity(supabase, {
+      tenantId,
+      userId: user.id,
+      action: "document",
+      entityType: "contrôle",
+      description: `Contrôle par lot : ${files.length} fichier(s), ${anomalies.length} anomalie(s) détectée(s)`,
+    });
 
     return Response.json({
       kind: "report",
@@ -245,7 +269,7 @@ export async function POST(req: Request) {
       anomalies,
       answer,
       fileCount: files.length,
-      creditsUsed: creditCost,
+      creditsUsed: realCredits,
     });
   } catch (err) {
     console.error("Automate error:", err);

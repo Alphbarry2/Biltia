@@ -1,5 +1,5 @@
 -- ============================================================
--- BATIFY — Migration 003 : Security Hardening (Roadmap Étape 1)
+-- BILTIA — Migration 003 : Security Hardening (Roadmap Étape 1)
 -- ============================================================
 -- Corrige les constats de l'audit du 2026-06-27 :
 --

@@ -31,11 +31,11 @@ export const PRODUCTS: Product[] = [
     icon: "FileText",
     accent: ["#6366F1", "#A855F7"],
     hero: "Le bon document, dicté en 30 secondes.",
-    sub: "Avenant, PV de réception, devis, mise en demeure, attestation, courrier. Batify le rédige, le calcule et le prépare à la signature.",
+    sub: "Avenant, PV de réception, devis, mise en demeure, attestation, courrier. Biltia le rédige, le calcule et le prépare à la signature.",
     features: [
       { title: "Conforme au métier", body: "Structure, mentions légales et calculs HT/TVA/TTC corrects selon le type de document." },
       { title: "Prêt à signer", body: "Bouton Imprimer / Enregistrer en PDF, et pavés de signature tactiles du bout du doigt." },
-      { title: "Pré-rempli", body: "Batify reprend les données de votre workspace : clients, chantiers, tarifs." },
+      { title: "Pré-rempli", body: "Biltia reprend les données de votre workspace : clients, chantiers, tarifs." },
     ],
     examples: [
       "Sors-moi l'avenant pour 45 m² de carrelage validé à 42 €/m² sur le chantier Villa Dumont.",
@@ -50,7 +50,7 @@ export const PRODUCTS: Product[] = [
     icon: "LayoutGrid",
     accent: ["#A855F7", "#EC4899"],
     hero: "Votre outil, exactement comme vous le voulez.",
-    sub: "Suivi de chantiers, pointage des heures, inventaire, planning. Décrivez votre besoin, Batify génère l'application, accessible depuis le chantier.",
+    sub: "Suivi de chantiers, pointage des heures, inventaire, planning. Décrivez votre besoin, Biltia génère l'application, accessible depuis le chantier.",
     features: [
       { title: "En quelques secondes", body: "Une description en français suffit. Pas de menus, pas de configuration." },
       { title: "Modifiable à la voix", body: "Ajoutez une colonne, une alerte, une signature. Dites-le, c'est fait." },
@@ -69,11 +69,11 @@ export const PRODUCTS: Product[] = [
     icon: "Zap",
     accent: ["#EC4899", "#FB923C"],
     hero: "Les corvées répétitives, en pilote automatique.",
-    sub: "Contrôle de prix, rapprochement de bons de livraison, relances. Batify traite vos lots de fichiers et signale ce qui cloche.",
+    sub: "Contrôle de prix, rapprochement de bons de livraison, relances. Biltia traite vos lots de fichiers et signale ce qui cloche.",
     features: [
-      { title: "Traitement par lot", body: "Glissez vos bons de livraison ou factures, Batify les vérifie d'un coup." },
+      { title: "Traitement par lot", body: "Glissez vos bons de livraison ou factures, Biltia les vérifie d'un coup." },
       { title: "Détection d'écarts", body: "Prix incohérents, références inconnues, doublons : rien ne passe." },
-      { title: "Déclenché par une phrase", body: "Aucune règle à programmer. Décrivez le contrôle, Batify l'exécute." },
+      { title: "Déclenché par une phrase", body: "Aucune règle à programmer. Décrivez le contrôle, Biltia l'exécute." },
     ],
     examples: [
       "Vérifie les prix de ces 30 bons de livraison par rapport à mes devis et signale les écarts.",
@@ -88,7 +88,7 @@ export const PRODUCTS: Product[] = [
     icon: "ScanLine",
     accent: ["#FB923C", "#F43F5E"],
     hero: "Vos documents, compris en un instant.",
-    sub: "Devis, factures, plans, PDF : Batify les lit, en extrait l'essentiel et répond à vos questions dessus.",
+    sub: "Devis, factures, plans, PDF : Biltia les lit, en extrait l'essentiel et répond à vos questions dessus.",
     features: [
       { title: "Extraction fiable", body: "Montants, échéances, quantités, références : l'essentiel remonte automatiquement." },
       { title: "Questions en langage naturel", body: "Demandez ce que vous voulez savoir sur un document, obtenez la réponse." },
@@ -105,12 +105,12 @@ export const PRODUCTS: Product[] = [
     name: "Copilote & réponses",
     tagline: "Répond à vos questions sur vos données",
     icon: "MessageCircle",
-    accent: ["#14B8A6", "#6366F1"],
+    accent: ["#22D3EE", "#6366F1"],
     hero: "Une question ? Une réponse, tout de suite.",
-    sub: "Quels chantiers sont en retard ? Combien me doit ce client ? Batify interroge votre workspace et répond, sourcé sur vos vraies données.",
+    sub: "Quels chantiers sont en retard ? Combien me doit ce client ? Biltia interroge votre workspace et répond, sourcé sur vos vraies données.",
     features: [
       { title: "Appuyé sur vos données", body: "Les réponses viennent de votre workspace, pas d'un modèle générique." },
-      { title: "Métier BTP natif", body: "DOE, situations, retenue de garantie, RGE : Batify parle votre langue." },
+      { title: "Métier BTP natif", body: "DOE, situations, retenue de garantie, RGE : Biltia parle votre langue." },
       { title: "Toujours à jour", body: "Chaque demande s'appuie sur ce que vous avez enregistré la veille." },
     ],
     examples: [
@@ -124,13 +124,13 @@ export const PRODUCTS: Product[] = [
     name: "Workspace unifié",
     tagline: "La mémoire de votre entreprise",
     icon: "FolderKanban",
-    accent: ["#6366F1", "#14B8A6"],
+    accent: ["#6366F1", "#22D3EE"],
     hero: "La mémoire irremplaçable de votre entreprise.",
-    sub: "Clients, chantiers, documents, équipes, applications et historique, centralisés. Plus vous utilisez Batify, plus il comprend votre activité.",
+    sub: "Clients, chantiers, documents, équipes, applications et historique, centralisés. Plus vous utilisez Biltia, plus il comprend votre activité.",
     features: [
       { title: "Tout relié", body: "Un client, ses chantiers, ses documents et ses factures, connectés entre eux." },
       { title: "Sécurisé et isolé", body: "Vos données sont hébergées en France et strictement isolées par entreprise." },
-      { title: "Qui grandit avec vous", body: "Chaque résolution enrichit la mémoire et rend Batify plus pertinent." },
+      { title: "Qui grandit avec vous", body: "Chaque résolution enrichit la mémoire et rend Biltia plus pertinent." },
     ],
     examples: [
       "Montre-moi tout l'historique du chantier Villa Dumont.",

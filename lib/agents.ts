@@ -5,7 +5,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { AgentKey } from "./sectors";
-import { CATEGORIES, getAllSubTrades } from "./btp-catalog";
+import { CATEGORIES } from "./btp-catalog";
 
 export type Agent = {
   key: AgentKey;

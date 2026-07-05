@@ -165,7 +165,7 @@ ${FONT_LINK}
 </div>
 
 <script>
-const KEY = 'batify_suivi_chantiers';
+const KEY = 'biltia_suivi_chantiers';
 let items = [], editId = null, activeTab = 'list';
 
 const DEFAULTS = [
@@ -419,7 +419,7 @@ ${FONT_LINK}
 </div>
 
 <script>
-const KEY = 'batify_devis_factures';
+const KEY = 'biltia_devis_factures';
 let items = [], editId = null;
 
 const DEFAULTS = [
@@ -607,7 +607,7 @@ ${FONT_LINK}
 </div>
 
 <script>
-const KEY='batify_pointage_equipes';
+const KEY='biltia_pointage_equipes';
 let items=[],editId=null,activeTab='list';
 
 const DEFAULTS=[
@@ -859,7 +859,7 @@ ${FONT_LINK}
 </div>
 
 <script>
-const KEY='batify_sous_traitants';
+const KEY='biltia_sous_traitants';
 let items=[],editId=null,activeTab='list';
 
 const DEFAULTS=[
@@ -1098,7 +1098,7 @@ ${FONT_LINK}
 </div>
 
 <script>
-const KEY='batify_fiche_intervention';
+const KEY='biltia_fiche_intervention';
 let items=[],editId=null,activeTab='list';
 
 const DEFAULTS=[
@@ -1351,8 +1351,8 @@ ${FONT_LINK}
 </div>
 
 <script>
-const KEY='batify_suivi_materiaux';
-const KEY_MVT='batify_suivi_materiaux_mvt';
+const KEY='biltia_suivi_materiaux';
+const KEY_MVT='biltia_suivi_materiaux_mvt';
 let items=[],mvts=[],editId=null,activeTab='stock';
 
 const DEFAULTS=[
@@ -1596,7 +1596,7 @@ ${FONT_LINK}
 </div>
 
 <script>
-const KEY='batify_tableau_bord';
+const KEY='biltia_tableau_bord';
 let state={};
 
 const DEFAULTS={
@@ -1825,7 +1825,7 @@ ${FONT_LINK}
 </div>
 
 <script>
-const KEY='batify_parc_materiel';
+const KEY='biltia_parc_materiel';
 let items=[],editId=null,activeTab='parc';
 
 const DEFAULTS=[
@@ -2074,7 +2074,7 @@ ${FONT_LINK}
 </div>
 
 <script>
-const KEY='batify_contrats_maintenance';
+const KEY='biltia_contrats_maintenance';
 let items=[],editId=null,activeTab='contrats';
 
 const DEFAULTS=[
@@ -2326,7 +2326,7 @@ ${FONT_LINK}
 </div>
 
 <script>
-const KEY='batify_planning_chantier';
+const KEY='biltia_planning_chantier';
 let items=[],editId=null,activeTab='list';
 
 const DEFAULTS=[

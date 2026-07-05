@@ -14,84 +14,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      knowledge_documents: {
-        Row: {
-          id: string
-          tenant_id: string | null
-          title: string
-          source_url: string | null
-          source_type: string
-          license: string
-          trade_ids: string[]
-          checksum: string | null
-          created_by: string | null
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          id?: string
-          tenant_id?: string | null
-          title: string
-          source_url?: string | null
-          source_type?: string
-          license?: string
-          trade_ids?: string[]
-          checksum?: string | null
-          created_by?: string | null
-          created_at?: string
-          updated_at?: string
-        }
-        Update: {
-          id?: string
-          tenant_id?: string | null
-          title?: string
-          source_url?: string | null
-          source_type?: string
-          license?: string
-          trade_ids?: string[]
-          checksum?: string | null
-          created_by?: string | null
-          created_at?: string
-          updated_at?: string
-        }
-        Relationships: []
-      }
-      knowledge_chunks: {
-        Row: {
-          id: string
-          document_id: string
-          tenant_id: string | null
-          content: string
-          embedding: string | number[]
-          trade_ids: string[]
-          chunk_index: number
-          token_count: number | null
-          created_at: string
-        }
-        Insert: {
-          id?: string
-          document_id: string
-          tenant_id?: string | null
-          content: string
-          embedding: string | number[]
-          trade_ids?: string[]
-          chunk_index?: number
-          token_count?: number | null
-          created_at?: string
-        }
-        Update: {
-          id?: string
-          document_id?: string
-          tenant_id?: string | null
-          content?: string
-          embedding?: string | number[]
-          trade_ids?: string[]
-          chunk_index?: number
-          token_count?: number | null
-          created_at?: string
-        }
-        Relationships: []
-      }
       activity_logs: {
         Row: {
           action: string
@@ -136,6 +58,105 @@ export type Database = {
           },
         ]
       }
+      agent_rules: {
+        Row: {
+          action: Json
+          blocked_reason: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          instruction: string
+          last_run_at: string | null
+          meta: Json
+          missing: Json | null
+          next_run_at: string | null
+          schedule: Json
+          status: string
+          tenant_id: string
+          title: string
+          trigger_type: string
+          updated_at: string
+        }
+        Insert: {
+          action?: Json
+          blocked_reason?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          instruction: string
+          last_run_at?: string | null
+          meta?: Json
+          missing?: Json | null
+          next_run_at?: string | null
+          schedule?: Json
+          status?: string
+          tenant_id: string
+          title: string
+          trigger_type?: string
+          updated_at?: string
+        }
+        Update: {
+          action?: Json
+          blocked_reason?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          instruction?: string
+          last_run_at?: string | null
+          meta?: Json
+          missing?: Json | null
+          next_run_at?: string | null
+          schedule?: Json
+          status?: string
+          tenant_id?: string
+          title?: string
+          trigger_type?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      agent_runs: {
+        Row: {
+          created_at: string
+          credits_used: number
+          error: string | null
+          finished_at: string | null
+          id: string
+          output: Json
+          rule_id: string
+          run_key: string
+          status: string
+          summary: string
+          tenant_id: string
+        }
+        Insert: {
+          created_at?: string
+          credits_used?: number
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          output?: Json
+          rule_id: string
+          run_key: string
+          status?: string
+          summary?: string
+          tenant_id: string
+        }
+        Update: {
+          created_at?: string
+          credits_used?: number
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          output?: Json
+          rule_id?: string
+          run_key?: string
+          status?: string
+          summary?: string
+          tenant_id?: string
+        }
+        Relationships: []
+      }
       ai_usage: {
         Row: {
           action: string
@@ -144,6 +165,7 @@ export type Database = {
           cached_input_tokens: number
           cost_usd: number
           created_at: string
+          credits: number
           id: string
           input_tokens: number
           model: string
@@ -160,6 +182,7 @@ export type Database = {
           cached_input_tokens?: number
           cost_usd?: number
           created_at?: string
+          credits?: number
           id?: string
           input_tokens?: number
           model: string
@@ -176,6 +199,7 @@ export type Database = {
           cached_input_tokens?: number
           cost_usd?: number
           created_at?: string
+          credits?: number
           id?: string
           input_tokens?: number
           model?: string
@@ -494,6 +518,57 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "clients_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      conversations: {
+        Row: {
+          app_id: string | null
+          created_at: string
+          id: string
+          kind: string | null
+          messages: Json
+          tenant_id: string
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          app_id?: string | null
+          created_at?: string
+          id?: string
+          kind?: string | null
+          messages?: Json
+          tenant_id: string
+          title?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          app_id?: string | null
+          created_at?: string
+          id?: string
+          kind?: string | null
+          messages?: Json
+          tenant_id?: string
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversations_app_id_fkey"
+            columns: ["app_id"]
+            isOneToOne: false
+            referencedRelation: "modules"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversations_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
@@ -931,6 +1006,149 @@ export type Database = {
           },
         ]
       }
+      knowledge_chunks: {
+        Row: {
+          chunk_index: number
+          content: string
+          created_at: string
+          document_id: string
+          embedding: string
+          id: string
+          tenant_id: string | null
+          token_count: number | null
+          trade_ids: string[]
+        }
+        Insert: {
+          chunk_index?: number
+          content: string
+          created_at?: string
+          document_id: string
+          embedding: string
+          id?: string
+          tenant_id?: string | null
+          token_count?: number | null
+          trade_ids?: string[]
+        }
+        Update: {
+          chunk_index?: number
+          content?: string
+          created_at?: string
+          document_id?: string
+          embedding?: string
+          id?: string
+          tenant_id?: string | null
+          token_count?: number | null
+          trade_ids?: string[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "knowledge_chunks_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "knowledge_chunks_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      knowledge_documents: {
+        Row: {
+          checksum: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          license: string
+          source_type: string
+          source_url: string | null
+          tenant_id: string | null
+          title: string
+          trade_ids: string[]
+          updated_at: string
+        }
+        Insert: {
+          checksum?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          license?: string
+          source_type?: string
+          source_url?: string | null
+          tenant_id?: string | null
+          title: string
+          trade_ids?: string[]
+          updated_at?: string
+        }
+        Update: {
+          checksum?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          license?: string
+          source_type?: string
+          source_url?: string | null
+          tenant_id?: string | null
+          title?: string
+          trade_ids?: string[]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "knowledge_documents_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      learning_signals: {
+        Row: {
+          amount_bucket: string | null
+          context: string
+          created_at: string
+          id: string
+          meta: Json
+          outcome: string
+          processed_at: string | null
+          sector: string | null
+          signal_type: string
+          tenant_id: string
+          trade_ids: string[]
+        }
+        Insert: {
+          amount_bucket?: string | null
+          context?: string
+          created_at?: string
+          id?: string
+          meta?: Json
+          outcome?: string
+          processed_at?: string | null
+          sector?: string | null
+          signal_type: string
+          tenant_id: string
+          trade_ids?: string[]
+        }
+        Update: {
+          amount_bucket?: string | null
+          context?: string
+          created_at?: string
+          id?: string
+          meta?: Json
+          outcome?: string
+          processed_at?: string | null
+          sector?: string | null
+          signal_type?: string
+          tenant_id?: string
+          trade_ids?: string[]
+        }
+        Relationships: []
+      }
       materials: {
         Row: {
           categorie: string | null
@@ -1056,6 +1274,7 @@ export type Database = {
           icon: string | null
           id: string
           is_public: boolean
+          kind: string
           name: string
           slug: string | null
           status: Database["public"]["Enums"]["app_status"]
@@ -1075,6 +1294,7 @@ export type Database = {
           icon?: string | null
           id?: string
           is_public?: boolean
+          kind?: string
           name: string
           slug?: string | null
           status?: Database["public"]["Enums"]["app_status"]
@@ -1094,6 +1314,7 @@ export type Database = {
           icon?: string | null
           id?: string
           is_public?: boolean
+          kind?: string
           name?: string
           slug?: string | null
           status?: Database["public"]["Enums"]["app_status"]
@@ -1168,6 +1389,7 @@ export type Database = {
           company_name: string
           created_at: string
           full_name: string
+          preferences: Json
           sector: string
           tenant_id: string | null
           updated_at: string
@@ -1177,6 +1399,7 @@ export type Database = {
           company_name?: string
           created_at?: string
           full_name?: string
+          preferences?: Json
           sector?: string
           tenant_id?: string | null
           updated_at?: string
@@ -1186,6 +1409,7 @@ export type Database = {
           company_name?: string
           created_at?: string
           full_name?: string
+          preferences?: Json
           sector?: string
           tenant_id?: string | null
           updated_at?: string
@@ -1194,6 +1418,98 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "profiles_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      push_subscriptions: {
+        Row: {
+          auth: string
+          created_at: string
+          endpoint: string
+          id: string
+          p256dh: string
+          tenant_id: string | null
+          user_agent: string | null
+          user_id: string
+        }
+        Insert: {
+          auth: string
+          created_at?: string
+          endpoint: string
+          id?: string
+          p256dh: string
+          tenant_id?: string | null
+          user_agent?: string | null
+          user_id: string
+        }
+        Update: {
+          auth?: string
+          created_at?: string
+          endpoint?: string
+          id?: string
+          p256dh?: string
+          tenant_id?: string | null
+          user_agent?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "push_subscriptions_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reports: {
+        Row: {
+          conversation_id: string | null
+          created_at: string
+          file_count: number
+          id: string
+          payload: Json
+          tenant_id: string
+          title: string
+          type: string
+          user_id: string
+        }
+        Insert: {
+          conversation_id?: string | null
+          created_at?: string
+          file_count?: number
+          id?: string
+          payload?: Json
+          tenant_id: string
+          title?: string
+          type: string
+          user_id: string
+        }
+        Update: {
+          conversation_id?: string | null
+          created_at?: string
+          file_count?: number
+          id?: string
+          payload?: Json
+          tenant_id?: string
+          title?: string
+          type?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reports_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reports_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
@@ -1459,6 +1775,8 @@ export type Database = {
       }
       tenants: {
         Row: {
+          company_info: Json
+          contributes_to_brain: boolean
           created_at: string
           id: string
           logo_url: string | null
@@ -1467,6 +1785,8 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          company_info?: Json
+          contributes_to_brain?: boolean
           created_at?: string
           id?: string
           logo_url?: string | null
@@ -1475,6 +1795,8 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          company_info?: Json
+          contributes_to_brain?: boolean
           created_at?: string
           id?: string
           logo_url?: string | null
@@ -1483,6 +1805,53 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      user_connections: {
+        Row: {
+          access_token: string | null
+          connected_at: string
+          id: string
+          provider: string
+          refresh_token: string | null
+          scopes: string[]
+          tenant_id: string
+          token_expires_at: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_token?: string | null
+          connected_at?: string
+          id?: string
+          provider: string
+          refresh_token?: string | null
+          scopes?: string[]
+          tenant_id: string
+          token_expires_at?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_token?: string | null
+          connected_at?: string
+          id?: string
+          provider?: string
+          refresh_token?: string | null
+          scopes?: string[]
+          tenant_id?: string
+          token_expires_at?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_connections_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_credits: {
         Row: {
@@ -1553,6 +1922,7 @@ export type Database = {
     Functions: {
       admin_analytics: { Args: never; Returns: Json }
       deduct_credits: { Args: { p_amount: number }; Returns: boolean }
+      get_user_id_by_email: { Args: { p_email: string }; Returns: string }
       get_workspace_context: { Args: { p_tenant_id: string }; Returns: Json }
       is_app_member: { Args: { p_app_id: string }; Returns: boolean }
       log_activity: {
@@ -1582,20 +1952,20 @@ export type Database = {
       }
       match_knowledge: {
         Args: {
-          query_embedding: string | number[]
           match_count?: number
-          p_tenant_id?: string | null
-          p_trade_ids?: string[] | null
+          p_tenant_id?: string
+          p_trade_ids?: string[]
+          query_embedding: string
         }
         Returns: {
-          id: string
-          document_id: string
           content: string
-          title: string
-          source_url: string | null
-          source_type: string
-          trade_ids: string[]
+          document_id: string
+          id: string
           similarity: number
+          source_type: string
+          source_url: string
+          title: string
+          trade_ids: string[]
         }[]
       }
       my_tenant_role: {

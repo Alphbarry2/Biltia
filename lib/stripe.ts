@@ -11,9 +11,12 @@ import {
   PAID_PLAN_IDS,
   getPlan,
   stripePriceEnvVar,
+  type BillingCycle,
   type CreditTier,
   type PlanId,
 } from "./plans";
+
+const BILLING_CYCLES: BillingCycle[] = ["monthly", "annual"];
 
 let _stripe: Stripe | null | undefined;
 
@@ -33,22 +36,30 @@ export function getStripe(): Stripe | null {
  * Ex : ("pro", 400) lit la variable STRIPE_PRICE_PRO_400.
  * Retourne `null` si non configuré.
  */
-export function resolvePriceId(planId: PlanId, credits: number): string | null {
-  const varName = stripePriceEnvVar(planId, credits);
+export function resolvePriceId(
+  planId: PlanId,
+  credits: number,
+  cycle: BillingCycle = "monthly"
+): string | null {
+  const varName = stripePriceEnvVar(planId, credits, cycle);
   return process.env[varName] ?? null;
 }
 
 /**
  * Correspondance inverse : à partir d'un Price ID reçu d'un webhook Stripe,
- * retrouve le plan + palier associés. Retourne `null` si inconnu.
+ * retrouve le plan + palier (+ cycle) associés. Les deux cycles sont testés.
+ * Retourne `null` si inconnu. Les crédits attribués sont les mêmes quel que
+ * soit le cycle, donc le webhook peut ignorer `cycle`.
  */
 export function findTierByPriceId(
   priceId: string
-): { plan: PlanId; tier: CreditTier } | null {
+): { plan: PlanId; tier: CreditTier; cycle: BillingCycle } | null {
   for (const planId of PAID_PLAN_IDS) {
     for (const tier of getPlan(planId).tiers) {
-      if (resolvePriceId(planId, tier.credits) === priceId) {
-        return { plan: planId, tier };
+      for (const cycle of BILLING_CYCLES) {
+        if (resolvePriceId(planId, tier.credits, cycle) === priceId) {
+          return { plan: planId, tier, cycle };
+        }
       }
     }
   }

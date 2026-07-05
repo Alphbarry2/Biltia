@@ -1,4 +1,4 @@
-/* Batify — Service Worker (conservateur, sûr pour un SaaS authentifié).
+/* Biltia — Service Worker (conservateur, sûr pour un SaaS authentifié).
  *
  * Règles :
  *  - Jamais de cache sur /api (données + auth) ni sur les requêtes non-GET.
@@ -6,7 +6,7 @@
  *  - Assets statiques immuables (_next/static, icônes, polices) : cache-first + revalidation en arrière-plan.
  */
 
-const VERSION = "batify-v1";
+const VERSION = "biltia-v2";
 const STATIC_CACHE = `${VERSION}-static`;
 const OFFLINE_URL = "/offline";
 
@@ -57,4 +57,42 @@ self.addEventListener("fetch", (event) => {
       })
     );
   }
+});
+
+/* ── Notifications push (Web Push) ─────────────────────────────────────────
+ * Le serveur envoie un payload JSON : { title, body, url, tag }.
+ * Clic → focus d'un onglet Biltia existant, sinon ouverture de l'URL.
+ */
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = { body: event.data ? event.data.text() : "" };
+  }
+  const title = data.title || "Biltia";
+  const options = {
+    body: data.body || "",
+    icon: "/icons/icon-192.png",
+    badge: "/icons/icon-192.png",
+    tag: data.tag || "biltia",
+    data: { url: data.url || "/dashboard" },
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || "/dashboard";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((tabs) => {
+      for (const tab of tabs) {
+        if (new URL(tab.url).origin === self.location.origin && "focus" in tab) {
+          tab.navigate(url);
+          return tab.focus();
+        }
+      }
+      return self.clients.openWindow(url);
+    })
+  );
 });

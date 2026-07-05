@@ -1,0 +1,340 @@
+"use client";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONNECTEURS — UI partagée entre la page /connectors, le widget modal et le
+// badge d'accueil « Connectez vos outils ».
+//
+// Trois états par connecteur (cf. lib/connectors.ts) :
+//   · Intégré      → marche sans connexion (WhatsApp, exports, téléphone)
+//   · Connecté     → compte OAuth relié, Biltia peut agir dans les automatisations
+//   · À connecter  → bouton « Connecter » (flux OAuth Google / Microsoft)
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { useCallback, useEffect, useState } from "react";
+import Image from "next/image";
+import Link from "next/link";
+import { createPortal } from "react-dom";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  Plug,
+  Puzzle,
+  Smartphone,
+  FileSpreadsheet,
+  Loader2,
+  CheckCircle,
+  X,
+  ArrowRight,
+} from "lucide-react";
+import {
+  CONNECTORS,
+  connectorStatus,
+  type ConnectionInfo,
+  type Connector,
+} from "@/lib/connectors";
+
+const EASE = [0.16, 1, 0.3, 1] as const;
+
+// ── État des connexions (hook partagé) ──────────────────────────────────────
+
+function useConnections() {
+  const [connections, setConnections] = useState<ConnectionInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(async () => {
+    try {
+      const res = await fetch("/api/connections");
+      const json = await res.json();
+      setConnections(Array.isArray(json.connections) ? json.connections : []);
+    } catch {
+      setConnections([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  return { connections, loading, refresh };
+}
+
+// ── Icône de secours quand un connecteur n'a pas de logo ────────────────────
+
+function FallbackIcon({ id }: { id: string }) {
+  if (id === "phone") return <Smartphone className="w-4 h-4 text-[#7C3AED]" />;
+  if (id.startsWith("export")) return <FileSpreadsheet className="w-4 h-4 text-[#7C3AED]" />;
+  return <Puzzle className="w-4 h-4 text-[#7C3AED]" />;
+}
+
+// ── Carte d'un connecteur ────────────────────────────────────────────────────
+
+function ConnectorCard({
+  connector,
+  connections,
+  onChanged,
+}: {
+  connector: Connector;
+  connections: ConnectionInfo[];
+  onChanged: () => void;
+}) {
+  const status = connectorStatus(connector, connections);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const connect = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/connections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "start", connectorId: connector.id }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.url) throw new Error(json.error ?? "Connexion impossible.");
+      window.location.href = json.url; // → consentement Google / Microsoft
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Connexion impossible.");
+      setBusy(false);
+    }
+  };
+
+  const disconnect = async () => {
+    if (busy) return;
+    const family = connector.provider === "google" ? "Google" : "Microsoft";
+    if (
+      !window.confirm(
+        `Déconnecter votre compte ${family} ? Tous les outils ${family} connectés (email, agenda, stockage) seront déconnectés.`
+      )
+    )
+      return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/connections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "disconnect", provider: connector.provider }),
+      });
+      if (!res.ok) throw new Error("Déconnexion impossible.");
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Déconnexion impossible.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-2.5 rounded-xl border border-[#EDEDF2] bg-white p-4">
+      <div className="flex items-center gap-2.5 min-w-0">
+        <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${connector.logo ? "bg-white border border-[#EDEDF2]" : "bg-[#F3EFFC]"}`}>
+          {connector.logo ? (
+            <Image src={connector.logo} alt={`Logo ${connector.name}`} width={20} height={20} className="w-5 h-5 object-contain" />
+          ) : (
+            <FallbackIcon id={connector.id} />
+          )}
+        </span>
+        <span className="text-[13.5px] font-semibold text-[#0A0A0A] truncate">{connector.name}</span>
+        {status === "builtin" && (
+          <span className="ml-auto flex-shrink-0 rounded-full border border-[#E2D9F8] bg-[#F3EFFC] px-2 py-0.5 text-[10.5px] font-bold text-[#7C3AED]">
+            Intégré
+          </span>
+        )}
+        {status === "connected" && (
+          <span className="ml-auto flex-shrink-0 inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10.5px] font-bold text-emerald-600">
+            <CheckCircle className="w-3 h-3" /> Connecté
+          </span>
+        )}
+      </div>
+
+      <p className="text-[12px] text-[#9A9A97] leading-snug">{connector.desc}</p>
+      {status === "disconnected" && connector.works && (
+        <p className="text-[11px] text-[#B4ADC4] leading-snug">{connector.works}</p>
+      )}
+      {error && <p className="text-[11px] text-rose-600 leading-snug">{error}</p>}
+
+      <div className="mt-auto flex items-center gap-3 pt-1">
+        {status === "disconnected" && (
+          <button
+            type="button"
+            onClick={connect}
+            disabled={busy}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-[#0A0A0A] px-3 py-1.5 text-[12px] font-semibold text-white shadow-[0_4px_14px_rgba(60,40,120,0.08)] hover:shadow-[0_8px_24px_rgba(60,40,120,0.12)] transition-all disabled:opacity-60"
+          >
+            {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plug className="w-3.5 h-3.5" />}
+            Connecter
+          </button>
+        )}
+        {status === "connected" && (
+          <button
+            type="button"
+            onClick={disconnect}
+            disabled={busy}
+            className="text-[12px] font-semibold text-[#9A9A97] hover:text-rose-600 transition-colors disabled:opacity-60"
+          >
+            {busy ? "…" : "Déconnecter"}
+          </button>
+        )}
+        {connector.href && (
+          <a
+            href={connector.href}
+            target={connector.href.startsWith("/") ? undefined : "_blank"}
+            rel="noopener noreferrer"
+            className="text-[12px] font-semibold text-violet-600 hover:opacity-80 transition-opacity"
+          >
+            {connector.hrefLabel ?? "Ouvrir"} ↗
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Panneau complet (page + widget) ──────────────────────────────────────────
+
+export function ConnectionsPanel() {
+  const { connections, loading, refresh } = useConnections();
+  const [banner, setBanner] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+
+  // Retour du flux OAuth : ?connected= / ?error= / ?canceled= dans l'URL.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get("connected");
+    const error = params.get("error");
+    if (connected) {
+      setBanner({ tone: "ok", text: `Compte ${connected === "google" ? "Google" : "Microsoft"} connecté.` });
+    } else if (error) {
+      setBanner({ tone: "error", text: error });
+    }
+    if (connected || error || params.get("canceled")) {
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
+
+  return (
+    <div>
+      {banner && (
+        <div
+          className={`mb-4 rounded-xl border px-3.5 py-2.5 text-[13px] font-medium ${
+            banner.tone === "ok"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              : "border-rose-200 bg-rose-50 text-rose-600"
+          }`}
+        >
+          {banner.text}
+        </div>
+      )}
+      {loading ? (
+        <div className="flex items-center justify-center py-10">
+          <Loader2 className="w-5 h-5 text-[#7C3AED] animate-spin" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {CONNECTORS.map((c) => (
+            <ConnectorCard key={c.id} connector={c} connections={connections} onChanged={refresh} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Widget modal (ouvert depuis le badge d'accueil) ──────────────────────────
+
+export function ConnectionsWidget({ open, onClose }: { open: boolean; onClose: () => void }) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (typeof document === "undefined") return null;
+  return createPortal(
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/30 backdrop-blur-[2px]"
+          onClick={onClose}
+        >
+          <motion.div
+            initial={{ opacity: 0, y: 16, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 16, scale: 0.98 }}
+            transition={{ duration: 0.22, ease: EASE }}
+            className="w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl border border-[#ECE7F6] bg-white p-6 shadow-[0_30px_80px_rgba(60,40,120,0.28)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 mb-1">
+              <h2 className="text-lg font-bold text-[#0A0A0A] tracking-[-0.01em]">Connectez vos outils</h2>
+              <button
+                onClick={onClose}
+                className="w-8 h-8 rounded-lg hover:bg-black/[0.05] flex items-center justify-center text-[#9A9A97] hover:text-[#0A0A0A] transition-colors flex-shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-[13px] text-[#6E6E6C] mb-5">
+              Connectés, vos outils laissent Biltia agir pour vous : envoyer un devis, créer un rendez-vous,
+              sauvegarder un PDF. Les outils « Intégré » marchent déjà sans connexion.
+            </p>
+            <ConnectionsPanel />
+            <div className="mt-5 text-right">
+              <Link
+                href="/connectors"
+                onClick={onClose}
+                className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-violet-600 hover:opacity-80 transition-opacity"
+              >
+                Voir la page Connecteurs <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>,
+    document.body
+  );
+}
+
+// ── Badge d'accueil : logos + « Connectez vos outils » → widget ──────────────
+
+const BADGE_LOGOS = [
+  { src: "/logos/google-calendar.webp", alt: "Google Calendar" },
+  { src: "/logos/whatsapp.png", alt: "WhatsApp" },
+  { src: "/logos/gmail.webp", alt: "Gmail" },
+];
+
+export function ConnectToolsBadge() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="glass inline-flex items-center gap-2.5 px-3.5 py-1.5 text-[#4A4A56] text-[13px] font-medium rounded-full mb-7 hover:text-[#0A0A0A] transition-colors"
+      >
+        <span className="flex -space-x-1.5">
+          {BADGE_LOGOS.map((l) => (
+            <span
+              key={l.src}
+              className="w-[18px] h-[18px] rounded-full bg-white border border-[#ECECF2] flex items-center justify-center overflow-hidden"
+            >
+              <Image src={l.src} alt={l.alt} width={12} height={12} className="w-3 h-3 object-contain" />
+            </span>
+          ))}
+        </span>
+        Connectez vos outils
+        <ArrowRight className="w-3.5 h-3.5" />
+      </button>
+      <ConnectionsWidget open={open} onClose={() => setOpen(false)} />
+    </>
+  );
+}

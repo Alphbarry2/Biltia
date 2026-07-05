@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase";
+import { getActiveMembership } from "@/lib/tenant";
+import { Dropdown } from "@/components/dropdown";
 import {
   User,
   Building2,
@@ -10,13 +12,11 @@ import {
   Sparkles,
   Bell,
   Shield,
-  Puzzle,
   Database,
   Zap,
   ArrowRight,
   CheckCircle,
   Check,
-  ChevronDown,
   Loader2,
   Save,
   Lock,
@@ -33,6 +33,9 @@ import {
   getPlan,
   getTier,
   formatEur,
+  tierDisplayMonthlyEur,
+  annualTotalEur,
+  type BillingCycle,
   type PlanId,
 } from "@/lib/plans";
 import KnowledgeManager from "@/components/knowledge-manager";
@@ -46,14 +49,14 @@ import {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Paramètres — préférences métier, jamais de config technique.
-// 9 sections. Câblé : Compte (nom, mot de passe), Entreprise (nom), Facturation.
-// Le reste attend son schema / ses intégrations → marqué « Bientôt ».
+// 9 sections, TOUTES fonctionnelles — jamais de « bientôt ».
 // ─────────────────────────────────────────────────────────────────────────────
 
 type SectionKey =
   | "account" | "company" | "team" | "billing"
-  | "ai" | "notifications" | "security" | "integrations" | "data";
+  | "ai" | "notifications" | "security" | "data";
 
+// Les intégrations ont leur propre page (sidebar → /connectors).
 const SECTIONS: { key: SectionKey; label: string; icon: LucideIcon }[] = [
   { key: "account", label: "Mon compte", icon: User },
   { key: "company", label: "Entreprise", icon: Building2 },
@@ -62,25 +65,15 @@ const SECTIONS: { key: SectionKey; label: string; icon: LucideIcon }[] = [
   { key: "ai", label: "IA", icon: Sparkles },
   { key: "notifications", label: "Notifications", icon: Bell },
   { key: "security", label: "Sécurité", icon: Shield },
-  { key: "integrations", label: "Intégrations", icon: Puzzle },
   { key: "data", label: "Données", icon: Database },
 ];
 
 // ─── Primitives ──────────────────────────────────────────────────────────────
-function SoonBadge() {
-  return (
-    <span className="text-[10px] font-semibold uppercase tracking-wide text-[#9A9A97] bg-black/[0.04] px-2 py-0.5 rounded-full">
-      Bientôt
-    </span>
-  );
-}
-
-function SectionTitle({ title, desc, soon }: { title: string; desc?: string; soon?: boolean }) {
+function SectionTitle({ title, desc }: { title: string; desc?: string }) {
   return (
     <div className="mb-5">
       <div className="flex items-center gap-2.5">
         <h2 className="text-lg font-bold text-[#0A0A0A] tracking-[-0.01em]">{title}</h2>
-        {soon && <SoonBadge />}
       </div>
       {desc && <p className="text-[13px] text-[#6E6E6C] mt-1">{desc}</p>}
     </div>
@@ -104,20 +97,6 @@ function Field({
 
 function Card({ children }: { children: React.ReactNode }) {
   return <div className="bg-white border border-[#E7E7E4] rounded-2xl p-5 sm:p-6">{children}</div>;
-}
-
-function ToggleRow({ label, desc }: { label: string; desc?: string }) {
-  return (
-    <div className="flex items-center justify-between gap-4 py-3.5 border-b border-[#F1F1EC] last:border-0">
-      <div className="min-w-0">
-        <p className="text-[14px] text-[#0A0A0A]">{label}</p>
-        {desc && <p className="text-[12px] text-[#9A9A97] mt-0.5">{desc}</p>}
-      </div>
-      <div className="w-10 h-6 rounded-full bg-black/[0.08] flex items-center px-0.5 flex-shrink-0 cursor-not-allowed" title="Bientôt">
-        <div className="w-5 h-5 rounded-full bg-white shadow-sm" />
-      </div>
-    </div>
-  );
 }
 
 function Switch({ on, onClick }: { on: boolean; onClick: () => void }) {
@@ -154,7 +133,6 @@ export default function SettingsPage() {
 
   const [credits, setCredits] = useState<number | null>(null);
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<string | null>(null);
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -166,23 +144,60 @@ export default function SettingsPage() {
   const [confirmPwd, setConfirmPwd] = useState("");
   const [savingPwd, setSavingPwd] = useState(false);
 
-  // Entreprise
+  // Entreprise (tenants.company_info : pays FR/BE, TVA, SIRET/BCE, adresse)
   const [companyName, setCompanyName] = useState("");
+  const [companyInfo, setCompanyInfo] = useState({ country: "FR", vat: "", siret: "", address: "" });
   const [savingCompany, setSavingCompany] = useState(false);
+
+  // Cerveau collectif : contribution (anonymisée) au corpus partagé. Opt-out.
+  const [contributesToBrain, setContributesToBrain] = useState(true);
+  const [savingBrain, setSavingBrain] = useState(false);
+
+  // Sécurité : réinitialisation par email + 2FA TOTP
+  const [resetSent, setResetSent] = useState(false);
+  const [mfaFactors, setMfaFactors] = useState<{ id: string; status: string }[]>([]);
+  const [mfaEnroll, setMfaEnroll] = useState<{ id: string; qr: string; secret: string } | null>(null);
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaBusy, setMfaBusy] = useState(false);
 
   // Préférences IA
   const [prefs, setPrefs] = useState<UserPreferences>(DEFAULT_PREFERENCES);
   const [savingPrefs, setSavingPrefs] = useState(false);
 
+  // Équipe
+  type TeamMember = {
+    id: string;
+    user_id: string;
+    email: string;
+    full_name?: string;
+    role: string;
+    accepted: boolean;
+    isYou: boolean;
+  };
+  const [team, setTeam] = useState<TeamMember[]>([]);
+  const [teamLoading, setTeamLoading] = useState(false);
+  const [canManageTeam, setCanManageTeam] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState("member");
+  const [inviting, setInviting] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+
+  // Notifications push (Web Push)
+  const [pushSupported, setPushSupported] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+
   // Facturation
   type SubRow = { plan: PlanId; status: string; current_period_end: string | null };
   const [sub, setSub] = useState<SubRow | null>(null);
-  const [selectedPlan, setSelectedPlan] = useState<"pro" | "business">("pro");
-  const [selectedCredits, setSelectedCredits] = useState<number>(getPlan("pro").defaultCredits ?? 400);
+  const selectedPlan = "pro" as const; // offre payante unique en self-service
+  const [selectedCredits, setSelectedCredits] = useState<number>(getPlan("pro").defaultCredits ?? 100);
+  const [cycle, setCycle] = useState<BillingCycle>("monthly");
   const [checkoutLoading, setCheckoutLoading] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    if (params.get("section") === "billing" || params.get("upgrade") === "1") setSection("billing");
     if (params.get("checkout") === "success") { setNotice("Paiement confirmé. Votre abonnement sera actif d'ici quelques secondes."); setSection("billing"); }
     if (params.get("checkout") === "cancel") { setNotice("Paiement annulé. Aucun changement n'a été effectué."); setSection("billing"); }
 
@@ -204,17 +219,9 @@ export default function SettingsPage() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         .then(({ data }: any) => { if (data) setPrefs(normalizePreferences(data.preferences)); });
 
-      const { data: membership } = await supabase
-        .from("tenant_members")
-        .select("tenant_id, role")
-        .eq("user_id", user.id)
-        .not("accepted_at", "is", null)
-        .order("created_at", { ascending: true })
-        .limit(1)
-        .maybeSingle();
+      const membership = await getActiveMembership(supabase, user.id);
       if (!membership?.tenant_id) return;
       setTenantId(membership.tenant_id);
-      setRole(membership.role);
 
       const { data: tenant } = await supabase
         .from("tenants").select("name").eq("id", membership.tenant_id).maybeSingle();
@@ -227,11 +234,72 @@ export default function SettingsPage() {
     });
   }, []);
 
-  const currentPlanId: PlanId = sub?.plan ?? "free";
+  // Tout abonnement actif non-"free" (y compris un ancien "business") est présenté comme Pro.
+  const currentPlanId: PlanId = sub && sub.plan !== "free" ? "pro" : "free";
   const currentPlan = getPlan(currentPlanId);
   const selectedTier = getTier(selectedPlan, selectedCredits);
 
   function flash(msg: string) { setError(null); setNotice(msg); }
+
+  // ── Équipe : chargement à l'ouverture de la section ─────────────────────────
+  useEffect(() => {
+    if (section !== "team") return;
+    let cancelled = false;
+    setTeamLoading(true);
+    fetch("/api/team")
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (Array.isArray(data.members)) {
+          setTeam(data.members);
+          setCanManageTeam(!!data.canManage);
+        }
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setTeamLoading(false); });
+    return () => { cancelled = true; };
+  }, [section]);
+
+  async function inviteMember() {
+    setError(null);
+    const email = inviteEmail.trim();
+    if (!email) return;
+    setInviting(true);
+    try {
+      const res = await fetch("/api/team", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, role: inviteRole }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Invitation impossible.");
+      setTeam((t) => [...t, data.member]);
+      setInviteEmail("");
+      flash(`${data.member.email} a rejoint votre équipe.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Invitation impossible.");
+    }
+    setInviting(false);
+  }
+
+  async function removeMember(memberId: string) {
+    setError(null);
+    setRemovingId(memberId);
+    try {
+      const res = await fetch("/api/team", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memberId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Retrait impossible.");
+      setTeam((t) => t.filter((m) => m.id !== memberId));
+      flash("Membre retiré de l'équipe.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Retrait impossible.");
+    }
+    setRemovingId(null);
+  }
 
   async function saveName() {
     setError(null); setSavingName(true);
@@ -251,21 +319,127 @@ export default function SettingsPage() {
     setSavingName(false);
   }
 
-  async function savePassword() {
+  // Fiche entreprise : chargée depuis tenants.company_info.
+  useEffect(() => {
+    if (!tenantId) return;
+    const supabase = createClient();
+    supabase.from("tenants").select("company_info, contributes_to_brain").eq("id", tenantId).maybeSingle().then(({ data }) => {
+      const ci = (data?.company_info ?? {}) as Record<string, string>;
+      setCompanyInfo({
+        country: ci.country === "BE" ? "BE" : "FR",
+        vat: ci.vat ?? "",
+        siret: ci.siret ?? "",
+        address: ci.address ?? "",
+      });
+      setContributesToBrain(data?.contributes_to_brain !== false);
+    });
+  }, [tenantId]);
+
+  // Bascule opt-in/opt-out du cerveau collectif (écrit directement tenants, RLS
+  // owner/admin — même chemin que la fiche entreprise).
+  async function toggleBrain(next: boolean) {
+    if (!tenantId || savingBrain) return;
+    setSavingBrain(true);
+    setContributesToBrain(next); // optimiste
+    const supabase = createClient();
+    const { error: err } = await supabase
+      .from("tenants")
+      .update({ contributes_to_brain: next })
+      .eq("id", tenantId);
+    if (err) {
+      setContributesToBrain(!next); // rollback
+      setError("Impossible de mettre à jour ce réglage.");
+    } else {
+      flash(next ? "Contribution au cerveau collectif activée." : "Contribution désactivée.");
+    }
+    setSavingBrain(false);
+  }
+
+  // Facteurs 2FA existants.
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.mfa.listFactors().then(({ data }) => {
+      setMfaFactors((data?.totp ?? []).map((f) => ({ id: f.id, status: f.status })));
+    });
+  }, []);
+
+  // Sécurité : le mot de passe ne se change JAMAIS directement depuis une
+  // session ouverte (un compte volé serait verrouillé par le voleur). On
+  // envoie un lien par email — le lien prouve la possession de la boîte mail.
+  async function sendPasswordReset() {
     setError(null);
-    if (newPwd.length < 8) { setError("Le mot de passe doit faire au moins 8 caractères."); return; }
-    if (newPwd !== confirmPwd) { setError("Les mots de passe ne correspondent pas."); return; }
     setSavingPwd(true);
     try {
       const supabase = createClient();
-      const { error: e } = await supabase.auth.updateUser({ password: newPwd });
+      const { error: e } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
       if (e) throw e;
-      setNewPwd(""); setConfirmPwd("");
-      flash("Mot de passe modifié.");
+      setResetSent(true);
+      flash("Email envoyé. Ouvrez le lien reçu pour définir un nouveau mot de passe.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Échec de la modification.");
+      setError(err instanceof Error ? err.message : "Envoi impossible. Réessayez.");
     }
     setSavingPwd(false);
+  }
+
+  // ── 2FA TOTP (application d'authentification : Google Authenticator, 1Password…) ──
+  async function startMfaEnroll() {
+    setError(null); setMfaBusy(true);
+    try {
+      const supabase = createClient();
+      const { data, error: e } = await supabase.auth.mfa.enroll({ factorType: "totp" });
+      if (e) throw e;
+      setMfaEnroll({ id: data.id, qr: data.totp.qr_code, secret: data.totp.secret });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Activation impossible.");
+    }
+    setMfaBusy(false);
+  }
+
+  async function verifyMfaEnroll() {
+    if (!mfaEnroll || mfaCode.trim().length < 6) return;
+    setError(null); setMfaBusy(true);
+    try {
+      const supabase = createClient();
+      const { data: ch, error: e1 } = await supabase.auth.mfa.challenge({ factorId: mfaEnroll.id });
+      if (e1) throw e1;
+      const { error: e2 } = await supabase.auth.mfa.verify({
+        factorId: mfaEnroll.id,
+        challengeId: ch.id,
+        code: mfaCode.trim(),
+      });
+      if (e2) throw e2;
+      setMfaEnroll(null); setMfaCode("");
+      const { data } = await supabase.auth.mfa.listFactors();
+      setMfaFactors((data?.totp ?? []).map((f) => ({ id: f.id, status: f.status })));
+      flash("Double authentification activée.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Code invalide. Réessayez.");
+    }
+    setMfaBusy(false);
+  }
+
+  async function disableMfa(factorId: string) {
+    if (!confirm("Désactiver la double authentification ?")) return;
+    setMfaBusy(true);
+    try {
+      const supabase = createClient();
+      const { error: e } = await supabase.auth.mfa.unenroll({ factorId });
+      if (e) throw e;
+      setMfaFactors((prev) => prev.filter((f) => f.id !== factorId));
+      flash("Double authentification désactivée.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Échec de la désactivation.");
+    }
+    setMfaBusy(false);
+  }
+
+  async function signOutEverywhere() {
+    if (!confirm("Se déconnecter de TOUS les appareils (y compris celui-ci) ?")) return;
+    const supabase = createClient();
+    await supabase.auth.signOut({ scope: "global" });
+    window.location.href = "/login";
   }
 
   async function saveCompany() {
@@ -274,11 +448,14 @@ export default function SettingsPage() {
     setSavingCompany(true);
     try {
       const supabase = createClient();
-      const { error: e } = await supabase.from("tenants").update({ name: companyName }).eq("id", tenantId);
+      const { error: e } = await supabase
+        .from("tenants")
+        .update({ name: companyName, company_info: companyInfo })
+        .eq("id", tenantId);
       if (e) throw e;
       flash("Entreprise mise à jour.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Échec (droits insuffisants ?).");
+      setError(err instanceof Error ? err.message : "Échec (seuls Propriétaire et Admin peuvent modifier).");
     }
     setSavingCompany(false);
   }
@@ -294,9 +471,14 @@ export default function SettingsPage() {
       if (!user) throw new Error("Session expirée.");
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const db = supabase as unknown as { from: (t: string) => any };
+      // Fusion avec les préférences brutes existantes (pays, objectifs
+      // d'onboarding…) : ne JAMAIS écraser ce que d'autres écrans ont stocké.
+      const { data: prof } = await db
+        .from("profiles").select("preferences").eq("user_id", user.id).maybeSingle();
+      const raw = (prof?.preferences && typeof prof.preferences === "object" ? prof.preferences : {}) as Record<string, unknown>;
       const { error: e } = await db
         .from("profiles")
-        .upsert({ user_id: user.id, preferences: prefs }, { onConflict: "user_id" });
+        .upsert({ user_id: user.id, preferences: { ...raw, ...prefs } }, { onConflict: "user_id" });
       if (e) throw e;
       flash("Préférences IA enregistrées.");
     } catch (err) {
@@ -305,9 +487,112 @@ export default function SettingsPage() {
     setSavingPrefs(false);
   }
 
-  function onPlanChange(plan: "pro" | "business") {
-    setSelectedPlan(plan);
-    if (!getTier(plan, selectedCredits)) setSelectedCredits(getPlan(plan).defaultCredits ?? 400);
+  // Enregistrement (idempotent) du service worker — sans jamais pendre :
+  // `serviceWorker.ready` ne résout QUE si un SW est enregistré, on passe donc
+  // par register() + getRegistration() plutôt que d'attendre ready.
+  async function getSWRegistration(): Promise<ServiceWorkerRegistration | null> {
+    try {
+      const existing = await navigator.serviceWorker.getRegistration();
+      if (existing) return existing;
+      return await navigator.serviceWorker.register("/sw.js");
+    } catch {
+      return null;
+    }
+  }
+
+  // ── Notifications push : état de l'appareil courant ─────────────────────────
+  useEffect(() => {
+    if (section !== "notifications") return;
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+      setPushSupported(false);
+      return;
+    }
+    setPushSupported(true);
+    getSWRegistration()
+      .then((reg) => reg?.pushManager.getSubscription() ?? null)
+      .then((s) => setPushEnabled(!!s))
+      .catch(() => setPushEnabled(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section]);
+
+  // Clé VAPID publique (base64url) → Uint8Array pour pushManager.subscribe.
+  function urlBase64ToUint8Array(base64: string): Uint8Array {
+    const padding = "=".repeat((4 - (base64.length % 4)) % 4);
+    const b64 = (base64 + padding).replace(/-/g, "+").replace(/_/g, "/");
+    const raw = window.atob(b64);
+    const out = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+
+  async function togglePush() {
+    if (pushBusy || !pushSupported) return;
+    setError(null);
+    setPushBusy(true);
+    try {
+      const reg = await getSWRegistration();
+      if (!reg) throw new Error("Service worker indisponible. Rechargez la page et réessayez.");
+      if (pushEnabled) {
+        // Désabonnement de CET appareil.
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+          await fetch("/api/push", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ endpoint: sub.endpoint }),
+          });
+          await sub.unsubscribe();
+        }
+        setPushEnabled(false);
+        flash("Notifications push désactivées sur cet appareil.");
+      } else {
+        const permission = await Notification.requestPermission();
+        if (permission !== "granted") {
+          throw new Error("Autorisez les notifications dans votre navigateur pour les activer.");
+        }
+        const cfg = await fetch("/api/push").then((r) => r.json());
+        if (!cfg.enabled || !cfg.publicKey) {
+          throw new Error("Notifications push non configurées côté serveur.");
+        }
+        // subscribe() peut PENDRE si le service push du navigateur est
+        // injoignable (pare-feu, offline) → timeout avec message clair.
+        const sub = await Promise.race([
+          reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(cfg.publicKey).buffer as ArrayBuffer,
+          }),
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () => reject(new Error("Service de notifications injoignable. Vérifiez votre connexion et réessayez.")),
+              12000
+            )
+          ),
+        ]);
+        const res = await fetch("/api/push", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ subscription: sub.toJSON() }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Activation impossible.");
+        setPushEnabled(true);
+        flash(
+          data.testSent
+            ? "Notifications activées — une notification de test vient d'arriver."
+            : "Notifications activées sur cet appareil."
+        );
+      }
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : "";
+      // Erreurs navigateur brutes → messages compréhensibles.
+      const friendly = /permission denied|incognito/i.test(raw)
+        ? "Votre navigateur bloque les notifications (navigation privée ?). Ouvrez Biltia dans une fenêtre normale et réessayez."
+        : /denied/i.test(raw)
+        ? "Autorisez les notifications dans votre navigateur pour les activer."
+        : raw || "Opération impossible.";
+      setError(friendly);
+    }
+    setPushBusy(false);
   }
 
   async function subscribe() {
@@ -316,7 +601,7 @@ export default function SettingsPage() {
       const res = await fetch("/api/billing/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan: selectedPlan, credits: selectedCredits }),
+        body: JSON.stringify({ plan: selectedPlan, credits: selectedCredits, cycle }),
       });
       const data = await res.json();
       if (res.ok && data.url) { window.location.href = data.url; return; }
@@ -330,11 +615,6 @@ export default function SettingsPage() {
   const roleLabel: Record<string, string> = {
     owner: "Propriétaire", admin: "Admin", manager: "Manager", member: "Employé", viewer: "Lecture seule",
   };
-
-  const INTEGRATIONS = [
-    "Google Calendar", "Google Drive", "OneDrive", "Dropbox",
-    "Outlook", "Zapier", "Make", "Pennylane", "Sage",
-  ];
 
   return (
     <div className="min-h-full bg-[#FCFCFD]">
@@ -384,13 +664,8 @@ export default function SettingsPage() {
                 <Card>
                   <SectionTitle title="Mon compte" desc="Vos informations personnelles." />
                   <div className="flex items-center gap-4 mb-6">
-                    <div className="relative">
-                      <div className="w-16 h-16 rounded-full bg-gradient-to-br from-violet-500 to-pink-500 flex items-center justify-center">
-                        <span className="text-xl font-bold text-white">{(fullName || email || "?")[0]?.toUpperCase()}</span>
-                      </div>
-                      <span className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-white border border-[#E7E7E4] flex items-center justify-center text-[#9A9A97]" title="Bientôt">
-                        <Camera className="w-3 h-3" />
-                      </span>
+                    <div className="w-16 h-16 rounded-full bg-gradient-to-br from-violet-500 to-pink-500 flex items-center justify-center">
+                      <span className="text-xl font-bold text-white">{(fullName || email || "?")[0]?.toUpperCase()}</span>
                     </div>
                     <div className="min-w-0">
                       <p className="text-[15px] font-semibold text-[#0A0A0A] truncate">{fullName || email}</p>
@@ -402,22 +677,17 @@ export default function SettingsPage() {
                     <Field label="Nom complet">
                       <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Jean Dupont" className={inputCls} />
                     </Field>
-                    <Field label="Email" hint="Le changement d'email arrive bientôt.">
+                    <Field label="Email" hint="Votre identifiant de connexion. Pour le changer, contactez le support (protection anti-détournement).">
                       <input value={email} disabled className={inputCls} />
                     </Field>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                      <Field label="Téléphone"><input disabled placeholder="Bientôt" className={inputCls} /></Field>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <Field label="Langue">
-                        <div className="relative">
-                          <select disabled className={`${inputCls} appearance-none pr-9`}><option>Français</option></select>
-                          <Globe className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#C9C9C4]" />
-                        </div>
+                        <Dropdown value="fr" onChange={() => {}} ariaLabel="Langue" size="sm"
+                          options={[{ value: "fr", label: "Français", icon: <Globe className="w-3.5 h-3.5 text-[#9A9A97]" /> }]} />
                       </Field>
                       <Field label="Fuseau">
-                        <div className="relative">
-                          <select disabled className={`${inputCls} appearance-none pr-9`}><option>Europe/Paris</option></select>
-                          <Clock className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#C9C9C4]" />
-                        </div>
+                        <Dropdown value="paris" onChange={() => {}} ariaLabel="Fuseau horaire" size="sm"
+                          options={[{ value: "paris", label: "Europe/Paris", icon: <Clock className="w-3.5 h-3.5 text-[#9A9A97]" /> }]} />
                       </Field>
                     </div>
                     <button
@@ -432,25 +702,27 @@ export default function SettingsPage() {
                 </Card>
 
                 <Card>
-                  <SectionTitle title="Mot de passe" desc="Choisissez un mot de passe d'au moins 8 caractères." />
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <Field label="Nouveau mot de passe">
-                        <input type="password" value={newPwd} onChange={(e) => setNewPwd(e.target.value)} placeholder="••••••••" className={inputCls} />
-                      </Field>
-                      <Field label="Confirmer">
-                        <input type="password" value={confirmPwd} onChange={(e) => setConfirmPwd(e.target.value)} placeholder="••••••••" className={inputCls} />
-                      </Field>
+                  <SectionTitle
+                    title="Mot de passe"
+                    desc="Par sécurité, le changement passe par un lien envoyé à votre email — jamais directement depuis une session ouverte."
+                  />
+                  {resetSent ? (
+                    <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                      <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                      <p className="text-sm text-emerald-700">
+                        Lien envoyé à <b>{email}</b>. Ouvrez l&apos;email et suivez le lien pour définir votre nouveau mot de passe.
+                      </p>
                     </div>
+                  ) : (
                     <button
-                      onClick={savePassword}
-                      disabled={savingPwd || !newPwd}
+                      onClick={sendPasswordReset}
+                      disabled={savingPwd}
                       className="inline-flex items-center gap-2 rounded-xl bg-[#0A0A0A] text-white text-[13.5px] font-semibold px-4 py-2.5 hover:opacity-90 disabled:opacity-50 transition-opacity"
                     >
                       {savingPwd ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
-                      Modifier le mot de passe
+                      Recevoir le lien de réinitialisation
                     </button>
-                  </div>
+                  )}
                 </Card>
               </div>
             )}
@@ -460,21 +732,49 @@ export default function SettingsPage() {
               <Card>
                 <SectionTitle title="Entreprise" desc="Ces informations alimentent vos devis, factures et documents." />
                 <div className="space-y-4">
-                  <Field label="Nom de l'entreprise">
-                    <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="BTP Dupont SARL" className={inputCls} />
-                  </Field>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <Field label="N° TVA"><input disabled placeholder="Bientôt" className={inputCls} /></Field>
-                    <Field label="SIRET"><input disabled placeholder="Bientôt" className={inputCls} /></Field>
+                    <Field label="Nom de l'entreprise">
+                      <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="BTP Dupont SARL" className={inputCls} />
+                    </Field>
+                    <Field label="Pays">
+                      <Dropdown
+                        value={companyInfo.country}
+                        onChange={(v) => setCompanyInfo((c) => ({ ...c, country: v }))}
+                        ariaLabel="Pays de l'entreprise"
+                        size="sm"
+                        options={[
+                          { value: "FR", label: "France", icon: <span>🇫🇷</span> },
+                          { value: "BE", label: "Belgique", icon: <span>🇧🇪</span> },
+                        ]}
+                      />
+                    </Field>
                   </div>
-                  <Field label="Adresse"><input disabled placeholder="Bientôt" className={inputCls} /></Field>
-                  <div className="rounded-xl border border-dashed border-[#E7E7E4] p-4 flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-[13.5px] font-medium text-[#0A0A0A]">Logo, signature, tampon & couleurs</p>
-                      <p className="text-[12px] text-[#9A9A97] mt-0.5">Pour personnaliser vos documents générés.</p>
-                    </div>
-                    <SoonBadge />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Field label={companyInfo.country === "BE" ? "N° TVA (BE 0XXX.XXX.XXX)" : "N° TVA intracommunautaire"}>
+                      <input
+                        value={companyInfo.vat}
+                        onChange={(e) => setCompanyInfo((c) => ({ ...c, vat: e.target.value }))}
+                        placeholder={companyInfo.country === "BE" ? "BE 0123.456.789" : "FR 12 345678901"}
+                        className={inputCls}
+                      />
+                    </Field>
+                    <Field label={companyInfo.country === "BE" ? "N° d'entreprise (BCE)" : "SIRET"}>
+                      <input
+                        value={companyInfo.siret}
+                        onChange={(e) => setCompanyInfo((c) => ({ ...c, siret: e.target.value }))}
+                        placeholder={companyInfo.country === "BE" ? "0123.456.789" : "123 456 789 00012"}
+                        className={inputCls}
+                      />
+                    </Field>
                   </div>
+                  <Field label="Adresse">
+                    <input
+                      value={companyInfo.address}
+                      onChange={(e) => setCompanyInfo((c) => ({ ...c, address: e.target.value }))}
+                      placeholder={companyInfo.country === "BE" ? "Rue de la Loi 1, 1000 Bruxelles" : "12 rue des Acacias, 59000 Lille"}
+                      className={inputCls}
+                    />
+                  </Field>
                   <button
                     onClick={saveCompany}
                     disabled={savingCompany}
@@ -490,23 +790,104 @@ export default function SettingsPage() {
             {/* ─── ÉQUIPE ─────────────────────────────────────────────── */}
             {section === "team" && (
               <Card>
-                <SectionTitle title="Équipe" desc="Invitez vos collaborateurs et gérez leurs rôles." soon />
-                {role && (
-                  <div className="flex items-center gap-3 p-3.5 rounded-xl bg-[#FAFAFC] border border-[#EDEDF2] mb-5">
-                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-500 to-pink-500 flex items-center justify-center">
-                      <span className="text-[13px] font-bold text-white">{(email || "?")[0]?.toUpperCase()}</span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[14px] text-[#0A0A0A] truncate">{email}</p>
-                      <p className="text-[12px] text-[#9A9A97]">Vous · {roleLabel[role] ?? role}</p>
-                    </div>
+                <SectionTitle
+                  title="Équipe"
+                  desc="Vos collaborateurs partagent le workspace (clients, chantiers, documents) et les applications."
+                />
+
+                {teamLoading ? (
+                  <div className="flex items-center justify-center py-10 text-[#9A9A97]">
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  </div>
+                ) : (
+                  <div className="space-y-2 mb-5">
+                    {team.map((m) => (
+                      <div
+                        key={m.id}
+                        className="flex items-center gap-3 p-3.5 rounded-xl bg-[#FAFAFC] border border-[#EDEDF2]"
+                      >
+                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-500 to-pink-500 flex items-center justify-center flex-shrink-0">
+                          <span className="text-[13px] font-bold text-white">
+                            {(m.full_name || m.email || "?")[0]?.toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[14px] text-[#0A0A0A] truncate">
+                            {m.full_name || m.email || "Membre"}
+                            {m.isYou && <span className="text-[#9A9A97]"> · vous</span>}
+                          </p>
+                          <p className="text-[12px] text-[#9A9A97] truncate">{m.email}</p>
+                        </div>
+                        <span className="flex-shrink-0 text-[11px] font-semibold text-violet-700 bg-violet-50 border border-violet-200 px-2.5 py-1 rounded-full">
+                          {roleLabel[m.role] ?? m.role}
+                        </span>
+                        {canManageTeam && !m.isYou && m.role !== "owner" && (
+                          <button
+                            onClick={() => removeMember(m.id)}
+                            disabled={removingId === m.id}
+                            className="flex-shrink-0 p-1.5 text-[#9A9A97] hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors disabled:opacity-50"
+                            title="Retirer de l'équipe"
+                          >
+                            {removingId === m.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-4 h-4" />
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    {team.length === 0 && (
+                      <p className="text-[13px] text-[#9A9A97] py-4 text-center">
+                        Vous êtes seul dans cet espace pour l&apos;instant.
+                      </p>
+                    )}
                   </div>
                 )}
-                <div className="flex gap-2">
-                  <input disabled placeholder="collaborateur@entreprise.fr" className={inputCls} />
-                  <button disabled className="flex-shrink-0 rounded-xl bg-black/[0.06] text-[#9A9A97] text-[13.5px] font-semibold px-4 py-2.5 cursor-not-allowed">Inviter</button>
-                </div>
-                <p className="text-[12px] text-[#9A9A97] mt-3">Rôles à venir : Admin, Manager, Employé.</p>
+
+                {canManageTeam ? (
+                  <>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        value={inviteEmail}
+                        onChange={(e) => setInviteEmail(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") inviteMember(); }}
+                        type="email"
+                        placeholder="collaborateur@entreprise.fr"
+                        className={inputCls}
+                      />
+                      <Dropdown
+                        value={inviteRole}
+                        onChange={setInviteRole}
+                        ariaLabel="Rôle du collaborateur"
+                        size="sm"
+                        className="flex-shrink-0 sm:w-44"
+                        options={[
+                          { value: "member", label: "Employé", hint: "Utilise l'outil" },
+                          { value: "manager", label: "Manager", hint: "Gère les données" },
+                          { value: "admin", label: "Admin", hint: "Gère l'équipe" },
+                          { value: "viewer", label: "Lecture seule", hint: "Consulte" },
+                        ]}
+                      />
+                      <button
+                        onClick={inviteMember}
+                        disabled={inviting || !inviteEmail.trim()}
+                        className="flex-shrink-0 inline-flex items-center justify-center gap-2 rounded-xl bg-[#0A0A0A] text-white text-[13.5px] font-semibold px-4 py-2.5 hover:opacity-90 disabled:opacity-50 transition-opacity"
+                      >
+                        {inviting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Users className="w-4 h-4" />}
+                        Inviter
+                      </button>
+                    </div>
+                    <p className="text-[12px] text-[#9A9A97] mt-3">
+                      Le collaborateur doit déjà avoir un compte Biltia (inscription gratuite, sans carte).
+                      Il rejoint immédiatement votre espace de travail.
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-[12px] text-[#9A9A97]">
+                    Seul le propriétaire ou un admin peut gérer l&apos;équipe.
+                  </p>
+                )}
               </Card>
             )}
 
@@ -528,42 +909,47 @@ export default function SettingsPage() {
                     </span>
                   </div>
 
-                  {/* Onglets Pro / Business */}
-                  <div className="flex gap-2 mb-5">
-                    {(["pro", "business"] as const).map((p) => (
+                  <label className="mb-1.5 block text-[12px] font-semibold text-[#4A4A56]">Facturation</label>
+                  <div className="mb-4 inline-flex items-center gap-1 rounded-xl border border-[#E7E7EE] bg-white p-1">
+                    {(["monthly", "annual"] as const).map((c) => (
                       <button
-                        key={p}
-                        onClick={() => onPlanChange(p)}
-                        className={`flex-1 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-all ${
-                          selectedPlan === p
-                            ? "border-violet-400 bg-violet-50 text-violet-700"
-                            : "border-[#E7E7E4] bg-white text-[#6E6E6C] hover:text-[#0A0A0A]"
-                        }`}
+                        key={c}
+                        onClick={() => setCycle(c)}
+                        className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-[13px] font-semibold transition-all ${cycle === c ? "bg-violet-600 text-white" : "text-[#6E6E6C] hover:text-[#0A0A0A]"}`}
                       >
-                        {PLANS[p].name}
+                        {c === "monthly" ? "Mensuel" : "Annuel"}
+                        {c === "annual" && <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${cycle === "annual" ? "bg-white/20 text-white" : "bg-violet-100 text-violet-700"}`}>-2 mois</span>}
                       </button>
                     ))}
                   </div>
 
                   <label className="mb-1.5 block text-[12px] font-semibold text-[#4A4A56]">Crédits par mois</label>
-                  <div className="relative mb-4">
-                    <select
-                      value={selectedCredits}
-                      onChange={(e) => setSelectedCredits(Number(e.target.value))}
-                      className={`${inputCls} appearance-none pr-9 cursor-pointer font-semibold`}
-                    >
-                      {getPlan(selectedPlan).tiers.map((t) => (
-                        <option key={t.credits} value={t.credits}>{t.credits.toLocaleString("fr-FR")} crédits</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9A9A97]" />
-                  </div>
+                  <Dropdown
+                    value={String(selectedCredits)}
+                    onChange={(v) => setSelectedCredits(Number(v))}
+                    ariaLabel="Crédits par mois"
+                    className="mb-4"
+                    options={getPlan(selectedPlan).tiers.map((t) => ({
+                      value: String(t.credits),
+                      label: `${t.credits.toLocaleString("fr-FR")} crédits`,
+                      hint: formatEur(tierDisplayMonthlyEur(t, cycle)),
+                    }))}
+                  />
 
-                  <div className="mb-5 flex items-baseline gap-1.5">
-                    <span className="text-3xl font-black text-[#0A0A0A] tabular-nums tracking-[-0.02em]">
-                      {selectedTier ? formatEur(selectedTier.priceEur) : "—"}
-                    </span>
-                    <span className="text-sm text-[#9A9A97]">/mois</span>
+                  <div className="mb-5">
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-3xl font-black text-[#0A0A0A] tabular-nums tracking-[-0.02em]">
+                        {selectedTier ? formatEur(tierDisplayMonthlyEur(selectedTier, cycle)) : "—"}
+                      </span>
+                      <span className="text-sm text-[#9A9A97]">/mois</span>
+                    </div>
+                    {selectedTier && (
+                      <p className="mt-1 text-[12px] text-[#9A9A97]">
+                        {cycle === "annual"
+                          ? `Soit ${formatEur(annualTotalEur(selectedTier.priceEur))} facturés une fois par an, 2 mois offerts.`
+                          : "Passez à l'annuel pour économiser 2 mois."}
+                      </p>
+                    )}
                   </div>
                   <ul className="mb-6 space-y-2">
                     {getPlan(selectedPlan).features.map((f) => (
@@ -607,9 +993,9 @@ export default function SettingsPage() {
                 <div className="rounded-2xl border border-dashed border-[#E7E7E4] p-4 flex items-center justify-between gap-4">
                   <div>
                     <p className="text-[13.5px] font-medium text-[#0A0A0A]">Historique, factures & carte bancaire</p>
-                    <p className="text-[12px] text-[#9A9A97] mt-0.5">Géré via le portail Stripe.</p>
+                    <p className="text-[12px] text-[#9A9A97] mt-0.5">Géré via le portail sécurisé Stripe.</p>
                   </div>
-                  <SoonBadge />
+                  <a href="https://billing.stripe.com/p/login" target="_blank" rel="noopener noreferrer" className="flex-shrink-0 rounded-full border border-[#E7E7E4] px-3.5 py-1.5 text-[12px] font-semibold text-[#0A0A0A] hover:border-[#C9BEF0] transition-colors">Ouvrir le portail</a>
                 </div>
               </div>
             )}
@@ -618,7 +1004,7 @@ export default function SettingsPage() {
             {section === "ai" && (
               <div className="space-y-5">
                 <Card>
-                  <SectionTitle title="Préférences IA" desc="Ces réglages changent réellement ce que Batify génère." />
+                  <SectionTitle title="Préférences IA" desc="Ces réglages changent réellement ce que Biltia génère." />
                   <div className="-my-1">
                     <PrefRow label="Toujours demander confirmation" desc="Avant toute action destructive dans vos applications." on={prefs.always_confirm} onToggle={() => togglePref("always_confirm")} />
                     <PrefRow label="Toujours prévoir un PDF" desc="Une sortie imprimable propre quand c'est pertinent." on={prefs.always_pdf} onToggle={() => togglePref("always_pdf")} />
@@ -627,16 +1013,13 @@ export default function SettingsPage() {
                   </div>
                   <div className="mt-5">
                     <Field label="Ton des réponses">
-                      <div className="relative">
-                        <select
-                          value={prefs.tone}
-                          onChange={(e) => setPrefs((p) => ({ ...p, tone: e.target.value as Tone }))}
-                          className={`${inputCls} appearance-none pr-9 cursor-pointer`}
-                        >
-                          {TONE_OPTIONS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-                        </select>
-                        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#9A9A97]" />
-                      </div>
+                      <Dropdown
+                        value={prefs.tone}
+                        onChange={(v) => setPrefs((p) => ({ ...p, tone: v as Tone }))}
+                        ariaLabel="Ton des réponses"
+                        size="sm"
+                        options={TONE_OPTIONS.map((t) => ({ value: t.value, label: t.label }))}
+                      />
                     </Field>
                   </div>
                   <button
@@ -659,52 +1042,120 @@ export default function SettingsPage() {
             {/* ─── NOTIFICATIONS ──────────────────────────────────────── */}
             {section === "notifications" && (
               <Card>
-                <SectionTitle title="Notifications" desc="Comment Batify vous tient au courant." soon />
+                <SectionTitle title="Notifications" desc="Comment Biltia vous tient au courant." />
                 <div className="-my-1">
-                  <ToggleRow label="Email" desc="Résumés et alertes par email." />
-                  <ToggleRow label="Push" desc="Notifications sur cet appareil." />
-                  <ToggleRow label="SMS" desc="Pour les alertes urgentes." />
-                  <ToggleRow label="Rapports périodiques" desc="Un récapitulatif hebdomadaire." />
-                  <ToggleRow label="Relances automatiques" desc="Devis et factures en attente." />
+                  {/* Push : réel (Web Push) */}
+                  <div className="flex items-center justify-between gap-4 py-3.5 border-b border-[#F1F1EC]">
+                    <div className="min-w-0">
+                      <p className="text-[14px] text-[#0A0A0A]">Push</p>
+                      <p className="text-[12px] text-[#9A9A97] mt-0.5">
+                        {pushSupported
+                          ? "Notifications sur cet appareil (ex : votre application est prête)."
+                          : "Non supporté par ce navigateur."}
+                      </p>
+                    </div>
+                    {pushBusy ? (
+                      <Loader2 className="w-5 h-5 animate-spin text-violet-500 flex-shrink-0" />
+                    ) : (
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={pushEnabled}
+                        disabled={!pushSupported}
+                        onClick={togglePush}
+                        className={`w-10 h-6 rounded-full flex items-center px-0.5 flex-shrink-0 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${pushEnabled ? "bg-violet-500" : "bg-black/[0.12]"}`}
+                      >
+                        <span className={`w-5 h-5 rounded-full bg-white shadow-sm transition-transform ${pushEnabled ? "translate-x-4" : ""}`} />
+                      </button>
+                    )}
+                  </div>
                 </div>
+                <p className="text-[11px] text-[#9A9A97] mt-4">
+                  Astuce : installez Biltia sur votre écran d&apos;accueil (PWA) pour recevoir les
+                  notifications même l&apos;application fermée. Les notifications de fin de tâche IA
+                  se règlent dans l&apos;onglet IA.
+                </p>
               </Card>
             )}
 
             {/* ─── SÉCURITÉ ───────────────────────────────────────────── */}
             {section === "security" && (
               <Card>
-                <SectionTitle title="Sécurité" desc="Protégez l'accès à votre espace." soon />
-                <div className="-my-1">
-                  <ToggleRow label="Double authentification (2FA)" desc="Un code en plus du mot de passe." />
-                </div>
-                <div className="mt-4 space-y-2">
-                  <div className="rounded-xl border border-[#EDEDF2] bg-[#FAFAFC] p-4 flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-[13.5px] font-medium text-[#0A0A0A]">Sessions & appareils connectés</p>
-                      <p className="text-[12px] text-[#9A9A97] mt-0.5">Voir et déconnecter les appareils.</p>
-                    </div>
-                    <SoonBadge />
-                  </div>
-                </div>
-              </Card>
-            )}
+                <SectionTitle title="Sécurité" desc="Protégez l'accès à votre espace." />
 
-            {/* ─── INTÉGRATIONS ───────────────────────────────────────── */}
-            {section === "integrations" && (
-              <Card>
-                <SectionTitle title="Intégrations" desc="Connectez vos outils du quotidien." soon />
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {INTEGRATIONS.map((name) => (
-                    <div key={name} className="flex items-center justify-between gap-3 rounded-xl border border-[#EDEDF2] bg-white p-3.5">
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <span className="w-8 h-8 rounded-lg bg-black/[0.04] flex items-center justify-center flex-shrink-0">
-                          <Puzzle className="w-4 h-4 text-[#9A9A97]" />
-                        </span>
-                        <span className="text-[13.5px] text-[#0A0A0A] truncate">{name}</span>
-                      </div>
-                      <button disabled className="text-[12px] font-semibold text-[#9A9A97] bg-black/[0.04] px-3 py-1.5 rounded-full cursor-not-allowed flex-shrink-0">Connecter</button>
+                {/* 2FA TOTP réelle (Supabase MFA) */}
+                <div className="rounded-xl border border-[#EDEDF2] bg-white p-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="text-[14px] font-medium text-[#0A0A0A]">Double authentification (2FA)</p>
+                      <p className="text-[12px] text-[#9A9A97] mt-0.5">
+                        Un code à 6 chiffres depuis une application (Google Authenticator, 1Password…), demandé à chaque connexion.
+                      </p>
                     </div>
-                  ))}
+                    {mfaFactors.some((f) => f.status === "verified") ? (
+                      <button
+                        onClick={() => disableMfa(mfaFactors.find((f) => f.status === "verified")!.id)}
+                        disabled={mfaBusy}
+                        className="flex-shrink-0 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-[12px] font-semibold text-rose-600 hover:bg-rose-100 transition-colors disabled:opacity-50"
+                      >
+                        Désactiver
+                      </button>
+                    ) : !mfaEnroll ? (
+                      <button
+                        onClick={startMfaEnroll}
+                        disabled={mfaBusy}
+                        className="flex-shrink-0 rounded-full bg-[#0A0A0A] px-3.5 py-1.5 text-[12px] font-semibold text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+                      >
+                        {mfaBusy ? "…" : "Activer"}
+                      </button>
+                    ) : null}
+                  </div>
+
+                  {mfaEnroll && (
+                    <div className="mt-4 border-t border-[#F1F1EC] pt-4">
+                      <div className="flex flex-col sm:flex-row gap-4 items-start">
+                        {/* QR code fourni par Supabase (data URL SVG) */}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={mfaEnroll.qr} alt="QR code 2FA" className="w-36 h-36 rounded-lg border border-[#EDEDF2] bg-white" />
+                        <div className="min-w-0 flex-1 space-y-3">
+                          <p className="text-[13px] text-[#4A4A56] leading-relaxed">
+                            1. Scannez ce QR code avec votre application d&apos;authentification.<br />
+                            2. Saisissez le code à 6 chiffres affiché pour confirmer.
+                          </p>
+                          <p className="text-[11px] text-[#9A9A97] break-all">Clé manuelle : {mfaEnroll.secret}</p>
+                          <div className="flex gap-2">
+                            <input
+                              value={mfaCode}
+                              onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                              placeholder="123456"
+                              inputMode="numeric"
+                              className={`${inputCls} w-32 text-center tracking-[0.3em] font-bold`}
+                            />
+                            <button
+                              onClick={verifyMfaEnroll}
+                              disabled={mfaBusy || mfaCode.length < 6}
+                              className="rounded-xl bg-[#0A0A0A] px-4 text-[13px] font-semibold text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+                            >
+                              Confirmer
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-3 rounded-xl border border-[#EDEDF2] bg-white p-4 flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-[14px] font-medium text-[#0A0A0A]">Se déconnecter partout</p>
+                    <p className="text-[12px] text-[#9A9A97] mt-0.5">Révoque toutes les sessions, sur tous les appareils.</p>
+                  </div>
+                  <button
+                    onClick={signOutEverywhere}
+                    className="flex-shrink-0 rounded-full border border-[#E7E7E4] bg-white px-3.5 py-1.5 text-[12px] font-semibold text-[#0A0A0A] hover:border-rose-300 hover:text-rose-600 transition-colors"
+                  >
+                    Déconnecter
+                  </button>
                 </div>
               </Card>
             )}
@@ -720,21 +1171,61 @@ export default function SettingsPage() {
                         <Download className="w-4 h-4 text-[#6E6E6C] flex-shrink-0" />
                         <div>
                           <p className="text-[13.5px] font-medium text-[#0A0A0A]">Exporter mes données</p>
-                          <p className="text-[12px] text-[#9A9A97]">Tout votre workspace en un fichier.</p>
+                          <p className="text-[12px] text-[#9A9A97]">Tout votre workspace (clients, chantiers, équipe…).</p>
                         </div>
                       </div>
-                      <SoonBadge />
+                      <div className="flex gap-2 flex-shrink-0">
+                        <a href="/api/export?entity=all&format=xlsx" className="rounded-full bg-[#0A0A0A] px-3.5 py-1.5 text-[12px] font-semibold text-white hover:opacity-90 transition-opacity">Excel</a>
+                        <a href="/api/export?entity=all&format=csv" className="rounded-full border border-[#E7E7E4] px-3.5 py-1.5 text-[12px] font-semibold text-[#0A0A0A] hover:border-[#C9BEF0] transition-colors">CSV</a>
+                      </div>
                     </div>
                     <div className="flex items-center justify-between gap-4 rounded-xl border border-[#EDEDF2] bg-white p-4">
                       <div className="flex items-center gap-3 min-w-0">
                         <Upload className="w-4 h-4 text-[#6E6E6C] flex-shrink-0" />
                         <div>
                           <p className="text-[13.5px] font-medium text-[#0A0A0A]">Importer des données</p>
-                          <p className="text-[12px] text-[#9A9A97]">Depuis un tableur ou un autre outil.</p>
+                          <p className="text-[12px] text-[#9A9A97]">CSV / Excel, avec correspondance automatique des colonnes.</p>
                         </div>
                       </div>
-                      <SoonBadge />
+                      <a href="/workspace" className="flex-shrink-0 rounded-full border border-[#E7E7E4] px-3.5 py-1.5 text-[12px] font-semibold text-[#0A0A0A] hover:border-[#C9BEF0] transition-colors">
+                        Ouvrir l&apos;import
+                      </a>
                     </div>
+                  </div>
+                </Card>
+
+                <Card>
+                  <SectionTitle
+                    title="Cerveau collectif"
+                    desc="Biltia apprend des bonnes pratiques anonymisées pour améliorer les suggestions de tous."
+                  />
+                  <div className="flex items-center justify-between gap-4 rounded-xl border border-[#EDEDF2] bg-white p-4">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <Sparkles className="w-4 h-4 text-violet-500 flex-shrink-0" />
+                      <div>
+                        <p className="text-[13.5px] font-medium text-[#0A0A0A]">Contribuer au cerveau collectif</p>
+                        <p className="text-[12px] text-[#9A9A97]">
+                          Uniquement des enseignements agrégés (jamais vos clients, montants ou documents). Publiés seulement quand un pattern se retrouve chez plusieurs entreprises.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={contributesToBrain}
+                      aria-label="Contribuer au cerveau collectif"
+                      disabled={savingBrain}
+                      onClick={() => toggleBrain(!contributesToBrain)}
+                      className={`relative flex-shrink-0 h-6 w-11 rounded-full transition-colors disabled:opacity-50 ${
+                        contributesToBrain ? "bg-violet-600" : "bg-[#D9D9D6]"
+                      }`}
+                    >
+                      <span
+                        className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                          contributesToBrain ? "translate-x-[22px]" : "translate-x-0.5"
+                        }`}
+                      />
+                    </button>
                   </div>
                 </Card>
 
@@ -748,7 +1239,26 @@ export default function SettingsPage() {
                         <p className="text-[12px] text-[#9A9A97]">Action définitive et irréversible.</p>
                       </div>
                     </div>
-                    <SoonBadge />
+                    <button
+                      onClick={async () => {
+                        const typed = prompt("Cette action est DÉFINITIVE : compte, conversations et rapports supprimés.\n\nTapez SUPPRIMER pour confirmer :");
+                        if (typed !== "SUPPRIMER") return;
+                        const res = await fetch("/api/account", {
+                          method: "DELETE",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ confirmation: typed }),
+                        });
+                        if (res.ok) {
+                          window.location.href = "/";
+                        } else {
+                          const d = await res.json().catch(() => ({}));
+                          setError(d.error ?? "Suppression impossible. Contactez le support.");
+                        }
+                      }}
+                      className="flex-shrink-0 rounded-full border border-rose-300 bg-white px-3.5 py-1.5 text-[12px] font-semibold text-rose-600 hover:bg-rose-50 transition-colors"
+                    >
+                      Supprimer
+                    </button>
                   </div>
                 </Card>
               </div>

@@ -2,7 +2,7 @@
 // /api/data — CRUD générique sur les entités partagées du workspace (Étape 2).
 //
 // Sécurité (défense en profondeur) :
-//   1. Same-origin obligatoire (anti-CSRF) — seuls les modules servis par Batify.
+//   1. Same-origin obligatoire (anti-CSRF) — seuls les modules servis par Biltia.
 //   2. Auth de session (cookies) → rôle `authenticated`.
 //   3. Whitelist d'entités (ALLOWED_ENTITIES) — pas d'accès à user_credits, audit_logs…
 //   4. tenant_id FORCÉ côté serveur (jamais fourni par le client).
@@ -13,6 +13,50 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase-server";
 import { ENTITIES, ALLOWED_ENTITIES } from "@/lib/data-entities";
+import { getActiveMembershipServer } from "@/lib/tenant-server";
+import { getEntitlementsForTenant, FROZEN_MESSAGE } from "@/lib/entitlements";
+import { logActivity } from "@/lib/activity";
+import { recordSignal } from "@/lib/collective-brain";
+
+// CERVEAU COLLECTIF — capte un signal de succès/échec quand une entité atteint un
+// statut terminal signifiant (devis tranché, facture payée). Anonymisé, privé au
+// tenant, best-effort (jamais bloquant). Voir lib/collective-brain.ts.
+function captureLearningSignal(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tenantId: string,
+  entity: string,
+  row: Record<string, unknown> | null | undefined
+) {
+  if (!row) return;
+  const statut = String(row.statut ?? "");
+  const montant = Number(row.montant_ttc) || null;
+  let signalType: string | null = null;
+  let outcome: "success" | "fail" = "success";
+  let context = "";
+
+  if (entity === "devis") {
+    if (statut === "accepte") {
+      signalType = "devis_accepte";
+      outcome = "success";
+    } else if (statut === "refuse" || statut === "expire") {
+      signalType = "devis_refuse";
+      outcome = "fail";
+    }
+    // Les conditions commerciales sont la matière d'apprentissage (jamais les notes,
+    // qui peuvent contenir des éléments nominatifs propres au client).
+    context = typeof row.conditions === "string" ? row.conditions : "";
+  } else if (entity === "factures" && statut === "payee") {
+    signalType = "facture_payee";
+    outcome = "success";
+  }
+
+  if (!signalType) return;
+  void recordSignal({ supabase, tenantId, signalType, outcome, montant, context }).catch(() => {});
+}
+
+// Actions qui MODIFIENT les données : refusées si l'abonnement est gelé (lecture
+// seule). `list`/`get` restent toujours ouverts (consultation + export garantis).
+const WRITE_ACTIONS = new Set(["create", "bulk_create", "update", "delete", "bulk_delete"]);
 
 function sameOrigin(req: Request): boolean {
   const origin = req.headers.get("origin");
@@ -29,7 +73,14 @@ function sanitize(values: unknown, writable: string[]): Record<string, unknown> 
   if (!values || typeof values !== "object") return out;
   const v = values as Record<string, unknown>;
   for (const key of writable) {
-    if (key in v) out[key] = v[key];
+    if (!(key in v)) continue;
+    let val = v[key];
+    // Un champ de formulaire HTML non rempli renvoie "" (jamais null). Postgres
+    // rejette "" pour un uuid/date/nombre → 400. On normalise toute chaîne vide
+    // (ou " ") en null : un champ optionnel vide = null, un champ requis vide
+    // déclenchera une vraie erreur NOT NULL explicite plutôt qu'un cast illisible.
+    if (typeof val === "string" && val.trim() === "") val = null;
+    out[key] = val;
   }
   return out;
 }
@@ -47,13 +98,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Authentification requise." }, { status: 401 });
   }
 
-  const { data: membership } = await supabase
-    .from("tenant_members")
-    .select("tenant_id")
-    .eq("user_id", user.id)
-    .not("accepted_at", "is", null)
-    .limit(1)
-    .single();
+  const membership = await getActiveMembershipServer(supabase, user.id);
 
   if (!membership) {
     return NextResponse.json({ error: "Aucun espace de travail." }, { status: 403 });
@@ -65,6 +110,8 @@ export async function POST(req: Request) {
     action?: string;
     id?: string;
     values?: unknown;
+    rows?: unknown;
+    ids?: unknown;
     match?: Record<string, unknown>;
     columns?: string;
     order?: string;
@@ -85,10 +132,36 @@ export async function POST(req: Request) {
   }
   const def = ENTITIES[entity];
 
+  // ── GEL LECTURE SEULE ──────────────────────────────────────────────────────
+  // L'usage quotidien manuel (ajouter/modifier un chantier…) ne coûte pas de
+  // crédit, mais reste conditionné au DROIT D'USAGE : un abonnement expiré fige
+  // l'espace en lecture seule. Seules les écritures sont refusées.
+  if (WRITE_ACTIONS.has(action)) {
+    const ent = await getEntitlementsForTenant(supabase, tenantId);
+    if (!ent.writable) {
+      return NextResponse.json({ error: FROZEN_MESSAGE, frozen: true }, { status: 403 });
+    }
+  }
+
   // Accès dynamique à la table : l'entité est validée par whitelist ci-dessus,
   // mais le client typé n'accepte pas un nom de table variable → cast contrôlé.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const from = (t: string) => (supabase.from as any)(t);
+
+  // Nom lisible d'une ligne pour le journal d'activité.
+  const rowName = (v: Record<string, unknown>): string => {
+    const n = v.nom ?? v.designation ?? v.type ?? "";
+    return typeof n === "string" && n.trim() ? ` : « ${n.trim().slice(0, 60)} »` : "";
+  };
+  const log = (action: string, description: string, entityId?: string | null) =>
+    logActivity(supabase, {
+      tenantId,
+      userId: user.id,
+      action,
+      entityType: def.label,
+      entityId,
+      description,
+    });
 
   try {
     if (action === "list") {
@@ -123,7 +196,31 @@ export async function POST(req: Request) {
         .select()
         .single();
       if (error) throw error;
+      await log("create", `${def.label}${rowName(values)} — ajout`, data?.id ?? null);
       return NextResponse.json({ data });
+    }
+
+    if (action === "bulk_create") {
+      // Import CSV/Excel : insertion en masse. Chaque ligne est nettoyée
+      // (colonnes whitelistées) et tenant_id est forcé côté serveur.
+      const rows = Array.isArray(body.rows) ? body.rows : [];
+      if (!rows.length) {
+        return NextResponse.json({ error: "Aucune ligne à importer." }, { status: 400 });
+      }
+      if (rows.length > 2000) {
+        return NextResponse.json({ error: "Trop de lignes (max 2000 par import)." }, { status: 400 });
+      }
+      const clean = rows
+        .map((r) => sanitize(r, def.writable))
+        .filter((r) => Object.values(r).some((v) => v !== null && v !== undefined && String(v).trim() !== ""));
+      if (!clean.length) {
+        return NextResponse.json({ error: "Aucune donnée exploitable (colonnes non reconnues ?)." }, { status: 400 });
+      }
+      const payload = clean.map((r) => ({ ...r, tenant_id: tenantId }));
+      const { data, error } = await from(def.table).insert(payload).select("id");
+      if (error) throw error;
+      await log("create", `${def.label} — import de ${data?.length ?? clean.length} ligne(s)`);
+      return NextResponse.json({ ok: true, inserted: data?.length ?? clean.length });
     }
 
     if (action === "update") {
@@ -136,6 +233,8 @@ export async function POST(req: Request) {
         .select()
         .single();
       if (error) throw error;
+      await log("update", `${def.label}${rowName(values)} — mise à jour`, body.id);
+      captureLearningSignal(supabase, tenantId, entity, data as Record<string, unknown>);
       return NextResponse.json({ data });
     }
 
@@ -146,7 +245,18 @@ export async function POST(req: Request) {
         .eq("tenant_id", tenantId)
         .eq("id", body.id);
       if (error) throw error;
+      await log("delete", `${def.label} — suppression`, body.id);
       return NextResponse.json({ ok: true });
+    }
+
+    if (action === "bulk_delete") {
+      const ids = (Array.isArray(body.ids) ? body.ids : []).map(String).filter(Boolean);
+      if (!ids.length) return NextResponse.json({ error: "Aucun élément sélectionné." }, { status: 400 });
+      if (ids.length > 500) return NextResponse.json({ error: "Trop d'éléments (max 500)." }, { status: 400 });
+      const { error } = await from(def.table).delete().eq("tenant_id", tenantId).in("id", ids);
+      if (error) throw error;
+      await log("delete", `${def.label} — suppression de ${ids.length} élément(s)`);
+      return NextResponse.json({ ok: true, deleted: ids.length });
     }
 
     return NextResponse.json({ error: `Action inconnue : ${action}` }, { status: 400 });

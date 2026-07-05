@@ -1,5 +1,5 @@
 -- ============================================================
--- BATIFY — Schéma de référence
+-- BILTIA — Schéma de référence
 -- Source of truth: voir migrations/001_security_foundation.sql
 --
 -- Principes appliqués :

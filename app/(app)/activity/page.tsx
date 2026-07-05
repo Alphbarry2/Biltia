@@ -17,7 +17,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Activité — « Ce que Batify a fait pour vous ».
+// Activité — « Ce que Biltia a fait pour vous ».
 // Flux lu depuis activity_logs (RLS scope le tenant). Peut être vide au début.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -107,7 +107,7 @@ export default function ActivityPage() {
           </span>
           <h1 className="text-2xl font-black text-[#0A0A0A] tracking-[-0.03em]">Activité</h1>
         </div>
-        <p className="text-[14px] text-[#6E6E6C] mb-8 ml-12">Tout ce que Batify a réalisé pour vous.</p>
+        <p className="text-[14px] text-[#6E6E6C] mb-8 ml-12">Tout ce que Biltia a réalisé pour vous.</p>
 
         {loading ? (
           <div className="flex items-center justify-center py-24 text-[#9A9A97]">
@@ -120,7 +120,7 @@ export default function ActivityPage() {
             </div>
             <h3 className="text-lg font-bold text-[#0A0A0A] mb-2 tracking-[-0.01em]">Aucune activité pour l&apos;instant</h3>
             <p className="text-sm text-[#6E6E6C] max-w-sm leading-relaxed mb-6">
-              Dès que Batify créera un document, enverra un devis ou générera une application,
+              Dès que Biltia créera un document, enverra un devis ou générera une application,
               vous le verrez apparaître ici, jour après jour.
             </p>
             <Link href="/dashboard" className="text-[13px] font-semibold text-violet-600 hover:opacity-80 transition-opacity">

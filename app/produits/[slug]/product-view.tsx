@@ -16,7 +16,7 @@ export default function ProductView({ product, others }: { product: Product; oth
   const grad = `linear-gradient(135deg, ${product.accent[0]}, ${product.accent[1]})`;
 
   const tryPrompt = (p: string) => {
-    if (p.trim()) sessionStorage.setItem("batify_prompt", p.trim());
+    if (p.trim()) sessionStorage.setItem("biltia_prompt", p.trim());
     router.push("/signup?from=prompt");
   };
 

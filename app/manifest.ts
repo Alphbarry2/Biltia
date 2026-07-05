@@ -4,10 +4,10 @@ import type { MetadataRoute } from "next";
 export default function manifest(): MetadataRoute.Manifest {
   return {
     id: "/",
-    name: "Batify — l'OS du BTP",
-    short_name: "Batify",
+    name: "Biltia — l'OS du BTP",
+    short_name: "Biltia",
     description:
-      "Décrivez votre problème, Batify livre la solution : document, application, réponse ou automatisation.",
+      "Décrivez votre problème, Biltia livre la solution : document, application, réponse ou automatisation.",
     start_url: "/dashboard",
     scope: "/",
     display: "standalone",

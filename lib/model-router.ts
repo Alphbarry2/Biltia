@@ -155,7 +155,7 @@ const CAPABILITY_KEYS: ModelCapability[] = (Object.keys(CAPABILITY_RANKING) as M
 );
 
 function buildSelectorSystem(): string {
-  return `Tu es le SÉLECTEUR DE MODÈLE de Batify. On te donne le problème d'un prospect, exprimé en langage courant (français). Tu identifies la CAPACITÉ dominante requise pour le résoudre AU MIEUX. Tu ne résous rien : tu qualifies le besoin.
+  return `Tu es le SÉLECTEUR DE MODÈLE de Biltia. On te donne le problème d'un prospect, exprimé en langage courant (français). Tu identifies la CAPACITÉ dominante requise pour le résoudre AU MIEUX. Tu ne résous rien : tu qualifies le besoin.
 
 LES CAPACITÉS :
 - "design" — concevoir une interface / un visuel d'interface : maquette, landing, charte graphique, UI/UX, HTML/CSS soigné.
@@ -265,7 +265,7 @@ function resolveSelection(
  * clé Anthropic est dispo, retombe TOUJOURS proprement sur l'heuristique.
  *
  * @param forceCapability  court-circuite la détection (ex : la génération d'app
- *                         Batify est intrinsèquement un besoin "design"/"code").
+ *                         Biltia est intrinsèquement un besoin "design"/"code").
  */
 export async function selectModel(opts: {
   prompt: string;

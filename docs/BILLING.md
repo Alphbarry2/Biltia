@@ -1,4 +1,4 @@
-# Facturation Batify — Plans, crédits & Stripe
+# Facturation Biltia — Plans, crédits & Stripe
 
 Source de vérité des tarifs : [`lib/plans.ts`](../lib/plans.ts). Tarifs validés le 2026-07-02.
 

@@ -76,8 +76,8 @@ html { scroll-behavior: smooth; }
 }
 
 body {
-  background-color: #F7F5EF;
-  color: #111827;
+  background-color: #FCFCFD;
+  color: #0A0A0A;
   font-family: 'Satoshi', ui-sans-serif, system-ui, sans-serif;
   line-height: 1.6;
 }
@@ -291,7 +291,87 @@ body {
 /* ── Scrollbar ───────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #E7E2D7; border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: #E7E7E4; border-radius: 3px; }
+
+/* ── Bordure lumineuse en deux arcs (barre de chat) ───────────────────────
+   Deux lueurs douces et discrètes se font face (coin haut-droite / bas-gauche)
+   et tournent lentement autour de la carte. Le reste du bord reste neutre. */
+@property --bd-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+@keyframes bd-spin { to { --bd-angle: 360deg; } }
+
+.chatframe {
+  position: relative;
+  isolation: isolate; /* contient l'ordre d'empilement des pseudo-éléments */
+  border-radius: 28px;
+}
+.chatframe > .chatcard {
+  position: relative;
+  z-index: 1;
+}
+/* Dégradé conique presque tout transparent : deux arcs opposés seulement,
+   masqué en content-box pour ne garder QUE le fin liseré du bord. */
+.chatframe::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  padding: 1.8px;
+  background: conic-gradient(from var(--bd-angle),
+    transparent 4deg,
+    rgba(129, 140, 248, 0.60) 22deg,
+    rgba(167, 139, 250, 0.60) 40deg,
+    rgba(244, 114, 182, 0.58) 58deg,
+    rgba(251, 191, 36, 0.55) 76deg,
+    transparent 96deg,
+    transparent 176deg,
+    rgba(34, 211, 238, 0.55) 196deg,
+    rgba(129, 140, 248, 0.60) 214deg,
+    rgba(167, 139, 250, 0.60) 232deg,
+    rgba(244, 114, 182, 0.58) 250deg,
+    transparent 272deg,
+    transparent 360deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+          mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  animation: bd-spin 5.5s linear infinite;
+  pointer-events: none;
+}
+/* Halo assorti, flou et léger, présent uniquement aux deux coins actifs. */
+.chatframe::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  z-index: 0;
+  border-radius: inherit;
+  background: conic-gradient(from var(--bd-angle),
+    transparent 4deg,
+    rgba(129, 140, 248, 0.60) 22deg,
+    rgba(167, 139, 250, 0.60) 40deg,
+    rgba(244, 114, 182, 0.58) 58deg,
+    rgba(251, 191, 36, 0.55) 76deg,
+    transparent 96deg,
+    transparent 176deg,
+    rgba(34, 211, 238, 0.55) 196deg,
+    rgba(129, 140, 248, 0.60) 214deg,
+    rgba(167, 139, 250, 0.60) 232deg,
+    rgba(244, 114, 182, 0.58) 250deg,
+    transparent 272deg,
+    transparent 360deg);
+  filter: blur(18px);
+  opacity: 0.4;
+  animation: bd-spin 5.5s linear infinite;
+  pointer-events: none;
+}
+/* Réaction discrète au focus : lueurs un peu plus présentes, rotation plus vive. */
+.chatframe:focus-within::after { opacity: 0.58; }
+.chatframe:focus-within::before,
+.chatframe:focus-within::after { animation-duration: 4s; }
 
 /* ── Reduced motion ──────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {

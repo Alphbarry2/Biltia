@@ -1,5 +1,5 @@
 -- ============================================================
--- BATIFY — Migration 005 : Correctifs RLS multi-tenant
+-- BILTIA — Migration 005 : Correctifs RLS multi-tenant
 -- ============================================================
 -- Découverts en générant la baseline 004 :
 --
