@@ -239,8 +239,10 @@ export default function GeneratePage() {
   // Pré-aiguillage instantané côté client : une pure question n'affiche JAMAIS
   // l'écran de construction (phases), juste la bulle « je vous réponds ».
   const [expectingBuild, setExpectingBuild] = useState(true);
-  // Questions préalables (façon Lovable) avant la création d'une application.
-  const [clarify, setClarify] = useState<{ questions: ClarifyQuestion[]; prompt: string } | null>(null);
+  // Questions préalables avant production : "module" = questionnaire de création
+  // d'app (façon Lovable) ; "document" = porte « contexte suffisant ? » (l'employé
+  // demande les infos manquantes avant de rédiger le PDF).
+  const [clarify, setClarify] = useState<{ questions: ClarifyQuestion[]; prompt: string; kind?: "module" | "document" } | null>(null);
   const [loadingLabel, setLoadingLabel] = useState<string | null>(null);
   // Crédits insuffisants (pré-vérification client OU 402 serveur) → widget
   // d'upgrade affiché dans le fil, jamais un simple message sans issue.
@@ -1049,30 +1051,42 @@ export default function GeneratePage() {
   // `structured` permet de lire la réponse device pour forcer le format.
   const onClarifyDone = (answersText: string | null, structured?: Record<string, string[]>) => {
     const base = clarify?.prompt ?? "";
+    const clarifyKind = clarify?.kind ?? "module";
     setClarify(null);
 
-    // Synchronise le format avec le device choisi dans le questionnaire.
+    // Synchronise le format avec le device choisi dans le questionnaire (app only).
     const deviceAnswer = structured?.device?.[0];
     let formatOverride: Format | undefined;
     if (deviceAnswer === "mobile")  { formatOverride = "mobile";  setFormat("mobile"); }
     if (deviceAnswer === "desktop") { formatOverride = "desktop"; setFormat("desktop"); }
     if (deviceAnswer === "tablet")  { formatOverride = "auto";    setFormat("auto"); }
 
+    // Document : les réponses SONT le contexte manquant → on relance avec
+    // contextProvided (la porte est franchie). App : précisions du questionnaire.
+    const isDoc = clarifyKind === "document";
+    const genOpts = isDoc ? { contextProvided: true } : { formatOverride };
+    const header = isDoc
+      ? "# CONTEXTE FOURNI PAR L'UTILISATEUR (à utiliser tel quel, ne rien inventer)"
+      : "# PRÉCISIONS DE L'UTILISATEUR (questionnaire avant création)";
+
     if (answersText) {
       setMessages((prev) => [...prev, { role: "user", content: `📋 Mes réponses :\n${answersText}` }]);
-      void executeGeneration(
-        `${base}\n\n# PRÉCISIONS DE L'UTILISATEUR (questionnaire avant création)\n${answersText}`,
-        { formatOverride }
-      );
+      void executeGeneration(`${base}\n\n${header}\n${answersText}`, genOpts);
     } else {
-      void executeGeneration(base, { formatOverride });
+      void executeGeneration(base, genOpts);
     }
   };
 
   // Lance réellement la génération (le message utilisateur est déjà affiché).
   const executeGeneration = async (
     apiPrompt: string,
-    opts?: { formatOverride?: Format; files?: { name: string; mediaType: string; data: string }[] }
+    opts?: {
+      formatOverride?: Format;
+      files?: { name: string; mediaType: string; data: string }[];
+      // Document : contexte déjà fourni par l'utilisateur → ne pas re-poser de
+      // questions côté serveur (la porte « contexte suffisant ? » est franchie).
+      contextProvided?: boolean;
+    }
   ) => {
     const isModification = generatedHTML.length > 0;
     const creditCost = isModification ? 60 : 300;
@@ -1091,6 +1105,7 @@ export default function GeneratePage() {
           // En itération, on conserve le format d'origine (pas de reclassement).
           kind: isModification ? kind ?? undefined : undefined,
           docType: isModification ? docType ?? undefined : undefined,
+          contextProvided: opts?.contextProvided,
           // Captures / documents joints comme contexte de la demande.
           files: opts?.files,
         }),
@@ -1154,6 +1169,18 @@ export default function GeneratePage() {
       // en plus du message d'erreur (levé plus bas avec le texte serveur).
       if (res.status === 402) {
         setUpsell({ required: creditCost });
+      }
+
+      // Document : contexte insuffisant → Biltia se comporte comme un employé et
+      // DEMANDE les infos manquantes (récap + 1 à 3 questions) au lieu d'inventer.
+      // La réponse relance la génération avec contextProvided → la porte est
+      // franchie, il rédige avec les vraies données. Rien n'a été facturé.
+      if (data.needsContext && Array.isArray(data.questions) && data.questions.length) {
+        if (typeof data.recap === "string" && data.recap.trim()) {
+          setMessages((prev) => [...prev, { role: "assistant", content: data.recap }]);
+        }
+        setClarify({ questions: data.questions, prompt: apiPrompt, kind: "document" });
+        return;
       }
 
       // Contrôle par lot reconnu, mais aucun fichier joint : on mémorise

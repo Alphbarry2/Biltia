@@ -5,6 +5,7 @@ import { buildKnowledgeBlock } from "@/lib/btp-catalog";
 import { classifyKind, coerceKind, looksLikePureQuestion, type BiltiaKind } from "@/lib/kind-router";
 import { classifyQuestionTopic } from "@/lib/question-topics";
 import { buildDocumentSystemPrompt, injectDocumentRuntime } from "@/lib/document-generator";
+import { assessDocumentReadiness } from "@/lib/document-context";
 import { retrieveContext, buildSourcesBlock } from "@/lib/rag";
 import { detectConnectedEntities, buildDataModeBlock } from "@/lib/data-entities";
 import {
@@ -494,6 +495,9 @@ export async function POST(req: Request) {
       isAutoFix?: boolean;
       kind?: string;
       docType?: string;
+      // Document : 2e passage après que l'utilisateur a fourni le contexte
+      // manquant → court-circuite la porte « contexte suffisant ? ».
+      contextProvided?: boolean;
       files?: { name?: string; mediaType?: string; data?: string }[];
     };
     try {
@@ -715,6 +719,31 @@ ${buildWorkspaceToolsSystem()}
       } catch (err) {
         await refundDataOp();
         throw err;
+      }
+    }
+
+    // ── DOCUMENT : porte « employé » — avoir le contexte AVANT de produire ────
+    // Un document officiel ne s'invente pas (nom du client, montants, quantités,
+    // prestations, dates). Si l'essentiel manque à la fois dans la demande ET
+    // dans le workspace, Biltia DEMANDE 1 à 3 questions ciblées au lieu de sortir
+    // une facture bidon. AVANT le hold : demander ne coûte rien. `contextProvided`
+    // (2e passage, après réponses) franchit la porte.
+    if (kind === "document" && !isModification && !isAutoFix && !body.contextProvided) {
+      const wsSnapshot = await getWorkspaceContext(supabase, tenantId)
+        .then((ws) => buildWorkspaceBlock(ws))
+        .catch(() => "");
+      const gate = await assessDocumentReadiness({ prompt, docType, workspace: wsSnapshot }).catch(
+        () => null
+      );
+      if (gate?.usage) logAuxUsage(gate.usage, "document_context");
+      if (gate && !gate.ready && gate.questions.length) {
+        return Response.json({
+          kind: "document",
+          docType,
+          needsContext: true,
+          recap: gate.recap,
+          questions: gate.questions,
+        });
       }
     }
 

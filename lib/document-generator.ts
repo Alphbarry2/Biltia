@@ -17,9 +17,13 @@ const DOC_KNOWLEDGE = `# DOCUMENTS OFFICIELS DU BTP — TU LES MAÎTRISES
 
 Tu produis UN document précis, officiel, français, prêt à imprimer et à signer.
 Ce n'est PAS une application : pas de CRUD, pas de navigation, pas d'onglets.
-Tu pré-remplis intégralement le contenu à partir de la demande. Là où une donnée
-manque, tu mets un placeholder clair entre crochets (ex : « [Nom du client] »),
-jamais du faux définitif.
+Tu pré-remplis intégralement le contenu à partir de la DEMANDE, du CONTEXTE
+FOURNI par l'utilisateur et du WORKSPACE — ce sont tes SOURCES DE VÉRITÉ.
+Tu n'INVENTES JAMAIS un nom de client, un montant, une quantité, une prestation
+ni une date : ces éléments t'ont été donnés (Biltia les a réclamés en amont s'ils
+manquaient). Pour un champ MINEUR réellement inconnu et non bloquant (ex : n° de
+SIRET, IBAN), mets un placeholder clair entre crochets « [N° SIRET] », jamais du
+faux définitif — mais jamais de placeholder sur le fond (client, montants, objet).
 
 ## AVENANT (au marché / au devis)
 Modifie un marché existant. Sections : référence du marché/devis initial + date ;
