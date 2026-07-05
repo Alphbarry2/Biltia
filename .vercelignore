@@ -1,11 +1,9 @@
 # Dépendances / build (iCloud: variantes .nosync renommées)
-node_modules
+# NB: ne PAS ignorer `.next` (sans suffixe) : Vercel applique .vercelignore aussi
+# à la SORTIE du build distant, l'ignorer supprimerait le build fraîchement généré.
+# Seules les variantes locales .nosync (iCloud) sont exclues de l'upload.
 node_modules.nosync
-.next
 .next.nosync
-out
-build
-coverage
 
 # Git / outillage local
 .git
