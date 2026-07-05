@@ -1,0 +1,19 @@
+# Dépendances / build (iCloud: variantes .nosync renommées)
+node_modules
+node_modules.nosync
+.next
+.next.nosync
+out
+build
+coverage
+
+# Git / outillage local
+.git
+.claude
+.agents
+.vercel
+
+# Divers
+*.tsbuildinfo
+.DS_Store
+*.log

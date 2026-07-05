@@ -1,10 +1,6 @@
 {
   "crons": [
     {
-      "path": "/api/agents/run",
-      "schedule": "*/5 * * * *"
-    },
-    {
       "path": "/api/admin/promote-insights",
       "schedule": "0 3 * * *"
     }
