@@ -549,9 +549,40 @@ function CTASection() {
   );
 }
 
+// Données structurées de la MARQUE (Organization + WebSite), SANS aucune date :
+// dit à Google « page d'accueil permanente d'une entreprise », pas un article
+// daté. C'est le bon signal pour décourager la date « il y a X jours » dans le
+// résultat de recherche et enrichir le référencement. Rendu au SSR (Googlebot le lit).
+const SITE_JSONLD = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://www.biltia.com/#organization",
+      name: "Biltia",
+      url: "https://www.biltia.com",
+      logo: "https://www.biltia.com/icon.png",
+      description:
+        "L'OS conversationnel du BTP : décrivez votre problème, Biltia livre la solution — document, application, réponse ou automatisation.",
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://www.biltia.com/#website",
+      name: "Biltia",
+      url: "https://www.biltia.com",
+      publisher: { "@id": "https://www.biltia.com/#organization" },
+      inLanguage: "fr-FR",
+    },
+  ],
+};
+
 export default function Home() {
   return (
     <main className="bg-[#FCFCFD] min-h-screen overflow-x-hidden text-[#0A0A0A]">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(SITE_JSONLD) }}
+      />
       <SiteNav />
       <HeroSection />
       <AgentsSection />
