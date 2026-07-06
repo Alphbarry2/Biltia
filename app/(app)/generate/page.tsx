@@ -38,6 +38,7 @@ import {
   RotateCcw,
   Smartphone,
   Monitor,
+  Tablet,
   LayoutTemplate,
   Globe,
   Copy,
@@ -227,6 +228,8 @@ export default function GeneratePage() {
   const swipeStartX = useRef<number | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
+  // Aperçu desktop : format simulé (bureau / tablette / mobile) qui redimensionne l'iframe.
+  const [previewDevice, setPreviewDevice] = useState<"desktop" | "tablet" | "mobile">("desktop");
   const htmlSetAtRef = useRef(0);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [report, setReport] = useState<ReportResult | null>(null);
@@ -2008,6 +2011,31 @@ export default function GeneratePage() {
             )}
           </div>
           <div className="flex items-center gap-1.5 flex-shrink-0">
+            {/* Sélecteur de format d'aperçu (desktop) : redimensionne l'iframe. */}
+            {generatedHTML && (
+              <div className="flex items-center gap-0.5 bg-[#F6F6F9] rounded-full p-0.5 mr-1">
+                {([["desktop", Monitor, "Vue bureau"], ["tablet", Tablet, "Vue tablette"], ["mobile", Smartphone, "Vue mobile"]] as const).map(([d, Icon, label]) => (
+                  <button
+                    key={d}
+                    onClick={() => setPreviewDevice(d)}
+                    title={label}
+                    className={`grid h-7 w-7 place-items-center rounded-full transition-colors ${previewDevice === d ? "bg-white text-[#0A0A0A] shadow-[0_1px_3px_rgba(0,0,0,0.1)]" : "text-[#9A9AA6] hover:text-[#0A0A0A]"}`}
+                  >
+                    <Icon className="w-4 h-4" />
+                  </button>
+                ))}
+              </div>
+            )}
+            {generatedHTML && (
+              <button onClick={() => setReloadNonce((n) => n + 1)} title="Actualiser l'aperçu" className="p-1.5 text-[#6E6E6C] hover:text-[#0A0A0A] rounded-lg hover:bg-[#F6F6F9] transition-colors">
+                <RefreshCw className="w-4 h-4" />
+              </button>
+            )}
+            {generatedHTML && savedId && (
+              <a href={`/apps/${savedId}`} target="_blank" rel="noopener" title="Ouvrir en plein écran" className="p-1.5 text-[#6E6E6C] hover:text-[#0A0A0A] rounded-lg hover:bg-[#F6F6F9] transition-colors">
+                <ExternalLink className="w-4 h-4" />
+              </a>
+            )}
             {generatedHTML && !isGenerating && (
               <button
                 onClick={toggleVisualEdit}
@@ -2047,7 +2075,7 @@ export default function GeneratePage() {
                 {savedId ? (
                   <button onClick={togglePublish} disabled={isPublishing} className="flex w-full items-center gap-3 px-3 py-3 rounded-2xl hover:bg-[#F6F6F9] transition-colors text-left disabled:opacity-60">
                     <span className="grid h-9 w-9 place-items-center rounded-full bg-[#F3EFFC] text-[#7C3AED] flex-shrink-0">{isPublishing ? <Loader2 className="w-[18px] h-[18px] animate-spin" /> : <Globe className="w-[18px] h-[18px]" />}</span>
-                    <span className="min-w-0"><span className="block text-[14px] font-semibold text-[#0A0A0A]">{isPublic ? "En ligne — retirer le lien" : "Mettre en ligne"}</span><span className="block text-[12px] text-[#9A9AA6] truncate">{isPublic ? `/app/${slug}` : "Lien partageable à votre équipe"}</span></span>
+                    <span className="min-w-0"><span className="block text-[14px] font-semibold text-[#0A0A0A]">{isPublic ? "En ligne — retirer le lien" : "Mettre en ligne"}</span><span className="block text-[12px] text-[#9A9AA6] truncate">{isPublic ? publicUrl.replace(/^https?:\/\//, "") : "Lien partageable à votre équipe"}</span></span>
                   </button>
                 ) : (
                   <button onClick={handleSave} disabled={isSaving} className="flex w-full items-center gap-3 px-3 py-3 rounded-2xl hover:bg-[#F6F6F9] transition-colors text-left disabled:opacity-60">
@@ -2174,35 +2202,27 @@ export default function GeneratePage() {
               saved={entitySaved}
             />
           ) : generatedHTML ? (
-            format === "mobile" ? (
-              // Phone mockup
-              <div className="flex items-center justify-center min-h-full py-6 px-4">
-                <div className="w-[390px] max-w-full h-[760px] bg-[#0A0A0A] rounded-[2.5rem] p-3 shadow-[0_24px_70px_rgba(60,40,120,0.2)] flex-shrink-0">
-                  <div className="relative w-full h-full bg-white rounded-[2rem] overflow-hidden">
-                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-6 bg-[#0A0A0A] rounded-b-2xl z-10" />
-                    <iframe
-                      ref={iframeRef}
-                      key={`${generatedHTML.slice(0, 50)}-${reloadNonce}`}
-                      srcDoc={generatedHTML}
-                      sandbox="allow-scripts allow-forms allow-same-origin allow-modals"
-                      allow="camera; microphone; geolocation; clipboard-write"
-                      className={`w-full h-full border-0 ${resizing ? "pointer-events-none" : ""}`}
-                      title="Application générée"
-                    />
-                  </div>
-                </div>
+            <div className={`h-full w-full ${previewDevice === "desktop" ? "" : "flex items-start justify-center overflow-auto p-4 sm:p-6"}`}>
+              <div
+                className={
+                  previewDevice === "desktop"
+                    ? "w-full h-full"
+                    : previewDevice === "tablet"
+                      ? "w-[834px] max-w-full h-full flex-shrink-0 overflow-hidden rounded-2xl border border-[#ECECF2] bg-white shadow-[0_24px_70px_rgba(60,40,120,0.16)]"
+                      : "w-[390px] max-w-full h-full flex-shrink-0 overflow-hidden rounded-[2.2rem] border-[7px] border-[#0A0A0A] bg-white shadow-[0_24px_70px_rgba(60,40,120,0.2)]"
+                }
+              >
+                <iframe
+                  ref={iframeRef}
+                  key={`${generatedHTML.slice(0, 50)}-${reloadNonce}`}
+                  srcDoc={generatedHTML}
+                  sandbox="allow-scripts allow-forms allow-same-origin allow-modals"
+                  allow="camera; microphone; geolocation; clipboard-write"
+                  className={`w-full h-full border-0 ${resizing ? "pointer-events-none" : ""}`}
+                  title="Application générée"
+                />
               </div>
-            ) : (
-              <iframe
-                ref={iframeRef}
-                key={`${generatedHTML.slice(0, 50)}-${reloadNonce}`}
-                srcDoc={generatedHTML}
-                sandbox="allow-scripts allow-forms allow-same-origin allow-modals"
-                allow="camera; microphone; geolocation; clipboard-write"
-                className={`w-full h-full border-0 ${resizing ? "pointer-events-none" : ""}`}
-                title="Application générée"
-              />
-            )
+            </div>
           ) : (
             <div className="flex flex-col items-center justify-center h-full text-center px-8">
               <div className="w-16 h-16 rounded-2xl bg-white border border-[#ECECF2] flex items-center justify-center mb-4 shadow-[0_4px_14px_rgba(60,40,120,0.08)]">
