@@ -122,8 +122,11 @@ export const FALLBACK_SPECIFIC: ClarifyQuestion[] = [
 ];
 
 /** Questionnaire complet 100 % statique (zéro LLM, zéro réseau) — utilisé en
- *  repli côté client quand /api/clarify ne répond pas. Ordre : Device → DONNÉES
- *  → spécifique → Palette → Layout. La question DONNÉES est toujours en 2ᵉ. */
+ *  repli côté client quand /api/clarify ne répond pas.
+ *  On ne demande PLUS le support (mobile/desktop/tablette) ni l'organisation
+ *  d'écran : les apps sont responsive par défaut (sidebar en grand, barre
+ *  d'onglets/burger en petit) — la mise en page s'adapte à l'écran, pas à un
+ *  choix. Ordre : spécifique → Palette. La question DONNÉES est injectée à part. */
 export function buildStaticClarifyQuestions(): ClarifyQuestion[] {
-  return [DEVICE_QUESTION, ...FALLBACK_SPECIFIC.slice(0, 2), THEME_QUESTION, LAYOUT_QUESTION];
+  return [...FALLBACK_SPECIFIC.slice(0, 2), THEME_QUESTION];
 }

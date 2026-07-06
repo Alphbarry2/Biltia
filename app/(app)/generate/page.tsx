@@ -49,6 +49,8 @@ import {
   FileText,
   Zap,
   Paperclip,
+  Plus,
+  Image as ImageIcon,
   X,
   AlertTriangle,
 } from "lucide-react";
@@ -207,6 +209,11 @@ export default function GeneratePage() {
   const [buildSeconds, setBuildSeconds] = useState(0);
   // Analyse de fichiers (produits Analyse / Automatisations).
   const [attached, setAttached] = useState<AttachedFile[]>([]);
+  const [plusOpen, setPlusOpen] = useState(false);
+  // Mobile : on affiche SOIT le chat SOIT l'app (jamais les deux entassés).
+  // Balayer vers la droite = chat, vers la gauche = app ; boutons d'en-tête en repli.
+  const [mobileView, setMobileView] = useState<"chat" | "app">("app");
+  const swipeStartX = useRef<number | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [report, setReport] = useState<ReportResult | null>(null);
   const [savingEntity, setSavingEntity] = useState(false);
@@ -1612,15 +1619,25 @@ export default function GeneratePage() {
     Boolean(generatedHTML) || Boolean(analysis) || Boolean(report) || (isGenerating && expectingBuild);
 
   return (
-    <div ref={rootRef} className="flex flex-col md:flex-row h-full bg-[#FCFCFD]">
+    <div
+      ref={rootRef}
+      className="flex flex-col md:flex-row h-full bg-[#FCFCFD]"
+      onTouchStart={(e) => { swipeStartX.current = e.touches[0]?.clientX ?? null; }}
+      onTouchEnd={(e) => {
+        if (swipeStartX.current == null || !showStudio || previewHidden) { swipeStartX.current = null; return; }
+        const dx = (e.changedTouches[0]?.clientX ?? 0) - swipeStartX.current;
+        if (Math.abs(dx) > 60) setMobileView(dx > 0 ? "chat" : "app");
+        swipeStartX.current = null;
+      }}
+    >
       {/* ── Panneau conversation (plein écran en mode chat) ── */}
       <div
-        className={`flex flex-col flex-shrink-0 ${resizing ? "" : "transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"} ${
+        className={`flex-col flex-shrink-0 ${resizing ? "" : "transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"} ${
           !showStudio || previewHidden
-            ? "w-full h-full bg-[#FCFCFD]"
+            ? "flex w-full h-full bg-[#FCFCFD]"
             : sidebarOpen
-              ? "bg-white w-full md:w-[420px] md:min-w-[380px] h-[50vh] md:h-full"
-              : "bg-white w-0 md:w-0 overflow-hidden h-0 md:h-full"
+              ? `bg-white md:flex md:w-[420px] md:min-w-[380px] md:h-full ${mobileView === "chat" ? "flex w-full h-full" : "hidden"}`
+              : "bg-white w-0 md:w-0 overflow-hidden h-0 md:h-full md:flex"
         }`}
         style={
           isDesktop && showStudio && !previewHidden && sidebarOpen
@@ -1637,6 +1654,15 @@ export default function GeneratePage() {
             <h1 className="font-bold tracking-[-0.01em] text-[#0A0A0A] text-base">{showStudio ? "Générateur" : "Assistant"}</h1>
           </div>
           <div className="flex items-center gap-2">
+            {showStudio && !previewHidden && (
+              <button
+                onClick={() => setMobileView("app")}
+                className="md:hidden flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-[#0A0A0A] text-white active:scale-95 transition-transform"
+                title="Voir l'application"
+              >
+                <LayoutTemplate className="w-3.5 h-3.5" /> App
+              </button>
+            )}
             {(credits !== null || founderAccount) && (
               <span className="text-xs text-[#7C3AED] font-semibold bg-[#F3EFFC] border border-[#ECECF2] px-2.5 py-1 rounded-full tabular-nums">
                 ⚡ {founderAccount ? "∞" : credits} crédits
@@ -1759,41 +1785,8 @@ export default function GeneratePage() {
         </div>
         </div>
 
-        {/* Format selector — atelier uniquement (bruit inutile en mode chat) */}
-        {showStudio && kind !== "document" && !analysis && !report && (
-        <div className="px-4 pt-3 pb-1 flex-shrink-0">
-          <p className="text-[10px] font-bold text-[#6E6E6C] uppercase tracking-[0.12em] mb-1.5">Format de l&apos;application</p>
-          <div className="grid grid-cols-3 gap-1.5 p-1 bg-[#F6F6F9] rounded-xl">
-            {FORMATS.map((f) => (
-              <button
-                key={f.id}
-                onClick={() => {
-                  const prev = format;
-                  setFormat(f.id);
-                  // Si une app est déjà générée ET que le format change réellement,
-                  // on adapte automatiquement la navigation (sidebar ↔ bottom tabbar).
-                  if (generatedHTML && f.id !== prev && f.id !== "auto") {
-                    const toMobile = f.id === "mobile";
-                    const adaptMsg = toMobile
-                      ? "Adapte UNIQUEMENT la navigation pour mobile : remplace la sidebar/menu du haut par une barre d'onglets en bas (bottom tabbar, 4 icônes max + labels). Si pas de sidebar, ajoute un header avec menu burger. Conserve toutes les fonctionnalités et données."
-                      : "Adapte UNIQUEMENT la navigation pour desktop : remplace la barre d'onglets en bas (bottom tabbar) ou le menu burger par une sidebar latérale élégante sur la gauche. Conserve toutes les fonctionnalités et données.";
-                    setMessages((prev) => [...prev, { role: "user", content: toMobile ? "📱 Passage en mode mobile" : "🖥️ Passage en mode desktop" }]);
-                    void executeGeneration(adaptMsg, { formatOverride: f.id as Format });
-                  }
-                }}
-                className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all ${
-                  format === f.id
-                    ? "bg-white text-[#7C3AED] shadow-[0_4px_14px_rgba(60,40,120,0.08)]"
-                    : "text-[#6E6E6C] hover:text-[#0A0A0A]"
-                }`}
-              >
-                {f.icon}
-                {f.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        )}
+        {/* Sélecteur de format supprimé : les apps générées sont responsive (auto) —
+            sidebar sur grand écran, barre d'onglets/burger sur mobile, automatiquement. */}
 
         {/* Input area */}
         <div className={`px-4 pb-4 pt-2 flex-shrink-0 ${showStudio ? "border-t border-[#ECECF2]" : ""}`}>
@@ -1852,7 +1845,7 @@ export default function GeneratePage() {
           {/* Bordure lumineuse animée signature (même effet que la barre de la landing). */}
           <div className="chatframe" style={{ borderRadius: 18 }}>
           <div
-            className="chatcard flex items-end gap-2 bg-white border border-[#ECECF2] rounded-[18px] px-3.5 py-3 transition-all"
+            className="chatcard flex flex-col gap-1.5 bg-white border border-[#ECECF2] rounded-[18px] px-3 py-2.5 transition-all"
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               e.preventDefault();
@@ -1860,7 +1853,7 @@ export default function GeneratePage() {
             }}
           >
             {isListening ? (
-              <div className="flex-1">
+              <div className="w-full">
                 <VoiceRecorder
                   initialText={input}
                   onCancel={() => setIsListening(false)}
@@ -1873,33 +1866,10 @@ export default function GeneratePage() {
               </div>
             ) : (
               <>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="flex-shrink-0 mb-0.5 p-1.5 rounded-xl transition-colors text-[#6E6E6C] hover:text-[#7C3AED] hover:bg-[#F3EFFC]"
-              title="Joindre un document (PDF, image) à analyser"
-            >
-              <Paperclip className="w-4 h-4" />
-            </button>
-
-            <button
-              onClick={() => cameraInputRef.current?.click()}
-              className="flex-shrink-0 mb-0.5 p-1.5 rounded-xl transition-colors text-[#6E6E6C] hover:text-[#7C3AED] hover:bg-[#F3EFFC]"
-              title="Prendre une photo (bon de livraison, chantier…)"
-            >
-              <Camera className="w-4 h-4" />
-            </button>
-
-            <button
-              onClick={() => setIsListening(true)}
-              className="flex-shrink-0 mb-0.5 p-1.5 rounded-xl transition-colors text-[#6E6E6C] hover:text-[#7C3AED] hover:bg-[#F3EFFC]"
-              title="Parler (dictée)"
-            >
-              <Mic className="w-4 h-4" />
-            </button>
-
-            <div className="relative flex-1 min-w-0">
+            {/* Le texte grandit ; les contrôles restent FIXES en dessous. */}
+            <div className="relative w-full min-w-0 px-1">
               {!input && !generatedHTML && messages.length === 0 && (
-                <span className="absolute top-0 left-0 right-0 text-[#6E6E6C] text-sm pointer-events-none select-none leading-relaxed">
+                <span className="absolute top-0 left-1 right-1 text-[#6E6E6C] text-sm pointer-events-none select-none leading-relaxed">
                   {typed}
                   <span aria-hidden className="inline-block w-[2px] h-[0.95em] translate-y-[2px] bg-[#7C3AED]/80 ml-0.5 animate-blink" />
                 </span>
@@ -1931,13 +1901,62 @@ export default function GeneratePage() {
               />
             </div>
 
-            <button
-              onClick={() => handleGenerate()}
-              disabled={(!input.trim() && attached.length === 0) || isGenerating}
-              className="flex-shrink-0 w-9 h-9 flex items-center justify-center bg-gradient-to-br from-indigo-500 via-violet-500 to-pink-500 text-white rounded-full shadow-[0_6px_20px_rgba(139,92,246,0.4)] hover:shadow-[0_8px_28px_rgba(139,92,246,0.55)] active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
-            >
-              <Send className="w-4 h-4" />
-            </button>
+            {/* Rangée de contrôles STATIQUE : + (pièces jointes) à gauche, micro + envoi à droite. */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="relative">
+                <button
+                  onClick={() => setPlusOpen((v) => !v)}
+                  aria-label="Ajouter une pièce jointe"
+                  aria-expanded={plusOpen}
+                  className={`relative w-9 h-9 flex items-center justify-center rounded-full active:scale-95 transition-all ${plusOpen ? "bg-black/[0.06] text-[#0A0A0A]" : "text-[#4A4A56] hover:bg-black/[0.05]"}`}
+                >
+                  <Plus className={`w-5 h-5 transition-transform duration-200 ${plusOpen ? "rotate-45" : ""}`} />
+                  {attached.length > 0 && !plusOpen && (
+                    <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center rounded-full bg-[#7C3AED] text-white text-[10px] font-bold leading-none">{attached.length}</span>
+                  )}
+                </button>
+                {plusOpen && (
+                  <>
+                    <div className="fixed inset-0 z-20" onClick={() => setPlusOpen(false)} />
+                    <div className="absolute bottom-full left-0 mb-2 z-30 w-56 origin-bottom-left animate-scale-in bg-white border border-[#ECECF2] rounded-2xl shadow-[0_16px_50px_rgba(60,40,120,0.16)] p-1.5">
+                      {([
+                        { icon: Camera, label: "Prendre une photo", onClick: () => { setPlusOpen(false); cameraInputRef.current?.click(); } },
+                        { icon: ImageIcon, label: "Importer une photo", onClick: () => { setPlusOpen(false); fileInputRef.current?.click(); } },
+                        { icon: Paperclip, label: "Joindre un document (PDF)", onClick: () => { setPlusOpen(false); fileInputRef.current?.click(); } },
+                      ] as const).map(({ icon: Icon, label, onClick }) => (
+                        <button
+                          key={label}
+                          onClick={onClick}
+                          className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-[13.5px] text-[#2A2A32] hover:bg-[#F4F4F7] transition-colors text-left"
+                        >
+                          <Icon className="w-[18px] h-[18px] text-[#7C3AED] flex-shrink-0" strokeWidth={1.9} />
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setIsListening(true)}
+                  aria-label="Dictée vocale"
+                  title="Parler (dictée)"
+                  className="w-9 h-9 flex items-center justify-center rounded-full text-[#4A4A56] hover:bg-black/[0.05] active:scale-95 transition-all"
+                >
+                  <Mic className="w-[18px] h-[18px]" />
+                </button>
+                <button
+                  onClick={() => handleGenerate()}
+                  disabled={(!input.trim() && attached.length === 0) || isGenerating}
+                  aria-label="Envoyer"
+                  className="flex-shrink-0 w-9 h-9 flex items-center justify-center bg-gradient-to-br from-indigo-500 via-violet-500 to-pink-500 text-white rounded-full shadow-[0_6px_20px_rgba(139,92,246,0.4)] hover:shadow-[0_8px_28px_rgba(139,92,246,0.55)] active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
               </>
             )}
           </div>
@@ -1968,10 +1987,17 @@ export default function GeneratePage() {
 
       {/* ── Atelier : prévisualisation, uniquement quand on produit ── */}
       {showStudio && !previewHidden && (
-      <div ref={previewContainerRef} className="flex flex-col flex-1 min-w-0 h-[50vh] md:h-full border-t md:border-t-0 border-[#ECECF2] bg-[#FCFCFD]">
+      <div ref={previewContainerRef} className={`flex-col flex-1 min-w-0 bg-[#FCFCFD] md:flex md:h-full ${mobileView === "app" ? "flex h-full w-full" : "hidden"}`}>
         {/* Preview header */}
         <div className="flex items-center justify-between px-5 h-14 border-b border-[#ECECF2] bg-white flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0 flex-1">
+            <button
+              onClick={() => setMobileView("chat")}
+              className="md:hidden flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-[#F3EFFC] text-[#7C3AED] border border-[#E2D9F8] flex-shrink-0 active:scale-95 transition-transform"
+              title="Revenir au chat pour modifier"
+            >
+              <Pencil className="w-3.5 h-3.5" /> Chat
+            </button>
             {!sidebarOpen && (
               <button
                 onClick={() => setSidebarOpen(true)}

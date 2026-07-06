@@ -120,7 +120,7 @@ Tu génères une application web AUTONOME, RÉELLEMENT UTILISABLE et VISUELLEMEN
 1. Un seul fichier HTML complet : commence par \`<!DOCTYPE html>\`, finit par \`</html>\`. Rien d'autre.
 2. PAS de Tailwind CDN — CSS pur inline dans \`<style>\` uniquement.
 3. Google Fonts Inter : \`<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">\`.
-4. Persistance RÉELLE en localStorage : clé unique \`biltia_<slug>\`. Tout survit au rechargement.
+4. Persistance RÉELLE, cloud d'abord : quand des entités du workspace sont connectées (bloc DONNÉES PARTAGÉES), écris ET lis via \`window.biltia\` (cloud partagé, multi-appareils, multi-utilisateurs) — c'est le DÉFAUT, le backend est géré automatiquement. Sinon seulement, localStorage (clé \`biltia_<slug>\`). Dans tous les cas rien n'est jamais perdu et tout survit au rechargement.
 5. JavaScript vanilla complet et FONCTIONNEL : CRUD, recherche, filtre, tri. AUCUNE fonction "à faire plus tard".
 6. Pré-remplis 2-3 lignes d'exemple réalistes au premier lancement. Bouton discret "Effacer les exemples".
 

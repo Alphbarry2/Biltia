@@ -193,10 +193,9 @@ export async function POST(req: Request) {
     } catch { /* tracking best-effort : jamais bloquant */ }
   }
 
-  // Ordre : Device → 2 questions LLM SPÉCIFIQUES à la demande → Palette → Layout.
-  // Priorité à la PERTINENCE : les 2 questions ciblées (vrai besoin + contenu
-  // concret) remplacent l'ancienne question « données » générique — le besoin en
-  // données est de toute façon auto-détecté à la génération (entités connectées).
-  const questions = [DEVICE_QUESTION, ...specific.slice(0, 2), THEME_QUESTION, LAYOUT_QUESTION];
+  // On ne demande PLUS le support ni l'organisation d'écran : les apps sont
+  // responsive (adaptatives) par défaut. Ordre : 2 questions LLM SPÉCIFIQUES à la
+  // demande → Palette. Le besoin en données est auto-détecté à la génération.
+  const questions = [...specific.slice(0, 2), THEME_QUESTION];
   return Response.json({ questions });
 }
