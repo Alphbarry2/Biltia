@@ -18,6 +18,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { createClient } from "@/lib/supabase-server";
+import { enforceRateLimit, LIMITS } from "@/lib/rate-limit";
 
 const MAX_BYTES = 25 * 1024 * 1024; // limite OpenAI/Groq
 
@@ -76,6 +77,10 @@ export async function POST(req: Request) {
     if (!user) {
       return Response.json({ error: "Authentification requise." }, { status: 401 });
     }
+
+    // Rate limiting : rejette un flood au plus tôt.
+    const limited = await enforceRateLimit("transcribe", user.id, LIMITS.transcribe);
+    if (limited) return limited;
 
     let form: FormData;
     try {

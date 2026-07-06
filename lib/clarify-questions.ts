@@ -108,11 +108,22 @@ export const FALLBACK_SPECIFIC: ClarifyQuestion[] = [
       { value: "argent",       label: "Suivre l'argent",           hint: "Budgets, impayés, marges" },
     ],
   },
+  {
+    id: "usage",
+    question: "Qu'est-ce que vous voulez surtout pouvoir faire dans l'application ?",
+    multi: true,
+    options: [
+      { value: "saisir",    label: "Saisir vite, sur le terrain", hint: "Ajouter une info en deux gestes" },
+      { value: "retrouver", label: "Retrouver / rechercher",      hint: "Filtrer, chercher, ne rien perdre" },
+      { value: "suivre",    label: "Suivre l'avancement",         hint: "Voir l'état d'un coup d'œil" },
+      { value: "partager",  label: "Partager / exporter",         hint: "Envoyer, imprimer, PDF" },
+    ],
+  },
 ];
 
 /** Questionnaire complet 100 % statique (zéro LLM, zéro réseau) — utilisé en
  *  repli côté client quand /api/clarify ne répond pas. Ordre : Device → DONNÉES
  *  → spécifique → Palette → Layout. La question DONNÉES est toujours en 2ᵉ. */
 export function buildStaticClarifyQuestions(): ClarifyQuestion[] {
-  return [DEVICE_QUESTION, DATA_QUESTION, ...FALLBACK_SPECIFIC.slice(0, 1), THEME_QUESTION, LAYOUT_QUESTION];
+  return [DEVICE_QUESTION, ...FALLBACK_SPECIFIC.slice(0, 2), THEME_QUESTION, LAYOUT_QUESTION];
 }

@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase-server";
 import { getEntitlements, canDeployLive } from "@/lib/entitlements";
+import { enforceRateLimit, LIMITS } from "@/lib/rate-limit";
 
 const VERCEL_API = "https://api.vercel.com";
 
@@ -110,6 +111,10 @@ export async function POST(req: Request) {
     if (authError || !user) {
       return Response.json({ error: "Authentification requise." }, { status: 401 });
     }
+
+    // Rate limiting : rejette un flood au plus tôt.
+    const limited = await enforceRateLimit("deploy", user.id, LIMITS.deploy);
+    if (limited) return limited;
 
     // Gating plan : le déploiement Live est réservé aux plans payants.
     const ent = await getEntitlements(supabase, user.id);

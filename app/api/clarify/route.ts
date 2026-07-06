@@ -2,12 +2,12 @@ import Anthropic from "@anthropic-ai/sdk";
 import { TIER_SIMPLE } from "@/lib/models";
 import { createClient } from "@/lib/supabase-server";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
+import { enforceRateLimit, LIMITS } from "@/lib/rate-limit";
 import { trackAiUsage } from "@/lib/ai-usage";
 import { classifyKind } from "@/lib/kind-router";
 import {
   type ClarifyQuestion,
   DEVICE_QUESTION,
-  DATA_QUESTION,
   THEME_QUESTION,
   LAYOUT_QUESTION,
   FALLBACK_SPECIFIC,
@@ -29,12 +29,13 @@ const LLM_TIMEOUT_MS = 4000;
 
 const PROPOSE_TOOL = {
   name: "propose_questions",
-  description: "Propose 1 à 2 questions spécifiques à la demande pour cadrer l'application.",
+  description: "Propose EXACTEMENT 2 questions spécifiques à la demande pour cadrer l'application.",
   input_schema: {
     type: "object",
     properties: {
       questions: {
         type: "array",
+        minItems: 2,
         maxItems: 2,
         items: {
           type: "object",
@@ -65,19 +66,28 @@ const PROPOSE_TOOL = {
   },
 } as Anthropic.Tool;
 
-const CLARIFY_SYSTEM = `Tu prépares la création d'une application de gestion pour un pro du BTP. À partir de sa demande, propose 1 à 2 questions COURTES et VRAIMENT UTILES pour construire la meilleure application possible.
+const CLARIFY_SYSTEM = `Tu prépares la création d'une application SUR MESURE pour un pro du BTP. À partir de SA demande PRÉCISE, propose EXACTEMENT 2 questions courtes, VRAIMENT SPÉCIFIQUES à ce qu'il veut faire. Interdit : les questions génériques passe-partout. Chaque question doit montrer que tu as COMPRIS sa demande.
 
-Bonnes questions (choisis ce qui s'applique à SA demande) :
-- Le problème n°1 à régler en premier (ses douleurs concrètes du quotidien).
-- Les informations/colonnes à suivre (propose les champs évidents de son métier).
-- Qui va s'en servir : lui seul, ses chefs de chantier, toute l'équipe.
+Les 2 questions couvrent 2 angles DIFFÉRENTS, adaptés à SON cas :
+1. LE BESOIN / L'USAGE RÉEL : ce qu'il veut pouvoir FAIRE ou RETROUVER grâce à l'app (le vrai but derrière la demande).
+2. LE CONTENU CONCRET : les informations à saisir/associer à chaque élément, ou qui s'en sert et comment.
 
-RÈGLES : vouvoiement ; options concrètes avec un hint en langage d'artisan ; pas de jargon technique ; 2 questions MAXIMUM ; NE PAS poser de question sur les couleurs, la mise en page, le support (mobile/desktop) ni les données sources (déjà gérées ailleurs). Réponds UNIQUEMENT via l'outil propose_questions.`;
+Exemple — demande « photographier les bons de livraison pour ne plus les perdre » :
+- Q1 : « Que voulez-vous pouvoir faire ensuite avec ces bons ? » → les retrouver par fournisseur / par chantier / les exporter / les relier à une commande.
+- Q2 : « Quelles infos noter avec chaque bon ? » → fournisseur, date, n° de commande, chantier concerné, montant.
+
+Ancre-toi dans SON vocabulaire et SON exemple. Les options sont des choix CONCRETS de son métier (jamais « option 1/2 »), chacune avec un hint clair d'une ligne.
+
+RÈGLES : vouvoiement ; EXACTEMENT 2 questions ; pas de jargon ; NE PAS poser de question sur les couleurs, la mise en page ni le support (mobile/desktop) — gérés ailleurs. Réponds UNIQUEMENT via l'outil propose_questions.`;
 
 export async function POST(req: Request) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return Response.json({ error: "Authentification requise." }, { status: 401 });
+
+  // Rate limiting : rejette un flood au plus tôt.
+  const limited = await enforceRateLimit("clarify", user.id, LIMITS.clarify);
+  if (limited) return limited;
 
   let prompt = "";
   try {
@@ -183,9 +193,10 @@ export async function POST(req: Request) {
     } catch { /* tracking best-effort : jamais bloquant */ }
   }
 
-  // Ordre : Device → DONNÉES (toujours) → 1 question LLM/fallback → Palette → Layout.
-  // La question DONNÉES (workspace / zéro / import) est posée SYSTÉMATIQUEMENT,
-  // même quand le LLM propose ses propres questions (règle produit).
-  const questions = [DEVICE_QUESTION, DATA_QUESTION, ...specific.slice(0, 1), THEME_QUESTION, LAYOUT_QUESTION];
+  // Ordre : Device → 2 questions LLM SPÉCIFIQUES à la demande → Palette → Layout.
+  // Priorité à la PERTINENCE : les 2 questions ciblées (vrai besoin + contenu
+  // concret) remplacent l'ancienne question « données » générique — le besoin en
+  // données est de toute façon auto-détecté à la génération (entités connectées).
+  const questions = [DEVICE_QUESTION, ...specific.slice(0, 2), THEME_QUESTION, LAYOUT_QUESTION];
   return Response.json({ questions });
 }

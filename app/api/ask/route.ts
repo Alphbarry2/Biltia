@@ -22,6 +22,7 @@ import { createClient } from "@/lib/supabase-server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { trackAiUsage, reconcileCredits } from "@/lib/ai-usage";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
+import { enforceRateLimit, LIMITS } from "@/lib/rate-limit";
 import { getEntitlementsForTenant, FROZEN_MESSAGE } from "@/lib/entitlements";
 import { isFounderEmail } from "@/lib/founder";
 import { ENTITIES, ALLOWED_ENTITIES } from "@/lib/data-entities";
@@ -157,6 +158,10 @@ export async function POST(req: Request) {
     if (authError || !user) {
       return Response.json({ error: "Authentification requise." }, { status: 401 });
     }
+
+    // Rate limiting : rejette un flood au plus tôt (avant toute lecture DB).
+    const limited = await enforceRateLimit("ask", user.id, LIMITS.ask);
+    if (limited) return limited;
 
     const membership = await getActiveMembershipServer(supabase, user.id);
     if (!membership) {
