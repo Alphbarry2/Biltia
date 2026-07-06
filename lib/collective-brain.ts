@@ -95,7 +95,8 @@ interface RecordSignalParams {
 
 /**
  * Journalise un signal de succès, anonymisé et privé au tenant. Best-effort :
- * respecte l'opt-out (si connu), filtre les PII, et n'échoue jamais bruyamment.
+ * respecte l'OPT-IN (ne capture QUE si le tenant a activé), filtre les PII, et
+ * n'échoue jamais bruyamment.
  * À appeler en fire-and-forget (`void recordSignal(...).catch(() => {})`).
  */
 export async function recordSignal(params: RecordSignalParams): Promise<void> {
@@ -112,16 +113,17 @@ export async function recordSignal(params: RecordSignalParams): Promise<void> {
   } = params;
 
   try {
-    // Opt-out (défense en profondeur applicative). La garantie FORTE est la vue
-    // learning_signals_eligible côté SQL ; ceci évite juste de stocker inutilement.
-    // Fail-open : si la lecture échoue (RLS/réseau), on capture quand même — la
-    // publication restera de toute façon filtrée par la vue à l'agrégation.
+    // Opt-in STRICT (consentement positif requis). On ne capture QUE si le tenant
+    // a activé explicitement contributes_to_brain = true.
+    // Fail-CLOSED : lecture manquante ou incertaine (RLS/réseau, colonne absente,
+    // valeur non true) => pas de capture. On ne stocke jamais un signal sans
+    // consentement vérifié. La vue learning_signals_eligible reste une 2e barrière.
     const { data: t } = await supabase
       .from("tenants")
       .select("contributes_to_brain")
       .eq("id", tenantId)
       .maybeSingle();
-    if (t && t.contributes_to_brain === false) return;
+    if (!t || t.contributes_to_brain !== true) return;
 
     await supabase.from("learning_signals").insert({
       tenant_id: tenantId,

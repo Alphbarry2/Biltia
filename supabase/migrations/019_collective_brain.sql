@@ -14,9 +14,12 @@
 --      PRIVÉS au tenant. Jamais lus par un autre tenant (RLS). Seul le
 --      service_role les agrège (K-anonymat) pour fabriquer un insight global.
 --
---   2. tenants.contributes_to_brain — OPT-OUT (défaut : true = contribue).
---      Un tenant qui se retire n'émet plus de signal (garantie côté applicatif)
---      ET est exclu de l'agrégation (garantie côté SQL, cf. la vue plus bas).
+--   2. tenants.contributes_to_brain — OPT-IN (défaut : false = ne contribue PAS).
+--      Choix RGPD : Biltia est sous-traitant des données de ses clients ; réutiliser
+--      ces données pour un cerveau INTER-entreprises est une finalité nouvelle qui
+--      exige le consentement ACTIF du responsable de traitement (art. 28). Tant que
+--      le tenant n'a pas activé, il n'émet aucun signal (garantie applicative) ET
+--      est exclu de l'agrégation (garantie côté SQL, cf. la vue plus bas).
 --
 -- Garantie de confidentialité (RGPD FR/BE) : un insight n'est JAMAIS publié à
 -- partir d'un signal isolé. La promotion (lib/collective-brain.ts) exige un
@@ -26,9 +29,10 @@
 -- Idempotent (IF NOT EXISTS / do $$ … exception). Réutilise public.my_tenant_role.
 -- ============================================================
 
--- ── 1. OPT-OUT (défaut : contribue) ──────────────────────────
+-- ── 1. OPT-IN (défaut : NE contribue PAS) ────────────────────
+-- Défaut false : aucune contribution tant que le tenant n'a pas activé explicitement.
 alter table public.tenants
-  add column if not exists contributes_to_brain boolean not null default true;
+  add column if not exists contributes_to_brain boolean not null default false;
 
 -- ── 2. SIGNAUX D'APPRENTISSAGE (privés, anonymisés) ──────────
 create table if not exists public.learning_signals (

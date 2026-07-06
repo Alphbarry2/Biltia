@@ -4,6 +4,9 @@ import PWARegister from "@/components/pwa-register";
 import { DemoBookingProvider } from "@/components/demo-booking";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_SITE_URL || "https://www.biltia.com",
+  ),
   applicationName: "Biltia",
   title: {
     default: "Biltia — l'OS conversationnel du BTP",
