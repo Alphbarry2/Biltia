@@ -2057,89 +2057,51 @@ export default function GeneratePage() {
           </div>
         </div>
 
-        {/* Public link bar (after save) — le lien /app/<slug> n'existe que public */}
-        {slug && savedId && (
-          isPublic ? (
-            <div className="flex items-center gap-2 px-5 py-2.5 bg-[#F3EFFC] border-b border-[#ECECF2] flex-shrink-0">
-              <Globe className="w-3.5 h-3.5 text-[#7C3AED] flex-shrink-0" />
-              <span className="text-xs text-[#7C3AED] font-medium flex-shrink-0 hidden sm:inline">
-                En ligne :
-              </span>
-              <code className="text-xs text-[#0A0A0A] bg-white border border-[#ECECF2] rounded-md px-2 py-1 truncate flex-1 min-w-0">
-                /app/{slug}
-              </code>
-              <button
-                onClick={copyLink}
-                className="flex items-center gap-1.5 px-2.5 py-1 bg-[#0A0A0A] text-white text-xs font-semibold rounded-md shadow-[0_4px_14px_rgba(60,40,120,0.08)] hover:shadow-[0_8px_24px_rgba(60,40,120,0.12)] transition-all flex-shrink-0"
-              >
-                {copied ? <CheckCircle className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                {copied ? "Copié" : "Copier le lien"}
-              </button>
-              <a
-                href={publicUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="p-1.5 text-[#7C3AED] hover:text-[#0A0A0A] rounded-md hover:bg-white transition-colors flex-shrink-0"
-                title="Ouvrir l'application en ligne"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
-              <button
-                onClick={togglePublish}
-                disabled={isPublishing}
-                className="text-xs text-[#6E6E6C] hover:text-rose-600 font-medium flex-shrink-0 transition-colors disabled:opacity-50"
-                title="Désactiver le lien public"
-              >
-                {isPublishing ? "…" : "Retirer"}
-              </button>
+        {/* Feuille « Partager » : publier, copier le lien, ouvrir, déployer — tout ici,
+            plus de barres empilées dans le cadre. Bottom sheet sur mobile. */}
+        {shareOpen && generatedHTML && (
+          <>
+            <div className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[2px]" onClick={() => setShareOpen(false)} />
+            <div className="fixed z-50 inset-x-0 bottom-0 sm:inset-auto sm:right-4 sm:top-16 sm:w-[340px] bg-white rounded-t-3xl sm:rounded-2xl border border-[#ECECF2] shadow-[0_-10px_50px_rgba(0,0,0,0.18)] animate-reveal-up">
+              <div className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-[#E7E7E4] sm:hidden" />
+              <div className="flex items-center justify-between px-5 pt-4 pb-1">
+                <p className="text-[16px] font-bold text-[#0A0A0A]">Partager le projet</p>
+                <button onClick={() => setShareOpen(false)} className="p-1 text-[#9A9AA6] hover:text-[#0A0A0A] transition-colors"><X className="w-5 h-5" /></button>
+              </div>
+              <div className="px-3 pb-6 sm:pb-3">
+                {savedId ? (
+                  <button onClick={togglePublish} disabled={isPublishing} className="flex w-full items-center gap-3 px-3 py-3 rounded-2xl hover:bg-[#F6F6F9] transition-colors text-left disabled:opacity-60">
+                    <span className="grid h-9 w-9 place-items-center rounded-full bg-[#F3EFFC] text-[#7C3AED] flex-shrink-0">{isPublishing ? <Loader2 className="w-[18px] h-[18px] animate-spin" /> : <Globe className="w-[18px] h-[18px]" />}</span>
+                    <span className="min-w-0"><span className="block text-[14px] font-semibold text-[#0A0A0A]">{isPublic ? "En ligne — retirer le lien" : "Mettre en ligne"}</span><span className="block text-[12px] text-[#9A9AA6] truncate">{isPublic ? `/app/${slug}` : "Lien partageable à votre équipe"}</span></span>
+                  </button>
+                ) : (
+                  <button onClick={handleSave} disabled={isSaving} className="flex w-full items-center gap-3 px-3 py-3 rounded-2xl hover:bg-[#F6F6F9] transition-colors text-left disabled:opacity-60">
+                    <span className="grid h-9 w-9 place-items-center rounded-full bg-[#F6F6F9] text-[#0A0A0A] flex-shrink-0">{isSaving ? <Loader2 className="w-[18px] h-[18px] animate-spin" /> : <Save className="w-[18px] h-[18px]" />}</span>
+                    <span className="text-[14px] font-semibold text-[#0A0A0A]">Sauvegarder dans mes ateliers</span>
+                  </button>
+                )}
+                {isPublic && slug && (
+                  <button onClick={copyLink} className="flex w-full items-center gap-3 px-3 py-3 rounded-2xl hover:bg-[#F6F6F9] transition-colors text-left">
+                    <span className="grid h-9 w-9 place-items-center rounded-full bg-[#F6F6F9] text-[#0A0A0A] flex-shrink-0">{copied ? <CheckCircle className="w-[18px] h-[18px] text-emerald-500 animate-scale-in" /> : <Link2 className="w-[18px] h-[18px]" />}</span>
+                    <span className="text-[14px] font-semibold text-[#0A0A0A]">{copied ? "Lien copié !" : "Copier le lien"}</span>
+                  </button>
+                )}
+                {savedId && (
+                  <a href={`/apps/${savedId}`} target="_blank" rel="noopener" onClick={() => setShareOpen(false)} className="flex w-full items-center gap-3 px-3 py-3 rounded-2xl hover:bg-[#F6F6F9] transition-colors text-left">
+                    <span className="grid h-9 w-9 place-items-center rounded-full bg-[#F6F6F9] text-[#0A0A0A] flex-shrink-0"><ExternalLink className="w-[18px] h-[18px]" /></span>
+                    <span className="text-[14px] font-semibold text-[#0A0A0A]">Ouvrir en plein écran</span>
+                  </a>
+                )}
+                <button onClick={handleDeploy} disabled={isDeploying} className="flex w-full items-center gap-3 px-3 py-3 rounded-2xl hover:bg-[#F6F6F9] transition-colors text-left disabled:opacity-60">
+                  <span className="grid h-9 w-9 place-items-center rounded-full bg-[#F6F6F9] text-[#0A0A0A] flex-shrink-0">{isDeploying ? <Loader2 className="w-[18px] h-[18px] animate-spin" /> : deploymentUrl ? <CheckCircle className="w-[18px] h-[18px] text-emerald-500" /> : <Globe className="w-[18px] h-[18px]" />}</span>
+                  <span className="min-w-0"><span className="block text-[14px] font-semibold text-[#0A0A0A]">{isDeploying ? "Déploiement…" : deploymentUrl ? "Redéployer" : "Déployer (hébergement dédié)"}</span>{deploymentUrl && <span className="block text-[12px] text-[#9A9AA6] truncate">{deploymentUrl}</span>}</span>
+                </button>
+                {kind === "document" && (
+                  <div className="px-3 pt-2"><ShareMenu getDocument={() => iframeRef.current?.contentDocument ?? null} title={appName} /></div>
+                )}
+              </div>
             </div>
-          ) : (
-            <div className="flex items-center gap-2 px-5 py-2.5 bg-[#F6F6F9] border-b border-[#ECECF2] flex-shrink-0">
-              <Globe className="w-3.5 h-3.5 text-[#6E6E6C] flex-shrink-0" />
-              <span className="text-xs text-[#6E6E6C] flex-1 min-w-0 truncate">
-                {isConnectedApp
-                  ? "App connectée au workspace — le lien sert à votre équipe (données visibles une fois connecté à Biltia)."
-                  : "Application privée — mettez-la en ligne pour obtenir un lien partageable."}
-              </span>
-              <button
-                onClick={togglePublish}
-                disabled={isPublishing}
-                className="flex items-center gap-1.5 px-2.5 py-1 bg-gradient-to-br from-indigo-500 via-violet-500 to-pink-500 text-white text-xs font-semibold rounded-md shadow-[0_4px_14px_rgba(60,40,120,0.08)] hover:shadow-[0_8px_24px_rgba(60,40,120,0.12)] transition-all flex-shrink-0 disabled:opacity-60"
-              >
-                {isPublishing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Globe className="w-3.5 h-3.5" />}
-                Mettre en ligne
-              </button>
-            </div>
-          )
-        )}
-
-        {/* Deployment URL bar */}
-        {deploymentUrl && (
-          <div className="flex items-center gap-2 px-5 py-2.5 bg-[#F3EFFC] border-b border-[#E2D9F8] flex-shrink-0">
-            <Globe className="w-3.5 h-3.5 text-[#7C3AED] flex-shrink-0" />
-            <span className="text-xs text-[#7C3AED] font-medium flex-shrink-0 hidden sm:inline">
-              Déployé :
-            </span>
-            <code className="text-xs text-[#0A0A0A] bg-white border border-[#E2D9F8] rounded-md px-2 py-1 truncate flex-1 min-w-0">
-              {deploymentUrl}
-            </code>
-            <button
-              onClick={() => navigator.clipboard.writeText(deploymentUrl)}
-              className="flex items-center gap-1.5 px-2.5 py-1 bg-[#7C3AED] text-white text-xs font-semibold rounded-md hover:bg-[#6D28D9] transition-all flex-shrink-0"
-            >
-              <Copy className="w-3 h-3" />
-              <span className="hidden sm:inline">Copier</span>
-            </button>
-            <a
-              href={deploymentUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="p-1.5 text-[#7C3AED] hover:text-[#0A0A0A] rounded-md hover:bg-white transition-colors flex-shrink-0"
-              title="Ouvrir le site déployé"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-            </a>
-          </div>
+          </>
         )}
 
         {/* iframe preview */}
