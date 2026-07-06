@@ -168,14 +168,15 @@ export function SiteNav() {
   return (
     <>
       <nav className="fixed top-0 inset-x-0 z-50 px-3 sm:px-5 pt-3 sm:pt-4">
-        <div className={`max-w-6xl mx-auto h-[58px] px-3 sm:px-4 flex items-center justify-between rounded-2xl border transition-all duration-300 ${scrolled ? "bg-white/85 backdrop-blur-xl border-[#E7E7EF] shadow-[0_12px_44px_rgba(60,40,120,0.12)]" : "bg-white/70 backdrop-blur-md border-[#ECECF2] shadow-[0_6px_28px_rgba(60,40,120,0.07)]"}`}>
+        <div className={`relative max-w-6xl mx-auto h-[66px] px-3.5 sm:px-5 flex items-center justify-between rounded-[22px] border transition-all duration-300 ${scrolled ? "bg-white/85 backdrop-blur-2xl border-white/80 shadow-[0_18px_50px_-10px_rgba(76,40,140,0.22),inset_0_1px_0_rgba(255,255,255,0.9)]" : "bg-white/65 backdrop-blur-xl border-white/70 shadow-[0_12px_38px_-12px_rgba(76,40,140,0.15),inset_0_1px_0_rgba(255,255,255,0.85)]"}`}>
+          <span aria-hidden className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-violet-400/50 to-transparent" />
           <div className="flex items-center gap-2">
             <button onClick={() => setOpen(true)} aria-label="Menu"
               className="md:hidden w-9 h-9 rounded-[11px] bg-black/[0.05] hover:bg-black/[0.09] flex items-center justify-center transition-colors">
               <Menu className="w-[18px] h-[18px] text-[#0A0A0A]" />
             </button>
             <Link href="/" className="flex items-center gap-2.5">
-              <BiltiaLogo className="h-[26px] w-auto text-[#0A0A0A]" />
+              <BiltiaLogo className="h-[28px] w-auto text-[#0A0A0A]" />
             </Link>
           </div>
 

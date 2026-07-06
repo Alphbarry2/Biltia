@@ -5,7 +5,7 @@
 // La partie LLM (Haiku) vit dans kind-router.ts (serveur uniquement).
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type BiltiaKind = "answer" | "document" | "action" | "module" | "rule" | "data";
+export type BiltiaKind = "answer" | "document" | "action" | "module" | "rule" | "data" | "email" | "calendar";
 
 export type KindMethod = "llm" | "heuristic" | "default";
 
@@ -14,6 +14,8 @@ export type KindResult = {
   kind: BiltiaKind;
   /** Sous-type de document quand `kind === "document"` (slug court), sinon null. */
   docType: string | null;
+  /** Destinataire + objet + corps extraits quand `kind === "email"`. */
+  email?: { to: string; subject: string; body: string };
   /** Comment la décision a été prise. */
   method: KindMethod;
   /** Confiance 0..1. */
@@ -31,6 +33,23 @@ function normalize(s: string): string {
     .replace(/[̀-ͯ]/g, "")
     .replace(/[’‘]/g, "'") // apostrophes courbes (clavier FR) → droites
     .toLowerCase();
+}
+
+// Indices « ça sent l'agenda » — PAS une classification : un simple signal pour
+// EMPÊCHER l'heuristique de trancher « answer » toute seule (« qu'est-ce que j'ai
+// lundi ? » matche « qu'est-ce »). On laisse alors le LLM comprendre (calendar vs
+// answer). Le LLM garde le dernier mot ; ceci ne fait qu'ouvrir la porte.
+const CALENDAR_HINTS = [
+  "agenda", "planning", "mon calendrier", "mon planning", "rendez-vous", "rendez vous", "rdv",
+  "cette semaine", "ma semaine", "ma journee", "je suis dispo", "mes dispo", "mes disponibilites",
+  "quoi de prevu", "qu'est-ce que j'ai a faire", "qu'ai-je a faire", "mes rendez-vous",
+  "ce lundi", "ce mardi", "ce mercredi", "ce jeudi", "ce vendredi", "ce week-end", "ce weekend",
+];
+
+/** Vrai si la demande évoque l'agenda/le planning (ouvre la porte au LLM). */
+export function looksLikeCalendar(prompt: string): boolean {
+  const t = normalize(prompt);
+  return CALENDAR_HINTS.some((k) => t.includes(normalize(k)));
 }
 
 // Noms de documents officiels → slug docType. L'ordre compte (spécifique d'abord).

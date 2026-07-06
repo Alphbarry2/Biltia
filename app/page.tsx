@@ -39,7 +39,7 @@ function FormatPills() {
     return () => clearInterval(id);
   }, [reduce, items.length]);
   return (
-    <div className="flex flex-wrap items-center justify-center gap-2 mt-8">
+    <div className="flex flex-wrap items-center justify-center gap-2 mt-6">
       <span className="text-[13px] text-[#8B8B96]">Biltia choisit</span>
       {items.map((it, k) => {
         const I = it.I; const on = k === a;
@@ -85,7 +85,7 @@ function HeroSection() {
     <section className="relative min-h-[100dvh] flex flex-col items-center justify-center overflow-hidden px-5 sm:px-8 pt-28 pb-20">
       <InteractiveMesh strong />
       <div className="relative z-10 max-w-3xl w-full mx-auto flex flex-col items-center text-center">
-        <span className="glass inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-[13px] font-medium text-[#4A4A56] mb-8 animate-reveal-up">
+        <span className="glass inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-[13px] font-medium text-[#4A4A56] mb-5 animate-reveal-up">
           <span className="w-1.5 h-1.5 rounded-full bg-gradient-to-br from-indigo-500 to-pink-500" />
           Conçu pour les artisans du BTP
         </span>
@@ -93,12 +93,12 @@ function HeroSection() {
             "Vous apportez le problème. Biltia apporte la solution."
             "Parlez de votre problème. Repartez avec la solution."
             "Dites ce qui vous bloque." */}
-        <h1 className="animate-reveal-up delay-100 font-black tracking-[-0.05em] leading-[0.88]">
-          <span className="block text-[#0A0A0A] text-[36px] sm:text-[54px] md:text-[64px]">Moins d&apos;administratif,</span>
-          <span className="block text-gradient animate-gradient-x text-[56px] sm:text-[86px] md:text-[104px] leading-[0.86] pb-2">plus de chantier.</span>
+        <h1 className="animate-reveal-up delay-100">
+          <span className="block font-semibold text-[#2A2A32] text-[17px] sm:text-[21px] md:text-[24px] tracking-[-0.01em] mb-2.5">Décrivez votre problème.</span>
+          <span className="block font-black text-gradient animate-gradient-x text-[46px] sm:text-[74px] md:text-[92px] leading-[0.88] tracking-[-0.05em] pb-2">Biltia s&apos;occupe du reste.</span>
         </h1>
-        <p className="text-[17px] sm:text-[19px] text-[#5B5B66] max-w-[440px] leading-[1.55] mt-8 mb-11 animate-reveal-up delay-200">
-          Vous décrivez. Biltia résout. Vos <span className="font-semibold text-[#0A0A0A]">agents autonomes</span> font le reste, 24h/24.
+        <p className="text-[16px] sm:text-[18px] text-[#5B5B66] max-w-[400px] leading-[1.55] mt-4 mb-16 animate-reveal-up delay-200">
+          Il gère <span className="font-semibold text-[#0A0A0A]">tout votre métier</span>. Vos agents travaillent 24h/24.
         </p>
         <div className="w-full max-w-2xl animate-reveal-up delay-300">
           {/* Deux lueurs discrètes (haut-droite / bas-gauche) tournent autour de la carte (.chatframe). */}
@@ -130,7 +130,6 @@ function HeroSection() {
             </div>
           </div>
           </div>
-          <p className="text-[13px] text-[#9A9AA6] mt-4">On garde votre demande jusqu&apos;à l&apos;inscription, puis on la résout.</p>
         </div>
         <div className="animate-reveal-up delay-500"><FormatPills /></div>
       </div>
@@ -267,68 +266,82 @@ function AgentResult() {
     </div>
   );
 }
-type Scenario = { problem: string; route: string; icon: React.ReactNode; result: React.ReactNode };
+type Scenario = { problem: string; short: string; route: string; Icon: React.ComponentType<{ className?: string }>; accent: [string, string]; result: React.ReactNode };
 const SCENARIOS: Scenario[] = [
-  { problem: "Relance mes devis sans réponse tous les jours à 9h.", route: "Agent autonome", icon: <Bot className="w-3 h-3" />, result: <AgentResult /> },
-  { problem: "Un suivi de mes chantiers avec l'avancement et le reste à facturer.", route: "Application", icon: <LayoutGrid className="w-3 h-3" />, result: <AppResult /> },
-  { problem: "Sors-moi l'avenant pour le carrelage validé, 45 m² à 42 €/m².", route: "Document", icon: <FileText className="w-3 h-3" />, result: <DocResult /> },
-  { problem: "Quels chantiers sont en retard cette semaine ?", route: "Réponse", icon: <MessageCircle className="w-3 h-3" />, result: <AnswerResult /> },
-  { problem: "Vérifie les prix de ces 30 bons de livraison vs mes devis.", route: "Automatisation", icon: <Zap className="w-3 h-3" />, result: <AutoResult /> },
+  { problem: "Relance mes devis sans réponse tous les jours à 9h.", short: "Relancer mes devis", route: "Agent", Icon: Bot, accent: ["#6366F1", "#22D3EE"], result: <AgentResult /> },
+  { problem: "Un suivi de mes chantiers avec l'avancement et le reste à facturer.", short: "Suivi de chantiers", route: "Application", Icon: LayoutGrid, accent: ["#6366F1", "#A855F7"], result: <AppResult /> },
+  { problem: "Sors-moi l'avenant pour le carrelage validé, 45 m² à 42 €/m².", short: "Faire un avenant", route: "Document", Icon: FileText, accent: ["#A855F7", "#EC4899"], result: <DocResult /> },
+  { problem: "Quels chantiers sont en retard cette semaine ?", short: "Chantiers en retard ?", route: "Réponse", Icon: MessageCircle, accent: ["#3B82F6", "#6366F1"], result: <AnswerResult /> },
+  { problem: "Vérifie les prix de ces 30 bons de livraison vs mes devis.", short: "Vérifier 30 bons", route: "Automatisation", Icon: Zap, accent: ["#F59E0B", "#F97316"], result: <AutoResult /> },
 ];
 
-function SolverDemo() {
+function RouterDemo() {
   const reduce = useReducedMotion();
-  const [i, setI] = useState(0);
-  const [phase, setPhase] = useState<0 | 1 | 2>(reduce ? 2 : 0);
-  const [typed, setTyped] = useState(0);
-  const sc = SCENARIOS[i];
+  const [active, setActive] = useState(0);
+  const [touched, setTouched] = useState(false);
+  const sc = SCENARIOS[active];
+  // Défile lentement jusqu'à la première interaction, puis reste sur le choix.
   useEffect(() => {
-    if (reduce || phase !== 0) return;
-    setTyped(0);
-    const id = setInterval(() => setTyped((n) => (n >= sc.problem.length ? n : n + 1)), 26);
+    if (reduce || touched) return;
+    const id = setInterval(() => setActive((p) => (p + 1) % SCENARIOS.length), 4200);
     return () => clearInterval(id);
-  }, [phase, sc.problem.length, reduce]);
-  useEffect(() => {
-    if (reduce) return;
-    const dur = phase === 0 ? sc.problem.length * 26 + 800 : phase === 1 ? 1150 : 3700;
-    const t = setTimeout(() => {
-      if (phase < 2) setPhase((phase + 1) as 0 | 1 | 2);
-      else { setPhase(0); setI((p) => (p + 1) % SCENARIOS.length); }
-    }, dur);
-    return () => clearTimeout(t);
-  }, [phase, i, sc.problem.length, reduce]);
-  const shown = reduce ? sc.problem : sc.problem.slice(0, phase === 0 ? typed : sc.problem.length);
+  }, [reduce, touched]);
+  const pick = (k: number) => { setTouched(true); setActive(k); };
   return (
-    <div className="w-full rounded-[24px] bg-white/90 backdrop-blur-xl border border-white/70 shadow-[0_30px_80px_rgba(60,40,120,0.16)] overflow-hidden">
-      <div className="flex items-center gap-2 px-5 py-3.5 border-b border-[#F1F1EC]">
-        <div className="flex gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-rose-300" /><div className="w-2.5 h-2.5 rounded-full bg-amber-300" /><div className="w-2.5 h-2.5 rounded-full bg-emerald-300" /></div>
-        <span className="text-[11px] text-[#9CA3AF] ml-2">Biltia, quel problème voulez-vous résoudre&nbsp;?</span>
+    <div className="w-full">
+      {/* Exemples cliquables */}
+      <div className="flex flex-wrap justify-center gap-2 mb-7">
+        {SCENARIOS.map((s, k) => (
+          <button key={s.route} onClick={() => pick(k)} aria-pressed={active === k}
+            className={`px-3.5 py-2 rounded-full text-[12.5px] font-medium border transition-all duration-200 ${active === k ? "text-white border-transparent shadow-[0_8px_22px_-8px_rgba(76,40,140,0.55)]" : "text-[#4A4A56] bg-white/70 border-[#ECECF2] hover:border-[#D6D0E4] hover:bg-white"}`}
+            style={active === k ? { background: `linear-gradient(135deg, ${s.accent[0]}, ${s.accent[1]})` } : undefined}>
+            {s.short}
+          </button>
+        ))}
       </div>
-      <div className="p-5 sm:p-6 min-h-[320px] flex flex-col">
-        <div className="flex justify-end mb-3">
-          <div className="max-w-[86%] rounded-2xl rounded-br-md bg-[#0A0A0A] text-white px-4 py-2.5">
-            <p className="text-[13.5px] leading-relaxed">{shown}{!reduce && phase === 0 && typed < sc.problem.length && <span className="inline-block w-px h-3.5 bg-white/70 ml-0.5 align-middle animate-blink" />}</p>
+
+      <div className="relative rounded-[26px] bg-white/90 backdrop-blur-xl border border-white/70 shadow-[0_30px_80px_rgba(60,40,120,0.16)] p-5 sm:p-7">
+        {/* Le problème décrit */}
+        <div className="flex justify-center">
+          <div className="max-w-[92%] rounded-2xl rounded-br-md bg-[#0A0A0A] px-4 py-2.5 text-center text-[13.5px] leading-relaxed text-white">
+            «&nbsp;{sc.problem}&nbsp;»
           </div>
         </div>
+        {/* Connecteur de routage */}
+        <div className="my-4 flex flex-col items-center gap-1.5">
+          <span className="text-[10.5px] text-[#9CA3AF]">Biltia analyse et choisit l&apos;outil</span>
+          <span className="h-4 w-px bg-gradient-to-b from-[#C4B5FD] to-transparent" />
+        </div>
+        {/* Rail des 5 outils, le bon s'allume */}
+        <div className="mb-6 grid grid-cols-5 gap-1.5 sm:gap-3">
+          {SCENARIOS.map((s, k) => {
+            const on = active === k;
+            return (
+              <button key={s.route} onClick={() => pick(k)} aria-pressed={on}
+                className={`relative flex flex-col items-center gap-2 rounded-2xl px-1 py-3 sm:py-4 border transition-all duration-300 ${on ? "border-transparent bg-white scale-[1.04]" : "border-[#ECECF2] bg-white/40 opacity-50 hover:opacity-100"}`}
+                style={on ? { boxShadow: `0 14px 34px -12px ${s.accent[1]}80` } : undefined}>
+                {on && <motion.span layoutId="router-dot" className="absolute -top-1.5 h-1.5 w-1.5 rounded-full" style={{ background: s.accent[1] }} />}
+                <span className="grid h-9 w-9 place-items-center rounded-xl text-white transition-colors duration-300 sm:h-11 sm:w-11"
+                  style={{ background: on ? `linear-gradient(135deg, ${s.accent[0]}, ${s.accent[1]})` : "#CDCDD6" }}>
+                  <s.Icon className="h-[17px] w-[17px] sm:h-5 sm:w-5" />
+                </span>
+                <span className={`text-center text-[10px] font-semibold leading-tight sm:text-[11.5px] ${on ? "text-[#0A0A0A]" : "text-[#9A9AA6]"}`}>{s.route}</span>
+              </button>
+            );
+          })}
+        </div>
+        {/* Résultat de l'outil choisi */}
         <AnimatePresence mode="wait">
-          {phase === 1 && (
-            <motion.div key="routing" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }} className="flex items-center gap-2.5 text-[#6B7280] mt-1">
-              <span className="relative w-4 h-4 flex-shrink-0"><span className="absolute inset-0 rounded-full border-2 border-[#ECECEA]" /><motion.span className="absolute inset-0 rounded-full border-2 border-transparent border-t-[#7C3AED]" animate={{ rotate: 360 }} transition={{ duration: 0.8, repeat: Infinity, ease: "linear" }} /></span>
-              <span className="text-[12px]">Biltia analyse la demande et le contexte…</span>
-            </motion.div>
-          )}
-          {phase === 2 && (
-            <motion.div key={`res-${i}`} initial={reduce ? false : { opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.4, ease: EASE }} className="mt-1">
-              <div className="flex items-center gap-2 mb-2.5"><span className="text-[11px] text-[#9CA3AF]">Biltia a choisi</span><span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold grad-border text-[#0A0A0A]">{sc.icon}{sc.route}</span></div>
-              {sc.result}
-            </motion.div>
-          )}
+          <motion.div key={active} initial={reduce ? false : { opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.35, ease: EASE }}>
+            <div className="mb-3 flex items-center justify-center gap-2">
+              <span className="text-[11px] text-[#9CA3AF]">Biltia a choisi</span>
+              <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold text-white" style={{ background: `linear-gradient(135deg, ${sc.accent[0]}, ${sc.accent[1]})` }}>
+                <sc.Icon className="h-3 w-3" />{sc.route}
+              </span>
+            </div>
+            <div className="mx-auto max-w-xl">{sc.result}</div>
+          </motion.div>
         </AnimatePresence>
-        {!reduce && (
-          <div className="flex items-center justify-center gap-2 mt-auto pt-4">
-            {SCENARIOS.map((s, k) => (<motion.div key={s.route} animate={{ width: i === k ? 20 : 5, opacity: i === k ? 1 : 0.25 }} transition={{ duration: 0.3, ease: EASE }} className="h-1 rounded-full bg-gradient-to-r from-indigo-500 to-pink-500" />))}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -338,12 +351,14 @@ function DemoSection() {
   return (
     <section id="demo" className="relative px-5 sm:px-8 py-28 sm:py-36 overflow-hidden">
       <div className="absolute inset-0 -z-10" style={{ background: "radial-gradient(60% 50% at 50% 50%, rgba(139,92,246,0.08), transparent 70%)" }} />
-      <div className="max-w-2xl mx-auto text-center mb-12">
+      <div className="max-w-2xl mx-auto text-center mb-10 sm:mb-12">
         <Reveal><h2 className="text-[38px] sm:text-[56px] font-black text-[#0A0A0A] tracking-[-0.03em] leading-[0.98]">Vous ne choisissez jamais.</h2></Reveal>
+        <Reveal delay={0.08}><p className="text-[16px] sm:text-[18px] text-[#5B5B66] leading-relaxed mt-5 max-w-xl mx-auto">Décrivez votre problème en une phrase. Biltia choisit le bon outil parmi cinq et vous livre le résultat. Vous, vous ne choisissez rien.</p></Reveal>
+        <Reveal delay={0.14}><p className="text-[13px] font-semibold text-[#9A9AA6] mt-4">Cliquez un exemple pour voir Biltia trancher.</p></Reveal>
       </div>
-      <Reveal delay={0.1} className="max-w-xl mx-auto relative">
+      <Reveal delay={0.1} className="max-w-2xl mx-auto relative">
         <div className="absolute -inset-10 -z-10 rounded-[48px] blur-3xl opacity-70" style={{ background: "radial-gradient(closest-side, rgba(168,85,247,0.3), rgba(236,72,153,0.16), transparent)" }} />
-        <SolverDemo />
+        <RouterDemo />
       </Reveal>
     </section>
   );

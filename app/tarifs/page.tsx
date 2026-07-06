@@ -217,6 +217,7 @@ function MonthTicket() {
 
 export default function TarifsPage() {
   const pro = getPlan("pro");
+  const free = getPlan("free");
   const [cycle, setCycle] = useState<BillingCycle>("monthly");
   const [proCredits, setProCredits] = useState<number>(pro.defaultCredits ?? 1000);
   const [openIdx, setOpenIdx] = useState<number | null>(0);
@@ -252,7 +253,29 @@ export default function TarifsPage() {
           <CycleToggle cycle={cycle} setCycle={setCycle} />
         </Reveal>
 
-        <div className="max-w-4xl mx-auto grid md:grid-cols-2 gap-5 items-stretch">
+        <div className="max-w-6xl mx-auto grid md:grid-cols-3 gap-5 items-stretch">
+          {/* Free — montrer qu'un plan gratuit existe (sans carte bancaire). */}
+          <Reveal className="relative">
+            <div className="relative flex h-full flex-col rounded-[26px] p-7 border border-[#ECECF2] bg-white shadow-[0_4px_16px_rgba(60,40,120,0.06)]">
+              <p className="font-bold text-lg tracking-[-0.01em] text-[#0A0A0A] mb-1">{free.name}</p>
+              <p className="inline-flex w-fit items-center rounded-full bg-[#F4F1FB] px-2.5 py-1 text-[12px] font-semibold text-[#6D4AE0] mb-4">{free.audience}</p>
+              <p className="text-[13px] text-[#8B8B96] mb-6 leading-snug">{free.tagline}</p>
+              <div className="flex items-baseline gap-1 mb-1">
+                <span className="text-5xl font-black tabular-nums tracking-[-0.03em] text-[#0A0A0A]">0 €</span>
+                <span className="text-[13px] text-[#9A9AA6]">/mois</span>
+              </div>
+              <p className="text-[12px] text-[#9A9AA6] min-h-[18px]">300 crédits offerts, sans carte bancaire.</p>
+              <ul className="space-y-3 mb-8 mt-6">
+                {free.features.map((f) => (
+                  <li key={f} className="flex items-start gap-2.5 text-[13px]"><Check className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-[#7C3AED]" strokeWidth={2.5} /><span className="text-[#4A4A56]">{f}</span></li>
+                ))}
+              </ul>
+              <a href="/signup" className="mt-auto flex items-center justify-center gap-2 py-3 rounded-full text-[14px] font-semibold transition-all border border-[#E7E2D7] text-[#0A0A0A] hover:bg-[#F6F6F9]">
+                Commencer gratuitement <ArrowRight className="w-3.5 h-3.5" />
+              </a>
+            </div>
+          </Reveal>
+
           {/* Pro */}
           <Reveal className="relative">
             <div className="absolute -inset-4 -z-10 rounded-[38px] blur-2xl opacity-60" style={{ background: "radial-gradient(closest-side, rgba(139,92,246,0.35), rgba(236,72,153,0.2), transparent)" }} />

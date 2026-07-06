@@ -23,7 +23,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { TIER_SIMPLE } from "./models";
-import { classifyKindHeuristic, looksLikePureQuestion } from "./kind-heuristic";
+import { classifyKindHeuristic, looksLikePureQuestion, looksLikeCalendar } from "./kind-heuristic";
 import type { BiltiaKind, KindResult } from "./kind-heuristic";
 
 export { classifyKindHeuristic, looksLikePureQuestion };
@@ -54,10 +54,12 @@ CONTEXTE : l'utilisateur a DÉJÀ une application ou un document ouvert dans l'a
     : "";
   return `Tu es l'AIGUILLEUR de Biltia, l'OS opérationnel du BTP. On te donne la demande d'un artisan/chef de chantier, dictée au micro ou tapée, en langage courant. Tu identifies la NATURE exacte du besoin et tu choisis le FORMAT DE SORTIE le plus efficace pour le résoudre. Tu ne résous rien toi-même : tu aiguilles.
 
-LES 6 FORMATS :
+LES 8 FORMATS :
 - "answer" — l'utilisateur pose une QUESTION et attend une RÉPONSE en texte, tout de suite : réglementation (« quel taux de TVA pour une rénovation ? »), norme, délai, garantie, conseil métier, ou une question sur SES données (« j'ai combien de clients ? », « où en est le chantier Morel ? »). Il ne demande RIEN à produire.
+- "calendar" — l'utilisateur veut CONSULTER son agenda / son planning : « qu'est-ce que j'ai lundi ? », « ma semaine ressemble à quoi ? », « quels sont mes rendez-vous ? », « je suis dispo quand ? ». C'est une lecture de son AGENDA connecté (Google Agenda), pas une question de savoir métier (ça, c'est "answer") ni ses données workspace.
+- "email" — l'utilisateur veut ENVOYER un message/email à quelqu'un, MAINTENANT, une fois : « envoie un email à jean@x.fr pour lui dire que… », « écris à ce client qu'on passe lundi », « relance ce fournisseur par mail ». C'est le VERBE D'ENVOI (« envoie/écris/relance… par mail/email ») qui décide — même si le message PARLE de factures, de fichiers ou de chantiers : ça, c'est le CONTENU du mail, PAS un traitement de fichiers. Quand kind="email", remplis email_to (l'adresse ou le nom du destinataire), email_subject (objet court) et email_body (le corps complet, professionnel, prêt à envoyer).
 - "document" — l'utilisateur veut UN livrable officiel unique, à imprimer/envoyer/signer : avenant, PV de réception, mise en demeure, devis, facture, attestation (TVA…), courrier/relance, ordre de service, bon de commande, levée de réserves. Indices : « sors-moi l'avenant », « rédige une mise en demeure », « fais-lui signer », « attestation TVA », « un devis pour… » (un seul, pas un outil de gestion de devis).
-- "action" — l'utilisateur a DES DONNÉES/FICHIERS EXISTANTS à traiter par lot, UNE fois, maintenant : vérifier, comparer, rapprocher, contrôler. Indices : « glisse tes 30 bons de livraison, je vérifie les prix vs devis », « compare ces factures », « détecte les erreurs ».
+- "action" — l'utilisateur a DES DONNÉES/FICHIERS EXISTANTS à traiter par lot, UNE fois, maintenant : vérifier, comparer, rapprocher, contrôler. Indices : « glisse tes 30 bons de livraison, je vérifie les prix vs devis », « compare ces factures », « détecte les erreurs ». Ce n'est JAMAIS « envoyer un email » (ça, c'est "email").
 - "module" — l'utilisateur veut un OUTIL/APPLICATION pour capturer ou suivre de la donnée dans la durée : suivi de chantiers, pointage des heures, inventaire, CRM, planning, carnet d'entretien. Indices : « je veux un tableau/outil pour gérer/suivre… », « application de pointage ».
 - "rule" — l'utilisateur DÉLÈGUE une mission PERMANENTE que Biltia devra exécuter SEUL, à répétition ou sur déclencheur, sans qu'il ait à redemander : « relance ce client tous les jours à midi », « chaque soir à 18h vérifie les pointages », « occupe-toi de relancer mes factures impayées », « préviens-moi dès qu'un document expire ». Indices décisifs : récurrence (« tous les jours », « chaque lundi », « chaque soir »), déclencheur (« dès que »), délégation (« occupe-toi de », « automatiquement »).
 - "data" — l'utilisateur veut agir sur UNE FICHE de son workspace, MAINTENANT, une fois : ajouter (« ajoute un client Jean Dupont, 06 12 34 56 78 »), modifier (« mets à jour le téléphone de Karim », « passe le devis D-2026-04 en accepté », « le chantier Morel est à 80% »), supprimer (« supprime le client Martin »). Ni un outil, ni un document, ni une mission répétée : une écriture directe dans les données.
@@ -84,19 +86,31 @@ const CLASSIFY_TOOL = {
     properties: {
       kind: {
         type: "string",
-        enum: ["answer", "document", "action", "module", "rule", "data"],
+        enum: ["answer", "document", "action", "module", "rule", "data", "email", "calendar"],
         description: "Format de sortie chirurgical.",
       },
       doc_type: {
         type: "string",
         description: "Sous-type de document si kind=document (avenant, pv_reception, mise_en_demeure, devis, facture, attestation, courrier, …). Vide sinon.",
       },
+      email_to: {
+        type: "string",
+        description: "Si kind=email : adresse ou nom du destinataire. Vide sinon.",
+      },
+      email_subject: {
+        type: "string",
+        description: "Si kind=email : objet court de l'email. Vide sinon.",
+      },
+      email_body: {
+        type: "string",
+        description: "Si kind=email : corps complet de l'email, professionnel, prêt à envoyer. Vide sinon.",
+      },
       confidence: {
         type: "number",
         description: "Confiance de 0 à 1.",
       },
     },
-    required: ["kind", "doc_type", "confidence"],
+    required: ["kind", "doc_type", "email_to", "email_subject", "email_body", "confidence"],
     additionalProperties: false,
   },
 } as Anthropic.Tool;
@@ -124,23 +138,41 @@ async function classifyWithLLM(
   const block = message.content.find((b) => b.type === "tool_use");
   if (!block || block.type !== "tool_use") return null;
 
-  const input = block.input as { kind?: string; doc_type?: string; confidence?: number };
+  const input = block.input as {
+    kind?: string;
+    doc_type?: string;
+    email_to?: string;
+    email_subject?: string;
+    email_body?: string;
+    confidence?: number;
+  };
   if (
     input.kind !== "answer" &&
     input.kind !== "document" &&
     input.kind !== "action" &&
     input.kind !== "module" &&
     input.kind !== "rule" &&
-    input.kind !== "data"
+    input.kind !== "data" &&
+    input.kind !== "email" &&
+    input.kind !== "calendar"
   ) {
     return null;
   }
 
   const docType = input.kind === "document" ? input.doc_type?.trim() || null : null;
+  const email =
+    input.kind === "email"
+      ? {
+          to: (input.email_to ?? "").trim(),
+          subject: (input.email_subject ?? "").trim(),
+          body: (input.email_body ?? "").trim(),
+        }
+      : undefined;
 
   return {
     kind: input.kind,
     docType,
+    email,
     method: "llm",
     confidence: typeof input.confidence === "number" ? input.confidence : 0.7,
     reasoning: "classification Haiku",
@@ -175,7 +207,11 @@ export async function classifyKind(opts: {
   //     production (ancien « garde-fou » : désormais on n'appelle plus le LLM).
   //   • signaux forts (confiance ≥ 0.8 = plusieurs mots-clés concordants).
   const heuristic = classifyKindHeuristic(prompt, hasExistingApp);
-  const heuristicIsSure = looksLikePureQuestion(prompt) || heuristic.confidence >= 0.8;
+  // Une demande « agenda » ne doit jamais être tranchée par la seule heuristique
+  // (« qu'est-ce que j'ai lundi » matche « qu'est-ce » = pure question) : on
+  // laisse le LLM comprendre calendar vs answer.
+  const heuristicIsSure =
+    !looksLikeCalendar(prompt) && (looksLikePureQuestion(prompt) || heuristic.confidence >= 0.8);
 
   const hasKey =
     !!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.startsWith("your_");

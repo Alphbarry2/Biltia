@@ -1111,17 +1111,22 @@ export default function GeneratePage() {
         }),
       });
 
-      // ── Copilote streamé (SSE) : une question → le texte arrive token par
-      // token, premier mot en < 1 s. On ne touche ni au livrable ouvert ni à
-      // la prévisualisation.
+      // ── Flux SSE : soit une RÉPONSE copilote (texte token par token), soit une
+      // GÉNÉRATION streamée (le HTML arrive au fur et à mesure → l'aperçu se
+      // construit EN DIRECT, fini l'attente aveugle). On distingue par le type
+      // d'événement : delta = réponse ; html/done = génération.
       const ctype = res.headers.get("content-type") ?? "";
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let data: any = null;
       if (res.ok && ctype.includes("text/event-stream") && res.body) {
-        setExpectingBuild(false);
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
         let answer = "";
-        let started = false;
+        let started = false; // stream « réponse » commencé
+        let buildHtml = ""; // accumulateur du HTML généré
+        let isBuild = false; // ce flux est une génération
+        let lastPaint = 0;
         const paint = (content: string) => {
           setMessages((prev) => {
             const next = [...prev];
@@ -1138,13 +1143,16 @@ export default function GeneratePage() {
           for (const raw of events) {
             const line = raw.trim();
             if (!line.startsWith("data:")) continue;
-            let evt: { type?: string; text?: string; creditsUsed?: number; error?: string };
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            let evt: any;
             try {
               evt = JSON.parse(line.slice(5));
             } catch {
               continue;
             }
             if (evt.type === "delta" && typeof evt.text === "string") {
+              // Copilote : réponse texte, token par token.
+              setExpectingBuild(false);
               answer += evt.text;
               if (!started) {
                 started = true;
@@ -1152,18 +1160,45 @@ export default function GeneratePage() {
               } else {
                 paint(answer);
               }
+            } else if (evt.type === "html" && typeof evt.text === "string") {
+              // Génération : construction de l'aperçu EN DIRECT. Uniquement pour une
+              // NOUVELLE création — pour une modification, on garde l'app existante
+              // affichée jusqu'au résultat final (jamais de preview cassée).
+              isBuild = true;
+              buildHtml += evt.text;
+              if (!isModification) {
+                const now = Date.now();
+                if (now - lastPaint > 250) {
+                  lastPaint = now;
+                  setGeneratedHTML(buildHtml.replace(/^\s*```(?:html)?\s*/i, ""));
+                }
+              }
             } else if (evt.type === "done") {
-              updateCreditsDisplay(evt.creditsUsed ?? 10);
-            } else if (evt.type === "error" && evt.error) {
-              if (started) paint(evt.error);
-              else setMessages((prev) => [...prev, { role: "assistant", content: evt.error ?? "" }]);
+              if (isBuild || typeof evt.html === "string") {
+                data = evt; // → finalisation ci-dessous (sauvegarde, crédits, message)
+              } else {
+                updateCreditsDisplay(evt.creditsUsed ?? 10); // réponse copilote terminée
+              }
+            } else if (evt.type === "error" && typeof evt.error === "string") {
+              if (isBuild) {
+                if (!isModification) setGeneratedHTML("");
+                setMessages((prev) => [...prev, { role: "assistant", content: evt.error }]);
+              } else if (started) {
+                paint(evt.error);
+              } else {
+                setMessages((prev) => [...prev, { role: "assistant", content: evt.error }]);
+              }
             }
           }
         }
-        return;
+        // Réponse copilote / erreur → terminé ici. Génération réussie → on retombe
+        // dans la finalisation ci-dessous avec `data` (le payload de l'événement done).
+        if (!data) return;
       }
 
-      const data = await res.json();
+      if (!data) {
+        data = await res.json();
+      }
 
       // Crédits insuffisants côté serveur → widget d'upgrade dans le fil,
       // en plus du message d'erreur (levé plus bas avec le texte serveur).
@@ -1200,6 +1235,13 @@ export default function GeneratePage() {
         if (typeof data.creditsUsed === "number" && data.creditsUsed > 0) {
           updateCreditsDisplay(data.creditsUsed);
         }
+        return;
+      }
+
+      // Email / Agenda : l'agent a agi via l'outil connecté (Gmail / Google
+      // Agenda), ou explique qu'il n'est pas connecté. Message factuel.
+      if ((data.kind === "email" || data.kind === "calendar") && typeof data.message === "string" && data.message) {
+        setMessages((prev) => [...prev, { role: "assistant", content: data.message }]);
         return;
       }
 
@@ -1684,7 +1726,7 @@ export default function GeneratePage() {
                 </div>
               )}
               <div
-                className={`max-w-[85%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed ${
+                className={`max-w-[85%] whitespace-pre-wrap px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed ${
                   msg.role === "user"
                     ? "bg-[#0A0A0A] text-white rounded-tr-sm"
                     : "bg-[#F6F6F9] text-[#0A0A0A] rounded-tl-sm border border-[#ECECF2]"

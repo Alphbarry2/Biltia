@@ -629,7 +629,7 @@ export async function createAgentRule(opts: {
       ruleId: null,
       blocked: false,
       message:
-        "Je n'ai pas pu enregistrer cet agent (base indisponible ou migration 020 non appliquée). Réessayez.",
+        "Je n'ai pas réussi à recruter cet agent à l'instant. Réessayez dans un instant — vos crédits n'ont pas été touchés.",
       usage: parsed.usage,
     };
   }

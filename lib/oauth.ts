@@ -109,3 +109,29 @@ export async function exchangeCode(opts: {
   }
   return json;
 }
+
+/**
+ * Rafraîchit un access_token à partir du refresh_token stocké. Throw en cas
+ * d'échec (refresh_token révoqué/expiré → l'appelant redemandera une connexion).
+ */
+export async function refreshAccessToken(opts: {
+  provider: OAuthProvider;
+  refreshToken: string;
+}): Promise<TokenResponse> {
+  const c = conf(opts.provider);
+  const res = await fetch(c.tokenEndpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: c.clientId,
+      client_secret: c.clientSecret,
+      grant_type: "refresh_token",
+      refresh_token: opts.refreshToken,
+    }),
+  });
+  const json = (await res.json().catch(() => ({}))) as TokenResponse & { error?: string };
+  if (!res.ok || !json.access_token) {
+    throw new Error(json.error ?? `Rafraîchissement OAuth refusé (${res.status}).`);
+  }
+  return json;
+}

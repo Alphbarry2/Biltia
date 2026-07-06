@@ -3,6 +3,8 @@ import { routeRequest } from "@/lib/router";
 import { getCategory } from "@/lib/sectors";
 import { buildKnowledgeBlock } from "@/lib/btp-catalog";
 import { classifyKind, coerceKind, looksLikePureQuestion, type BiltiaKind } from "@/lib/kind-router";
+import { gmailStatus, sendGmail } from "@/lib/gmail";
+import { readAgenda } from "@/lib/gcal";
 import { classifyQuestionTopic } from "@/lib/question-topics";
 import { buildDocumentSystemPrompt, injectDocumentRuntime } from "@/lib/document-generator";
 import { assessDocumentReadiness } from "@/lib/document-context";
@@ -38,10 +40,10 @@ const client = new Anthropic();
 // Paliers officiels (lib/models.ts) : simple=Haiku, moyen=Sonnet 5, complexe=Opus.
 const MODEL_STANDARD = TIER_MEDIUM;
 const MODEL_HEAVY = TIER_COMPLEX;
-// Les réponses texte (copilote) privilégient la vitesse : Haiku répond en
-// 2-4 s là où Sonnet en met 8-15. Le savoir factuel (TVA, normes) est ancré
-// par le prompt + RAG, pas par la taille du modèle.
-const ANSWER_MODEL = TIER_SIMPLE;
+// Copilote : Sonnet (TIER_MEDIUM), pas Haiku. La qualité/clarté de réponse prime
+// sur les 2-3 s gagnées — un artisan qui reçoit une réponse « premier GPT »
+// s'en va. La réponse est streamée, donc le 1er mot arrive vite quand même.
+const ANSWER_MODEL = TIER_MEDIUM;
 const MAX_TOKENS = 16000;
 
 function pickBuildModel(opts: {
@@ -579,6 +581,7 @@ export async function POST(req: Request) {
     let docType: string | null = null;
     let kindConfidence = 1;
     let kindMethod = "provided";
+    let emailDraft: { to: string; subject: string; body: string } | undefined;
     if (isAutoFix) {
       // Auto-fix : on itère toujours sur le livrable existant, pas de reclasse.
       kind = providedKind ?? "module";
@@ -586,6 +589,7 @@ export async function POST(req: Request) {
     } else {
       const k = await classifyKind({ prompt, sector, hasExistingApp: isModification });
       logAuxUsage(k.usage, "classify_kind");
+      emailDraft = k.email;
       // App ouverte : une demande n'est traitée en RÉPONSE TEXTE que si
       // l'heuristique locale confirme une pure question. Sinon, un « corrige
       // les espaces blancs » mal classé répondrait en texte au lieu de
@@ -606,6 +610,69 @@ export async function POST(req: Request) {
       }
     }
     const isAnswer = kind === "answer";
+
+    // ── EMAIL : l'intention est comprise (destinataire + objet + corps déjà
+    // extraits par le classifieur). On ne vérifie la connexion Gmail QUE
+    // maintenant (lazy) : connectée → on envoie ; sinon → on le dit et on donne
+    // le message prêt à copier. Jamais deviner le destinataire : s'il manque,
+    // on le demande.
+    if (kind === "email" && !isModification && !isAutoFix) {
+      const to = (emailDraft?.to ?? "").trim();
+      const subject = (emailDraft?.subject ?? "").trim() || "Message de votre part";
+      const bodyText = (emailDraft?.body ?? "").trim();
+
+      if (!to) {
+        return Response.json({
+          kind: "email",
+          status: "need_recipient",
+          message: "À qui dois-je envoyer cet email ? Donnez-moi l'adresse du destinataire.",
+        });
+      }
+
+      const status = await gmailStatus(tenantId, user.id);
+      if (!status.connected || !status.canSend) {
+        return Response.json({
+          kind: "email",
+          status: "not_connected",
+          message: `Votre messagerie Gmail n'est pas connectée, je ne peux pas l'envoyer à votre place. Connectez-la dans les intégrations, ou voici le message prêt à copier :\n\nÀ : ${to}\nObjet : ${subject}\n\n${bodyText}`,
+        });
+      }
+
+      const sent = await sendGmail({ tenantId, userId: user.id, to, subject, body: bodyText });
+      if (sent.ok) {
+        return Response.json({
+          kind: "email",
+          status: "sent",
+          message: `✅ Email envoyé à ${to}.\n\nObjet : ${subject}\n\n${bodyText}`,
+        });
+      }
+      const why =
+        sent.reason === "missing_scope"
+          ? "l'autorisation d'envoi Gmail n'est pas accordée — reconnectez votre compte Google"
+          : "l'envoi a échoué côté Gmail";
+      return Response.json({
+        kind: "email",
+        status: "error",
+        message: `Je n'ai pas pu envoyer l'email (${why}). Voici le message prêt à copier :\n\nÀ : ${to}\nObjet : ${subject}\n\n${bodyText}`,
+      });
+    }
+
+    // ── CALENDAR : consulter l'agenda connecté. Intention comprise → vérif
+    // connexion en lazy → lecture réelle des 7 prochains jours. Pas connecté →
+    // on propose de connecter (jamais « je ne peux pas »).
+    if (kind === "calendar" && !isModification && !isAutoFix) {
+      const cal = await readAgenda({ tenantId, userId: user.id });
+      if (cal.ok) {
+        return Response.json({ kind: "calendar", status: "ok", message: cal.summary });
+      }
+      const msg =
+        cal.reason === "not_connected"
+          ? "Ton agenda Google n'est pas connecté. Connecte-le dans les intégrations et je te lis ta semaine."
+          : cal.reason === "missing_scope"
+            ? "L'autorisation de lecture de l'agenda n'est pas accordée — reconnecte ton compte Google avec l'accès Agenda."
+            : "Je n'ai pas pu lire ton agenda pour le moment. Réessaie dans un instant.";
+      return Response.json({ kind: "calendar", status: cal.reason, message: msg });
+    }
 
     // ── ACTION sans fichiers : le moteur de lot existe (/api/automate) mais il
     // lui faut les fichiers. On ne génère PAS un module à la place : on invite
@@ -758,7 +825,19 @@ ${buildWorkspaceToolsSystem()}
     // Les corrections automatiques d'erreurs ne coûtent pas de crédits.
     // Compte fondateur : jamais de hold ni de débit (usage journalisé quand même).
     const founder = isFounderEmail(user.email);
-    const holdCredits = isAutoFix || founder ? 0 : isAnswer ? 10 : isModification ? 60 : 300;
+    // Réservation alignée sur la grille tarifaire publique (page /tarifs) :
+    //   question ≈ 10 · document/devis ≈ 50 · modification ≈ 60 · application = 300.
+    // Un DOCUMENT ne doit JAMAIS être réservé au prix d'une APPLICATION.
+    const holdCredits =
+      isAutoFix || founder
+        ? 0
+        : isAnswer
+          ? 10
+          : isModification
+            ? 60
+            : kind === "document"
+              ? 50
+              : 300;
 
     if (holdCredits > 0) {
       const { data: credited } = await supabase.rpc("deduct_credits", {
@@ -830,14 +909,22 @@ ${buildWorkspaceToolsSystem()}
     // ── COPILOTE : une question → une réponse texte immédiate, jamais une app ─
     if (isAnswer) {
       const answerSystem = [
-        `Tu es Biltia, le copilote des pros du BTP. Réponds à la question posée, directement, comme un expert du métier qui parle à un artisan.
+        `Tu es Biltia, le copilote des pros du BTP. Un artisan te parle. Réponds comme un vrai expert du métier : clair, direct, utile.
 
-RÈGLES :
-- Va droit au but : l'essentiel en 2 à 6 phrases (ou une courte liste à tirets). Zéro introduction, zéro blabla.
-- Chiffres exacts. TVA France : 20 % neuf, 10 % rénovation, 5,5 % rénovation énergétique. TVA Belgique : 21 % neuf, 6 % rénovation d'un logement de plus de 10 ans. Adapte-toi au pays mentionné (France par défaut). Si la réponse dépend d'un cas, donne le cas principal puis la nuance en une ligne.
-- Question sur les données de l'entreprise (clients, chantiers, devis…) → utilise le CONTEXTE WORKSPACE ci-dessous et cite les chiffres réels. S'il est vide, dis-le simplement.
+STRUCTURE (priorité n°1 — une réponse doit être LISIBLE d'un coup d'œil) :
+- Commence par LA réponse, en une phrase. Puis, si utile, 2 à 4 points à tirets (un par ligne). Aère avec une ligne vide entre les blocs.
+- Court et dense. Zéro intro (« Bien sûr, voici… »), zéro blabla, zéro paragraphe fourre-tout. Si 2 phrases suffisent, 2 phrases.
+- Texte brut : pas de HTML, pas de markdown. Des tirets pour les listes, des sauts de ligne pour respirer.
+
+EXACTITUDE — NE JAMAIS INVENTER :
+- Ne fabrique JAMAIS une donnée, un chiffre ou une fonctionnalité. Si tu ne sais pas, dis-le en une ligne et propose l'action réelle.
+- Chiffres exacts. TVA France : 20 % neuf, 10 % rénovation, 5,5 % rénovation énergétique. TVA Belgique : 21 % neuf, 6 % rénovation (logement > 10 ans). France par défaut. Cas principal, puis la nuance en une ligne.
+- Question sur les données de l'entreprise (clients, chantiers, devis…) → utilise le CONTEXTE WORKSPACE ci-dessous et cite les vrais chiffres. Vide → dis-le simplement, ne devine jamais.
 - Si des SOURCES sont fournies, elles priment.
-- Texte brut uniquement : pas de HTML, pas de markdown (des tirets pour les listes suffisent).`,
+
+TES OUTILS (ne te dévalorise JAMAIS) :
+- Biltia se connecte à Gmail (envoyer des emails), Google Agenda (lire/créer des rendez-vous) et Google Drive (fichiers).
+- Si la demande a besoin d'un de ces outils, considère qu'il peut être connecté : réponds « Ton [Gmail/agenda/Drive] n'est pas connecté — connecte-le dans les intégrations et je m'en occupe. » Ne dis JAMAIS « je ne peux pas » ni « ce n'est pas dans mes capacités » : c'est à une connexion près.`,
         expertise ? `\n# FOCUS MÉTIER\n${expertise}` : "",
         sourcesBlock ? `\n${sourcesBlock}` : "",
         workspaceBlock ? `\n${workspaceBlock}` : "",
@@ -1046,38 +1133,53 @@ L'utilisateur a choisi son thème à la création : changer les couleurs lors d'
         ]
       : userContent;
 
-    const messages: Anthropic.MessageParam[] = [{ role: "user", content: firstUserContent }];
-    let html = "";
-    let stopReason: string | null = null;
-    let inTok = 0;
-    let outTok = 0;
-    const MAX_TURNS = 4;
+    // ── GÉNÉRATION STREAMÉE (SSE) : le HTML arrive au fur et à mesure → le client
+    // construit l'aperçu EN DIRECT (fini l'attente aveugle). Validation, sauvegarde
+    // et réconciliation des crédits se font à la fin, puis { type:"done", … } porte
+    // le résultat. Un échec envoie { type:"error" } (crédits remboursés).
+    const buildEnc = new TextEncoder();
+    const buildStream = new ReadableStream({
+      async start(controller) {
+        const send = (obj: unknown) =>
+          controller.enqueue(buildEnc.encode(`data: ${JSON.stringify(obj)}\n\n`));
+        try {
+          const messages: Anthropic.MessageParam[] = [{ role: "user", content: firstUserContent }];
+          let html = "";
+          let stopReason: string | null = null;
+          let inTok = 0;
+          let outTok = 0;
+          const MAX_TURNS = 4;
 
-    for (let turn = 0; turn < MAX_TURNS; turn++) {
-      const message = await client.messages.create({
-        model: buildModel,
-        max_tokens: MAX_TOKENS,
-        system,
-        messages,
-      });
-      inTok += message.usage.input_tokens;
-      outTok += message.usage.output_tokens;
+          for (let turn = 0; turn < MAX_TURNS; turn++) {
+            const ms = client.messages.stream({
+              model: buildModel,
+              max_tokens: MAX_TOKENS,
+              system,
+              messages,
+            });
+            let turnText = "";
+            for await (const ev of ms) {
+              if (ev.type === "content_block_delta" && ev.delta.type === "text_delta") {
+                turnText += ev.delta.text;
+                html += ev.delta.text;
+                send({ type: "html", text: ev.delta.text });
+              }
+            }
+            const finalMsg = await ms.finalMessage();
+            inTok += finalMsg.usage.input_tokens;
+            outTok += finalMsg.usage.output_tokens;
+            stopReason = finalMsg.stop_reason;
 
-      const block = message.content[0];
-      const text = block && block.type === "text" ? block.text : "";
-      html += text;
-      stopReason = message.stop_reason;
-
-      if (message.stop_reason === "max_tokens") {
-        messages.push({ role: "assistant", content: text });
-        messages.push({
-          role: "user",
-          content: "Continue exactement où tu t'es arrêté, sans rien répéter ni rouvrir de balise déjà fermée. Termine le fichier HTML.",
-        });
-        continue;
-      }
-      break;
-    }
+            if (finalMsg.stop_reason === "max_tokens") {
+              messages.push({ role: "assistant", content: turnText });
+              messages.push({
+                role: "user",
+                content: "Continue exactement où tu t'es arrêté, sans rien répéter ni rouvrir de balise déjà fermée. Termine le fichier HTML.",
+              });
+              continue;
+            }
+            break;
+          }
 
     html = stripFences(html);
 
@@ -1118,10 +1220,9 @@ L'utilisateur a choisi son thème à la création : changer les couleurs lors d'
       } catch {
         // le tracking ne bloque jamais la réponse
       }
-      return Response.json(
-        { error: "La génération s'est mal terminée (résultat incomplet). Réessayez — vos crédits ont été remboursés." },
-        { status: 502 }
-      );
+      send({ type: "error", error: "La génération s'est mal terminée (résultat incomplet). Réessayez — vos crédits ont été remboursés." });
+      controller.close();
+      return;
     }
 
     const titleMatch = html.match(/<title>(.*?)<\/title>/i);
@@ -1226,18 +1327,50 @@ L'utilisateur a choisi son thème à la création : changer les couleurs lors d'
       });
     }
 
-    return Response.json({
-      html,
-      name,
-      tenantId,
-      truncated: stopReason === "max_tokens",
-      agent: route.agent,
-      appType: route.appType,
-      kind,
-      docType,
-      actionFallback: kind === "action",
-      dataMode: connectedEntities,
-      creditsUsed: realCredits,
+          send({
+            type: "done",
+            html,
+            name,
+            tenantId,
+            truncated: stopReason === "max_tokens",
+            agent: route.agent,
+            appType: route.appType,
+            kind,
+            docType,
+            actionFallback: kind === "action",
+            dataMode: connectedEntities,
+            creditsUsed: realCredits,
+          });
+          controller.close();
+        } catch (streamErr) {
+          console.error("Streamed generation error:", streamErr);
+          if (holdCredits > 0) {
+            try {
+              const admin = createAdminClient();
+              if (admin) await admin.rpc("refund_credits", { p_user_id: user.id, p_amount: holdCredits });
+            } catch {
+              /* remboursement best-effort */
+            }
+          }
+          try {
+            send({ type: "error", error: "La génération a échoué. Réessayez — vos crédits ont été remboursés." });
+          } catch {
+            /* flux déjà fermé */
+          }
+          try {
+            controller.close();
+          } catch {
+            /* flux déjà fermé */
+          }
+        }
+      },
+    });
+    return new Response(buildStream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+      },
     });
   } catch (err) {
     console.error("Generation error:", err);
