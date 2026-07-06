@@ -100,22 +100,31 @@ export function VoiceRecorder({
   const transcribeFinal = async (): Promise<string> => {
     const chunks = chunksRef.current;
     if (chunks.length === 0) return "";
-    try {
-      const blob = new Blob(chunks, { type: mimeRef.current || "audio/webm" });
-      const fd = new FormData();
-      fd.append("file", blob, `audio.${extFor(mimeRef.current)}`);
-      const res = await fetch("/api/transcribe", { method: "POST", body: fd });
-      if (!res.ok) {
+    const blob = new Blob(chunks, { type: mimeRef.current || "audio/webm" });
+    // gpt-4o est la source de vérité : on lui laisse 2 tentatives (un hoquet
+    // réseau transitoire ne doit PAS nous faire tomber sur le Web Speech pourri).
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const fd = new FormData();
+        fd.append("file", blob, `audio.${extFor(mimeRef.current)}`);
+        const res = await fetch("/api/transcribe", { method: "POST", body: fd });
+        if (res.ok) {
+          const j = (await res.json()) as { text?: string };
+          return (j.text || "").trim();
+        }
         const j = await res.json().catch(() => ({} as { fallback?: boolean }));
-        if (res.status === 503 || res.status === 500 || j?.fallback) serverDownRef.current = true;
-        return "";
+        // 429/402/401 = quota/auth : inutile de réessayer, on abandonne le serveur.
+        if (res.status === 429 || res.status === 402 || res.status === 401 || j?.fallback) {
+          serverDownRef.current = true;
+          return "";
+        }
+        // 5xx transitoire : on retente une fois.
+      } catch {
+        // réseau : on retente une fois.
       }
-      const j = (await res.json()) as { text?: string };
-      return (j.text || "").trim();
-    } catch {
-      serverDownRef.current = true;
-      return "";
     }
+    serverDownRef.current = true;
+    return "";
   };
 
   const bestSpeech = () =>
@@ -129,14 +138,19 @@ export function VoiceRecorder({
     await stopRecorder();
 
     const serverText = await transcribeFinal();
-    const finalText = serverText || bestSpeech();
+    // gpt-4o d'abord. Le Web Speech du navigateur est BEAUCOUP moins bon (et
+    // carrément mauvais sur Brave/Firefox) : on ne l'accepte QUE si le serveur est
+    // réellement injoignable ET qu'il a produit un texte substantiel — jamais pour
+    // « améliorer » un résultat serveur, jamais du charabia d'une lettre.
+    const speech = bestSpeech();
+    const finalText = serverText || (serverDownRef.current && speech.length >= 8 ? speech : "");
 
     if (!finalText) {
       setStatus("error");
       setErrorMsg(
         serverDownRef.current
-          ? "Transcription indisponible : quota OpenAI épuisé et aucune clé Groq. Rechargez OpenAI, ou dictez dans Chrome."
-          : "Aucune parole détectée. Réessayez en parlant un peu plus fort."
+          ? "Service de dictée momentanément indisponible. Réessayez dans un instant."
+          : "Aucune parole détectée. Réessayez en parlant un peu plus fort, micro proche."
       );
       return;
     }
@@ -156,7 +170,17 @@ export function VoiceRecorder({
     async function begin() {
       let stream: MediaStream;
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // Audio NETTOYÉ pour gpt-4o : autoGainControl remonte une voix faible/loin
+        // (cause n°1 des mots courants ratés), noiseSuppression coupe le fond,
+        // echoCancellation évite le larsen. Mono 16 kHz = format idéal du modèle.
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            channelCount: 1,
+          },
+        });
       } catch {
         if (cancelled) return;
         setStatus("error");
