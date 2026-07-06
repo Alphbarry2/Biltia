@@ -2,8 +2,10 @@
 // /api/team — GESTION D'ÉQUIPE du workspace actif.
 //
 //   GET    → liste des membres (email + rôle) du workspace de l'utilisateur.
-//   POST   → { email, role? } ajoute un collaborateur EXISTANT (compte Biltia
-//            déjà créé). Réservé aux rôles owner/admin.
+//   POST   → { email, role? } ajoute un collaborateur. S'il n'a pas encore de
+//            compte, il est INVITÉ par lien magique (sans étape « confirmez votre
+//            email ») : il clique, choisit son mot de passe, il est connecté et
+//            déjà membre. Réservé aux rôles owner/admin.
 //   DELETE → { memberId } retire un membre. Réservé owner/admin ; on ne retire
 //            jamais un owner.
 //
@@ -139,16 +141,25 @@ export async function POST(req: Request) {
     console.error("[team] lookup error:", lookupError);
     return NextResponse.json({ error: "Recherche du compte impossible." }, { status: 500 });
   }
-  if (!targetId) {
-    return NextResponse.json(
-      {
-        error:
-          "Aucun compte Biltia avec cet email. Demandez à votre collaborateur de créer son compte gratuit sur la page d'inscription, puis réessayez.",
-      },
-      { status: 404 }
-    );
+  // Pas encore de compte ? On INVITE par lien magique — AUCUNE étape « confirmez
+  // votre email » : le collaborateur clique le lien, choisit son mot de passe, et
+  // il est connecté ET déjà membre. (L'inscription Biltia standard, depuis la
+  // landing, garde SA confirmation email — c'est seulement l'ajout d'équipe qui l'évite.)
+  let memberUserId = (targetId as string | null) ?? null;
+  let invitedNew = false;
+  if (!memberUserId) {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? new URL(req.url).origin;
+    const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
+      redirectTo: `${appUrl}/auth/callback?next=/dashboard`,
+    });
+    if (inviteError || !invited?.user) {
+      console.error("[team] invite error:", inviteError);
+      return NextResponse.json({ error: "Invitation impossible. Réessayez dans un instant." }, { status: 500 });
+    }
+    memberUserId = invited.user.id;
+    invitedNew = true;
   }
-  if (targetId === user.id) {
+  if (memberUserId === user.id) {
     return NextResponse.json({ error: "Vous faites déjà partie de cet espace." }, { status: 400 });
   }
 
@@ -157,7 +168,7 @@ export async function POST(req: Request) {
     .from("tenant_members")
     .select("id")
     .eq("tenant_id", membership.tenant_id)
-    .eq("user_id", targetId)
+    .eq("user_id", memberUserId)
     .maybeSingle();
   if (existing) {
     return NextResponse.json({ error: "Ce collaborateur fait déjà partie de l'équipe." }, { status: 409 });
@@ -167,7 +178,7 @@ export async function POST(req: Request) {
     .from("tenant_members")
     .insert({
       tenant_id: membership.tenant_id,
-      user_id: targetId,
+      user_id: memberUserId,
       role: role as "admin" | "manager" | "member" | "viewer",
       invited_by: user.id,
       invited_at: new Date().toISOString(),
@@ -192,6 +203,7 @@ export async function POST(req: Request) {
 
   return NextResponse.json({
     member: { id: created.id, user_id: created.user_id, email, role: created.role, accepted: true, isYou: false },
+    invited: invitedNew,
   });
 }
 

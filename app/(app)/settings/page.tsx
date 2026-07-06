@@ -300,7 +300,11 @@ export default function SettingsPage() {
       if (!res.ok) throw new Error(data.error ?? "Invitation impossible.");
       setTeam((t) => [...t, data.member]);
       setInviteEmail("");
-      flash(`${data.member.email} a rejoint votre équipe.`);
+      flash(
+        data.invited
+          ? `Invitation envoyée à ${data.member.email} : il la reçoit par email, clique, choisit son mot de passe et rejoint l'équipe (sans confirmation).`
+          : `${data.member.email} a rejoint votre équipe.`
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Invitation impossible.");
     }

@@ -85,6 +85,87 @@ function sanitize(values: unknown, writable: string[]): Record<string, unknown> 
   return out;
 }
 
+// ── Magasin cloud GÉNÉRIQUE (app_records) : CRUD sur données jsonb par collection.
+// Toute entité non-workspace atterrit ici → les apps persistent dans le cloud même
+// sans schéma prédéfini. Isolé par tenant + collection ; l'id remonte à plat.
+const RESERVED_KEYS = new Set(["id", "tenant_id", "collection", "created_at", "updated_at", "created_by"]);
+function cleanData(values: unknown): Record<string, unknown> {
+  if (!values || typeof values !== "object" || Array.isArray(values)) return {};
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(values as Record<string, unknown>)) {
+    if (!RESERVED_KEYS.has(k)) out[k] = v;
+  }
+  return out;
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type FromFn = (t: string) => any;
+async function handleAppStore(
+  from: FromFn,
+  tenantId: string,
+  userId: string,
+  collection: string,
+  action: string,
+  body: { id?: string; values?: unknown; rows?: unknown; ids?: unknown; match?: Record<string, unknown>; ascending?: boolean; limit?: number },
+) {
+  const T = "app_records";
+  const flat = (r: Record<string, unknown>) => ({
+    id: r.id,
+    ...(r.data && typeof r.data === "object" ? (r.data as Record<string, unknown>) : {}),
+    created_at: r.created_at,
+    updated_at: r.updated_at,
+  });
+
+  if (action === "list") {
+    let q = from(T).select("*").eq("tenant_id", tenantId).eq("collection", collection);
+    if (body.match && typeof body.match === "object") q = q.contains("data", body.match);
+    q = q.order("created_at", { ascending: body.ascending === true }).limit(Math.min(Number(body.limit) || 200, 500));
+    const { data, error } = await q;
+    if (error) throw error;
+    return NextResponse.json({ data: (data ?? []).map(flat) });
+  }
+  if (action === "get") {
+    if (!body.id) return NextResponse.json({ error: "id manquant." }, { status: 400 });
+    const { data, error } = await from(T).select("*").eq("tenant_id", tenantId).eq("collection", collection).eq("id", body.id).single();
+    if (error) throw error;
+    return NextResponse.json({ data: flat(data) });
+  }
+  if (action === "create") {
+    const { data, error } = await from(T).insert({ tenant_id: tenantId, collection, data: cleanData(body.values), created_by: userId }).select().single();
+    if (error) throw error;
+    return NextResponse.json({ data: flat(data) });
+  }
+  if (action === "update") {
+    if (!body.id) return NextResponse.json({ error: "id manquant." }, { status: 400 });
+    const { data, error } = await from(T).update({ data: cleanData(body.values), updated_at: new Date().toISOString() }).eq("tenant_id", tenantId).eq("collection", collection).eq("id", body.id).select().single();
+    if (error) throw error;
+    return NextResponse.json({ data: flat(data) });
+  }
+  if (action === "delete") {
+    if (!body.id) return NextResponse.json({ error: "id manquant." }, { status: 400 });
+    const { error } = await from(T).delete().eq("tenant_id", tenantId).eq("collection", collection).eq("id", body.id);
+    if (error) throw error;
+    return NextResponse.json({ ok: true });
+  }
+  if (action === "bulk_create") {
+    const rows = Array.isArray(body.rows) ? body.rows : [];
+    if (!rows.length) return NextResponse.json({ error: "Aucune ligne à importer." }, { status: 400 });
+    if (rows.length > 2000) return NextResponse.json({ error: "Trop de lignes (max 2000)." }, { status: 400 });
+    const payload = rows.map((r) => ({ tenant_id: tenantId, collection, data: cleanData(r), created_by: userId }));
+    const { data, error } = await from(T).insert(payload).select("id");
+    if (error) throw error;
+    return NextResponse.json({ ok: true, inserted: data?.length ?? payload.length });
+  }
+  if (action === "bulk_delete") {
+    const ids = (Array.isArray(body.ids) ? body.ids : []).map(String).filter(Boolean);
+    if (!ids.length) return NextResponse.json({ error: "Aucun élément sélectionné." }, { status: 400 });
+    if (ids.length > 500) return NextResponse.json({ error: "Trop d'éléments (max 500)." }, { status: 400 });
+    const { error } = await from(T).delete().eq("tenant_id", tenantId).eq("collection", collection).in("id", ids);
+    if (error) throw error;
+    return NextResponse.json({ ok: true, deleted: ids.length });
+  }
+  return NextResponse.json({ error: `Action inconnue : ${action}` }, { status: 400 });
+}
+
 export async function POST(req: Request) {
   if (!sameOrigin(req)) {
     return NextResponse.json({ error: "Origine non autorisée." }, { status: 403 });
@@ -126,16 +207,11 @@ export async function POST(req: Request) {
 
   const entity = body.entity ?? "";
   const action = body.action ?? "";
+  const isWorkspaceEntity = ALLOWED_ENTITIES.includes(entity);
 
-  if (!ALLOWED_ENTITIES.includes(entity)) {
-    return NextResponse.json({ error: `Entité non autorisée : ${entity}` }, { status: 400 });
-  }
-  const def = ENTITIES[entity];
-
-  // ── GEL LECTURE SEULE ──────────────────────────────────────────────────────
-  // L'usage quotidien manuel (ajouter/modifier un chantier…) ne coûte pas de
-  // crédit, mais reste conditionné au DROIT D'USAGE : un abonnement expiré fige
-  // l'espace en lecture seule. Seules les écritures sont refusées.
+  // ── GEL LECTURE SEULE ── (s'applique aux DEUX chemins : entité workspace OU
+  // collection générique). Un abonnement expiré fige l'espace en lecture seule ;
+  // seules les écritures sont refusées. L'usage manuel ne coûte pas de crédit.
   if (WRITE_ACTIONS.has(action)) {
     const ent = await getEntitlementsForTenant(supabase, tenantId);
     if (!ent.writable) {
@@ -143,10 +219,26 @@ export async function POST(req: Request) {
     }
   }
 
-  // Accès dynamique à la table : l'entité est validée par whitelist ci-dessus,
-  // mais le client typé n'accepte pas un nom de table variable → cast contrôlé.
+  // Accès dynamique à la table (nom validé) → cast contrôlé du client typé.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const from = (t: string) => (supabase.from as any)(t);
+
+  // Entité NON reconnue comme entité workspace → MAGASIN CLOUD GÉNÉRIQUE : l'app
+  // persiste dans app_records (jsonb), isolé par tenant + collection. C'est ce qui
+  // permet à N'IMPORTE QUELLE app de sauvegarder dans le cloud, sans schéma prédéfini.
+  if (!isWorkspaceEntity) {
+    if (!entity || entity.length > 80) {
+      return NextResponse.json({ error: "Collection invalide." }, { status: 400 });
+    }
+    try {
+      return await handleAppStore(from, tenantId, user.id, entity, action, body);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erreur base de données.";
+      return NextResponse.json({ error: msg }, { status: 400 });
+    }
+  }
+
+  const def = ENTITIES[entity];
 
   // Nom lisible d'une ligne pour le journal d'activité.
   const rowName = (v: Record<string, unknown>): string => {

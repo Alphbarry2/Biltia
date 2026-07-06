@@ -120,7 +120,7 @@ Tu génères une application web AUTONOME, RÉELLEMENT UTILISABLE et VISUELLEMEN
 1. Un seul fichier HTML complet : commence par \`<!DOCTYPE html>\`, finit par \`</html>\`. Rien d'autre.
 2. PAS de Tailwind CDN — CSS pur inline dans \`<style>\` uniquement.
 3. Google Fonts Inter : \`<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">\`.
-4. Persistance RÉELLE, cloud d'abord : quand des entités du workspace sont connectées (bloc DONNÉES PARTAGÉES), écris ET lis via \`window.biltia\` (cloud partagé, multi-appareils, multi-utilisateurs) — c'est le DÉFAUT, le backend est géré automatiquement. Sinon seulement, localStorage (clé \`biltia_<slug>\`). Dans tous les cas rien n'est jamais perdu et tout survit au rechargement.
+4. Persistance RÉELLE, 100 % CLOUD (JAMAIS localStorage) : toutes les données passent par \`window.biltia\` (backend géré automatiquement, partagé entre appareils et membres de l'entreprise). Entités workspace connectées → leurs noms exacts ; le reste → tes propres collections (voir « PERSISTANCE CLOUD » plus bas). Rien n'est jamais perdu, tout survit au rechargement et se synchronise.
 5. JavaScript vanilla complet et FONCTIONNEL : CRUD, recherche, filtre, tri. AUCUNE fonction "à faire plus tard".
 6. Pré-remplis 2-3 lignes d'exemple réalistes au premier lancement. Bouton discret "Effacer les exemples".
 
@@ -352,6 +352,19 @@ RÈGLES :
 - render() appelé après chaque modification.
 - Calculs : Number() sur tout, || 0 sur vide. Jamais de NaN affiché.
 - HTML valide : une seule \`<html>\`, \`<head>\`, \`<body>\`, \`</html>\`.
+
+## PERSISTANCE CLOUD (window.biltia — déjà injectée, backend géré automatiquement)
+TOUTES les données se sauvegardent dans le CLOUD (partagé entre appareils et membres de
+l'entreprise), JAMAIS en localStorage. Choisis UN nom de collection court en snake_case
+par type de donnée (ex : 'bons', 'pointages', 'interventions') :
+- \`await biltia.list('bons', { order:'created_at', ascending:false })\` → tableau (chaque ligne a un \`id\`)
+- \`await biltia.create('bons', { ...champs })\` → ligne créée (avec \`id\`) ; n'envoie jamais \`id\` ni les dates, le serveur les gère
+- \`await biltia.update('bons', id, { ...champs })\` · \`await biltia.remove('bons', id)\`
+- \`await biltia.extract(photoDataUrl, { fields:[...] })\` (photo → champs) · \`await biltia.transcribe(audioDataUrl, { fields:[...] })\` (dictée → champs)
+Au démarrage : \`load()\` via \`biltia.list\` dans un try/catch + état de chargement. Après
+create/update/remove : recharge la liste. Un échec API affiche déjà un toast (le SDK) — ne
+bascule JAMAIS sur localStorage. Si des ENTITÉS WORKSPACE sont listées plus bas (DONNÉES
+PARTAGÉES), utilise LEURS noms exacts pour ces données ; le reste va dans tes collections.
 `;
 
 
@@ -1287,9 +1300,10 @@ L'utilisateur a choisi son thème à la création : changer les couleurs lors d'
     // tactiles (plomberie critique gérée serveur, jamais déléguée au LLM).
     if (isDocument) {
       html = injectDocumentRuntime(html);
-    } else if (connectedEntities.length) {
-      // Modules connectés : injecter le SDK window.biltia (persistance partagée
-      // via /api/data). Idempotent — n'écrase pas un SDK déjà présent (itérations).
+    } else {
+      // TOUTES les apps (connectées ou non) reçoivent le SDK window.biltia :
+      // persistance CLOUD (entités workspace OU collection générique via app_records),
+      // extraction photo et transcription. Idempotent — n'écrase pas un SDK présent.
       html = injectBiltiaSDK(html);
     }
 
