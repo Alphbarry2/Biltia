@@ -2200,14 +2200,14 @@ export default function GeneratePage() {
               saved={entitySaved}
             />
           ) : generatedHTML ? (
-            <div className={`h-full w-full ${previewDevice === "desktop" ? "" : "flex items-start justify-center overflow-auto p-4 sm:p-6"}`}>
+            <div className={`h-full w-full ${previewDevice === "desktop" ? "" : "flex items-center justify-center overflow-auto p-4 sm:p-6"}`}>
               <div
                 className={
                   previewDevice === "desktop"
                     ? "w-full h-full"
                     : previewDevice === "tablet"
-                      ? "w-[834px] max-w-full h-full flex-shrink-0 overflow-hidden rounded-2xl border border-[#ECECF2] bg-white shadow-[0_24px_70px_rgba(60,40,120,0.16)]"
-                      : "w-[390px] max-w-full h-full flex-shrink-0 overflow-hidden rounded-[2.2rem] border-[7px] border-[#0A0A0A] bg-white shadow-[0_24px_70px_rgba(60,40,120,0.2)]"
+                      ? "w-[820px] max-w-full h-[1100px] max-h-full flex-shrink-0 overflow-hidden rounded-[1.5rem] border border-[#ECECF2] bg-white shadow-[0_24px_70px_rgba(60,40,120,0.16)]"
+                      : "w-[390px] max-w-full h-[844px] max-h-full flex-shrink-0 overflow-hidden rounded-[2.4rem] border-[8px] border-[#0A0A0A] bg-white shadow-[0_24px_70px_rgba(60,40,120,0.2)]"
                 }
               >
                 <iframe
