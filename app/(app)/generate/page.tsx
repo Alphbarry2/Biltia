@@ -222,6 +222,7 @@ export default function GeneratePage() {
   const [mobileView, setMobileView] = useState<"chat" | "app">("app");
   const swipeStartX = useRef<number | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
+  const [reloadNonce, setReloadNonce] = useState(0);
   const htmlSetAtRef = useRef(0);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [report, setReport] = useState<ReportResult | null>(null);
@@ -355,28 +356,20 @@ export default function GeneratePage() {
             .limit(1)
             .maybeSingle()
             .then(({ data: conv }) => {
+              // Fini le SPAM : on ne rajoute PLUS de message « rechargée à droite »
+              // à chaque ouverture (il était persisté → il se multipliait). On filtre
+              // aussi ceux déjà accumulés dans l'historique existant.
               const history = Array.isArray(conv?.messages)
                 ? (conv.messages as unknown as Message[]).filter(
-                    (m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string"
+                    (m) =>
+                      m &&
+                      (m.role === "user" || m.role === "assistant") &&
+                      typeof m.content === "string" &&
+                      !(m.role === "assistant" && /est (re)?chargée à droite/.test(m.content))
                   )
                 : [];
-              if (conv && history.length) {
-                conversationIdRef.current = conv.id;
-                setMessages([
-                  ...history,
-                  {
-                    role: "assistant",
-                    content: `**${data.name}** est rechargée à droite avec votre historique. Chaque modification est appliquée et sauvegardée automatiquement.`,
-                  },
-                ]);
-              } else {
-                setMessages([
-                  {
-                    role: "assistant",
-                    content: `**${data.name}** est chargée à droite. Dites-moi ce que vous voulez modifier — chaque changement est appliqué et sauvegardé automatiquement.`,
-                  },
-                ]);
-              }
+              if (conv) conversationIdRef.current = conv.id;
+              setMessages(history);
             });
         });
       return;
@@ -1669,16 +1662,16 @@ export default function GeneratePage() {
             <Link href="/dashboard" className="text-[#6E6E6C] hover:text-[#0A0A0A] transition-colors">
               <ChevronLeft className="w-5 h-5" />
             </Link>
-            <h1 className="font-bold tracking-[-0.01em] text-[#0A0A0A] text-base">{showStudio ? "Générateur" : "Assistant"}</h1>
+            <h1 className="font-bold tracking-[-0.01em] text-[#0A0A0A] text-base truncate min-w-0">{showStudio ? (appName || "Générateur") : "Assistant"}</h1>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-shrink-0">
             {showStudio && !previewHidden && (
               <button
                 onClick={() => setMobileView("app")}
-                className="md:hidden flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-[#0A0A0A] text-white active:scale-95 transition-transform"
+                className="md:hidden flex items-center gap-1.5 px-3.5 py-2 text-[13px] font-semibold rounded-full bg-[#0A0A0A] text-white active:scale-95 transition-transform"
                 title="Voir l'application"
               >
-                <LayoutTemplate className="w-3.5 h-3.5" /> App
+                Aperçu <LayoutTemplate className="w-4 h-4" />
               </button>
             )}
             {(credits !== null || founderAccount) && (
@@ -1999,16 +1992,9 @@ export default function GeneratePage() {
       {/* ── Atelier : prévisualisation, uniquement quand on produit ── */}
       {showStudio && !previewHidden && (
       <div ref={previewContainerRef} className={`flex-col flex-1 min-w-0 bg-[#FCFCFD] md:flex md:h-full ${mobileView === "app" ? "flex h-full w-full" : "hidden"}`}>
-        {/* Preview header */}
-        <div className="flex items-center justify-between px-5 h-14 border-b border-[#ECECF2] bg-white flex-shrink-0">
+        {/* Preview header — DESKTOP uniquement (sur mobile, barre flottante en bas). */}
+        <div className="hidden md:flex items-center justify-between px-5 h-14 border-b border-[#ECECF2] bg-white flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0 flex-1">
-            <button
-              onClick={() => setMobileView("chat")}
-              className="md:hidden flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-[#F3EFFC] text-[#7C3AED] border border-[#E2D9F8] flex-shrink-0 active:scale-95 transition-transform"
-              title="Revenir au chat pour modifier"
-            >
-              <Pencil className="w-3.5 h-3.5" /> Chat
-            </button>
             {!sidebarOpen && (
               <button
                 onClick={() => setSidebarOpen(true)}
@@ -2207,7 +2193,7 @@ export default function GeneratePage() {
                     <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-6 bg-[#0A0A0A] rounded-b-2xl z-10" />
                     <iframe
                       ref={iframeRef}
-                      key={generatedHTML.slice(0, 50)}
+                      key={`${generatedHTML.slice(0, 50)}-${reloadNonce}`}
                       srcDoc={generatedHTML}
                       sandbox="allow-scripts allow-forms allow-same-origin allow-modals"
                       allow="camera; microphone; geolocation; clipboard-write"
@@ -2220,7 +2206,7 @@ export default function GeneratePage() {
             ) : (
               <iframe
                 ref={iframeRef}
-                key={generatedHTML.slice(0, 50)}
+                key={`${generatedHTML.slice(0, 50)}-${reloadNonce}`}
                 srcDoc={generatedHTML}
                 sandbox="allow-scripts allow-forms allow-same-origin allow-modals"
                 allow="camera; microphone; geolocation; clipboard-write"
@@ -2240,6 +2226,32 @@ export default function GeneratePage() {
               </p>
             </div>
           )}
+        </div>
+
+        {/* Barre flottante mobile : ‹ Chat + actualiser + Partager (façon Lovable). */}
+        <div className="md:hidden flex items-center justify-between gap-2 px-3 py-2.5 border-t border-[#ECECF2] bg-white flex-shrink-0">
+          <button
+            onClick={() => setMobileView("chat")}
+            className="flex items-center gap-1 pl-2 pr-3.5 py-2 rounded-full bg-[#F6F6F9] text-[13px] font-semibold text-[#0A0A0A] active:scale-95 transition-transform"
+          >
+            <ChevronLeft className="w-4 h-4" /> Chat
+          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setReloadNonce((n) => n + 1)}
+              title="Actualiser l'aperçu"
+              className="grid h-10 w-10 place-items-center rounded-full text-[#4A4A56] hover:bg-black/[0.05] active:scale-95 transition-all"
+            >
+              <RotateCcw className="w-[18px] h-[18px]" />
+            </button>
+            <button
+              onClick={() => setShareOpen(true)}
+              title="Partager"
+              className="grid h-10 w-10 place-items-center rounded-full text-white bg-[#0A0A0A] active:scale-95 transition-transform"
+            >
+              <Share2 className="w-[18px] h-[18px]" />
+            </button>
+          </div>
         </div>
       </div>
       )}
