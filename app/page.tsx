@@ -151,17 +151,35 @@ function ProductsSection() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {PRODUCTS.map((p, k) => {
             const Icon = PRODUCT_ICONS[p.icon];
+            // 7 produits dans une grille de 3 laisseraient la dernière carte seule
+            // avec 2 trous à droite. On la fait s'étendre en pleine largeur (carte
+            // horizontale « socle ») : zéro espace bête, et c'est cohérent — le
+            // workspace est la base qui unifie tout le reste.
+            const isLast = k === PRODUCTS.length - 1;
             return (
-              <Reveal key={p.slug} delay={(k % 3) * 0.06}>
+              <Reveal key={p.slug} delay={(k % 3) * 0.06} className={isLast ? "md:col-span-2 lg:col-span-3" : ""}>
                 <Link href={`/produits/${p.slug}`} className="block h-full">
-                  <Spot className="glass glass-hover h-full rounded-[26px] p-7 overflow-hidden group">
-                    <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-white mb-6" style={{ background: `linear-gradient(135deg, ${p.accent[0]}, ${p.accent[1]})` }}>
-                      <Icon className="w-6 h-6" />
-                    </div>
-                    <h3 className="text-[19px] font-bold text-[#0A0A0A] mb-1.5 tracking-[-0.01em]">{p.name}</h3>
-                    <p className="text-[13.5px] text-[#5B5B66] leading-relaxed mb-5">{p.tagline}.</p>
-                    <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-[#0A0A0A] group-hover:gap-2.5 transition-all">En savoir plus <ArrowRight className="w-3.5 h-3.5" /></span>
-                  </Spot>
+                  {isLast ? (
+                    <Spot className="glass glass-hover h-full rounded-[26px] p-7 overflow-hidden group flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6">
+                      <div className="flex-shrink-0 w-12 h-12 rounded-2xl flex items-center justify-center text-white" style={{ background: `linear-gradient(135deg, ${p.accent[0]}, ${p.accent[1]})` }}>
+                        <Icon className="w-6 h-6" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h3 className="text-[19px] font-bold text-[#0A0A0A] tracking-[-0.01em]">{p.name}</h3>
+                        <p className="text-[13.5px] text-[#5B5B66] leading-relaxed">{p.tagline}.</p>
+                      </div>
+                      <span className="flex-shrink-0 inline-flex items-center gap-1.5 text-[13px] font-semibold text-[#0A0A0A] group-hover:gap-2.5 transition-all">En savoir plus <ArrowRight className="w-3.5 h-3.5" /></span>
+                    </Spot>
+                  ) : (
+                    <Spot className="glass glass-hover h-full rounded-[26px] p-7 overflow-hidden group">
+                      <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-white mb-6" style={{ background: `linear-gradient(135deg, ${p.accent[0]}, ${p.accent[1]})` }}>
+                        <Icon className="w-6 h-6" />
+                      </div>
+                      <h3 className="text-[19px] font-bold text-[#0A0A0A] mb-1.5 tracking-[-0.01em]">{p.name}</h3>
+                      <p className="text-[13.5px] text-[#5B5B66] leading-relaxed mb-5">{p.tagline}.</p>
+                      <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-[#0A0A0A] group-hover:gap-2.5 transition-all">En savoir plus <ArrowRight className="w-3.5 h-3.5" /></span>
+                    </Spot>
+                  )}
                 </Link>
               </Reveal>
             );
