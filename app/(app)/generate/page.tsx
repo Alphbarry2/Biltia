@@ -7,6 +7,7 @@ import { getActiveMembership } from "@/lib/tenant";
 import { isFounderEmail } from "@/lib/founder";
 import { saveConversation, loadConversation } from "@/lib/conversations";
 import { looksLikePureQuestion, classifyKindHeuristic } from "@/lib/kind-heuristic";
+import { VoiceRecorder } from "@/components/voice-recorder";
 import { ClarifyWidget, type ClarifyQuestion } from "@/components/clarify-widget";
 import { buildStaticClarifyQuestions } from "@/lib/clarify-questions";
 import { CreditsUpsell } from "@/components/credits-upsell";
@@ -24,7 +25,6 @@ import { TEMPLATE_PREVIEWS } from "@/lib/template-previews";
 import { ShareMenu } from "@/components/share-menu";
 import {
   Mic,
-  MicOff,
   Camera,
   Sparkles,
   ChevronLeft,
@@ -225,8 +225,6 @@ export default function GeneratePage() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const recognitionRef = useRef<any>(null);
   const iframeErrorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingErrorsRef = useRef<string[]>([]);
   const autoFixInProgressRef = useRef(false);
@@ -1544,46 +1542,6 @@ export default function GeneratePage() {
   // l'interface, mais les DONNÉES ne sont visibles que par l'équipe connectée.
   const isConnectedApp = generatedHTML.includes("window.biltia");
 
-  const startVoice = () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const w = window as any;
-    const SpeechRecognition = w.SpeechRecognition ?? w.webkitSpeechRecognition;
-
-    if (!SpeechRecognition) {
-      alert("Reconnaissance vocale non supportée. Utilisez Chrome.");
-      return;
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.lang = "fr-FR";
-    recognition.continuous = true;
-    recognition.interimResults = true;
-
-    let finalText = "";
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    recognition.onresult = (event: any) => {
-      let interim = "";
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const t = event.results[i][0].transcript;
-        if (event.results[i].isFinal) finalText += t + " ";
-        else interim += t;
-      }
-      setInput((finalText + interim).trimStart());
-    };
-
-    recognition.onend = () => setIsListening(false);
-    recognition.onerror = () => setIsListening(false);
-
-    recognition.start();
-    recognitionRef.current = recognition;
-    setIsListening(true);
-  };
-
-  const stopVoice = () => {
-    recognitionRef.current?.stop();
-    setIsListening(false);
-  };
-
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -1883,6 +1841,20 @@ export default function GeneratePage() {
               if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files);
             }}
           >
+            {isListening ? (
+              <div className="flex-1">
+                <VoiceRecorder
+                  initialText={input}
+                  onCancel={() => setIsListening(false)}
+                  onCommit={(text) => {
+                    setInput(text);
+                    setIsListening(false);
+                    requestAnimationFrame(() => textareaRef.current?.focus());
+                  }}
+                />
+              </div>
+            ) : (
+              <>
             <button
               onClick={() => fileInputRef.current?.click()}
               className="flex-shrink-0 mb-0.5 p-1.5 rounded-xl transition-colors text-[#6E6E6C] hover:text-[#7C3AED] hover:bg-[#F3EFFC]"
@@ -1900,15 +1872,11 @@ export default function GeneratePage() {
             </button>
 
             <button
-              onClick={isListening ? stopVoice : startVoice}
-              className={`flex-shrink-0 mb-0.5 p-1.5 rounded-xl transition-colors ${
-                isListening
-                  ? "bg-rose-50 text-rose-600 animate-pulse"
-                  : "text-[#6E6E6C] hover:text-[#7C3AED] hover:bg-[#F3EFFC]"
-              }`}
-              title={isListening ? "Arrêter l'écoute" : "Parler"}
+              onClick={() => setIsListening(true)}
+              className="flex-shrink-0 mb-0.5 p-1.5 rounded-xl transition-colors text-[#6E6E6C] hover:text-[#7C3AED] hover:bg-[#F3EFFC]"
+              title="Parler (dictée)"
             >
-              {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+              <Mic className="w-4 h-4" />
             </button>
 
             <div className="relative flex-1 min-w-0">
@@ -1952,6 +1920,8 @@ export default function GeneratePage() {
             >
               <Send className="w-4 h-4" />
             </button>
+              </>
+            )}
           </div>
           </div>
           <p className="text-xs text-[#6E6E6C] mt-2 text-center">
