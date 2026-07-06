@@ -24,6 +24,9 @@ import {
   Cloud,
   Clock,
   Pencil,
+  Link2,
+  Check,
+  ExternalLink,
   Search,
   X,
   FileText,
@@ -79,6 +82,7 @@ function AppPreviewCard({
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const [copied, setCopied] = useState(false);
   // Aperçu figé : stub des données → pas de « Chargement du workspace… ».
   const preview = useMemo(() => toPreviewHtml(app.html_content), [app.html_content]);
 
@@ -93,7 +97,7 @@ function AppPreviewCard({
       <div
         className="relative overflow-hidden bg-[#F1F1EC] cursor-pointer"
         style={{ height: "192px" }}
-        onClick={() => router.push(`/apps/${app.id}`)}
+        onClick={() => router.push(`/generate?edit=${app.id}`)}
       >
         {app.html_content ? (
           <>
@@ -143,6 +147,43 @@ function AppPreviewCard({
             <Clock className="w-3 h-3 text-[#9A9A97] flex-shrink-0" />
             <p className="text-[11px] text-[#9A9A97]">{formatRelative(app.updated_at)}</p>
           </div>
+        </div>
+
+        {/* Actions rapides toujours visibles : copier le lien (avec animation),
+            ouvrir en plein écran, modifier. */}
+        <div className="flex items-center gap-0.5 flex-shrink-0">
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              navigator.clipboard
+                ?.writeText(`${window.location.origin}/apps/${app.id}`)
+                .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1600); })
+                .catch(() => {});
+            }}
+            title="Copier le lien de l'application"
+            className={`p-1.5 rounded-lg transition-colors ${copied ? "text-emerald-600 bg-emerald-50" : "text-[#9A9A97] hover:text-[#7C3AED] hover:bg-black/[0.04]"}`}
+          >
+            {copied ? <Check className="w-4 h-4 animate-scale-in" /> : <Link2 className="w-4 h-4" />}
+          </button>
+          <a
+            href={`/apps/${app.id}`}
+            target="_blank"
+            rel="noopener"
+            onClick={(e) => e.stopPropagation()}
+            title="Ouvrir en plein écran"
+            className="p-1.5 rounded-lg text-[#9A9A97] hover:text-[#0A0A0A] hover:bg-black/[0.04] transition-colors"
+          >
+            <ExternalLink className="w-4 h-4" />
+          </a>
+          <Link
+            href={`/generate?edit=${app.id}`}
+            onClick={(e) => e.stopPropagation()}
+            title="Modifier"
+            className="p-1.5 rounded-lg text-[#9A9A97] hover:text-[#7C3AED] hover:bg-black/[0.04] transition-colors"
+          >
+            <Pencil className="w-4 h-4" />
+          </Link>
         </div>
 
         <div className="relative flex-shrink-0">
@@ -518,23 +559,6 @@ export default function DashboardPage() {
               </>
             )}
           </div>
-          </div>
-
-          {/* Quick prompts */}
-          <div className="flex flex-wrap items-center justify-center gap-2 mt-4">
-            {QUICK_PROMPTS.map((p) => (
-              <button
-                key={p}
-                onClick={() => {
-                  sessionStorage.setItem("biltia_prompt", `Je veux ${p.toLowerCase()}`);
-                  sessionStorage.setItem("biltia_autostart", "1");
-                  router.push("/generate");
-                }}
-                className="glass text-[12.5px] px-3 py-1.5 text-[#4A4A56] rounded-full hover:bg-white transition-colors"
-              >
-                {p}
-              </button>
-            ))}
           </div>
         </div>
       </section>

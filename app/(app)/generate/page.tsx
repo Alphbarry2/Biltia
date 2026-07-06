@@ -1976,13 +1976,6 @@ export default function GeneratePage() {
             )}
           </div>
           </div>
-          <p className="text-xs text-[#6E6E6C] mt-2 text-center">
-            {attached.length > 0
-              ? `${attached.length} fichier(s) · ≈ ${attached.length * 25} crédits · ${attached.length > 1 ? "contrôle par lot" : "analyse"}`
-              : generatedHTML
-              ? "Question ≈ 10 crédits · modification ≈ 60 (ajusté au coût réel)"
-              : "Question ≈ 10 crédits · application ≈ 300 (ajusté au coût réel)"}
-          </p>
         </div>
         </div>
       </div>
