@@ -23,7 +23,6 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Sparkles,
-  Bot,
 } from "lucide-react";
 
 function Sidebar({
@@ -82,7 +81,6 @@ function Sidebar({
   const nav = [
     { label: "Accueil", href: "/dashboard", icon: <Home className="w-4 h-4" /> },
     { label: "Workspace", href: "/workspace", icon: <Boxes className="w-4 h-4" /> },
-    { label: "Agents", href: "/agents", icon: <Bot className="w-4 h-4" /> },
     { label: "Bibliothèque", href: "/library", icon: <Library className="w-4 h-4" /> },
     { label: "Connecteurs", href: "/connectors", icon: <Plug className="w-4 h-4" /> },
     { label: "Activité", href: "/activity", icon: <Activity className="w-4 h-4" /> },
