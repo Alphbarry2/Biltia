@@ -3,13 +3,14 @@
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Check, ChevronDown, ArrowRight, ArrowUpRight, MessageCircle, FileText, LayoutGrid, Bot } from "lucide-react";
+import { Check, ChevronDown, ArrowRight, CalendarDays, MessageCircle, FileText, LayoutGrid, Bot } from "lucide-react";
 import {
   getPlan, getTier, formatEur, groupTiers, ENTERPRISE,
   tierDisplayMonthlyEur, annualTotalEur,
   type Plan, type BillingCycle,
 } from "@/lib/plans";
 import { Reveal, Spot, InteractiveMesh, SiteNav, SiteFooter, EASE } from "@/components/site";
+import { ReserveDemoButton } from "@/components/demo-booking";
 
 const FAQ: { q: string; a: string }[] = [
   { q: "Comment je commence ?", a: "Vous créez un compte et vous utilisez Biltia gratuitement, tout de suite. Vous avez 300 crédits offerts pour découvrir l'outil et créer votre première application. Quand ils sont épuisés, vous passez à Pro en choisissant votre volume de crédits." },
@@ -330,9 +331,9 @@ export default function TarifsPage() {
                     <li key={f} className="flex items-start gap-2.5 text-[13px]"><Check className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-pink-300" strokeWidth={2.5} /><span className="text-white/90">{f}</span></li>
                   ))}
                 </ul>
-                <a href={`mailto:${ENTERPRISE.contactEmail}?subject=Biltia%20Entreprise%20-%20demande%20de%20devis`} className="mt-auto flex items-center justify-center gap-2 py-3 rounded-full text-[14px] font-semibold bg-white text-[#1E1B3A] transition-transform hover:scale-[1.01] active:scale-[0.99]">
-                  Nous contacter <ArrowUpRight className="w-3.5 h-3.5" />
-                </a>
+                <ReserveDemoButton className="mt-auto flex w-full items-center justify-center gap-2 py-3 rounded-full text-[14px] font-semibold bg-white text-[#1E1B3A] transition-transform hover:scale-[1.01] active:scale-[0.99]">
+                  Réserver une démo <CalendarDays className="w-3.5 h-3.5" />
+                </ReserveDemoButton>
               </div>
             </div>
           </Reveal>

@@ -16,6 +16,7 @@ import {
   Card, Kpi, Tile, AreaChart, BarList, Donut, BlockTitle,
   nf, eur, usd, tok, pct, dur, type Point, type BarRow,
 } from "./admin-ui";
+import DemoBookingsSection from "./demo-bookings-section";
 
 // ── Type miroir de /api/admin/stats ──────────────────────────────────────────
 type Bucket = { key: string; calls: number; inTok: number; outTok: number; costUsd: number; credits: number };
@@ -160,6 +161,7 @@ const GRID3 = "grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3";
 function Overview({ d }: { d: Stats }) {
   return (
     <div className="space-y-6">
+      <DemoBookingsSection />
       <div className={GRID4}>
         <Kpi accent icon={<TrendingUp className="h-4 w-4" />} value={pct(d.totals.marginPct)} label="Marge brute" hint={`sur ${eur(d.totals.revenueEur)} de valeur vendue`} />
         <Kpi icon={<Wallet className="h-4 w-4" />} value={eur(d.totals.revenueEur)} label="Revenu estimé" hint={`${nf.format(d.totals.credits)} crédits × ${d.totals.salePerCreditEur.toFixed(3)} €`} />

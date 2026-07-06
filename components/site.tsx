@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { PRODUCTS } from "@/lib/products";
 import { TEMPLATE_PREVIEWS, type TemplatePreview } from "@/lib/template-previews";
+import { ReserveDemoButton } from "@/components/demo-booking";
 
 export const EASE = [0.16, 1, 0.3, 1] as const;
 export const BLACK = "bg-[#0A0A0A] text-white hover:bg-[#222] transition-colors";
@@ -213,6 +214,7 @@ export function SiteNav() {
             <Link href="/#demo" className="px-3.5 py-2 rounded-lg text-[14px] text-[#5B5B66] hover:text-[#0A0A0A] hover:bg-black/[0.04] transition-colors font-medium">En action</Link>
             <Link href="/blog" className="px-3.5 py-2 rounded-lg text-[14px] text-[#5B5B66] hover:text-[#0A0A0A] hover:bg-black/[0.04] transition-colors font-medium">Blog</Link>
             <Link href="/tarifs" className="px-3.5 py-2 rounded-lg text-[14px] text-[#5B5B66] hover:text-[#0A0A0A] hover:bg-black/[0.04] transition-colors font-medium">Tarifs</Link>
+            <ReserveDemoButton className="px-3.5 py-2 rounded-lg text-[14px] text-[#5B5B66] hover:text-[#0A0A0A] hover:bg-black/[0.04] transition-colors font-medium">Démo</ReserveDemoButton>
           </div>
 
           <div className="flex items-center gap-2">
@@ -247,6 +249,7 @@ export function SiteNav() {
                 <Link href="/#demo" onClick={() => setOpen(false)}>En action</Link>
                 <Link href="/blog" onClick={() => setOpen(false)}>Blog</Link>
                 <Link href="/tarifs" onClick={() => setOpen(false)}>Tarifs</Link>
+                <ReserveDemoButton onClick={() => setOpen(false)}>Démo</ReserveDemoButton>
                 <Link href="/login" onClick={() => setOpen(false)}>Se connecter</Link>
               </div>
               <a href="/signup" className={`${BLACK} font-semibold px-8 py-3.5 rounded-full text-[15px] text-center`}>Commencer</a>
@@ -544,7 +547,8 @@ export function SiteFooter() {
             <li><Link href="/blog" className="text-[13.5px] text-[#5B5B66] hover:text-[#0A0A0A] transition-colors">Blog</Link></li>
             <li><Link href="/tarifs" className="text-[13.5px] text-[#5B5B66] hover:text-[#0A0A0A] transition-colors">Tarifs</Link></li>
             <li><Link href="/#demo" className="text-[13.5px] text-[#5B5B66] hover:text-[#0A0A0A] transition-colors">En action</Link></li>
-            <li><a href="#" className="text-[13.5px] text-[#5B5B66] hover:text-[#0A0A0A] transition-colors">Contact</a></li>
+            <li><ReserveDemoButton className="text-[13.5px] text-[#5B5B66] hover:text-[#0A0A0A] transition-colors">Réserver une démo</ReserveDemoButton></li>
+            <li><a href="mailto:contact@biltia.com" className="text-[13.5px] text-[#5B5B66] hover:text-[#0A0A0A] transition-colors">Contact</a></li>
           </ul>
         </div>
       </div>

@@ -171,6 +171,14 @@ Un dashboard + une liste + une fiche « label : valeur » = un Excel déguisé, 
 
 La richesse vient du CONTENU et des VISUELS, pas d'un 2ᵉ dégradé ni de couleurs criardes : garde le système de design ci-dessous à la lettre.
 
+## PRINCIPE VISUEL N°1 — SIMPLE ET ÉPURÉ (c'est ÇA le wow, PAS la densité)
+Réfère-toi à Lovable / Linear : clair, calme, évident. La beauté vient de la CLARTÉ et de l'ESPACE, jamais de la surcharge ni des couleurs vives.
+- Des cartes BLANCHES propres, beaucoup de blanc, UN accent discret. L'écran doit respirer.
+- MOINS d'éléments, mieux espacés. Si un visuel ou une section n'est pas VRAIMENT utile, ENLÈVE-LE. Dans le doute, retire.
+- JAMAIS de gros bloc de couleur saturée. JAMAIS de mise en page bancale (une carte seule à côté d'un grand vide, un KPI orphelin).
+- La richesse est FONCTIONNELLE (boutons qui marchent, navigation réelle, vraies données, calculs), PAS visuelle. En regardant l'écran, l'artisan doit se dire en 2 secondes « c'est propre, c'est clair, je sais quoi faire ».
+Cette règle PRIME sur toute envie d'en mettre plus : dans le doute entre « plus riche » et « plus épuré », choisis TOUJOURS plus épuré.
+
 ## SYSTÈME DE DESIGN BILTIA — CSS OBLIGATOIRE
 
 C'est l'identité Biltia : fond clair #FCFCFD, cards blanches très arrondies (18-24px),
@@ -186,11 +194,11 @@ DEBUT_CSS
 --shadow:0 1px 3px rgba(20,20,40,.05),0 8px 24px rgba(20,20,40,.06);--shadow-lg:0 12px 40px rgba(20,20,40,.14)}
 body{background:var(--bg);font-family:'Inter',system-ui,sans-serif;color:var(--ink);font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
 .card{background:#fff;border:1px solid var(--line);border-radius:20px;padding:20px;overflow:hidden;box-shadow:var(--shadow)}
-.hero{position:relative;margin:16px;padding:22px 20px;border-radius:24px;color:#fff;background:var(--grad);box-shadow:0 12px 32px rgba(var(--glow),.35);overflow:hidden}
-.hero::after{content:"";position:absolute;right:-44px;top:-44px;width:190px;height:190px;border-radius:50%;background:rgba(255,255,255,.14)}
-.hero-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;opacity:.85}
-.hero-value{font-size:34px;font-weight:800;letter-spacing:-.02em;line-height:1.15;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.hero-sub{font-size:12.5px;opacity:.85}
+.hero{position:relative;margin:16px;padding:24px 22px;border-radius:24px;color:var(--ink);background:#fff;border:1px solid var(--line);box-shadow:var(--shadow);overflow:hidden}
+.hero::after{content:"";position:absolute;right:-52px;top:-52px;width:180px;height:180px;border-radius:50%;background:var(--tint);opacity:.75}
+.hero-label{position:relative;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--vio)}
+.hero-value{position:relative;font-size:34px;font-weight:800;letter-spacing:-.02em;line-height:1.15;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hero-sub{position:relative;font-size:12.5px;color:var(--mut)}
 .kpi{background:#fff;border:1px solid var(--line);border-radius:18px;padding:16px 18px;display:flex;flex-direction:column;gap:5px;overflow:hidden;box-shadow:var(--shadow)}
 .kpi-label{font-size:10px;font-weight:700;color:var(--faint);text-transform:uppercase;letter-spacing:.1em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .kpi-value{font-size:25px;font-weight:800;color:var(--ink);line-height:1.1;letter-spacing:-.02em;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -269,7 +277,7 @@ Utilise toujours cette structure :
 - \`<header class="app-header">\` fixe : \`.app-eyebrow\` (la marque — le bloc « MARQUE DE L'EN-TÊTE » du prompt donne le nom exact ; à défaut « BILTIA ») + \`.app-title\`, et à droite UN bouton \`.btn btn-primary btn-sm\`.
 - \`<main class="app-main">\`.
 - L'ÉLÉMENT MARQUANT en premier : \`<section class="hero">\` avec \`.hero-label\`, \`.hero-value\` (LE chiffre qui compte pour ce métier : CA du mois, chantiers en cours, heures de la semaine…) et \`.hero-sub\`. UN seul héro par app — c'est lui qu'on remarque.
-- KPI secondaires dans \`<div class="kpi-grid">\` (2 à 4 max, jamais plus).
+- KPI dans \`<div class="kpi-grid">\` : EXACTEMENT 2 ou 4 (JAMAIS 1 ni 3). Avec 3, la grille laisse une carte seule à côté d'un grand vide — défaut visuel interdit. Si tu n'as que 3 idées de KPI, choisis les 2 plus utiles, ou ajoute un 4ᵉ pertinent.
 - Recherche/filtres dans \`.search-bar\`, données dans \`.table-wrap\` (desktop) ou en cartes \`.card\` empilées (mobile).
 - Modal dans \`<div class="overlay">\` avec \`<div class="modal">\` (titre + \`.modal-sub\`).
 - \`<nav class="tab-bar">\` fixe en bas (2 à 4 onglets, icônes SVG inline) + \`<button class="fab">+</button>\` sur mobile pour l'ajout.
@@ -316,14 +324,15 @@ RÈGLES :
   existante, tu RECOPIES la palette en place à l'identique (voir la règle de
   modification chirurgicale) — jamais de nouveau tirage.
 - Si la demande précise un thème (réponse au questionnaire, ex. « Thème couleur : ocean »),
-  applique CETTE palette. Sinon, CHOISIS-EN UNE AU HASARD adaptée au métier — ne prends
-  pas toujours la même, chaque app doit avoir sa personnalité.
+  applique CETTE palette. Sinon, choisis une palette SOBRE adaptée au métier (violet, ocean,
+  foret, graphite = les plus sûrs). ÉVITE les palettes très saturées (ambre, corail) sauf si
+  l'utilisateur les demande explicitement — elles rendent l'app criarde. Dans le doute : violet.
 - Si l'utilisateur DÉCRIT sa palette librement (ex. « des tons orangés chaleureux », « bleu
   marine et doré »), DÉRIVE toi-même les 5 variables (--vio, --grad, --glow, --tint,
   --tintline) dans cet esprit : accent saturé lisible, dégradé harmonieux à 2-3 teintes
   voisines, tint pâle assorti. Le fond #FCFCFD et les cards blanches restent INCHANGÉS.
 - Fond de page \`#FCFCFD\` et cards blanches, bordure \`#ECECF2\`, arrondis 18-24 px : identiques quelle que soit la palette. JAMAIS de fond ivoire/beige.
-- Le dégradé \`--grad\` est réservé au \`.hero\`, \`.btn-primary\`, \`.fab\`, \`.prog-fill\`, \`.step-dot.done\`. Le héro est le SEUL grand bloc en dégradé de l'écran.
+- La couleur/le dégradé reste DISCRET, par petites touches : \`.btn-primary\`, \`.fab\`, \`.prog-fill\`, \`.step-dot.done\`, petites puces. AUCUN grand aplat de couleur saturée. Le hero et TOUTES les cartes restent CLAIRS (fond blanc, texte sombre). L'écran est majoritairement blanc : la couleur PONCTUE, elle ne domine jamais.
 - Vert / rouge / ambre pour les statuts métier UNIQUEMENT (payé, retard, à surveiller) — indépendants de la palette.
 - INTERDIT : plus d'une palette par app, fond ivoire \`#F7F5EF\`, accents fluo saturés, boutons gris ternes.
 

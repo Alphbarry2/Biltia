@@ -1,6 +1,7 @@
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import PWARegister from "@/components/pwa-register";
+import { DemoBookingProvider } from "@/components/demo-booking";
 
 export const metadata: Metadata = {
   applicationName: "Biltia",
@@ -34,7 +35,9 @@ export default function RootLayout({
   return (
     <html lang="fr">
       <body>
-        {children}
+        <DemoBookingProvider>
+          {children}
+        </DemoBookingProvider>
         <PWARegister />
       </body>
     </html>

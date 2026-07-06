@@ -7,6 +7,7 @@ import { getActiveMembership } from "@/lib/tenant";
 import { isFounderEmail } from "@/lib/founder";
 import { saveConversation, loadConversation } from "@/lib/conversations";
 import { looksLikePureQuestion, classifyKindHeuristic } from "@/lib/kind-heuristic";
+import { playCompletionChime } from "@/lib/chime";
 import { VoiceRecorder } from "@/components/voice-recorder";
 import { ClarifyWidget, type ClarifyQuestion } from "@/components/clarify-widget";
 import { buildStaticClarifyQuestions } from "@/lib/clarify-questions";
@@ -513,6 +514,18 @@ export default function GeneratePage() {
     }, 1000);
     return () => clearInterval(timer);
   }, [isGenerating]);
+
+  // ── Auto-hauteur de la barre de saisie ───────────────────────────────────
+  // La barre grandit avec le texte et le montre EN ENTIER (frappe, dictée
+  // vocale, collage, restauration d'un brouillon). On recalcule à CHAQUE
+  // changement de `input`, pas seulement à la frappe : sinon la dictée (valeur
+  // posée par React, sans événement natif) resterait clippée à une seule ligne.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [input]);
 
   // ── Fullscreen toggle ─────────────────────────────────────────────────────
   const toggleFullscreen = () => {
@@ -1272,6 +1285,9 @@ export default function GeneratePage() {
         const finalHtml = newKind === "document" ? data.html : injectErrorCapture(data.html);
         setGeneratedHTML(finalHtml);
         setAppName(data.name);
+        // Livrable long prêt (app / document / action) → sonnerie de fin. Le
+        // chat/réponse rapide ne passe jamais par ici : pas de bip pour une question.
+        playCompletionChime();
         // Création : nouveau livrable → nouvel enregistrement. Modification :
         // on GARDE l'id pour mettre à jour le même atelier (jamais de doublon).
         if (!isModification) {
@@ -1834,7 +1850,7 @@ export default function GeneratePage() {
           {/* Bordure lumineuse animée signature (même effet que la barre de la landing). */}
           <div className="chatframe" style={{ borderRadius: 18 }}>
           <div
-            className="chatcard flex items-end gap-2 bg-white border border-[#ECECF2] rounded-[18px] px-3 py-2.5 transition-all"
+            className="chatcard flex items-end gap-2 bg-white border border-[#ECECF2] rounded-[18px] px-3.5 py-3 transition-all"
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               e.preventDefault();
@@ -1903,7 +1919,7 @@ export default function GeneratePage() {
                     : "Décrivez votre outil BTP… (Entrée pour envoyer)"
                 }
                 rows={1}
-                className="relative w-full bg-transparent text-[#0A0A0A] placeholder-[#9A9AA6] text-sm resize-none focus:outline-none min-h-[24px] max-h-32 leading-relaxed"
+                className="relative block w-full bg-transparent text-[#0A0A0A] placeholder-[#9A9AA6] text-sm resize-none focus:outline-none min-h-[26px] max-h-[240px] overflow-y-auto leading-relaxed"
                 style={{ height: "auto" }}
                 onInput={(e) => {
                   const el = e.currentTarget;
