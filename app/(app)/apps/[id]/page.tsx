@@ -112,6 +112,7 @@ export default function AppViewerPage() {
         <iframe
           srcDoc={app.html_content}
           sandbox="allow-scripts allow-forms allow-same-origin allow-modals"
+          allow="camera; microphone; geolocation; clipboard-write"
           className="flex-1 w-full border-0"
           title={app.name}
         />
@@ -210,6 +211,7 @@ export default function AppViewerPage() {
           ref={iframeRef}
           srcDoc={app.html_content}
           sandbox="allow-scripts allow-forms allow-same-origin allow-modals"
+          allow="camera; microphone; geolocation; clipboard-write"
           className="w-full h-full border-0"
           title={app.name}
         />

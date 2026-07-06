@@ -676,7 +676,13 @@ export default function GeneratePage() {
       // elle envoie BILTIA_API_CALL, on proxifie vers /api/data en same-origin.
       if (event.data?.type === 'BILTIA_API_CALL') {
         const { id, body } = event.data as { id: string; body: unknown };
-        const src = event.source as Window | null;
+        // Répondre à la fenêtre émettrice ; repli sur l'iframe courante si
+        // event.source est null (iframe re-rendue) — sinon la réponse est perdue
+        // et l'app tombe en « workspace injoignable » à tort.
+        const reply = (payload: Record<string, unknown>) => {
+          const target = (event.source as Window | null) ?? iframeRef.current?.contentWindow ?? null;
+          target?.postMessage({ type: 'BILTIA_API_RESPONSE', id, ...payload }, '*');
+        };
         fetch('/api/data', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -685,15 +691,11 @@ export default function GeneratePage() {
         })
           .then(async (res) => {
             const result = await res.json().catch(() => null);
-            if (!res.ok) {
-              src?.postMessage({ type: 'BILTIA_API_RESPONSE', id, error: result?.error ?? `Erreur ${res.status}` }, '*');
-            } else {
-              src?.postMessage({ type: 'BILTIA_API_RESPONSE', id, result }, '*');
-            }
+            if (!res.ok) reply({ error: result?.error ?? `Erreur ${res.status}` });
+            else reply({ result });
           })
           .catch((err: unknown) => {
-            const msg = err instanceof Error ? err.message : 'Réseau indisponible';
-            src?.postMessage({ type: 'BILTIA_API_RESPONSE', id, error: msg }, '*');
+            reply({ error: err instanceof Error ? err.message : 'Réseau indisponible' });
           });
         return;
       }
@@ -2295,6 +2297,7 @@ export default function GeneratePage() {
                       key={generatedHTML.slice(0, 50)}
                       srcDoc={generatedHTML}
                       sandbox="allow-scripts allow-forms allow-same-origin allow-modals"
+                      allow="camera; microphone; geolocation; clipboard-write"
                       className={`w-full h-full border-0 ${resizing ? "pointer-events-none" : ""}`}
                       title="Application générée"
                     />
@@ -2307,6 +2310,7 @@ export default function GeneratePage() {
                 key={generatedHTML.slice(0, 50)}
                 srcDoc={generatedHTML}
                 sandbox="allow-scripts allow-forms allow-same-origin allow-modals"
+                allow="camera; microphone; geolocation; clipboard-write"
                 className={`w-full h-full border-0 ${resizing ? "pointer-events-none" : ""}`}
                 title="Application générée"
               />

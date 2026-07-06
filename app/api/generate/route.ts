@@ -332,7 +332,7 @@ RÈGLES :
   --tintline) dans cet esprit : accent saturé lisible, dégradé harmonieux à 2-3 teintes
   voisines, tint pâle assorti. Le fond #FCFCFD et les cards blanches restent INCHANGÉS.
 - Fond de page \`#FCFCFD\` et cards blanches, bordure \`#ECECF2\`, arrondis 18-24 px : identiques quelle que soit la palette. JAMAIS de fond ivoire/beige.
-- La couleur/le dégradé reste DISCRET, par petites touches : \`.btn-primary\`, \`.fab\`, \`.prog-fill\`, \`.step-dot.done\`, petites puces. AUCUN grand aplat de couleur saturée. Le hero et TOUTES les cartes restent CLAIRS (fond blanc, texte sombre). L'écran est majoritairement blanc : la couleur PONCTUE, elle ne domine jamais.
+- RESPECTE la couleur choisie : elle doit être BIEN PRÉSENTE et reconnaissable — boutons, accents, puces, reliefs, petits dégradés. Si l'utilisateur veut du rose (même écrit librement, hors palettes proposées), l'app est visiblement rose. MAIS avec GOÛT : pas de grand aplat de couleur SATURÉE/criarde, surtout pas un hero plein de couleur. Cartes claires, fond majoritairement blanc, la couleur PONCTUE avec élégance. But : épuré ET coloré — jamais fade, jamais criard.
 - Vert / rouge / ambre pour les statuts métier UNIQUEMENT (payé, retard, à surveiller) — indépendants de la palette.
 - INTERDIT : plus d'une palette par app, fond ivoire \`#F7F5EF\`, accents fluo saturés, boutons gris ternes.
 
@@ -391,6 +391,7 @@ Signaux : « ouvriers », « équipe sur le chantier », « avant/après », « 
 1. UNE action dominante = le verbe central de l'app (photographier / pointer / dicter). Elle est ÉNORME, au centre, atteignable en 1 seul tap dès l'ouverture — jamais cachée dans un menu ni après un formulaire.
 2. Boutons GÉANTS (≥ 64px de haut), cibles très larges, gros espaces entre elles — utilisables avec des gants.
 3. Saisie clavier réduite au strict minimum : privilégie l'APPAREIL PHOTO, le MICRO (dictée), les gros interrupteurs/sélecteurs. Un ouvrier ganté ne tape pas au clavier.
+   • PHOTO — implémentation OBLIGATOIRE : un \`<input type="file" accept="image/*" capture="environment">\` (caché, déclenché par le bouton via un \`<label>\` ou \`input.click()\`). Sur MOBILE, ça ouvre DIRECTEMENT l'appareil photo arrière ; sur ordinateur, le sélecteur de fichiers. Lis l'image, puis COMPRESSE-la OBLIGATOIREMENT avant de l'afficher/stocker : dessine-la sur un \`<canvas>\` redimensionné à 1400px max sur le grand côté, puis \`canvas.toDataURL('image/jpeg', 0.7)\` → ~150-300 Ko au lieu de plusieurs Mo. Une dataURL brute non compressée rend l'enregistrement LENT et le fait ÉCHOUER (« workspace injoignable »). N'utilise JAMAIS \`getUserMedia\`/\`<video>\` (inutile, fragile, souvent bloqué). Le bouton DOIT marcher du premier coup.
 4. Contraste FORT et gros texte (lisible en plein soleil). Actions placées EN BAS de l'écran (portée du pouce).
 5. Confirmation immédiate et ÉVIDENTE après chaque action (grande coche verte, message clair) : le gars doit SAVOIR que c'est enregistré sans avoir à lire.
 6. Résilience réseau : le chantier a une connexion pourrie. Une capture (photo, pointage) ne doit JAMAIS être perdue à cause du réseau — garde-la localement et réessaie ; ne bloque pas le gars.
