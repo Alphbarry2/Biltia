@@ -27,6 +27,8 @@ import {
   Link2,
   Check,
   ExternalLink,
+  Star,
+  ArrowLeftRight,
   Search,
   X,
   FileText,
@@ -74,10 +76,18 @@ function AppPreviewCard({
   app,
   index,
   onDelete,
+  isFavorite,
+  onToggleFavorite,
+  onRename,
+  onTransfer,
 }: {
   app: App;
   index: number;
   onDelete: () => void;
+  isFavorite: boolean;
+  onToggleFavorite: () => void;
+  onRename: () => void;
+  onTransfer: () => void;
 }) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -123,20 +133,14 @@ function AppPreviewCard({
           </div>
         )}
 
-        <div className={`absolute inset-0 bg-[#0A0A0A]/55 flex items-center justify-center gap-3 transition-opacity duration-300 ${hovered ? "opacity-100" : "opacity-0"}`}>
-          <span className="flex items-center gap-1.5 px-3 py-1.5 bg-white/15 backdrop-blur-sm border border-white/20 text-white text-xs font-medium rounded-full">
-            <ArrowUpRight className="w-3.5 h-3.5" />
-            Ouvrir
-          </span>
-          <Link
-            href={`/generate?edit=${app.id}`}
-            onClick={(e) => e.stopPropagation()}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-white/15 backdrop-blur-sm border border-white/20 text-white text-xs font-medium rounded-full hover:bg-white/25 transition-colors"
-          >
-            <Pencil className="w-3.5 h-3.5" />
-            Modifier
-          </Link>
-        </div>
+        {/* Étoile favori — les favoris sont prioritaires dans l'affichage. */}
+        <button
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggleFavorite(); }}
+          title={isFavorite ? "Retirer des favoris" : "Mettre en favori"}
+          className={`absolute top-2.5 right-2.5 z-10 grid h-8 w-8 place-items-center rounded-full bg-white/90 backdrop-blur-sm shadow-[0_2px_10px_rgba(0,0,0,0.14)] active:scale-90 transition-all ${isFavorite ? "" : "opacity-0 group-hover:opacity-100"}`}
+        >
+          <Star className={`w-4 h-4 ${isFavorite ? "fill-amber-400 text-amber-400" : "text-[#9A9A97]"}`} />
+        </button>
       </div>
 
       {/* Card footer */}
@@ -149,60 +153,46 @@ function AppPreviewCard({
           </div>
         </div>
 
-        {/* Actions rapides toujours visibles : copier le lien (avec animation),
-            ouvrir en plein écran, modifier. */}
-        <div className="flex items-center gap-0.5 flex-shrink-0">
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              navigator.clipboard
-                ?.writeText(`${window.location.origin}/apps/${app.id}`)
-                .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1600); })
-                .catch(() => {});
-            }}
-            title="Copier le lien de l'application"
-            className={`p-1.5 rounded-lg transition-colors ${copied ? "text-emerald-600 bg-emerald-50" : "text-[#9A9A97] hover:text-[#7C3AED] hover:bg-black/[0.04]"}`}
-          >
-            {copied ? <Check className="w-4 h-4 animate-scale-in" /> : <Link2 className="w-4 h-4" />}
-          </button>
-          <a
-            href={`/apps/${app.id}`}
-            target="_blank"
-            rel="noopener"
-            onClick={(e) => e.stopPropagation()}
-            title="Ouvrir en plein écran"
-            className="p-1.5 rounded-lg text-[#9A9A97] hover:text-[#0A0A0A] hover:bg-black/[0.04] transition-colors"
-          >
-            <ExternalLink className="w-4 h-4" />
-          </a>
-          <Link
-            href={`/generate?edit=${app.id}`}
-            onClick={(e) => e.stopPropagation()}
-            title="Modifier"
-            className="p-1.5 rounded-lg text-[#9A9A97] hover:text-[#7C3AED] hover:bg-black/[0.04] transition-colors"
-          >
-            <Pencil className="w-4 h-4" />
-          </Link>
-        </div>
+        {/* Copier le lien (animé) */}
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            navigator.clipboard
+              ?.writeText(`${window.location.origin}/apps/${app.id}`)
+              .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1600); })
+              .catch(() => {});
+          }}
+          title="Copier le lien"
+          className={`flex-shrink-0 p-1.5 rounded-lg transition-colors ${copied ? "text-emerald-600 bg-emerald-50" : "text-[#9A9A97] hover:text-[#7C3AED] hover:bg-black/[0.04]"}`}
+        >
+          {copied ? <Check className="w-4 h-4 animate-scale-in" /> : <Link2 className="w-4 h-4" />}
+        </button>
 
+        {/* Menu … : renommer, transférer, ouvrir, supprimer */}
         <div className="relative flex-shrink-0">
           <button
             onClick={(e) => { e.preventDefault(); setMenuOpen(!menuOpen); }}
-            className="p-1.5 text-[#9A9A97] hover:text-[#0A0A0A] rounded-lg hover:bg-black/[0.04] transition-colors opacity-0 group-hover:opacity-100"
+            className="p-1.5 text-[#9A9A97] hover:text-[#0A0A0A] rounded-lg hover:bg-black/[0.04] transition-colors"
           >
             <MoreHorizontal className="w-4 h-4" />
           </button>
           {menuOpen && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-              <div className="absolute bottom-full right-0 mb-1 z-20 bg-white border border-[#E7E7E4] rounded-xl shadow-[0_8px_28px_rgba(0,0,0,0.1)] py-1 w-36">
-                <button
-                  onClick={() => { onDelete(); setMenuOpen(false); }}
-                  className="flex items-center gap-2 w-full px-3 py-2 text-xs text-[#D95C4A] hover:bg-[#fdf2f0] transition-colors"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  Supprimer
+              <div className="absolute bottom-full right-0 mb-1 z-20 w-56 origin-bottom-right animate-scale-in bg-white border border-[#E7E7E4] rounded-xl shadow-[0_8px_28px_rgba(0,0,0,0.1)] py-1">
+                <button onClick={() => { setMenuOpen(false); onRename(); }} className="flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-[#2A2A32] hover:bg-[#F4F4F7] transition-colors">
+                  <Pencil className="w-3.5 h-3.5 text-[#6E6E6C]" /> Renommer
+                </button>
+                <button onClick={() => { setMenuOpen(false); onTransfer(); }} className="flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-[#2A2A32] hover:bg-[#F4F4F7] transition-colors">
+                  <ArrowLeftRight className="w-3.5 h-3.5 text-[#6E6E6C]" /> Transférer vers un espace
+                </button>
+                <a href={`/apps/${app.id}`} target="_blank" rel="noopener" onClick={() => setMenuOpen(false)} className="flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-[#2A2A32] hover:bg-[#F4F4F7] transition-colors">
+                  <ExternalLink className="w-3.5 h-3.5 text-[#6E6E6C]" /> Ouvrir en plein écran
+                </a>
+                <div className="my-1 border-t border-[#EFEFF3]" />
+                <button onClick={() => { onDelete(); setMenuOpen(false); }} className="flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-[#D95C4A] hover:bg-[#fdf2f0] transition-colors">
+                  <Trash2 className="w-3.5 h-3.5" /> Supprimer
                 </button>
               </div>
             </>
@@ -230,6 +220,7 @@ function SkeletonCard() {
 export default function DashboardPage() {
   const router = useRouter();
   const [apps, setApps] = useState<App[]>([]);
+  const [favorites, setFavorites] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [input, setInput] = useState("");
   const [isListening, setIsListening] = useState(false);
@@ -334,6 +325,9 @@ export default function DashboardPage() {
   };
 
   useEffect(() => { fetchApps(); }, []);
+  useEffect(() => {
+    try { setFavorites(new Set(JSON.parse(localStorage.getItem("biltia_favorites") || "[]"))); } catch {}
+  }, []);
 
   // Préchauffe le générateur : l'appui sur Entrée doit ouvrir /generate
   // INSTANTANÉMENT. En dev, ces requêtes compilent la page et la route des
@@ -387,12 +381,54 @@ export default function DashboardPage() {
     setApps((prev) => prev.filter((a) => a.id !== id));
   };
 
+  const toggleFavorite = (id: string) => {
+    setFavorites((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      try { localStorage.setItem("biltia_favorites", JSON.stringify([...next])); } catch {}
+      return next;
+    });
+  };
+
+  const renameApp = async (id: string, current: string) => {
+    const name = window.prompt("Nouveau nom de l'application :", current)?.trim();
+    if (!name || name === current) return;
+    await createClient().from("modules").update({ name }).eq("id", id);
+    setApps((prev) => prev.map((a) => (a.id === id ? { ...a, name } : a)));
+  };
+
+  const transferApp = async (id: string) => {
+    try {
+      const res = await fetch("/api/workspaces");
+      const data = await res.json();
+      const spaces: { id: string; name: string; active?: boolean }[] = data?.workspaces ?? [];
+      const targets = spaces.filter((s) => !s.active);
+      if (!targets.length) {
+        alert("Vous n'avez qu'un seul espace de travail. Créez-en un autre pour pouvoir transférer.");
+        return;
+      }
+      const list = targets.map((s, i) => `${i + 1}. ${s.name}`).join("\n");
+      const pick = window.prompt(`Transférer vers quel espace de travail ?\n\n${list}\n\nEntrez le numéro :`);
+      const idx = Number(pick) - 1;
+      if (!Number.isInteger(idx) || idx < 0 || idx >= targets.length) return;
+      await createClient().from("modules").update({ tenant_id: targets[idx].id }).eq("id", id);
+      setApps((prev) => prev.filter((a) => a.id !== id)); // l'app quitte l'espace courant
+    } catch {
+      alert("Transfert impossible. Réessayez.");
+    }
+  };
+
   const hasContent = input.trim().length > 0 || files.length > 0;
 
   const q = query.trim().toLowerCase();
-  const filtered = q
+  const searched = q
     ? apps.filter((a) => `${a.name} ${a.description}`.toLowerCase().includes(q))
     : apps;
+  // Favoris TOUJOURS en tête (étoiles prioritaires), puis l'ordre existant.
+  const filtered = [...searched].sort(
+    (a, b) => (favorites.has(b.id) ? 1 : 0) - (favorites.has(a.id) ? 1 : 0)
+  );
 
   return (
     <div className="relative min-h-full bg-[#FCFCFD]">
@@ -612,7 +648,16 @@ export default function DashboardPage() {
             ) : (
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
                 {filtered.map((app, i) => (
-                  <AppPreviewCard key={app.id} app={app} index={i} onDelete={() => handleDelete(app.id)} />
+                  <AppPreviewCard
+                    key={app.id}
+                    app={app}
+                    index={i}
+                    onDelete={() => handleDelete(app.id)}
+                    isFavorite={favorites.has(app.id)}
+                    onToggleFavorite={() => toggleFavorite(app.id)}
+                    onRename={() => renameApp(app.id, app.name)}
+                    onTransfer={() => transferApp(app.id)}
+                  />
                 ))}
               </div>
             )

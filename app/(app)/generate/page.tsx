@@ -53,6 +53,10 @@ import {
   Image as ImageIcon,
   Share2,
   Link2,
+  ArrowRight,
+  RefreshCw,
+  Upload,
+  Menu,
   X,
   AlertTriangle,
 } from "lucide-react";
@@ -1662,41 +1666,26 @@ export default function GeneratePage() {
             <Link href="/dashboard" className="text-[#6E6E6C] hover:text-[#0A0A0A] transition-colors">
               <ChevronLeft className="w-5 h-5" />
             </Link>
-            <h1 className="font-bold tracking-[-0.01em] text-[#0A0A0A] text-base truncate min-w-0">{showStudio ? (appName || "Générateur") : "Assistant"}</h1>
+            <h1 className="font-bold tracking-[-0.01em] text-[#0A0A0A] text-[15px] truncate min-w-0">{showStudio ? (appName || "Atelier") : "Assistant"}</h1>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            {/* Mobile : flèche → application (pas de texte, pas de crédits). */}
             {showStudio && !previewHidden && (
               <button
                 onClick={() => setMobileView("app")}
-                className="md:hidden flex items-center gap-1.5 px-3.5 py-2 text-[13px] font-semibold rounded-full bg-[#0A0A0A] text-white active:scale-95 transition-transform"
+                className="md:hidden grid h-9 w-9 place-items-center rounded-full bg-[#0A0A0A] text-white active:scale-95 transition-transform"
                 title="Voir l'application"
               >
-                Aperçu <LayoutTemplate className="w-4 h-4" />
+                <ArrowRight className="w-[18px] h-[18px]" />
               </button>
             )}
-            {(credits !== null || founderAccount) && (
-              <span className="text-xs text-[#7C3AED] font-semibold bg-[#F3EFFC] border border-[#ECECF2] px-2.5 py-1 rounded-full tabular-nums">
-                ⚡ {founderAccount ? "∞" : credits} crédits
-              </span>
-            )}
-            {messages.length > 0 && (
-              <button
-                onClick={reset}
-                className="p-1.5 text-[#6E6E6C] hover:text-[#0A0A0A] rounded-lg hover:bg-[#F6F6F9] transition-colors"
-                title="Recommencer"
-              >
-                <RotateCcw className="w-4 h-4" />
-              </button>
-            )}
-            {/* App masquée (séparateur tiré au bord droit) → bouton de retour */}
             {showStudio && previewHidden && (
               <button
                 onClick={() => setPreviewHidden(false)}
-                className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 text-white shadow-[0_4px_14px_rgba(139,92,246,0.3)] hover:shadow-[0_6px_20px_rgba(139,92,246,0.45)] transition-all"
+                className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-[#0A0A0A] text-white transition-all"
                 title="Réafficher l'application"
               >
-                <LayoutTemplate className="w-3.5 h-3.5" />
-                Aperçu
+                <LayoutTemplate className="w-3.5 h-3.5" /> Aperçu
               </button>
             )}
             {showStudio && !previewHidden && (
@@ -2236,20 +2225,20 @@ export default function GeneratePage() {
           >
             <ChevronLeft className="w-4 h-4" /> Chat
           </button>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2.5">
             <button
               onClick={() => setReloadNonce((n) => n + 1)}
               title="Actualiser l'aperçu"
-              className="grid h-10 w-10 place-items-center rounded-full text-[#4A4A56] hover:bg-black/[0.05] active:scale-95 transition-all"
+              className="grid h-10 w-10 place-items-center rounded-full border border-[#E7E7E4] text-[#4A4A56] active:scale-95 transition-all"
             >
-              <RotateCcw className="w-[18px] h-[18px]" />
+              <RefreshCw className="w-[17px] h-[17px]" />
             </button>
             <button
               onClick={() => setShareOpen(true)}
               title="Partager"
-              className="grid h-10 w-10 place-items-center rounded-full text-white bg-[#0A0A0A] active:scale-95 transition-transform"
+              className="grid h-10 w-10 place-items-center rounded-full border border-[#E7E7E4] text-[#4A4A56] active:scale-95 transition-all"
             >
-              <Share2 className="w-[18px] h-[18px]" />
+              <Upload className="w-[17px] h-[17px]" />
             </button>
           </div>
         </div>
