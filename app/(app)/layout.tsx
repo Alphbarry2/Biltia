@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import { getActiveMembership } from "@/lib/tenant";
+import { can } from "@/lib/permissions";
 import { SubscriptionBanner } from "@/components/subscription-banner";
 import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 import { BiltiaLogo } from "@/components/brand";
@@ -40,6 +41,9 @@ function Sidebar({
   const [email, setEmail] = useState("");
   const [userName, setUserName] = useState("");
   const [isPaid, setIsPaid] = useState(false);
+  // Seul le propriétaire gère la facturation → le CTA « Passer à Pro » ne
+  // s'affiche que pour lui (un employé/lecteur ne peut pas souscrire).
+  const [canBill, setCanBill] = useState(false);
 
   useEffect(() => {
     const supabase = createClient();
@@ -60,6 +64,7 @@ function Sidebar({
       // Abonnement actif ? → masque le CTA « Passer à Pro ».
       const membership = await getActiveMembership(supabase, user.id);
       if (membership?.tenant_id) {
+        setCanBill(can(membership.role, "billing.manage"));
         const { data: sub } = await supabase
           .from("subscriptions")
           .select("plan, status")
@@ -146,8 +151,8 @@ function Sidebar({
         })}
       </nav>
 
-      {/* Passer à Pro (masqué si déjà abonné) */}
-      {!isPaid && (
+      {/* Passer à Pro (masqué si déjà abonné, ou si le rôle ne gère pas la facturation) */}
+      {!isPaid && canBill && (
         <div className="px-2.5 pb-2">
           {collapsed ? (
             <Link

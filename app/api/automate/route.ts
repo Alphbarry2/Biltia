@@ -19,6 +19,7 @@ import { createClient } from "@/lib/supabase-server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { trackAiUsage, reconcileCredits } from "@/lib/ai-usage";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
+import { can } from "@/lib/permissions";
 import { enforceRateLimit, LIMITS } from "@/lib/rate-limit";
 import { getEntitlementsForTenant, FROZEN_MESSAGE } from "@/lib/entitlements";
 import { isFounderEmail } from "@/lib/founder";
@@ -124,6 +125,15 @@ export async function POST(req: Request) {
       return Response.json({ error: "Aucun espace de travail trouvé." }, { status: 403 });
     }
     const tenantId = membership.tenant_id;
+
+    // RBAC : une automatisation crée un livrable → réservé aux rôles qui peuvent
+    // créer (un lecteur est en lecture seule).
+    if (!can(membership.role, "ai.create")) {
+      return Response.json(
+        { error: "Vous êtes en lecture seule sur cet espace. Demandez à un administrateur les droits pour lancer une automatisation." },
+        { status: 403 }
+      );
+    }
 
     // GEL LECTURE SEULE : un abonnement expiré ne peut plus lancer d'automatisation.
     const ent = await getEntitlementsForTenant(supabase, tenantId);

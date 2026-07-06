@@ -22,6 +22,7 @@ import { createClient } from "@/lib/supabase-server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { trackAiUsage, reconcileCredits } from "@/lib/ai-usage";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
+import { can } from "@/lib/permissions";
 import { enforceRateLimit, LIMITS } from "@/lib/rate-limit";
 import { getEntitlementsForTenant, FROZEN_MESSAGE } from "@/lib/entitlements";
 import { isFounderEmail } from "@/lib/founder";
@@ -648,6 +649,21 @@ export async function POST(req: Request) {
       }
     }
     const isAnswer = kind === "answer";
+
+    // ── RBAC : un LECTEUR (viewer) est en lecture seule. Il peut poser des
+    // questions (answer), pas créer une app/document/action ni envoyer un email
+    // ou poser un événement. Tout ce qui n'est pas une réponse lui est refusé
+    // proprement, AVANT toute dépense (hold crédits plus bas).
+    if (!isAutoFix && !isAnswer && !can(membership.role, "ai.create")) {
+      return Response.json(
+        {
+          kind: "answer",
+          answer:
+            "Vous êtes en **lecture seule** sur cet espace de travail : vous pouvez consulter les données et poser des questions, mais pas créer ni envoyer. Demandez à un administrateur de l'espace de vous accorder les droits nécessaires.",
+        },
+        { status: 403 }
+      );
+    }
 
     // ── EMAIL : l'intention est comprise (destinataire + objet + corps déjà
     // extraits par le classifieur). On ne vérifie la connexion Gmail QUE

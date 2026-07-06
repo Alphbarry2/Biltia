@@ -18,6 +18,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase-server";
 import { ENTITIES, ALLOWED_ENTITIES } from "@/lib/data-entities";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
+import { can } from "@/lib/permissions";
 import { logActivity } from "@/lib/activity";
 import {
   buildSheet,
@@ -49,6 +50,15 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Aucun espace de travail." }, { status: 403 });
   }
   const tenantId = membership.tenant_id;
+
+  // RBAC : exporter les données de l'espace est réservé aux rôles de gestion
+  // (owner / admin / manager) — un employé ou un lecteur n'exfiltre pas la base.
+  if (!can(membership.role, "export.data")) {
+    return NextResponse.json(
+      { error: "Vous n'avez pas les droits pour exporter les données de cet espace." },
+      { status: 403 }
+    );
+  }
 
   // Cible : une entité précise, ou tout le workspace.
   const isAll = entityParam === "all";

@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase-server";
 import { getStripe, resolvePriceId } from "@/lib/stripe";
 import { isValidTier, type BillingCycle, type PlanId } from "@/lib/plans";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
+import { can } from "@/lib/permissions";
 import type Stripe from "stripe";
 
 export const runtime = "nodejs";
@@ -62,6 +63,14 @@ export async function POST(req: Request) {
     const tenantId: string | undefined = membership?.tenant_id ?? undefined;
     if (!tenantId) {
       return Response.json({ error: "Aucun espace de travail." }, { status: 403 });
+    }
+
+    // RBAC : seul le propriétaire gère la facturation de l'espace.
+    if (!can(membership?.role, "billing.manage")) {
+      return Response.json(
+        { error: "Seul le propriétaire de l'espace peut gérer l'abonnement." },
+        { status: 403 }
+      );
     }
 
     // Réutilise le customer Stripe existant si connu (lecture RLS = son tenant).

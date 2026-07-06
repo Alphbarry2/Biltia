@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase";
 import { getActiveMembership } from "@/lib/tenant";
+import { useRole } from "@/lib/use-role";
 import { Dropdown } from "@/components/dropdown";
 import { COUNTRIES, normalizeCountry } from "@/lib/countries";
 import { CATEGORIES } from "@/lib/btp-catalog";
@@ -140,6 +141,9 @@ function PrefRow({
 // ─────────────────────────────────────────────────────────────────────────────
 export default function SettingsPage() {
   const [section, setSection] = useState<SectionKey>("account");
+  // Rôle dans l'espace actif → masque la Facturation aux non-propriétaires.
+  // Pendant le chargement, on affiche (évite le clignotement pour le propriétaire).
+  const { loading: roleLoading, can: roleCan } = useRole();
 
   const [credits, setCredits] = useState<number | null>(null);
   const [email, setEmail] = useState("");
@@ -161,8 +165,9 @@ export default function SettingsPage() {
   const [sectors, setSectors] = useState<string[]>([]);
   const [savingCompany, setSavingCompany] = useState(false);
 
-  // Cerveau collectif : contribution (anonymisée) au corpus partagé. Opt-out.
-  const [contributesToBrain, setContributesToBrain] = useState(true);
+  // Cerveau collectif : contribution (anonymisée) au corpus partagé. Opt-in (RGPD) :
+  // décoché par défaut, activé uniquement sur consentement explicite du tenant.
+  const [contributesToBrain, setContributesToBrain] = useState(false);
   const [savingBrain, setSavingBrain] = useState(false);
 
   // Sécurité : réinitialisation par email + 2FA TOTP
@@ -360,7 +365,7 @@ export default function SettingsPage() {
         siret: ci.siret ?? "",
         address: ci.address ?? "",
       });
-      setContributesToBrain(data?.contributes_to_brain !== false);
+      setContributesToBrain(data?.contributes_to_brain === true);
     });
   }, [tenantId]);
 
@@ -690,7 +695,9 @@ export default function SettingsPage() {
           {/* Nav interne */}
           <nav className="md:w-56 flex-shrink-0">
             <div className="flex md:flex-col gap-1 overflow-x-auto md:overflow-visible pb-2 md:pb-0 -mx-1 px-1 md:mx-0 md:px-0">
-              {SECTIONS.map(({ key, label, icon: Icon }) => (
+              {SECTIONS.filter(
+                (s) => s.key !== "billing" || roleLoading || roleCan("billing.manage")
+              ).map(({ key, label, icon: Icon }) => (
                 <button
                   key={key}
                   onClick={() => { setSection(key); setError(null); }}
@@ -976,8 +983,8 @@ export default function SettingsPage() {
                       </button>
                     </div>
                     <p className="text-[12px] text-[#9A9A97] mt-3">
-                      Le collaborateur doit déjà avoir un compte Biltia (inscription gratuite, sans carte).
-                      Il rejoint immédiatement votre espace de travail.
+                      S&apos;il a déjà un compte Biltia, il rejoint votre espace immédiatement.
+                      Sinon, il reçoit une invitation par email pour créer son compte et vous rejoindre — sans carte, sans crédits à lui offrir.
                     </p>
                   </>
                 ) : (

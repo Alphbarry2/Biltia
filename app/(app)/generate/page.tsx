@@ -1283,6 +1283,13 @@ export default function GeneratePage() {
         return;
       }
 
+      // Réponse texte non streamée (ex. lecture seule : le serveur refuse la
+      // création et explique). Rendu propre, sans traiter ça comme une erreur.
+      if (data.kind === "answer" && typeof data.answer === "string" && data.answer) {
+        setMessages((prev) => [...prev, { role: "assistant", content: data.answer }]);
+        return;
+      }
+
       if (res.ok && data.kind === "action" && data.needsFiles) {
         pendingActionRef.current = apiPrompt;
         setMessages((prev) => [

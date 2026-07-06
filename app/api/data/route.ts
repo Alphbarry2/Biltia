@@ -14,6 +14,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase-server";
 import { ENTITIES, ALLOWED_ENTITIES } from "@/lib/data-entities";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
+import { can } from "@/lib/permissions";
 import { getEntitlementsForTenant, FROZEN_MESSAGE } from "@/lib/entitlements";
 import { logActivity } from "@/lib/activity";
 import { recordSignal } from "@/lib/collective-brain";
@@ -57,6 +58,7 @@ function captureLearningSignal(
 // Actions qui MODIFIENT les données : refusées si l'abonnement est gelé (lecture
 // seule). `list`/`get` restent toujours ouverts (consultation + export garantis).
 const WRITE_ACTIONS = new Set(["create", "bulk_create", "update", "delete", "bulk_delete"]);
+const DELETE_ACTIONS = new Set(["delete", "bulk_delete"]);
 
 function sameOrigin(req: Request): boolean {
   const origin = req.headers.get("origin");
@@ -208,6 +210,25 @@ export async function POST(req: Request) {
   const entity = body.entity ?? "";
   const action = body.action ?? "";
   const isWorkspaceEntity = ALLOWED_ENTITIES.includes(entity);
+
+  // ── RBAC ── (double le RLS pour un message CLAIR au lieu d'une erreur brute).
+  // • Écrire (create/update/import) : refusé au lecteur (lecture seule).
+  // • Supprimer une ENTITÉ workspace (client, devis, facture…) : owner/admin
+  //   seulement, comme les policies RLS. Les enregistrements d'app génériques
+  //   (app_records) restent supprimables par tout collaborateur — c'est l'usage
+  //   normal d'une app, pas une action destructrice sur le métier.
+  if (WRITE_ACTIONS.has(action) && !can(membership.role, "data.write")) {
+    return NextResponse.json(
+      { error: "Vous êtes en lecture seule sur cet espace : vous ne pouvez pas modifier les données." },
+      { status: 403 }
+    );
+  }
+  if (isWorkspaceEntity && DELETE_ACTIONS.has(action) && !can(membership.role, "data.delete")) {
+    return NextResponse.json(
+      { error: "Seuls le propriétaire ou un administrateur peuvent supprimer des données du workspace." },
+      { status: 403 }
+    );
+  }
 
   // ── GEL LECTURE SEULE ── (s'applique aux DEUX chemins : entité workspace OU
   // collection générique). Un abonnement expiré fige l'espace en lecture seule ;

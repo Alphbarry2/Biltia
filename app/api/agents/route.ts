@@ -33,6 +33,7 @@ import {
   type AgentRecipientKind,
 } from "@/lib/agent-rules";
 import { executeRule, type AgentRuleRow } from "@/lib/agent-executor";
+import { can } from "@/lib/permissions";
 
 async function resolveSession() {
   const supabase = await createClient();
@@ -75,6 +76,15 @@ export async function POST(req: Request) {
   const { supabase, user, membership } = await resolveSession();
   if (!user) return NextResponse.json({ error: "Authentification requise." }, { status: 401 });
   if (!membership) return NextResponse.json({ error: "Aucun espace de travail." }, { status: 403 });
+
+  // RBAC : recruter un agent autonome est réservé aux chefs d'équipe et plus
+  // (owner / admin / manager). Un collaborateur ou un lecteur ne crée pas d'agent.
+  if (!can(membership.role, "agents.manage")) {
+    return NextResponse.json(
+      { error: "Seuls le propriétaire, un administrateur ou un chef d'équipe peuvent recruter un agent." },
+      { status: 403 }
+    );
+  }
 
   const ent = await getEntitlementsForTenant(supabase, membership.tenant_id);
   if (!ent.writable) {
@@ -137,6 +147,15 @@ export async function PATCH(req: Request) {
   if (!user) return NextResponse.json({ error: "Authentification requise." }, { status: 401 });
   if (!membership) return NextResponse.json({ error: "Aucun espace de travail." }, { status: 403 });
   const tenantId = membership.tenant_id;
+
+  // RBAC : piloter un agent (pause / relance / suppression) = même droit que le
+  // recrutement (owner / admin / manager).
+  if (!can(membership.role, "agents.manage")) {
+    return NextResponse.json(
+      { error: "Seuls le propriétaire, un administrateur ou un chef d'équipe peuvent piloter un agent." },
+      { status: 403 }
+    );
+  }
 
   let body: { id?: string; action?: string; email?: string; content?: string };
   try {
