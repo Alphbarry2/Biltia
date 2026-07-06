@@ -526,6 +526,7 @@ ${list}
 - \`await biltia.update('${primary}', id, { ...champs })\` → ligne mise à jour
 - \`await biltia.remove('${primary}', id)\` → suppression
 - \`await biltia.extract(photoDataUrl, { fields:['numero','fournisseur','date'] })\` → **IA VISION** : lit une PHOTO (bon de livraison, facture, plan…) et renvoie un objet \`{numero, fournisseur, date, …}\` (chaîne vide si illisible). À enchaîner avec \`biltia.create(...)\` pour stocker. ~25 crédits/photo.
+- \`await biltia.transcribe(audioDataUrl, { fields:['employe','heures','date'] })\` → **IA VOIX** : transcrit une DICTÉE et renvoie \`{ text, data:{employe, heures, date} }\` (sans \`fields\` → \`{ text }\` seul). Idéal pour pointer/noter à la voix, mains libres. ~10-25 crédits.
 Chaque ligne possède un \`id\` (uuid) généré par le serveur. N'envoie jamais \`id\`,
 \`tenant_id\` ni les dates \`*_at\` dans create/update : le serveur les gère.
 Pour un champ optionnel laissé vide (uuid de liaison, date, nombre), envoie \`null\`
@@ -555,6 +556,9 @@ Pour un champ optionnel laissé vide (uuid de liaison, date, nombre), envoie \`n
    formulaire avec le résultat (l'utilisateur vérifie/corrige), puis \`biltia.create(...)\`.
    Ne fais JAMAIS retaper à la main ce qui est déjà lisible sur la photo. Affiche un état
    « Lecture du document… » pendant l'extraction.
+9. DICTÉE (mains libres, sur le chantier) → enregistre l'audio (MediaRecorder → Blob →
+   dataURL via FileReader), appelle \`biltia.transcribe(audioDataUrl, { fields:[…] })\`,
+   pré-remplis le formulaire avec \`data\` (ou insère \`text\`), l'utilisateur valide → \`biltia.create(...)\`.
 
 Pour toute donnée qui ne correspond PAS à une entité ci-dessus, continue d'utiliser
 localStorage comme d'habitude.

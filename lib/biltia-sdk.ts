@@ -20,7 +20,7 @@
  *
  *  v3 : appels via postMessage → parent (localhost:3000) plutôt que fetch direct
  *  depuis l'iframe srcdoc (origin: null → CORS bloqué). */
-const SDK_MARKER = "__biltia_sdk_v4__";
+const SDK_MARKER = "__biltia_sdk_v5__";
 
 export const BILTIA_SDK_SCRIPT = `<script>
 /* ${SDK_MARKER} */
@@ -95,6 +95,22 @@ export const BILTIA_SDK_SCRIPT = `<script>
         fields: opts.fields || opts.champs || null,
         question: opts.question || opts.instructions || '' })
         .then(function(r){ return (r && r.data) || {}; });
+    },
+    /* IA voix : transcrit une DICTÉE (audio dataURL base64) → { text }. Avec
+       opts.fields, structure aussi la dictée → { text, data:{...} } (ex : pointage). */
+    transcribe: function(audioDataUrl, opts){
+      opts = opts || {};
+      var au = String(audioDataUrl || '');
+      if (au.indexOf('data:') !== 0 || au.indexOf(';base64,') < 0) {
+        return Promise.reject(new Error('biltia.transcribe attend un audio (dataURL base64).'));
+      }
+      var mt = au.slice(5, au.indexOf(';base64,'));
+      var d = au.slice(au.indexOf(';base64,') + 8);
+      return call({ __endpoint: 'app-ai', action: 'transcribe',
+        audio: { mediaType: mt, data: d },
+        fields: opts.fields || opts.champs || null,
+        question: opts.question || opts.instructions || '' })
+        .then(function(r){ return r || {}; });
     }
   };
 })();
@@ -112,6 +128,9 @@ export function injectBiltiaSDK(html: string): string {
   }
   if (html.includes("__biltia_sdk_v3__")) {
     return html.replace(/<script>\s*\/\* __biltia_sdk_v3__ \*\/[\s\S]*?<\/script>/, BILTIA_SDK_SCRIPT);
+  }
+  if (html.includes("__biltia_sdk_v4__")) {
+    return html.replace(/<script>\s*\/\* __biltia_sdk_v4__ \*\/[\s\S]*?<\/script>/, BILTIA_SDK_SCRIPT);
   }
   if (/<head[^>]*>/i.test(html)) {
     return html.replace(/<head[^>]*>/i, (m) => m + "\n" + BILTIA_SDK_SCRIPT);

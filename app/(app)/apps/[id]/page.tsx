@@ -75,6 +75,36 @@ export default function AppViewerPage() {
     });
   }, [id]);
 
+  // Pont app↔serveur : window.biltia (données + IA) doit fonctionner dans une app
+  // OUVERTE/DÉPLOYÉE, pas seulement dans le générateur. L'iframe (origin:null) ne
+  // peut pas fetch → elle envoie BILTIA_API_CALL, on proxifie en same-origin
+  // (cookies = auth, RLS = isolation du tenant). Route vers /api/app-ai pour l'IA.
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      if (event.data?.type !== "BILTIA_API_CALL") return;
+      const { id: callId, body } = event.data as { id: string; body: unknown };
+      const reply = (payload: Record<string, unknown>) => {
+        const target = (event.source as Window | null) ?? iframeRef.current?.contentWindow ?? null;
+        target?.postMessage({ type: "BILTIA_API_RESPONSE", id: callId, ...payload }, "*");
+      };
+      const apiUrl = (body as { __endpoint?: string } | null)?.__endpoint === "app-ai" ? "/api/app-ai" : "/api/data";
+      fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(body),
+      })
+        .then(async (res) => {
+          const result = await res.json().catch(() => null);
+          if (!res.ok) reply({ error: result?.error ?? `Erreur ${res.status}` });
+          else reply({ result });
+        })
+        .catch((err: unknown) => reply({ error: err instanceof Error ? err.message : "Réseau indisponible" }));
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, []);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
