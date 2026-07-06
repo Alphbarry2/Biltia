@@ -22,9 +22,27 @@ import { createClient } from "@/lib/supabase-server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
 import { logActivity } from "@/lib/activity";
+import { sendEmail } from "@/lib/mailer";
 
 const ASSIGNABLE_ROLES = ["admin", "manager", "member", "viewer"] as const;
 const MANAGER_ROLES = ["owner", "admin"];
+
+// Email de marque Biltia (barre d'accent + bouton dégradé), même identité que les
+// templates Supabase. Sert à PRÉVENIR un collaborateur qui a DÉJÀ un compte (donc
+// non couvert par l'email d'invitation Supabase) qu'il a été ajouté à une équipe.
+function brandedEmailHtml(opts: { heading: string; body: string; btnText: string; btnUrl: string }): string {
+  return `<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#FCFCFD;padding:32px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+<tr><td align="center"><table width="480" cellpadding="0" cellspacing="0" role="presentation" style="max-width:480px;width:100%;background:#fff;border:1px solid #ECECF2;border-radius:20px;overflow:hidden;box-shadow:0 8px 30px rgba(60,40,120,0.06);">
+<tr><td style="height:4px;background:#7C3AED;background-image:linear-gradient(90deg,#6366F1,#8B5CF6,#EC4899);font-size:0;line-height:0;">&nbsp;</td></tr>
+<tr><td style="padding:32px 36px 8px;"><table cellpadding="0" cellspacing="0" role="presentation"><tr>
+<td><img src="https://www.biltia.com/icon.png" width="38" height="38" alt="Biltia" style="display:block;border-radius:10px;"></td>
+<td style="padding-left:10px;font-size:17px;font-weight:800;letter-spacing:-0.02em;color:#0A0A0A;">Biltia</td>
+</tr></table></td></tr>
+<tr><td style="padding:20px 36px 0;"><h1 style="margin:0 0 10px;font-size:24px;font-weight:800;letter-spacing:-0.03em;color:#0A0A0A;">${opts.heading}</h1>
+<p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#5B5B66;">${opts.body}</p></td></tr>
+<tr><td style="padding:0 36px 32px;"><a href="${opts.btnUrl}" style="display:inline-block;background:#7C3AED;background-image:linear-gradient(135deg,#6366F1 0%,#8B5CF6 55%,#EC4899 100%);color:#fff;text-decoration:none;font-size:15px;font-weight:600;padding:14px 30px;border-radius:12px;box-shadow:0 8px 22px rgba(124,58,237,0.38);">${opts.btnText}</a></td></tr>
+</table></td></tr></table>`;
+}
 
 type MemberRow = {
   id: string;
@@ -200,6 +218,56 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Ajout impossible. Réessayez." }, { status: 500 });
   }
 
+  // ── EMAIL ── Un NOUVEL invité reçoit déjà l'email d'invitation Supabase
+  // (inviteUserByEmail, expédié via Resend). Mais si le compte EXISTAIT déjà,
+  // rien n'a été envoyé → le collaborateur ne sait pas qu'il a été ajouté. On le
+  // prévient par un email de marque (Resend). S'il n'a JAMAIS accepté (jamais
+  // connecté), on lui donne un lien pour définir son mot de passe ; sinon un
+  // simple lien de connexion. Best-effort : n'échoue jamais l'ajout.
+  let emailSent = invitedNew;
+  if (!invitedNew) {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? new URL(req.url).origin;
+    const { data: tenantRow } = await admin
+      .from("tenants")
+      .select("name")
+      .eq("id", membership.tenant_id)
+      .maybeSingle();
+    const workspaceName = (tenantRow as { name?: string } | null)?.name || "votre équipe";
+    let actionUrl = `${appUrl}/login`;
+    let pending = false;
+    try {
+      const { data: u } = await admin.auth.admin.getUserById(memberUserId);
+      pending = !!u.user && !u.user.last_sign_in_at;
+      if (pending) {
+        const { data: link } = await admin.auth.admin.generateLink({
+          type: "recovery",
+          email,
+          options: { redirectTo: `${appUrl}/auth/callback?next=/invitation` },
+        });
+        const generated = (link as { properties?: { action_link?: string } } | null)?.properties?.action_link;
+        if (generated) actionUrl = generated;
+      }
+    } catch {
+      /* on garde le lien de connexion par défaut */
+    }
+    const heading = pending ? "Rejoignez votre équipe." : "Vous avez été ajouté à une équipe.";
+    const bodyText = pending
+      ? `${user.email} vous a ajouté à l'équipe « ${workspaceName} » sur Biltia. Cliquez pour définir votre mot de passe et rejoindre l'équipe.`
+      : `${user.email} vous a ajouté à l'équipe « ${workspaceName} » sur Biltia. Connectez-vous pour la retrouver dans votre sélecteur d'espace.`;
+    const res = await sendEmail({
+      to: [email],
+      subject: pending ? "Rejoignez votre équipe sur Biltia" : "Vous avez été ajouté à une équipe sur Biltia",
+      text: `${bodyText}\n\n${actionUrl}`,
+      html: brandedEmailHtml({
+        heading,
+        body: bodyText,
+        btnText: pending ? "Définir mon mot de passe" : "Ouvrir Biltia",
+        btnUrl: actionUrl,
+      }),
+    });
+    emailSent = res.ok;
+  }
+
   await logActivity(supabase, {
     tenantId: membership.tenant_id,
     userId: user.id,
@@ -212,6 +280,7 @@ export async function POST(req: Request) {
   return NextResponse.json({
     member: { id: created.id, user_id: created.user_id, email, role: created.role, accepted: true, isYou: false },
     invited: invitedNew,
+    emailSent,
   });
 }
 
@@ -262,14 +331,39 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: "Retrait impossible. Réessayez." }, { status: 500 });
   }
 
+  // ── NETTOYAGE ── Si le retiré était un invité qui n'a JAMAIS accepté (jamais
+  // connecté) et n'appartient plus à AUCUNE équipe, on supprime son compte
+  // fantôme. Sans ça, il restait dans auth.users (« ça ne se supprime pas ») et
+  // une ré-invitation le retrouvait → aucun email renvoyé. Après nettoyage, une
+  // ré-invitation repart de zéro et renvoie bien l'email. Jamais un compte actif.
+  let accountPurged = false;
+  try {
+    const { data: others } = await admin
+      .from("tenant_members")
+      .select("id")
+      .eq("user_id", target.user_id)
+      .limit(1);
+    if (!others || others.length === 0) {
+      const { data: u } = await admin.auth.admin.getUserById(target.user_id);
+      if (u.user && !u.user.last_sign_in_at) {
+        const { error: delUserErr } = await admin.auth.admin.deleteUser(target.user_id);
+        accountPurged = !delUserErr;
+      }
+    }
+  } catch {
+    /* best-effort : la membership est déjà retirée, l'essentiel est fait */
+  }
+
   await logActivity(supabase, {
     tenantId: membership.tenant_id,
     userId: user.id,
     action: "delete",
     entityType: "équipe",
     entityId: target.id,
-    description: "Collaborateur retiré de l'équipe",
+    description: accountPurged
+      ? "Collaborateur retiré de l'équipe (compte invité non accepté supprimé)"
+      : "Collaborateur retiré de l'équipe",
   });
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, accountPurged });
 }

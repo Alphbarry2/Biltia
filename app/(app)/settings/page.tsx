@@ -317,6 +317,12 @@ export default function SettingsPage() {
   }
 
   async function removeMember(memberId: string) {
+    // Confirmation anti-fausse-manip : on nomme la personne concernée.
+    const target = team.find((m) => m.id === memberId);
+    const label = target?.full_name || target?.email || "ce collaborateur";
+    if (!window.confirm(`Retirer ${label} de l'équipe ?\n\nIl perdra immédiatement l'accès à cet espace de travail.`)) {
+      return;
+    }
     setError(null);
     setRemovingId(memberId);
     try {
