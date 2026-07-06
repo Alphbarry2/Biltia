@@ -2002,12 +2002,8 @@ export default function GeneratePage() {
               className="min-w-0 flex-1 bg-transparent px-1 py-1 text-[15px] font-semibold text-[#0A0A0A] focus:outline-none truncate"
               placeholder="Nom de l'application"
             />
-            {generatedHTML && !isGenerating && (
-              isAutoFixing ? (
-                <Loader2 className="w-4 h-4 text-amber-500 animate-spin flex-shrink-0" />
-              ) : savedId ? (
-                <CheckCircle className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-              ) : null
+            {generatedHTML && isAutoFixing && (
+              <Loader2 className="w-4 h-4 text-amber-500 animate-spin flex-shrink-0" />
             )}
           </div>
           <div className="flex items-center gap-1.5 flex-shrink-0">
