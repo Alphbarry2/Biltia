@@ -122,13 +122,24 @@ export default function OnboardingPage() {
     // crédits du palier (attribués par le webhook), les 300 crédits d'inscription
     // étant préservés (forfait + bonus). En cas d'échec, on ne bloque pas l'accès.
     try {
-      const pending = localStorage.getItem("biltia_pending_plan");
-      if (pending) {
+      // Plan payant : d'abord la query URL (lien de confirmation → survit à un
+      // AUTRE appareil), sinon localStorage (même navigateur). L'URL fait foi.
+      let credits = 0;
+      let cycle = "monthly";
+      const sp = new URLSearchParams(window.location.search);
+      if (sp.get("plan") === "pro" && Number(sp.get("credits")) > 0) {
+        credits = Number(sp.get("credits"));
+        cycle = sp.get("cycle") === "annual" ? "annual" : "monthly";
+      } else {
+        const pending = localStorage.getItem("biltia_pending_plan");
+        if (pending) {
+          const p = JSON.parse(pending) as { credits: number; cycle: string };
+          credits = p.credits;
+          cycle = p.cycle;
+        }
+      }
+      if (credits > 0) {
         localStorage.removeItem("biltia_pending_plan");
-        const { credits, cycle } = JSON.parse(pending) as {
-          credits: number;
-          cycle: string;
-        };
         const res = await fetch("/api/billing/checkout", {
           method: "POST",
           headers: { "Content-Type": "application/json" },

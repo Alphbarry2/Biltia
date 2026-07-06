@@ -24,7 +24,10 @@ export async function GET(request: Request) {
         // Le trigger DB crée le profil avec sector='autre' : seul le flag
         // preferences.onboarded (ou un secteur réellement choisi) fait foi.
         const onboarded = prefs.onboarded === true || (!!prof?.sector && prof.sector !== "autre");
-        if (!onboarded) next = "/onboarding";
+        // Non qualifié → onboarding. MAIS si `next` pointe déjà vers l'onboarding
+        // (ex : /onboarding?plan=pro&credits=… venant du signup « Choisir Pro »),
+        // on le PRÉSERVE tel quel pour ne pas perdre le plan choisi.
+        if (!onboarded && !next.startsWith("/onboarding")) next = "/onboarding";
       }
       return NextResponse.redirect(`${origin}${next}`);
     }

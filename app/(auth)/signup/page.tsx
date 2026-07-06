@@ -54,15 +54,29 @@ export default function SignupPage() {
     setError("");
 
     const supabase = createClient();
+    // Plan payant choisi (« Choisir Pro ») → on le fait voyager dans le lien de
+    // confirmation (next), pour qu'il survive même si l'email est confirmé sur un
+    // AUTRE appareil (là où localStorage seul ne suffit pas).
+    let nextPath = "/onboarding";
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      if (sp.get("plan") === "pro") {
+        const c = Number(sp.get("credits"));
+        const cyc = sp.get("cycle") === "annual" ? "annual" : "monthly";
+        if (Number.isFinite(c) && c > 0) nextPath = `/onboarding?plan=pro&credits=${c}&cycle=${cyc}`;
+      }
+    } catch {
+      /* pas de plan : onboarding standard */
+    }
     // full_name : lu par le greeting (« Quel problème réglons-nous, Alpha ? ») et
     // les paramètres. emailRedirectTo : le lien de confirmation revient sur notre
-    // callback, qui aiguille vers l'onboarding.
+    // callback, qui aiguille vers l'onboarding (en préservant le plan).
     const { data, error: signUpError } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: { full_name: fullName.trim() },
-        emailRedirectTo: `${window.location.origin}/auth/callback?next=/onboarding`,
+        emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`,
         ...(captchaToken ? { captchaToken } : {}),
       },
     });
