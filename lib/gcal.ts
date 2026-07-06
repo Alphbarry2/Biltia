@@ -85,3 +85,61 @@ export async function readAgenda(opts: {
   );
   return { ok: true, summary: `Voici ton agenda des ${days} prochains jours :\n\n${blocks.join("\n\n")}` };
 }
+
+// ── CRÉATION D'ÉVÉNEMENT ──────────────────────────────────────────────────────
+// L'écriture exige un scope d'écriture (calendar.events ou calendar), pas
+// calendar.readonly. Les dates arrivent en heure locale « YYYY-MM-DDTHH:MM:SS »
+// (résolues par le classifieur à partir de la date du jour) et sont envoyées avec
+// timeZone Europe/Paris — Google interprète l'heure locale correctement.
+const CALENDAR_WRITE_SCOPES = [
+  "https://www.googleapis.com/auth/calendar.events",
+  "https://www.googleapis.com/auth/calendar",
+];
+
+export type CalCreateResult =
+  | { ok: true; summary: string; whenLabel: string }
+  | { ok: false; reason: "not_connected" | "missing_scope" | "no_service" | "create_failed"; detail?: string };
+
+function whenLabel(startISO: string): string {
+  // « 2026-07-07T14:00:00 » → « 07/07 à 14:00 » (affichage simple, sans piège de fuseau).
+  const m = startISO.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  return m ? `${m[3]}/${m[2]} à ${m[4]}h${m[5]}` : startISO;
+}
+
+/** Crée un événement dans l'agenda principal. Ne throw jamais. */
+export async function createEvent(opts: {
+  tenantId: string;
+  userId: string;
+  summary: string;
+  startISO: string;
+  endISO?: string;
+  location?: string;
+}): Promise<CalCreateResult> {
+  const tok = await getValidGoogleToken(opts.tenantId, opts.userId);
+  if (!tok.ok) {
+    const reason = tok.reason === "no_service" ? "no_service" : tok.reason === "not_connected" ? "not_connected" : "create_failed";
+    return { ok: false, reason, detail: tok.detail };
+  }
+  if (!tok.scopes.some((s) => CALENDAR_WRITE_SCOPES.includes(s))) {
+    return { ok: false, reason: "missing_scope" };
+  }
+
+  const end = opts.endISO && opts.endISO.trim() ? opts.endISO.trim() : opts.startISO;
+  const body: Record<string, unknown> = {
+    summary: opts.summary,
+    start: { dateTime: opts.startISO, timeZone: "Europe/Paris" },
+    end: { dateTime: end, timeZone: "Europe/Paris" },
+  };
+  if (opts.location) body.location = opts.location;
+
+  const res = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${tok.accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    return { ok: false, reason: "create_failed", detail: `${res.status} ${detail.slice(0, 200)}` };
+  }
+  return { ok: true, summary: opts.summary, whenLabel: whenLabel(opts.startISO) };
+}

@@ -56,7 +56,7 @@ CONTEXTE : l'utilisateur a DÉJÀ une application ou un document ouvert dans l'a
 
 LES 8 FORMATS :
 - "answer" — l'utilisateur pose une QUESTION et attend une RÉPONSE en texte, tout de suite : réglementation (« quel taux de TVA pour une rénovation ? »), norme, délai, garantie, conseil métier, ou une question sur SES données (« j'ai combien de clients ? », « où en est le chantier Morel ? »). Il ne demande RIEN à produire.
-- "calendar" — l'utilisateur veut CONSULTER son agenda / son planning : « qu'est-ce que j'ai lundi ? », « ma semaine ressemble à quoi ? », « quels sont mes rendez-vous ? », « je suis dispo quand ? ». C'est une lecture de son AGENDA connecté (Google Agenda), pas une question de savoir métier (ça, c'est "answer") ni ses données workspace.
+- "calendar" — l'utilisateur veut CONSULTER son agenda (« qu'est-ce que j'ai lundi ? », « ma semaine ? », « mes rendez-vous ? ») OU AJOUTER un rendez-vous (« ajoute un RDV client mardi à 14h », « planifie une visite chantier jeudi 9h », « note un rendez-vous demain 10h »). Dans les deux cas, c'est son agenda Google connecté — ni une question de savoir métier ("answer") ni une écriture dans tes données workspace ("data").
 - "email" — l'utilisateur veut ENVOYER un message/email à quelqu'un, MAINTENANT, une fois : « envoie un email à jean@x.fr pour lui dire que… », « écris à ce client qu'on passe lundi », « relance ce fournisseur par mail ». C'est le VERBE D'ENVOI (« envoie/écris/relance… par mail/email ») qui décide — même si le message PARLE de factures, de fichiers ou de chantiers : ça, c'est le CONTENU du mail, PAS un traitement de fichiers. Quand kind="email", remplis email_to (l'adresse ou le nom du destinataire), email_subject (objet court) et email_body (le corps complet, professionnel, prêt à envoyer).
 - "document" — l'utilisateur veut UN livrable officiel unique, à imprimer/envoyer/signer : avenant, PV de réception, mise en demeure, devis, facture, attestation (TVA…), courrier/relance, ordre de service, bon de commande, levée de réserves. Indices : « sors-moi l'avenant », « rédige une mise en demeure », « fais-lui signer », « attestation TVA », « un devis pour… » (un seul, pas un outil de gestion de devis).
 - "action" — l'utilisateur a DES DONNÉES/FICHIERS EXISTANTS à traiter par lot, UNE fois, maintenant : vérifier, comparer, rapprocher, contrôler. Indices : « glisse tes 30 bons de livraison, je vérifie les prix vs devis », « compare ces factures », « détecte les erreurs ». Ce n'est JAMAIS « envoyer un email » (ça, c'est "email").
@@ -168,7 +168,6 @@ async function classifyWithLLM(
           body: (input.email_body ?? "").trim(),
         }
       : undefined;
-
   return {
     kind: input.kind,
     docType,
@@ -226,6 +225,72 @@ export async function classifyKind(opts: {
   }
 
   return heuristic;
+}
+
+// ── EXTRACTION AGENDA (dédiée) ────────────────────────────────────────────────
+// Le classifieur route "calendar" ; ici on décide lecture vs création et on
+// extrait les détails d'un RDV. Appel FOCALISÉ (tool simple, non surchargé) =
+// fiable là où le classifieur généraliste (7 formats + champs email) déraillait.
+const CAL_TOOL = {
+  name: "plan_calendar",
+  description: "Décide si la demande consulte l'agenda ou crée un événement, et extrait les détails.",
+  input_schema: {
+    type: "object",
+    properties: {
+      action: { type: "string", enum: ["read", "create"], description: "read = consulter l'agenda ; create = ajouter un rendez-vous." },
+      summary: { type: "string", description: "Titre court de l'événement (si create)." },
+      start: { type: "string", description: "Début en heure locale 'YYYY-MM-DDTHH:MM:SS' (si create)." },
+      end: { type: "string", description: "Fin en heure locale 'YYYY-MM-DDTHH:MM:SS', défaut +1h (si create)." },
+    },
+    required: ["action"],
+    additionalProperties: false,
+  },
+} as Anthropic.Tool;
+
+export type CalendarIntent =
+  | { action: "read" }
+  | { action: "create"; summary: string; start: string; end: string };
+
+/** Décide lecture/création + extrait un RDV. Repli sûr sur "read" en cas d'échec. */
+export async function extractCalendarEvent(prompt: string): Promise<CalendarIntent> {
+  try {
+    const client = new Anthropic();
+    const now = new Date().toLocaleString("fr-FR", {
+      timeZone: "Europe/Paris",
+      weekday: "long",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const message = await client.messages.create({
+      model: KIND_MODEL,
+      max_tokens: 300,
+      system: `Tu extrais l'intention agenda d'un artisan du BTP.
+Date et heure actuelles (Europe/Paris) : ${now}.
+- Si la demande CONSULTE l'agenda (« qu'est-ce que j'ai… », « ma semaine ») → action="read".
+- Si elle AJOUTE un rendez-vous (« ajoute/planifie/note un RDV… ») → action="create", avec summary (titre court, ex : « RDV client Morel »), start et end en HEURE LOCALE « YYYY-MM-DDTHH:MM:SS » (durée 1 h par défaut). Résous les dates relatives (« mardi », « demain 9h », « la semaine prochaine ») à partir de la date actuelle ci-dessus.
+Réponds uniquement via l'outil plan_calendar.`,
+      tools: [CAL_TOOL],
+      tool_choice: { type: "tool", name: "plan_calendar" },
+      messages: [{ role: "user", content: prompt }],
+    });
+    const block = message.content.find((b) => b.type === "tool_use");
+    if (!block || block.type !== "tool_use") return { action: "read" };
+    const i = block.input as { action?: string; summary?: string; start?: string; end?: string };
+    if (i.action === "create") {
+      return {
+        action: "create",
+        summary: (i.summary ?? "").trim(),
+        start: (i.start ?? "").trim(),
+        end: (i.end ?? "").trim(),
+      };
+    }
+    return { action: "read" };
+  } catch {
+    return { action: "read" }; // repli sûr : au pire, on lit l'agenda
+  }
 }
 
 /** Garde-fou : normalise une valeur `kind` reçue du client (modification/auto-fix). */

@@ -1049,6 +1049,545 @@ export const BLOG_POSTS: BlogPost[] = [
     relatedProduct: "documents",
     cta: "Prépare un devis pour la pose de 30 mètres carrés de parquet chez le client Martin, prêt à envoyer.",
   },
+
+  // 11 ──────────────────────────────────────────────────────────────────────
+  {
+    slug: "biltia-logiciel-ia-btp",
+    title: "Biltia : le logiciel IA pour le BTP qui fait l'administratif à votre place",
+    description:
+      "Biltia est le logiciel IA du bâtiment : vous décrivez votre besoin, il livre le devis, le suivi ou la réponse. À quoi il sert, pour qui, comment démarrer.",
+    category: "Découverte",
+    date: "2026-07-01",
+    readingMinutes: 10,
+    keywords: [
+      "Biltia",
+      "logiciel IA BTP",
+      "logiciel intelligence artificielle bâtiment",
+      "logiciel IA artisan",
+      "logiciel gestion IA BTP",
+    ],
+    excerpt:
+      "Un seul endroit où vous décrivez votre problème, et l'IA livre la solution : document, application, réponse ou automatisation.",
+    intro:
+      "Biltia est un logiciel IA pensé pour les artisans et les entreprises du BTP. Le principe tient en une phrase : au lieu d'apprendre un logiciel de plus, vous décrivez votre besoin en français, à l'écrit ou à la voix, et Biltia produit la solution. Voici à quoi il sert concrètement, pour qui il est fait, et comment le prendre en main sans y passer une semaine.",
+    sections: [
+      {
+        heading: "Biltia en une phrase",
+        body: [
+          "Biltia est un logiciel IA du bâtiment qui part de votre problème, pas d'un menu. Vous ouvrez une seule barre, vous dites ce dont vous avez besoin, et l'outil s'occupe du reste.",
+          "Là où un logiciel classique vous oblige à choisir un module puis à le paramétrer, Biltia comprend la demande et choisit lui-même la bonne façon d'y répondre. Vous ne pilotez pas un logiciel, vous confiez une tâche.",
+        ],
+      },
+      {
+        heading: "Pourquoi un logiciel IA change la donne dans le BTP",
+        body: [
+          "Le bâtiment est un métier de terrain, pas de bureau. Le problème des logiciels traditionnels, c'est qu'ils demandent du temps assis devant un écran, à saisir et à naviguer dans des rubriques. Ce temps, l'artisan ne l'a pas la journée, alors il s'entasse le soir.",
+          "Un logiciel IA renverse la logique : c'est lui qui fait le travail de mise en forme, de calcul et de recherche. Vous fournissez l'intention en quelques mots, il fournit le résultat fini. La barrière entre le besoin et l'action tombe presque entièrement.",
+        ],
+      },
+      {
+        heading: "Ce que Biltia sait faire",
+        body: [
+          "Derrière la barre unique, Biltia produit quatre types de solutions selon ce que vous demandez. Vous n'avez jamais à préciser lequel, il le déduit de votre phrase.",
+        ],
+        list: [
+          "Un document : devis, facture, courrier, compte rendu, prêt à envoyer",
+          "Une application : suivi de chantiers, pointage des heures, inventaire, généré sur mesure",
+          "Une réponse : une question sur vos données obtient une réponse sourcée",
+          "Une automatisation : une vérification ou un rapprochement de fichiers en un passage",
+        ],
+      },
+      {
+        heading: "Pour qui Biltia est fait",
+        body: [
+          "Biltia vise en priorité l'artisan seul et la petite entreprise du bâtiment, ceux qui n'ont pas de service administratif et qui portent la gestion en plus du métier. Ce sont eux qui gagnent le plus à déléguer la paperasse.",
+          "Il rend aussi service aux structures un peu plus grandes, avec un bureau et des chantiers multiples, qui veulent un point d'entrée simple pour toute l'équipe. Plombier, électricien, maçon, menuisier, entreprise de rénovation multi-corps : l'outil s'adapte au métier parce qu'il se génère à partir de votre description, pas d'un modèle figé.",
+        ],
+      },
+      {
+        heading: "En quoi Biltia diffère d'un logiciel de gestion classique",
+        body: [
+          "Un ERP ou un logiciel de gestion du bâtiment est puissant, mais lourd : des semaines de paramétrage, une formation, des dizaines de menus, et un usage pensé pour le bureau. Beaucoup d'artisans en achètent un, puis reviennent au tableur faute de temps.",
+          "Biltia supprime cette phase. Il n'y a rien à configurer : vous décrivez, il génère. Et comme tout vit dans la mémoire de votre entreprise, chaque document et chaque suivi se nourrit de vos vraies données, sans ressaisie.",
+        ],
+      },
+      {
+        heading: "En quoi Biltia diffère d'une IA généraliste",
+        body: [
+          "Une IA généraliste sait rédiger un texte, mais elle ne connaît ni vos clients, ni vos chantiers, ni vos prix. Elle repart de zéro à chaque fois et vous rend un texte à recopier, pas un outil relié à votre activité.",
+          "Biltia est spécialisé pour le BTP et branché sur votre workspace. Quand vous demandez un devis pour un client, il connaît déjà ses coordonnées et ses chantiers. Quand vous posez une question sur vos retards, il répond à partir de vos données. C'est la différence entre un assistant qui parle et un assistant qui agit.",
+        ],
+      },
+      {
+        heading: "Comment démarrer sans y passer une semaine",
+        body: [
+          "Le meilleur moyen de juger Biltia, c'est de l'essayer sur un vrai besoin, pas sur une démo abstraite. Vous pouvez commencer gratuitement et lui confier la tâche qui vous fait perdre le plus de temps : sortir un devis, générer un suivi de chantiers, ou poser une question sur votre activité.",
+          "En pratique, vous décrivez ce que vous voulez, Biltia pose au besoin une ou deux questions pour cadrer, puis il livre. Prenez le réflexe sur une tâche, puis étendez au fur et à mesure. En quelques jours, la barre unique remplace plusieurs de vos outils épars.",
+        ],
+      },
+    ],
+    takeaways: [
+      "Biltia est un logiciel IA du BTP : vous décrivez, il livre la solution.",
+      "Quatre formats couverts : document, application, réponse et automatisation.",
+      "Pensé d'abord pour l'artisan seul et la petite entreprise, sans service administratif.",
+      "Aucun paramétrage, contrairement à un ERP classique du bâtiment.",
+      "Spécialisé BTP et branché sur vos données, contrairement à une IA généraliste.",
+      "On démarre gratuitement sur un vrai besoin, puis on étend.",
+    ],
+    faq: [
+      {
+        q: "Biltia, c'est quoi exactement ?",
+        a: "Biltia est un logiciel IA pour le BTP. Vous décrivez votre besoin en français, à l'écrit ou à la voix, et l'outil produit un document, une application métier, une réponse sur vos données ou une automatisation, depuis une seule barre.",
+      },
+      {
+        q: "Biltia est-il fait pour un artisan seul ?",
+        a: "Oui, c'est même sa cible première. Les petites structures sans service administratif sont celles qui gagnent le plus de temps en déléguant devis, suivis et relances à un logiciel IA.",
+      },
+      {
+        q: "Quelle différence avec une IA généraliste comme un chatbot ?",
+        a: "Une IA généraliste ne connaît pas vos clients ni vos chantiers et vous rend un texte à recopier. Biltia est spécialisé BTP et relié à la mémoire de votre entreprise, donc il pré-remplit vos documents et répond à partir de vos vraies données.",
+      },
+      {
+        q: "Faut-il paramétrer Biltia avant de l'utiliser ?",
+        a: "Non. Il n'y a pas de phase de configuration comme sur un ERP. Vous décrivez ce que vous voulez et l'outil le génère, puis vous l'ajustez à la voix si besoin.",
+      },
+    ],
+    relatedProduct: "copilote",
+    cta: "Montre-moi ce que tu peux faire pour mon entreprise : prépare un devis et un suivi de mes chantiers.",
+  },
+
+  // 12 ──────────────────────────────────────────────────────────────────────
+  {
+    slug: "chatgpt-artisan-btp",
+    title: "ChatGPT pour les artisans du BTP : ce qu'il sait faire, ses limites et l'alternative",
+    description:
+      "ChatGPT peut aider un artisan à rédiger, mais il ignore vos clients, vos prix et vos chantiers. Ce qu'il fait bien, où il bloque, et quelle alternative BTP.",
+    category: "Guide",
+    date: "2026-07-02",
+    readingMinutes: 10,
+    keywords: [
+      "ChatGPT artisan",
+      "ChatGPT BTP",
+      "ChatGPT devis bâtiment",
+      "IA générative artisan",
+      "ChatGPT pour le bâtiment",
+    ],
+    excerpt:
+      "ChatGPT rédige bien, mais il ne connaît pas votre entreprise. Voici où il aide vraiment un artisan, et où il s'arrête.",
+    intro:
+      "De plus en plus d'artisans ouvrent ChatGPT pour rédiger un devis, un mail ou un compte rendu. C'est un bon réflexe, mais il faut savoir où l'outil aide et où il bloque. ChatGPT est un excellent rédacteur généraliste, pas un logiciel de gestion du bâtiment. Voici, sans langue de bois, ce qu'il fait bien pour un artisan, ses limites, et l'alternative pensée pour le BTP.",
+    sections: [
+      {
+        heading: "Pourquoi les artisans se tournent vers ChatGPT",
+        body: [
+          "La raison est simple : c'est gratuit à l'essai, immédiat, et ça écrit mieux que la page blanche. Pour un artisan qui déteste rédiger, obtenir un texte propre en quelques secondes est un vrai soulagement.",
+          "ChatGPT est devenu le premier contact de beaucoup de professionnels avec l'IA. Le problème, c'est qu'on lui demande ensuite des choses pour lesquelles il n'est pas conçu, et on se heurte à un mur.",
+        ],
+      },
+      {
+        heading: "Ce que ChatGPT fait bien pour un artisan",
+        body: [
+          "Sur les tâches de pure rédaction et de réflexion générale, ChatGPT rend de vrais services. Tant que la tâche ne dépend pas de vos données précises, il est efficace.",
+        ],
+        list: [
+          "Reformuler un mail client délicat ou une relance polie",
+          "Structurer un compte rendu à partir de notes en vrac",
+          "Expliquer un terme technique ou administratif",
+          "Donner une trame de courrier ou de conditions générales",
+          "Traduire un échange avec un client étranger",
+        ],
+      },
+      {
+        heading: "Là où ChatGPT bloque",
+        body: [
+          "Le mur arrive dès que la tâche touche à votre entreprise. ChatGPT ne connaît ni vos clients, ni vos prix, ni l'avancement de vos chantiers. Il ne peut donc pas chiffrer un devis juste, ni vous dire qui vous doit de l'argent.",
+          "Autre limite : il vous rend du texte, pas un outil. Vous devez recopier, remettre en forme, ranger le résultat quelque part. Et il n'a pas de mémoire fiable de votre activité d'une fois sur l'autre, donc vous répétez le contexte à chaque échange.",
+        ],
+        list: [
+          "Il ignore vos clients, vos tarifs et vos chantiers",
+          "Il rend un texte à recopier, pas un document rangé ni une application",
+          "Il ne suit pas vos données dans le temps",
+          "Il peut inventer un chiffre plausible mais faux",
+        ],
+      },
+      {
+        heading: "L'exemple du devis",
+        body: [
+          "Demandez un devis à ChatGPT : il vous rendra une belle trame, mais avec des prix inventés et un client fictif. À vous de tout corriger, de remettre vos tarifs, vos coordonnées, votre mise en page.",
+          "Le gain de temps réel est donc limité. Vous partez d'une page moins blanche, mais l'essentiel du travail, relier le devis à un vrai client et à de vrais prix, reste sur vos épaules.",
+        ],
+      },
+      {
+        heading: "La vraie différence : un outil qui connaît votre entreprise",
+        body: [
+          "Ce qui manque à une IA généraliste, c'est la mémoire de votre activité. Un outil utile pour un artisan doit savoir qui sont vos clients, quels sont vos chantiers et quels prix vous pratiquez, pour produire un résultat juste et prêt à l'emploi.",
+          "C'est exactement le rôle de Biltia. Vous décrivez le devis, et il le chiffre à partir de vos données réelles, avec le bon client et vos tarifs, prêt à envoyer. Il ne se contente pas d'écrire, il produit un document rangé dans la mémoire de votre entreprise.",
+        ],
+      },
+      {
+        heading: "Au-delà du texte : documents, applications, réponses",
+        body: [
+          "Là où ChatGPT s'arrête à la conversation, un outil spécialisé va jusqu'à la solution finie. Avec Biltia, la même barre produit un devis prêt à signer, génère un suivi de chantiers sur mesure, ou répond à une question sur vos données.",
+          "Vous ne quittez jamais l'outil pour aller ranger ou recopier. Le résultat vit là où sont vos clients et vos documents, et il se réutilise la fois suivante.",
+        ],
+      },
+      {
+        heading: "Faut-il abandonner ChatGPT ?",
+        body: [
+          "Pas du tout. ChatGPT reste un bon compagnon pour réfléchir, reformuler ou expliquer. Gardez-le pour ces usages généralistes où il excelle.",
+          "Mais pour tout ce qui touche à vos clients, vos devis, vos chantiers et votre gestion, un outil spécialisé et relié à vos données vous fera gagner bien plus de temps. Le mieux est souvent d'utiliser les deux, chacun à sa place.",
+        ],
+      },
+    ],
+    takeaways: [
+      "ChatGPT est un excellent rédacteur généraliste, pas un logiciel de gestion du bâtiment.",
+      "Il aide à reformuler, structurer et expliquer, tant que la tâche ne dépend pas de vos données.",
+      "Il ignore vos clients, vos prix et vos chantiers, et peut inventer un chiffre faux.",
+      "Il rend du texte à recopier, pas un document rangé ni une application.",
+      "Un outil BTP relié à vos données produit un résultat juste et prêt à l'emploi.",
+      "Le bon réflexe : ChatGPT pour réfléchir, un outil spécialisé pour agir sur votre activité.",
+    ],
+    faq: [
+      {
+        q: "Peut-on faire un devis avec ChatGPT ?",
+        a: "ChatGPT peut produire une trame de devis, mais avec des prix inventés et un client fictif, car il ignore vos données. Il faut tout corriger ensuite. Un outil relié à vos tarifs et à vos clients chiffre le devis juste, prêt à envoyer.",
+      },
+      {
+        q: "ChatGPT connaît-il mes clients et mes chantiers ?",
+        a: "Non. ChatGPT n'a pas accès à votre activité et n'en garde pas de mémoire fiable d'une fois sur l'autre. Vous devez lui répéter le contexte à chaque échange.",
+      },
+      {
+        q: "Quelle est l'alternative à ChatGPT pour un artisan du BTP ?",
+        a: "Un outil spécialisé BTP relié à vos données, comme Biltia. Vous décrivez votre besoin et il produit le document, l'application ou la réponse à partir de vos vrais clients, prix et chantiers.",
+      },
+      {
+        q: "Faut-il arrêter d'utiliser ChatGPT ?",
+        a: "Non. ChatGPT reste utile pour reformuler, structurer ou expliquer. Réservez-le à ces usages généralistes, et confiez à un outil spécialisé tout ce qui touche vos clients, devis et chantiers.",
+      },
+    ],
+    relatedProduct: "copilote",
+    cta: "Prépare un devis chiffré pour mon client Martin à partir de mes tarifs, prêt à envoyer.",
+  },
+
+  // 13 ──────────────────────────────────────────────────────────────────────
+  {
+    slug: "logiciel-devis-facture-batiment",
+    title: "Logiciel de devis et facture pour le bâtiment : gratuit, payant, ou plus simple ?",
+    description:
+      "Gratuit ou payant, comment choisir un logiciel de devis et facture pour le bâtiment. Ce qui compte vraiment, les pièges, et une approche plus rapide.",
+    category: "Comparatif",
+    date: "2026-07-03",
+    readingMinutes: 10,
+    keywords: [
+      "logiciel devis facture bâtiment",
+      "logiciel facturation BTP",
+      "logiciel devis artisan gratuit",
+      "logiciel devis bâtiment",
+      "faire devis et facture BTP",
+    ],
+    excerpt:
+      "Gratuit, payant, mobile, relié à vos données : le vrai critère n'est pas le prix, c'est le temps que vous gagnez.",
+    intro:
+      "Chercher un logiciel de devis et facture pour le bâtiment, c'est vite se noyer entre les offres gratuites, les abonnements et les promesses. Pour bien choisir, il faut savoir ce qu'on demande vraiment à ce type d'outil, et quel critère compte le plus. Voici un tour d'horizon honnête du gratuit, du payant, et d'une troisième voie plus simple.",
+    sections: [
+      {
+        heading: "Ce qu'on demande vraiment à un logiciel de devis",
+        body: [
+          "Sur le papier, tout le monde veut la même chose : produire vite un devis clair, puis le transformer en facture sans tout retaper. En réalité, la valeur d'un logiciel se juge sur des détails qui font gagner ou perdre des heures chaque semaine.",
+          "Un devis rapide à monter, des prix réutilisables, un passage devis vers facture sans ressaisie, et un accès depuis le chantier : voilà les vrais critères. Le reste est souvent du confort secondaire.",
+        ],
+      },
+      {
+        heading: "Les logiciels gratuits : pour qui, jusqu'où",
+        body: [
+          "Les solutions gratuites, ou les modules gratuits d'outils plus larges, dépannent bien au démarrage. Pour un artisan qui sort quelques devis par mois, elles suffisent souvent.",
+          "Leurs limites apparaissent avec le volume : fonctions bridées, nombre de documents plafonné, peu de personnalisation, et souvent une incitation à passer à la version payante dès que l'activité grossit. Le gratuit est un bon banc d'essai, rarement une solution durable.",
+        ],
+      },
+      {
+        heading: "Les logiciels payants : ce que vous payez vraiment",
+        body: [
+          "Un logiciel de facturation payant apporte en général une bibliothèque de prix, des modèles soignés, le suivi des paiements et un support. Pour une entreprise qui facture beaucoup, l'abonnement se justifie.",
+          "Mais vous payez aussi pour des fonctions que vous n'utiliserez jamais, et parfois pour une prise en main longue. Le coût n'est pas que l'abonnement : c'est aussi le temps d'apprentissage et le risque de ne pas exploiter la moitié de l'outil.",
+        ],
+      },
+      {
+        heading: "Le piège du logiciel qu'on n'utilise pas",
+        body: [
+          "L'erreur la plus fréquente n'est pas de choisir le mauvais logiciel, c'est d'en choisir un trop lourd et de l'abandonner. Un outil qui demande une formation d'une semaine finit souvent inutilisé, remplacé par un retour au tableur.",
+          "Avant de comparer les fonctions, posez-vous une question simple : est-ce que je vais vraiment m'en servir tous les jours, y compris depuis le chantier ? Un outil moins complet mais réellement utilisé bat toujours un outil riche qui dort.",
+        ],
+      },
+      {
+        heading: "Ce qui compte plus que gratuit ou payant",
+        body: [
+          "Le vrai critère n'est ni le prix, ni la longueur de la liste de fonctions. C'est le temps gagné entre le moment où vous devez faire un devis et le moment où il part chez le client.",
+        ],
+        list: [
+          "La vitesse de création, sans repartir d'une page blanche",
+          "Des données reliées, pour ne jamais retaper un client ou un prix",
+          "Le passage du devis à la facture sans ressaisie",
+          "Un accès mobile, pour agir depuis le chantier",
+          "Une prise en main immédiate, sans formation",
+        ],
+      },
+      {
+        heading: "Une troisième voie : décrire ou dicter le devis",
+        body: [
+          "À côté du gratuit bridé et du payant complexe, une approche plus récente consiste à décrire le devis en français, ou à le dicter, et à laisser l'outil le rédiger et le chiffrer.",
+          "C'est le principe de Biltia. Vous dictez les postes sur le chantier, quand tout est frais, et vous obtenez un document propre reprenant les données déjà connues de votre entreprise. Le devis devient une facture d'un mot, sans retaper. Il n'y a rien à paramétrer, et l'outil vit là où sont vos clients et vos chantiers.",
+        ],
+      },
+      {
+        heading: "Comment choisir sans se tromper",
+        body: [
+          "Si vous débutez et facturez peu, un outil gratuit fait le job. Si vous avez un gros volume et un bureau structuré, un logiciel payant complet se défend.",
+          "Mais si votre priorité est de répondre vite, sans formation et sans ressaisie, en travaillant autant depuis le chantier que depuis le bureau, l'approche par description est faite pour vous. Le mieux reste de tester sur un vrai devis et de mesurer le temps réellement gagné.",
+        ],
+      },
+    ],
+    takeaways: [
+      "Un bon logiciel de devis se juge sur la vitesse et l'absence de ressaisie, pas sur la liste de fonctions.",
+      "Le gratuit dépanne au démarrage mais se bride vite avec le volume.",
+      "Le payant se justifie pour un gros volume, au prix d'une prise en main plus longue.",
+      "Le vrai risque est de choisir un outil trop lourd et de l'abandonner.",
+      "Décrire ou dicter le devis supprime le paramétrage et la page blanche.",
+      "Testez sur un vrai devis et mesurez le temps gagné avant de trancher.",
+    ],
+    faq: [
+      {
+        q: "Existe-t-il un logiciel de devis et facture gratuit pour le bâtiment ?",
+        a: "Oui, plusieurs outils proposent une version gratuite ou un module gratuit. Ils dépannent au démarrage, mais brident souvent le nombre de documents et les fonctions dès que l'activité grossit.",
+      },
+      {
+        q: "Vaut-il mieux un logiciel gratuit ou payant pour faire ses devis ?",
+        a: "Cela dépend de votre volume. Le gratuit suffit pour quelques devis par mois. Au-delà, le critère décisif n'est pas le prix mais le temps gagné : vitesse de création, données reliées et passage devis vers facture sans ressaisie.",
+      },
+      {
+        q: "Peut-on transformer un devis en facture sans tout retaper ?",
+        a: "Oui, quand le devis et la facture partagent les mêmes données. Le passage se fait alors en quelques secondes, sans erreur de recopie. C'est un critère à vérifier avant de choisir un outil.",
+      },
+      {
+        q: "Comment faire un devis plus rapidement dans le bâtiment ?",
+        a: "En ne repartant jamais d'une page blanche : réutiliser une base de prix, laisser les données client se reporter, et dicter les postes sur le chantier. Un outil comme Biltia rédige et chiffre le devis à partir de vos données existantes.",
+      },
+    ],
+    relatedProduct: "documents",
+    cta: "Prépare un devis clair pour la rénovation d'une salle de bain, avec mes postes habituels, prêt à envoyer.",
+  },
+
+  // 14 ──────────────────────────────────────────────────────────────────────
+  {
+    slug: "suivi-heures-chantier",
+    title: "Suivi des heures sur chantier : arrêter le carnet et les fiches papier",
+    description:
+      "Heures mal suivies, c'est de la marge et de la paie en moins. Voici comment suivre les heures par chantier et par ouvrier, simplement, depuis le terrain.",
+    category: "Conseils",
+    date: "2026-07-04",
+    readingMinutes: 9,
+    keywords: [
+      "suivi des heures chantier",
+      "logiciel pointage BTP",
+      "pointage ouvrier chantier",
+      "feuille d'heures bâtiment",
+      "suivi du temps chantier",
+    ],
+    excerpt:
+      "Les heures notées sur un carnet finissent fausses ou perdues. Et chaque heure mal suivie, c'est de la marge en moins.",
+    intro:
+      "Le suivi des heures est l'un des points noirs des entreprises du bâtiment. Entre les carnets, les fiches papier et les messages, les heures se perdent, s'arrondissent ou se retrouvent trop tard. Or chaque heure mal suivie, c'est de la facturation oubliée, une paie approximative et une rentabilité floue. Voici comment reprendre la main, simplement, sans usine à gaz.",
+    sections: [
+      {
+        heading: "Pourquoi le suivi des heures est un point noir",
+        body: [
+          "Les heures se font sur le terrain, mais se notent au bureau, souvent de mémoire, en fin de semaine. Ce décalage est la source de toutes les erreurs : on oublie une intervention, on arrondit, on confond deux chantiers.",
+          "Sur le papier, chaque ouvrier a sa méthode, ses ratures et ses oublis. Résultat, celui qui centralise passe un temps fou à déchiffrer, relancer et recompter, pour un total qui reste incertain.",
+        ],
+      },
+      {
+        heading: "Le vrai coût des heures mal suivies",
+        body: [
+          "Une heure non notée est une heure non facturée quand le chantier est en régie. Répétée sur l'année, sur plusieurs ouvriers, cette fuite représente des sommes importantes qui disparaissent sans bruit.",
+          "Le flou touche aussi la paie, avec des heures supplémentaires mal comptées, et surtout la rentabilité. Sans heures fiables par chantier, impossible de savoir lequel vous fait vraiment gagner de l'argent. Vous pilotez à l'aveugle.",
+        ],
+      },
+      {
+        heading: "Les limites du carnet et des fiches papier",
+        body: [
+          "Le papier a un avantage, sa simplicité, et beaucoup de défauts. Une fiche se perd, se mouille, se remplit en retard, et ne se totalise pas toute seule. Personne n'a la vue d'ensemble avant la fin du mois.",
+          "Le tableur fait à peine mieux : il faut ressaisir les fiches à la main, et personne ne le met à jour depuis le chantier. On déplace le problème du papier vers l'écran, sans le régler.",
+        ],
+      },
+      {
+        heading: "Ce qu'un bon suivi des heures doit permettre",
+        body: [
+          "Un suivi efficace ne demande pas dix fonctions. Il demande de saisir vite, au bon moment, et de tout relier automatiquement.",
+        ],
+        list: [
+          "Pointer les heures par ouvrier et par chantier en quelques secondes",
+          "Saisir depuis le terrain, pas seulement au bureau",
+          "Distinguer heures normales et heures supplémentaires",
+          "Voir le total par chantier, à jour, sans recompter",
+          "Relier les heures au chantier et à sa facturation",
+        ],
+      },
+      {
+        heading: "Pointer sur le terrain, pas le soir",
+        body: [
+          "La clé, c'est de capturer l'heure au moment où elle est faite. Quand le pointage se fait sur place, à la voix ou en deux touches, l'information est juste et complète. Le soir, on ne reconstitue plus rien de mémoire.",
+          "Ce changement de moment supprime la corvée de fin de semaine et fiabilise tout ce qui vient après : la facturation en régie, la paie et l'analyse de rentabilité.",
+        ],
+      },
+      {
+        heading: "Générer votre propre tableau de pointage",
+        body: [
+          "Les logiciels de pointage du marché sont souvent soit trop simples, soit trop lourds. Une autre voie consiste à générer l'outil qui colle exactement à votre façon de compter.",
+          "Avec Biltia, vous décrivez le suivi voulu, par exemple un tableau de pointage des heures par ouvrier et par chantier, avec les heures supplémentaires, et l'application est générée pour vous. Vous la modifiez ensuite à la voix : ajouter un ouvrier, un statut, une alerte. Aucun paramétrage, aucun tableur à maintenir.",
+        ],
+      },
+      {
+        heading: "Relier les heures aux chantiers et aux devis",
+        body: [
+          "Un pointage isolé a peu de valeur. Sa force vient du lien avec le reste : quand les heures sont rattachées au chantier, vous savez en un coup d'oeil si vous êtes dans le budget prévu.",
+          "Dans Biltia, le pointage puise dans la mémoire de votre entreprise. Il connaît déjà vos chantiers et vos équipes, et les heures alimentent le suivi du chantier comme sa facturation. Vous passez d'un total incertain à un pilotage clair.",
+        ],
+      },
+    ],
+    takeaways: [
+      "Les heures se font sur le terrain mais se notent au bureau : d'où les erreurs.",
+      "Une heure non notée en régie est une heure non facturée, et une fuite de marge.",
+      "Le papier et le tableur ne se totalisent pas seuls et ne suivent pas le chantier.",
+      "Un bon suivi se pointe en quelques secondes, depuis le terrain, par ouvrier et par chantier.",
+      "Générer son propre tableau de pointage évite l'outil trop simple ou trop lourd.",
+      "Relier les heures au chantier transforme un total incertain en pilotage clair.",
+    ],
+    faq: [
+      {
+        q: "Comment suivre les heures de mes ouvriers sur les chantiers ?",
+        a: "Le plus fiable est de pointer sur le terrain, au moment où l'heure est faite, par ouvrier et par chantier. Un outil accessible sur téléphone, où l'on saisit en quelques secondes, évite la reconstitution de mémoire en fin de semaine.",
+      },
+      {
+        q: "Pourquoi arrêter les fiches d'heures papier ?",
+        a: "Le papier se perd, se remplit en retard et ne se totalise pas seul. Personne n'a la vue d'ensemble avant la fin du mois, ce qui provoque des oublis de facturation et une paie approximative.",
+      },
+      {
+        q: "Peut-on créer un tableau de pointage sur mesure sans logiciel compliqué ?",
+        a: "Oui. Avec Biltia, vous décrivez le suivi voulu, par exemple les heures par ouvrier et par chantier avec les heures supplémentaires, et l'application est générée. Vous l'ajustez ensuite à la voix, sans paramétrage.",
+      },
+      {
+        q: "En quoi un bon suivi des heures améliore la rentabilité ?",
+        a: "Des heures fiables par chantier permettent enfin de savoir lequel vous fait gagner de l'argent, de facturer toutes les heures en régie et de compter juste les heures supplémentaires. Sans elles, vous pilotez à l'aveugle.",
+      },
+    ],
+    relatedProduct: "applications",
+    cta: "Crée un tableau de pointage des heures par ouvrier et par chantier, avec les heures supplémentaires.",
+  },
+
+  // 15 ──────────────────────────────────────────────────────────────────────
+  {
+    slug: "relancer-impayes-btp",
+    title: "Relancer les impayés dans le BTP : la méthode pour être payé plus vite",
+    description:
+      "Une facture impayée, c'est de la trésorerie bloquée. Voici une méthode de relance simple et régulière pour être payé plus vite, sans y passer vos soirées.",
+    category: "Conseils",
+    date: "2026-07-05",
+    readingMinutes: 9,
+    keywords: [
+      "relance impayés bâtiment",
+      "facture impayée artisan",
+      "se faire payer BTP",
+      "relance client bâtiment",
+      "trésorerie artisan",
+    ],
+    excerpt:
+      "La plupart des impayés ne sont pas des refus, mais des oublis. Une relance régulière transforme le silence en paiement.",
+    intro:
+      "Une facture impayée n'est pas qu'un chiffre en attente : c'est de la trésorerie bloquée, du stress et parfois un chantier qui plombe l'année. Pourtant, la plupart des impayés ne sont pas des mauvais payeurs, ce sont des oublis. Avec une méthode de relance simple et régulière, vous transformez une bonne partie de ces silences en paiements. Voici comment faire, sans y passer vos soirées.",
+    sections: [
+      {
+        heading: "L'impayé, premier ennemi de la trésorerie",
+        body: [
+          "Dans le bâtiment, vous avancez souvent les matériaux et la main-d'oeuvre avant d'être payé. Chaque facture en retard creuse donc un trou dans la trésorerie, même quand le carnet de commandes est plein.",
+          "Le danger est sournois : une entreprise rentable sur le papier peut se retrouver en difficulté simplement parce que l'argent gagné n'est pas encore encaissé. Suivre et relancer les impayés n'est pas une corvée administrative, c'est de la survie.",
+        ],
+      },
+      {
+        heading: "La plupart des impayés sont des oublis",
+        body: [
+          "Il est tentant de voir un mauvais payeur derrière chaque retard. La réalité est plus banale : la facture est passée sous une pile, oubliée, ou en attente d'une validation interne chez le client.",
+          "C'est une bonne nouvelle. Un oubli se règle avec un simple rappel, à condition qu'il parte au bon moment. La plupart des clients paient dès qu'on leur rafraîchit la mémoire, sans conflit.",
+        ],
+      },
+      {
+        heading: "Savoir qui vous doit quoi, tout de suite",
+        body: [
+          "On ne relance bien que ce qu'on voit. La première étape n'est pas d'écrire, c'est d'avoir en permanence la liste claire des factures dues, de leur montant et de leur ancienneté.",
+          "Sans cette visibilité, on relance au hasard, on oublie les plus vieilles, on relance deux fois la même. Avec elle, vous savez chaque matin qui appeler en priorité. Poser la question à vos données, plutôt que de fouiller vos dossiers, change tout.",
+        ],
+      },
+      {
+        heading: "Une cadence de relance qui marche",
+        body: [
+          "L'efficacité vient de la régularité, pas de l'agressivité. Une suite de rappels espacés et de plus en plus fermes règle la grande majorité des situations.",
+        ],
+        list: [
+          "Un rappel courtois quelques jours après l'échéance, en supposant l'oubli",
+          "Une relance plus directe une à deux semaines plus tard, avec le détail de la facture",
+          "Un appel téléphonique pour comprendre le blocage éventuel",
+          "Un dernier rappel écrit plus ferme si le silence persiste",
+        ],
+      },
+      {
+        heading: "Le bon ton : ferme mais professionnel",
+        body: [
+          "Beaucoup d'artisans n'osent pas relancer, de peur de froisser un client. C'est une erreur : réclamer son dû est normal et attendu. Un ton poli mais clair est toujours mieux reçu qu'un silence gêné suivi d'un éclat.",
+          "Restez factuel : le numéro de facture, le montant, la date d'échéance, et une demande claire de paiement. Pas de reproche, pas d'émotion. La constance du suivi fait plus d'effet que la dureté du message.",
+        ],
+      },
+      {
+        heading: "Automatiser le suivi et les rappels",
+        body: [
+          "Le vrai frein à la relance, c'est qu'on y pense trop tard, débordé par le chantier. La solution est de ne plus s'en remettre à sa mémoire, mais à un suivi qui fait remonter les factures dues au bon moment.",
+          "Avec Biltia, vous demandez en une phrase quelles factures sont en retard et de combien, et vous obtenez la réponse à partir de vos données. Vous pouvez aussi lui faire préparer le courrier de relance, prêt à envoyer. La relance cesse d'être une corvée repoussée pour devenir un réflexe.",
+        ],
+      },
+      {
+        heading: "Prévenir plutôt que courir après",
+        body: [
+          "Le meilleur impayé est celui qui n'arrive pas. Quelques habitudes simples réduisent fortement les retards : demander un acompte, poser des échéances claires dès le devis, et facturer sans attendre la fin du chantier.",
+          "Facturer vite, avec des conditions nettes et des documents propres, envoie un signal de sérieux qui incite à payer dans les temps. Un devis clair aujourd'hui, c'est une facture plus facile à encaisser demain.",
+        ],
+      },
+    ],
+    takeaways: [
+      "Un impayé, c'est de la trésorerie bloquée, même quand l'entreprise est rentable.",
+      "La plupart des retards sont des oublis, que règle un simple rappel au bon moment.",
+      "On ne relance bien que ce qu'on voit : gardez une liste claire des factures dues.",
+      "La régularité d'une cadence de rappels fait plus d'effet que l'agressivité.",
+      "Automatiser le suivi évite d'y penser trop tard, débordé par le chantier.",
+      "Acompte, échéances claires et facturation rapide préviennent beaucoup d'impayés.",
+    ],
+    faq: [
+      {
+        q: "Quand faut-il relancer une facture impayée ?",
+        a: "Dès quelques jours après l'échéance, avec un rappel courtois qui suppose l'oubli, puis à intervalles réguliers et de plus en plus fermes. La régularité compte plus que l'agressivité.",
+      },
+      {
+        q: "Comment relancer un client sans le froisser ?",
+        a: "En restant factuel et poli : numéro de facture, montant, date d'échéance et demande claire de paiement, sans reproche. Réclamer son dû est normal, et un ton professionnel est toujours mieux reçu qu'un silence gêné.",
+      },
+      {
+        q: "Comment savoir quelles factures sont en retard ?",
+        a: "En gardant une vue à jour des factures dues, de leur montant et de leur ancienneté. Avec Biltia, vous demandez quelles factures sont en retard et vous obtenez la réponse à partir de vos données, sans fouiller vos dossiers.",
+      },
+      {
+        q: "Comment éviter les impayés dans le bâtiment ?",
+        a: "En demandant un acompte, en posant des échéances claires dès le devis et en facturant vite, sans attendre la fin du chantier. Des documents propres et des conditions nettes incitent à payer dans les temps.",
+      },
+    ],
+    relatedProduct: "copilote",
+    cta: "Quelles factures sont en retard, de combien, et prépare une relance polie pour les plus anciennes.",
+  },
 ];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

@@ -2,9 +2,9 @@ import Anthropic from "@anthropic-ai/sdk";
 import { routeRequest } from "@/lib/router";
 import { getCategory } from "@/lib/sectors";
 import { buildKnowledgeBlock } from "@/lib/btp-catalog";
-import { classifyKind, coerceKind, looksLikePureQuestion, type BiltiaKind } from "@/lib/kind-router";
+import { classifyKind, coerceKind, looksLikePureQuestion, extractCalendarEvent, type BiltiaKind } from "@/lib/kind-router";
 import { gmailStatus, sendGmail } from "@/lib/gmail";
-import { readAgenda } from "@/lib/gcal";
+import { readAgenda, createEvent } from "@/lib/gcal";
 import { classifyQuestionTopic } from "@/lib/question-topics";
 import { buildDocumentSystemPrompt, injectDocumentRuntime } from "@/lib/document-generator";
 import { assessDocumentReadiness } from "@/lib/document-context";
@@ -661,6 +661,42 @@ export async function POST(req: Request) {
     // connexion en lazy → lecture réelle des 7 prochains jours. Pas connecté →
     // on propose de connecter (jamais « je ne peux pas »).
     if (kind === "calendar" && !isModification && !isAutoFix) {
+      // Extraction dédiée : lecture vs création + détails du RDV (date résolue).
+      const calIntent = await extractCalendarEvent(prompt);
+      // CRÉATION d'un rendez-vous (« ajoute un RDV client mardi 14h »).
+      if (calIntent.action === "create") {
+        if (!calIntent.start || !calIntent.summary) {
+          return Response.json({
+            kind: "calendar",
+            status: "need_info",
+            message:
+              "Il me manque une info pour créer ce rendez-vous : donne-moi le titre et la date/heure (ex : « RDV client Morel mardi 14h »).",
+          });
+        }
+        const created = await createEvent({
+          tenantId,
+          userId: user.id,
+          summary: calIntent.summary,
+          startISO: calIntent.start,
+          endISO: calIntent.end,
+        });
+        if (created.ok) {
+          return Response.json({
+            kind: "calendar",
+            status: "created",
+            message: `✅ Rendez-vous ajouté à ton agenda : « ${created.summary} » le ${created.whenLabel}.`,
+          });
+        }
+        const why =
+          created.reason === "not_connected"
+            ? "Ton agenda Google n'est pas connecté. Connecte-le dans les intégrations et je m'en occupe."
+            : created.reason === "missing_scope"
+              ? "L'autorisation d'écriture de l'agenda n'est pas accordée — reconnecte ton compte Google avec l'accès Agenda."
+              : "Je n'ai pas pu créer l'événement pour le moment. Réessaie dans un instant.";
+        return Response.json({ kind: "calendar", status: created.reason, message: why });
+      }
+
+      // LECTURE de l'agenda (défaut).
       const cal = await readAgenda({ tenantId, userId: user.id });
       if (cal.ok) {
         return Response.json({ kind: "calendar", status: "ok", message: cal.summary });
