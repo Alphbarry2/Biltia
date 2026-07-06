@@ -525,6 +525,7 @@ ${list}
 - \`await biltia.create('${primary}', { ...champs })\` → ligne créée (avec son \`id\`)
 - \`await biltia.update('${primary}', id, { ...champs })\` → ligne mise à jour
 - \`await biltia.remove('${primary}', id)\` → suppression
+- \`await biltia.extract(photoDataUrl, { fields:['numero','fournisseur','date'] })\` → **IA VISION** : lit une PHOTO (bon de livraison, facture, plan…) et renvoie un objet \`{numero, fournisseur, date, …}\` (chaîne vide si illisible). À enchaîner avec \`biltia.create(...)\` pour stocker. ~25 crédits/photo.
 Chaque ligne possède un \`id\` (uuid) généré par le serveur. N'envoie jamais \`id\`,
 \`tenant_id\` ni les dates \`*_at\` dans create/update : le serveur les gère.
 Pour un champ optionnel laissé vide (uuid de liaison, date, nombre), envoie \`null\`
@@ -548,6 +549,12 @@ Pour un champ optionnel laissé vide (uuid de liaison, date, nombre), envoie \`n
    qui est créé dans l'app EST créé dans le workspace, immédiatement.
 7. Respecte STRICTEMENT les noms de champs et les valeurs d'enum listés ci-dessus.
    Champ optionnel laissé vide → \`null\`, jamais \`""\`.
+8. PHOTO D'UN DOCUMENT (bon de livraison, facture, plan…) → EXTRACTION AUTOMATIQUE :
+   quand l'utilisateur prend/importe la photo d'un document, appelle
+   \`biltia.extract(photoDataUrl, { fields: [les champs de l'entité] })\`, PRÉ-REMPLIS le
+   formulaire avec le résultat (l'utilisateur vérifie/corrige), puis \`biltia.create(...)\`.
+   Ne fais JAMAIS retaper à la main ce qui est déjà lisible sur la photo. Affiche un état
+   « Lecture du document… » pendant l'extraction.
 
 Pour toute donnée qui ne correspond PAS à une entité ci-dessus, continue d'utiliser
 localStorage comme d'habitude.

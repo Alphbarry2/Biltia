@@ -20,7 +20,7 @@
  *
  *  v3 : appels via postMessage → parent (localhost:3000) plutôt que fetch direct
  *  depuis l'iframe srcdoc (origin: null → CORS bloqué). */
-const SDK_MARKER = "__biltia_sdk_v3__";
+const SDK_MARKER = "__biltia_sdk_v4__";
 
 export const BILTIA_SDK_SCRIPT = `<script>
 /* ${SDK_MARKER} */
@@ -78,20 +78,40 @@ export const BILTIA_SDK_SCRIPT = `<script>
     create: function(entity, values){ return call({ entity: entity, action: 'create', values: values }).then(function(r){ return r.data; }); },
     update: function(entity, id, values){ return call({ entity: entity, action: 'update', id: id, values: values }).then(function(r){ return r.data; }); },
     remove: function(entity, id){ return call({ entity: entity, action: 'delete', id: id }).then(function(r){ return r.ok; }); },
-    notify: function(msg){ toast(String(msg || '')); }
+    notify: function(msg){ toast(String(msg || '')); },
+    /* IA vision : lit une PHOTO (dataURL base64) et renvoie les champs demandés,
+       prêts à stocker via biltia.create(). opts.fields = ['numero','fournisseur',…].
+       Ex : var d = await biltia.extract(photoDataUrl, {fields:['numero','date']}); */
+    extract: function(imageDataUrl, opts){
+      opts = opts || {};
+      var url = String(imageDataUrl || '');
+      if (url.indexOf('data:') !== 0 || url.indexOf(';base64,') < 0) {
+        return Promise.reject(new Error('biltia.extract attend une image (dataURL base64).'));
+      }
+      var mediaType = url.slice(5, url.indexOf(';base64,'));
+      var data = url.slice(url.indexOf(';base64,') + 8);
+      return call({ __endpoint: 'app-ai', action: 'extract',
+        image: { name: opts.name || 'photo.jpg', mediaType: mediaType, data: data },
+        fields: opts.fields || opts.champs || null,
+        question: opts.question || opts.instructions || '' })
+        .then(function(r){ return (r && r.data) || {}; });
+    }
   };
 })();
 <\/script>`;
 
 /** Insère le SDK dans le <head> du HTML généré (idempotent, upgrade v1/v2 → v3). */
 export function injectBiltiaSDK(html: string): string {
-  if (html.includes(SDK_MARKER)) return html; // déjà v3
-  // v1 ou v2 présents → on remplace par v3 (correction CORS postMessage)
+  if (html.includes(SDK_MARKER)) return html; // déjà v4
+  // Versions antérieures présentes → on remplace par la v4 (ajout window.biltia.extract).
   if (html.includes("__biltia_sdk_v1__")) {
     return html.replace(/<script>\s*\/\* __biltia_sdk_v1__ \*\/[\s\S]*?<\/script>/, BILTIA_SDK_SCRIPT);
   }
   if (html.includes("__biltia_sdk_v2__")) {
     return html.replace(/<script>\s*\/\* __biltia_sdk_v2__ \*\/[\s\S]*?<\/script>/, BILTIA_SDK_SCRIPT);
+  }
+  if (html.includes("__biltia_sdk_v3__")) {
+    return html.replace(/<script>\s*\/\* __biltia_sdk_v3__ \*\/[\s\S]*?<\/script>/, BILTIA_SDK_SCRIPT);
   }
   if (/<head[^>]*>/i.test(html)) {
     return html.replace(/<head[^>]*>/i, (m) => m + "\n" + BILTIA_SDK_SCRIPT);

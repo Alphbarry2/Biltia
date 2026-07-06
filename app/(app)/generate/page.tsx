@@ -701,7 +701,8 @@ export default function GeneratePage() {
           const target = (event.source as Window | null) ?? iframeRef.current?.contentWindow ?? null;
           target?.postMessage({ type: 'BILTIA_API_RESPONSE', id, ...payload }, '*');
         };
-        fetch('/api/data', {
+        const apiUrl = (body as { __endpoint?: string } | null)?.__endpoint === 'app-ai' ? '/api/app-ai' : '/api/data';
+        fetch(apiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'same-origin',
