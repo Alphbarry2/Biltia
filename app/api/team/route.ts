@@ -150,7 +150,15 @@ export async function POST(req: Request) {
   if (!memberUserId) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? new URL(req.url).origin;
     const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
-      redirectTo: `${appUrl}/auth/callback?next=/dashboard`,
+      // La page /invitation accueille l'invité (« Vous avez été invité… ») pour
+      // choisir son mot de passe. Les métadonnées disent au trigger handle_new_user
+      // que c'est un INVITÉ : pas de 300 crédits, pas d'espace perso, onboarding sauté.
+      redirectTo: `${appUrl}/auth/callback?next=/invitation`,
+      data: {
+        invited_tenant_id: membership.tenant_id,
+        invited_role: role,
+        invited_by: user.id,
+      },
     });
     if (inviteError || !invited?.user) {
       console.error("[team] invite error:", inviteError);
