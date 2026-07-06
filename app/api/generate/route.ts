@@ -385,10 +385,20 @@ function formatInstruction(format: string): string {
 - Navigation simple, pas de survol indispensable. Optimisé pour une utilisation rapide avec des gants.`;
   }
   return `
-# FORMAT CIBLE : ADAPTATIF (responsive)
-- L'app doit être parfaite sur mobile ET desktop. Cartes empilées sur petit écran, tableau/grille sur grand écran (via @media).
-- Sur grand écran : le contenu occupe TOUTE la largeur (\`width:100%\`, pas de \`max-width\` sur le conteneur principal) — jamais de grande zone vide à droite.
-- Boutons confortables au doigt, FAB sur mobile, en-tête classique sur desktop.`;
+# FORMAT CIBLE : ADAPTATIF — LA NAVIGATION CHANGE SELON LA LARGEUR DISPONIBLE
+L'app est UN seul fichier responsive. Sa NAVIGATION et sa mise en page s'adaptent à la
+largeur DISPONIBLE (l'app est affichée dans un cadre qui peut être étroit, ex. 768px quand
+le chat est ouvert à côté — donc réagis à la largeur, pas à celle de l'écran). Trois régimes
+via \`@media\`, avec le MÊME contenu partout — seule la CHROME (nav + colonnes) change :
+- **≥ 1024px (bureau)** : SIDEBAR verticale fixe à gauche (icône + libellé), contenu à droite
+  PLEINE LARGEUR (grilles fluides \`repeat(auto-fit,minmax(240px,1fr))\`, KPI en haut, tableau
+  dessous). AUCUNE barre d'onglets en bas, aucune grande zone vide à droite.
+- **600–1023px (tablette)** : sidebar COMPACTE (icônes seules) OU en-tête avec MENU BURGER
+  qui ouvre la navigation. Pas de tab-bar flottante en bas.
+- **< 600px (mobile)** : TAB-BAR fixe en bas (2-4 onglets) + \`.fab\` d'ajout. Une colonne,
+  cartes empilées, boutons ≥ 48px, pensé pour le pouce (gants, chantier).
+Utilise \`@media (min-width:1024px)\` et \`@media (min-width:600px)\` ; JAMAIS de largeur figée
+sur le conteneur principal. Le passage sidebar ↔ burger ↔ tab-bar doit être FLUIDE et testé.`;
 }
 
 // Doctrine de CONTEXTE D'USAGE — orthogonale au format (layout). Le format dit

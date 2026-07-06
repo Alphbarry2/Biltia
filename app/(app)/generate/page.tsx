@@ -2006,10 +2006,10 @@ export default function GeneratePage() {
               <Loader2 className="w-4 h-4 text-amber-500 animate-spin flex-shrink-0" />
             )}
           </div>
-          <div className="flex items-center gap-1.5 flex-shrink-0">
-            {/* Sélecteur de format d'aperçu (desktop) : redimensionne l'iframe. */}
+          {/* Sélecteur de format d'aperçu AU CENTRE (bureau / tablette / mobile). */}
+          <div className="flex items-center justify-center flex-shrink-0">
             {generatedHTML && (
-              <div className="flex items-center gap-0.5 bg-[#F6F6F9] rounded-full p-0.5 mr-1">
+              <div className="flex items-center gap-0.5 bg-[#F6F6F9] rounded-full p-0.5">
                 {([["desktop", Monitor, "Vue bureau"], ["tablet", Tablet, "Vue tablette"], ["mobile", Smartphone, "Vue mobile"]] as const).map(([d, Icon, label]) => (
                   <button
                     key={d}
@@ -2022,6 +2022,8 @@ export default function GeneratePage() {
                 ))}
               </div>
             )}
+          </div>
+          <div className="flex items-center gap-1.5 flex-1 justify-end">
             {generatedHTML && (
               <button onClick={() => setReloadNonce((n) => n + 1)} title="Actualiser l'aperçu" className="p-1.5 text-[#6E6E6C] hover:text-[#0A0A0A] rounded-lg hover:bg-[#F6F6F9] transition-colors">
                 <RefreshCw className="w-4 h-4" />
