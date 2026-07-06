@@ -62,6 +62,11 @@ type Message = {
 
 type Format = "auto" | "mobile" | "desktop";
 
+// Auto-fix UNIQUEMENT dans cette fenêtre après (re)chargement de l'app. Passé ce
+// délai, l'utilisateur S'EN SERT : une erreur déclenchée par un clic ne doit PLUS
+// recharger l'iframe (sinon l'app se réinitialise = « boutons qui marchent 1 fois sur 2 »).
+const AUTOFIX_WINDOW_MS = 8000;
+
 // Format de sortie chirurgical décidé par l'aiguillage (cf. lib/kind-router.ts).
 type Kind = "document" | "action" | "module";
 
@@ -214,6 +219,7 @@ export default function GeneratePage() {
   // Balayer vers la droite = chat, vers la gauche = app ; boutons d'en-tête en repli.
   const [mobileView, setMobileView] = useState<"chat" | "app">("app");
   const swipeStartX = useRef<number | null>(null);
+  const htmlSetAtRef = useRef(0);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [report, setReport] = useState<ReportResult | null>(null);
   const [savingEntity, setSavingEntity] = useState(false);
@@ -676,6 +682,11 @@ export default function GeneratePage() {
     }
   }, [format]);
 
+  // Horodate chaque (re)chargement d'app → borne la fenêtre d'auto-fix.
+  useEffect(() => {
+    if (generatedHTML) htmlSetAtRef.current = Date.now();
+  }, [generatedHTML]);
+
   // ── Écouter les messages de l'iframe ─────────────────────────────────────
   useEffect(() => {
     const handler = (event: MessageEvent) => {
@@ -710,6 +721,9 @@ export default function GeneratePage() {
       if (event.data?.type === 'BILTIA_JS_ERROR') {
         const errors: string[] = event.data.errors ?? [];
         if (!errors.length || autoFixInProgressRef.current) return;
+        // Passé la fenêtre initiale, l'app est EN USAGE → on ne la recharge JAMAIS
+        // (une erreur déclenchée par un clic ne doit pas remettre l'app à zéro).
+        if (Date.now() - htmlSetAtRef.current > AUTOFIX_WINDOW_MS) return;
 
         // Accumuler les erreurs avec un délai pour éviter les doublons
         pendingErrorsRef.current = [...new Set([...pendingErrorsRef.current, ...errors])];
