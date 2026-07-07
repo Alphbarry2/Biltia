@@ -253,6 +253,9 @@ const FIELD_LABELS: Record<string, string> = {
 const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const fmtDate = (v: string | null) =>
   v ? new Date(v).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }) : "—";
+const num = (x: unknown) => (Number.isFinite(Number(x)) ? Number(x) : 0);
+const fmtEUR = (n: number) =>
+  new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(num(n));
 
 async function listEntity(entity: string): Promise<Row[]> {
   try {
@@ -288,6 +291,35 @@ function FieldRow({ k, v }: { k: string; v: unknown }) {
     <div className="flex items-start justify-between gap-4 py-2 border-b border-[#F1F1EC] last:border-0">
       <span className="text-[12px] text-[#9A9A97] flex-shrink-0">{FIELD_LABELS[k] ?? k}</span>
       <span className="text-[13px] text-[#0A0A0A] text-right break-words">{display}</span>
+    </div>
+  );
+}
+
+// ─── Synthèse financière du chantier : petites tuiles chiffrées + lignes ─────
+const TIMELINE_DOT: Record<string, string> = {
+  devis: "bg-violet-500",
+  facture: "bg-emerald-500",
+  intervention: "bg-sky-500",
+  document: "bg-amber-500",
+  pointage: "bg-slate-400",
+};
+
+function MiniStat({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: "green" | "rose" }) {
+  const valCls = tone === "green" ? "text-emerald-600" : tone === "rose" ? "text-rose-600" : "text-[#0A0A0A]";
+  return (
+    <div className="rounded-xl border border-[#EDEDE9] bg-[#FCFCFB] px-3 py-2.5">
+      <p className="text-[10.5px] font-semibold uppercase tracking-wide text-[#9A9A97]">{label}</p>
+      <p className={`text-[16px] font-bold tabular-nums leading-tight ${valCls}`}>{value}</p>
+      {sub && <p className="text-[10.5px] text-[#B4B4AF] tabular-nums">{sub}</p>}
+    </div>
+  );
+}
+
+function SynthLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <span className="text-[12px] text-[#9A9A97] flex-shrink-0">{label}</span>
+      <span className="text-[12px] text-[#0A0A0A] text-right tabular-nums">{value}</span>
     </div>
   );
 }
@@ -402,6 +434,80 @@ function DetailDrawer({
       };
     }
     return null;
+  }, [entity, row, data]);
+
+  // ── SYNTHÈSE FINANCIÈRE D'UN CHANTIER (la « vérité » du chantier) ───────────
+  // Calculée depuis le graphe déjà chargé : devisé → facturé → encaissé → reste dû,
+  // et le coût réel engagé (matériaux + main d'œuvre pointée) → marge indicative.
+  const finance = useMemo(() => {
+    if (entity !== "chantiers" || !row) return null;
+    const devis = (data.devis ?? []).filter((d) => d.chantier_id === row.id);
+    const factures = (data.factures ?? []).filter((f) => f.chantier_id === row.id);
+    const pointages = (data.pointages ?? []).filter((p) => p.chantier_id === row.id);
+    const materiaux = (data.materials ?? []).filter((m) => m.chantier_id === row.id);
+    const empTaux = new Map((data.employees ?? []).map((e) => [e.id, num(e.taux_horaire)]));
+
+    // Un avoir se soustrait ; une facture annulée est ignorée.
+    const vivantes = factures.filter((f) => f.statut !== "annulee");
+    const sign = (f: Row) => (f.type === "avoir" ? -1 : 1);
+
+    const devisAccepteHT = devis.filter((d) => d.statut === "accepte").reduce((s, d) => s + num(d.montant_ht), 0);
+    const factureHT = vivantes.reduce((s, f) => s + sign(f) * num(f.montant_ht), 0);
+    const factureTTC = vivantes.reduce((s, f) => s + sign(f) * num(f.montant_ttc), 0);
+    const encaisse = vivantes.reduce((s, f) => s + sign(f) * num(f.montant_paye), 0);
+    const resteDu = Math.max(0, factureTTC - encaisse);
+
+    const heures = pointages.reduce((s, p) => s + num(p.heures), 0);
+    const coutMO = pointages.reduce((s, p) => s + num(p.heures) * num(empTaux.get(p.employee_id)), 0);
+    const coutMateriaux = materiaux.reduce((s, m) => s + num(m.prix_achat_ht) * (num(m.quantite) || 1), 0);
+    const coutReel = coutMO + coutMateriaux;
+
+    // Base de marge : ce qui est facturé HT (sinon, à défaut, le devis accepté HT).
+    const base = factureHT || devisAccepteHT;
+    const marge = base > 0 ? base - coutReel : 0;
+    const margePct = base > 0 ? (marge / base) * 100 : null;
+
+    const budget = num(row.budget);
+    const budgetEngage = num(row.budget_engage) || coutReel;
+
+    const hasMoney =
+      devis.length > 0 || factures.length > 0 || pointages.length > 0 || materiaux.length > 0 || budget > 0;
+
+    return {
+      hasMoney, devisAccepteHT, factureHT, factureTTC, encaisse, resteDu,
+      heures, coutMO, coutMateriaux, coutReel, marge, margePct, budget, budgetEngage,
+    };
+  }, [entity, row, data]);
+
+  // ── HISTORIQUE DU CHANTIER (timeline unifiée) ───────────────────────────────
+  const timeline = useMemo(() => {
+    if (entity !== "chantiers" || !row) return [] as { date: string; label: string; kind: string }[];
+    const ev: { date: string; label: string; kind: string }[] = [];
+    const push = (date: unknown, label: string, kind: string) => {
+      const d = String(date ?? "").slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}/.test(d)) ev.push({ date: d, label, kind });
+    };
+    (data.devis ?? []).filter((d) => d.chantier_id === row.id).forEach((d) =>
+      push(d.date_devis, `Devis ${d.numero ?? ""} ${d.statut === "accepte" ? "accepté" : d.statut === "refuse" ? "refusé" : "créé"}`.replace(/\s+/g, " ").trim(), "devis")
+    );
+    (data.factures ?? []).filter((f) => f.chantier_id === row.id).forEach((f) =>
+      push(f.date_facture, `Facture ${f.numero ?? ""} ${f.statut === "payee" ? "payée" : "émise"}`.replace(/\s+/g, " ").trim(), "facture")
+    );
+    (data.interventions ?? []).filter((i) => i.chantier_id === row.id).forEach((i) =>
+      push(i.date_reelle || i.date_prevue, `Intervention — ${i.type ?? ""}`.trim(), "intervention")
+    );
+    (data.documents ?? []).filter((doc) => doc.chantier_id === row.id).forEach((doc) =>
+      push(doc.created_at || doc.expires_at, `Document — ${doc.nom ?? ""}`.trim(), "document")
+    );
+    // Pointages : regroupés par jour (sinon bruit).
+    const parJour = new Map<string, number>();
+    (data.pointages ?? []).filter((p) => p.chantier_id === row.id).forEach((p) => {
+      const d = String(p.date_pointage ?? "").slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}/.test(d)) parJour.set(d, (parJour.get(d) ?? 0) + num(p.heures));
+    });
+    parJour.forEach((h, d) => push(d, `Pointage — ${h} h`, "pointage"));
+
+    return ev.sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 8);
   }, [entity, row, data]);
 
   if (!row) return null;
@@ -536,6 +642,66 @@ function DetailDrawer({
                 className="h-full bg-gradient-to-r from-violet-500 to-pink-500 rounded-full transition-all"
                 style={{ width: `${Math.min(100, Math.max(0, row.avancement ?? 0))}%` }}
               />
+            </div>
+          )}
+
+          {/* SYNTHÈSE FINANCIÈRE — la « vérité » du chantier, calculée en direct */}
+          {entity === "chantiers" && finance?.hasMoney && (
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9A9A97] px-3 mb-2">Synthèse financière</p>
+              <div className="grid grid-cols-2 gap-2">
+                <MiniStat label="Facturé" value={fmtEUR(finance.factureTTC)} sub="TTC" />
+                <MiniStat label="Encaissé" value={fmtEUR(finance.encaisse)} sub="TTC" tone={finance.encaisse > 0 ? "green" : undefined} />
+                <MiniStat label="Reste dû" value={fmtEUR(finance.resteDu)} sub="TTC" tone={finance.resteDu > 0 ? "rose" : "green"} />
+                <MiniStat
+                  label="Marge estimée"
+                  value={fmtEUR(finance.marge)}
+                  sub={finance.margePct != null ? `${finance.margePct.toFixed(0)} %` : "indicatif"}
+                  tone={finance.marge >= 0 ? "green" : "rose"}
+                />
+              </div>
+              <div className="mt-2.5 px-3 space-y-1.5">
+                {finance.devisAccepteHT > 0 && <SynthLine label="Devis accepté" value={`${fmtEUR(finance.devisAccepteHT)} HT`} />}
+                {finance.coutReel > 0 && (
+                  <SynthLine
+                    label="Coût réel engagé"
+                    value={`${fmtEUR(finance.coutReel)} — MO ${fmtEUR(finance.coutMO)} + mat. ${fmtEUR(finance.coutMateriaux)}`}
+                  />
+                )}
+                {finance.heures > 0 && <SynthLine label="Heures pointées" value={`${finance.heures} h`} />}
+              </div>
+              {finance.budget > 0 && (
+                <div className="mt-3 px-3">
+                  <div className="flex items-center justify-between text-[11.5px] mb-1">
+                    <span className="text-[#9A9A97]">Budget engagé</span>
+                    <span className="tabular-nums text-[#0A0A0A]">{fmtEUR(finance.budgetEngage)} / {fmtEUR(finance.budget)}</span>
+                  </div>
+                  <div className="h-1.5 w-full bg-[#F1F1EC] rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${finance.budgetEngage > finance.budget ? "bg-rose-500" : "bg-emerald-500"}`}
+                      style={{ width: `${Math.min(100, (finance.budgetEngage / finance.budget) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* HISTORIQUE — timeline unifiée du chantier */}
+          {entity === "chantiers" && timeline.length > 0 && (
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9A9A97] px-3 mb-2">Historique</p>
+              <div className="px-3 space-y-3">
+                {timeline.map((e, i) => (
+                  <div key={`${e.kind}-${e.date}-${i}`} className="flex items-start gap-3">
+                    <span className={`mt-1 h-2 w-2 rounded-full flex-shrink-0 ${TIMELINE_DOT[e.kind] ?? "bg-slate-300"}`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[13px] text-[#0A0A0A] leading-snug break-words">{e.label}</p>
+                      <p className="text-[11px] text-[#9A9A97] tabular-nums">{fmtDate(e.date)}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

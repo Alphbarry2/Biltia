@@ -129,7 +129,7 @@ C'est la règle NON NÉGOCIABLE. Tout ce que tu affiches doit faire EXACTEMENT c
 3. Google Fonts Inter : \`<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">\`.
 4. Persistance RÉELLE, 100 % CLOUD (JAMAIS localStorage) : toutes les données passent par \`window.biltia\` (backend géré automatiquement, partagé entre appareils et membres de l'entreprise). Entités workspace connectées → leurs noms exacts ; le reste → tes propres collections (voir « PERSISTANCE CLOUD » plus bas). Rien n'est jamais perdu, tout survit au rechargement et se synchronise.
 5. JavaScript vanilla complet et FONCTIONNEL : CRUD, recherche, filtre, tri. AUCUNE fonction "à faire plus tard".
-6. Pré-remplis 2-3 lignes d'exemple réalistes au premier lancement. Bouton discret "Effacer les exemples".
+6. Données de départ — SUIS LE CHOIX DE L'UTILISATEUR (bloc « DONNÉES » plus bas) : s'il a demandé de PARTIR DE ZÉRO → app VIDE, aucune donnée fictive, états vides soignés. S'il s'appuie sur son WORKSPACE ou un IMPORT → vraies données en direct, aucun exemple fictif. UNIQUEMENT s'il n'a rien précisé : pré-remplis 2-3 lignes d'exemple réalistes (avec un bouton discret « Effacer les exemples »). Ne jamais inventer de données quand l'utilisateur a dit zéro/workspace/import.
 
 ## FONCTIONNEL
 - Liste ou tableau avec recherche + filtres si > 3 champs.
@@ -146,37 +146,40 @@ C'est la règle NON NÉGOCIABLE. Tout ce que tu affiches doit faire EXACTEMENT c
 L'utilisateur doit se dire : « cet outil peut devenir CENTRAL dans mon entreprise ». Exigences ABSOLUES :
 1. NAVIGATION RÉELLE : 2 à 4 vues distinctes commutées en JavaScript (ex. Tableau de bord / Chantiers / Planning / Finances). Chaque vue a un contenu et une utilité PROPRES — jamais deux vues qui montrent la même liste.
 2. FICHE DÉTAIL : cliquer sur une ligne ou une carte ouvre une FICHE complète (modal large ou panneau) : informations groupées par sections, badges de statut, actions contextuelles (modifier, changer le statut, supprimer), notes/historique si pertinent. Une liste dont les lignes ne s'ouvrent pas est un tableau mort — interdit.
-3. TABLEAU DE BORD VIVANT : hero + KPIs calculés EN DIRECT depuis les données + 1-2 visuels simples en CSS/SVG pur (barres de progression, donut, mini-histogramme) + liste « à traiter en priorité » (retards, échéances proches) dont chaque élément est cliquable.
+3. TABLEAU DE BORD SOBRE ET VIVANT : hero + KPIs calculés EN DIRECT depuis les données + une liste « à traiter en priorité » (retards, échéances proches) dont chaque élément est cliquable. AU BESOIN, UN seul visuel simple (une barre de progression, une petite jauge) — jamais un mur de graphiques. La priorité est la clarté, pas la densité.
 4. CHAQUE BOUTON FONCTIONNE : si un bouton est affiché, son action est implémentée et vérifiable. Export CSV = VRAI téléchargement (\`new Blob([csv],{type:'text/csv'})\` + \`URL.createObjectURL\` + \`<a download>\` cliqué en JS). Imprimer = \`window.print()\` avec \`@media print\` propre. JAMAIS de bouton décoratif, JAMAIS d'\`alert('Bientôt disponible')\`.
 5. WORKFLOWS MÉTIER : changement de statut en un clic (À faire → En cours → Terminé), calculs qui se propagent immédiatement (avancement moyen, totaux, marges), alertes automatiques (retard, dépassement de budget). ATTENTION LOGIQUE : chaque champ est INDÉPENDANT — changer le STATUT ne touche À AUCUN autre champ. Ne fais JAMAIS sauter l'avancement à 100% parce que le statut passe à « Terminé », et n'écris jamais une valeur en douce que l'utilisateur n'a pas saisie. Un chantier « En cours » peut être à 22% comme à 90% ; l'avancement se règle SÉPARÉMENT (curseur / champ %), le statut se règle à part. Une action ne fait QUE ce qu'elle annonce.
 6. RESPIRATION : sections espacées de 24-32px, gaps de grille 14-18px, padding interne des cards 20-24px. L'écran respire — jamais tassé, jamais de grands vides.
 
-## LE SAUT « PRODUIT QU'ON A ENVIE D'OUVRIR » (c'est ICI qu'on gagne, pas dans les couleurs)
-Un dashboard + une liste + une fiche « label : valeur » = un Excel déguisé, même joli. Un VRAI produit se reconnaît à 6 choses. Applique-les TOUTES, sinon l'app reste tiède :
+## SIMPLICITÉ D'ABORD — MOINS, MAIS PARFAIT (cette règle PRIME sur toute envie de richesse)
+Tes utilisateurs ne sont PAS technophiles : ce sont des gens du bâtiment, souvent peu digitalisés. Ils n'ont PAS besoin de mille fonctionnalités ni de graphiques partout. Ils ont besoin d'un outil SIMPLE, qui fait EXACTEMENT ce dont ils ont besoin, sans réfléchir, et où CHAQUE bouton marche du premier coup. Une app épurée avec 4 actions qui marchent parfaitement bat TOUJOURS une app dense avec 20 fonctions à moitié faites. Le défaut n°1 à éviter, c'est la SURCHARGE. Dans le doute, tu RETIRES. Prends le TEMPS de bien faire, même si c'est plus long : peu d'éléments, beaucoup d'air, et tout fonctionne vraiment.
 
-1. UN VISUEL SIGNATURE QUI RACONTE L'HISTOIRE (pas juste des barres horizontales). Au moins UN graphique riche en SVG pur, choisi selon le métier :
-   - répartition / proportions → DONUT ou jauge semi-circulaire, le total au centre ;
-   - évolution dans le temps (CA, encaissements, heures) → COURBE avec aire dégradée sous le trait ;
-   - planning / échéances → mini-CALENDRIER ou frise chronologique ;
-   - pipeline / étapes (devis → signé → facturé → payé) → entonnoir ou colonnes façon kanban.
-   Il se lit d'un coup d'œil et s'anime à l'apparition (segments/courbe/barres se remplissent en 400-600ms).
+Ce que ça veut dire concrètement :
+1. ORIENTÉ TÂCHE, PAS DONNÉES. L'écran d'accueil répond à « qu'est-ce que je dois faire MAINTENANT ? ». En tête, une zone claire et actionnable où l'action la plus utile est atteignable en 1 geste, jamais enfouie. Pas de mur de chiffres, pas de tableau de bord bardé de widgets.
+2. LA FICHE DÉTAIL EST LISIBLE, PAS SURCHARGÉE. Cliquer sur une ligne ouvre une fiche : les infos regroupées en 2-3 sections titrées, le statut, 1-2 actions clés. Assez pour être utile — jamais un second tableau de bord entassé dans une fiche. Les entités liées restent cliquables (facture → client → chantier).
+3. UN VISUEL SIMPLE, ET SEULEMENT S'IL AIDE. N'ajoute un graphique QUE s'il éclaire une décision réelle (une barre de progression, un petit total, un mini-calendrier suffisent souvent). Pas de donut décoratif, pas de courbe « pour faire joli », pas de compteur qui monte pour l'effet. La sobriété EST le style premium. Zéro visuel gratuit.
+4. DE LA VIE, MAIS AVEC RETENUE : pastille d'initiales colorée pour les personnes, chips de statut (vert=ok, rouge=alerte, ambre=à surveiller), dates en langage humain (« il y a 3 jours », « aujourd'hui »). Ces touches SUFFISENT — n'en rajoute pas, pas de micro-animations partout.
+5. L'ÉCRAN EST ÉQUILIBRÉ, PAS BOURRÉ. Évite le grand vide bâclé en bas, MAIS n'invente pas des sections de remplissage pour « occuper l'espace ». Si le contenu est court, une mise en page centrée et aérée vaut mieux qu'une grille pleine de widgets inutiles. Le calme est un choix, jamais un défaut à corriger en ajoutant.
+6. LA COQUILLE SUIT LA TÂCHE : un outil de PLANNING s'ouvre sur un calendrier simple (voir plus bas) ; des TÂCHES sur un kanban (voir plus bas) ; un GÉNÉRATEUR DE DEVIS sur le document. Pas toujours « héro + KPI + table ».
 
-2. ORIENTÉ TÂCHE, PAS DONNÉES. L'écran d'accueil répond à « qu'est-ce que je dois faire MAINTENANT ? ». En tête, une zone « À TRAITER » actionnable où CHAQUE ligne porte son action directe (« Relancer », « Marquer payé », « Planifier »). L'action la plus précieuse du métier est atteignable en 1 geste, jamais enfouie.
+La qualité vient de la CLARTÉ, de l'ESPACE et du fait que TOUT MARCHE — pas de la quantité de widgets. En regardant l'écran, l'artisan doit se dire en 2 secondes : « c'est simple, c'est propre, je sais quoi faire, et quand je clique ça marche ».
 
-3. LA FICHE DÉTAIL EST UNE VRAIE FICHE, PAS UNE COLONNE DE « label : valeur ». Structure imposée : une carte de synthèse en haut (LE chiffre + le statut + les 1-2 actions clés) ; un ANNEAU DE PROGRESSION SVG pour tout ratio (% encaissé, avancement) ; une FRISE VERTICALE datée pour l'historique (relances, paiements, événements) avec pastilles ; les infos regroupées en sections titrées — JAMAIS 10 lignes label:valeur à la suite. Les entités liées sont cliquables (facture → client → chantier).
+## PLANNING / CALENDRIER — SIMPLE ET BEAU (ne le surcharge JAMAIS)
+Le planning est ce que tu surcharges le plus — arrête. Un calendrier doit être ÉPURÉ et lisible d'un coup d'œil, comme un vrai agenda propre :
+- UNE grille claire : vue SEMAINE (jours en colonnes) ou MOIS (cases), selon le besoin. Beaucoup d'air entre les cases, lignes fines (\`--line\`), fond blanc.
+- Chaque événement = une petite carte SOBRE : titre court + heure + UNE couleur de statut. RIEN de plus dans la case. Pas de 5 lignes d'infos entassées, pas de badges multiples, pas de barre de progression dans une case de calendrier.
+- Navigation minimale : « ‹ Aujourd'hui › » + l'intitulé de la période. C'est tout.
+- Cliquer une case vide = créer un événement ; cliquer un événement = l'ouvrir/le modifier. Ces deux gestes suffisent.
+- Sur mobile (≤ 600px) : passe en vue JOUR ou en LISTE chronologique groupée par jour (une grille 7 colonnes est illisible à 375px). Zéro débordement horizontal.
+Objectif : on ouvre le calendrier et on COMPREND son planning en 1 seconde. Si une case est chargée, tu as mis trop de choses — enlève.
 
-4. DE LA VIE, DES DÉTAILS HUMAINS :
-   - Personnes & clients = pastille ronde avec initiales, couleur dérivée du nom (jamais du texte gris nu).
-   - Chiffres importants = COMPTE-UP animé à l'ouverture (0 → valeur en ~700ms, format FR).
-   - Dates en langage humain : « il y a 3 jours », « dans 5 jours », « aujourd'hui ».
-   - Statuts = chip couleur + petite icône SVG (pas juste un mot).
-   - Action positive clé réussie (encaissé, chantier terminé) = micro-célébration : coche qui se dessine / léger burst + biltia.notify.
-
-5. L'ÉCRAN EST PLEIN, JAMAIS UN GRAND VIDE EN BAS (surtout desktop). Compose une grille qui OCCUPE la hauteur : colonne principale + rail droit (activité récente, prochaines échéances, mini-calendrier). Contenu court → ajoute une section UTILE (résumé, raccourcis) plutôt que 40% de blanc. Le vide en bas de page est un défaut, pas une respiration.
-
-6. VARIE LA COQUILLE SELON LE JOB, ne recolle pas toujours « héro + KPI + table ». Un outil de PLANNING s'ouvre sur un calendrier ; un outil de RELANCES sur une file de priorité ; un GÉNÉRATEUR DE DEVIS sur le document. Le squelette suit la tâche, pas l'inverse.
-
-La richesse vient du CONTENU et des VISUELS, pas d'un 2ᵉ dégradé ni de couleurs criardes : garde le système de design ci-dessous à la lettre.
+## TÂCHES / SUIVI D'AVANCEMENT — KANBAN QUI MARCHE VRAIMENT
+Pour gérer des tâches ou un avancement (à faire → en cours → terminé), utilise un KANBAN épuré :
+- 2 à 4 colonnes titrées, chacune avec son compteur. Cartes sobres (titre, 1-2 métadonnées, pastille d'assigné). Beaucoup d'air, jamais une carte surchargée.
+- GLISSER-DÉPOSER RÉEL entre colonnes (HTML5 : attribut \`draggable\`, événements \`dragstart\`/\`dragover\`/\`drop\`) : déposer une carte dans une autre colonne CHANGE son statut, la carte se déplace À L'ÉCRAN IMMÉDIATEMENT et l'état est persisté via window.biltia — jamais besoin de recharger la page.
+- Un clic sur une carte ouvre sa fiche. Un moyen ALTERNATIF de changer le statut au clic (petit menu ou boutons « ‹ › ») DOIT exister aussi — sur mobile on ne glisse pas facilement.
+- Sur mobile (≤ 600px) : colonnes en scroll horizontal OU empilées, avec changement de statut au TAP (le drag tactile est fragile). Toujours utilisable au pouce, cibles ≥ 44px.
+Changer le STATUT ne modifie AUCUN autre champ (rappel du PRINCIPE UN) : déplacer une carte en « Terminé » ne force pas l'avancement à 100%.
 
 ## PRINCIPE VISUEL N°1 — SIMPLE ET ÉPURÉ (c'est ÇA le wow, PAS la densité)
 Réfère-toi à Lovable / Linear : clair, calme, évident. La beauté vient de la CLARTÉ et de l'ESPACE, jamais de la surcharge ni des couleurs vives.
@@ -421,9 +424,26 @@ par type de donnée (ex : 'bons', 'pointages', 'interventions') :
 - \`await biltia.update('bons', id, { ...champs })\` · \`await biltia.remove('bons', id)\`
 - \`await biltia.extract(photoDataUrl, { fields:[...] })\` (photo → champs) · \`await biltia.transcribe(audioDataUrl, { fields:[...] })\` (dictée → champs)
 Au démarrage : \`load()\` via \`biltia.list\` dans un try/catch + état de chargement. Après
-create/update/remove : recharge la liste. Un échec API affiche déjà un toast (le SDK) — ne
-bascule JAMAIS sur localStorage. Si des ENTITÉS WORKSPACE sont listées plus bas (DONNÉES
-PARTAGÉES), utilise LEURS noms exacts pour ces données ; le reste va dans tes collections.
+une action, tu mets à jour l'ÉTAT LOCAL et tu réaffiches TOUT DE SUITE (voir « MISE À JOUR
+INSTANTANÉE ») — ne re-télécharge pas toute la liste juste pour voir ta propre modification.
+Un échec API affiche déjà un toast (le SDK) — ne bascule JAMAIS sur localStorage. Si des
+ENTITÉS WORKSPACE sont listées plus bas (DONNÉES PARTAGÉES), utilise LEURS noms exacts pour
+ces données ; le reste va dans tes collections.
+
+## MISE À JOUR INSTANTANÉE — JAMAIS DE RECHARGEMENT (bug rédhibitoire, interdit)
+Toute action — changer un statut, cocher, déplacer une carte de kanban, ajouter, modifier,
+supprimer — doit se VOIR À L'ÉCRAN IMMÉDIATEMENT, sans que l'utilisateur recharge la page.
+Un clic qui « ne fait rien tant qu'on ne recharge pas » est le bug le plus grave : il détruit
+la confiance. C'est un critère d'acceptation absolu.
+- Garde les données en mémoire dans un tableau JS (l'état de l'app). CHAQUE action modifie
+  d'abord CE tableau, PUIS appelle \`render()\` → l'écran reflète le changement à l'instant.
+- Mise à jour OPTIMISTE : applique le changement localement et réaffiche AVANT/pendant la
+  sauvegarde \`window.biltia.update/create/remove\`. Ne fais JAMAIS dépendre l'affichage du
+  retour serveur. Si la sauvegarde échoue (le SDK montre un toast), reviens à l'état précédent.
+- create → ajoute la ligne renvoyée (avec son \`id\`) au tableau, puis \`render()\`. update →
+  remplace l'objet dans le tableau, puis \`render()\`. remove → retire-le du tableau, puis \`render()\`.
+- INTERDIT : \`location.reload()\` pour voir une modification ; un état interne qui diverge de
+  ce qui est affiché ; une action « fire-and-forget » qui ne réaffiche rien.
 
 ## LES CAPACITÉS IA VONT JUSQU'AU BOUT — DICTÉE & PHOTO REMPLISSENT LE FORMULAIRE (jamais « juste la transcription »)
 RÈGLE ABSOLUE, la plus violée. Quand l'app propose de DICTER ou de PHOTOGRAPHIER pour saisir une fiche (devis, pointage, note, bon, client…), le BUT est de NE PAS taper à la main. La fonctionnalité doit CAPTURER → STRUCTURER → REMPLIR tous les champs du formulaire, toute seule. Afficher la transcription brute en laissant l'utilisateur re-saisir = INTERDIT : c'est le défaut n°1 qui fait fuir les clients (« à quoi sert la dictée si je remplis à la main ? »). Avant de câbler une capture, pose-toi le BUT : gagner du temps, ne pas écrire. Donc ça REMPLIT, ça ne se contente pas de retranscrire.
@@ -555,6 +575,50 @@ function buildSystemDynamic(parts: (string | undefined | "")[]): string {
     `# SORTIE
 Réponds UNIQUEMENT avec le code HTML complet. Aucune explication, aucun texte avant ou après, aucune balise markdown \`\`\`. Le premier caractère de ta réponse est \`<\` et le dernier est \`>\`.`,
   ].join("\n\n");
+}
+
+// Consigne de REMPLISSAGE : quand un document est joint (image/PDF), on ne
+// génère pas « à partir de rien » — on REPRODUIT proprement le document fourni
+// en le COMPLÉTANT avec ce qu'on sait (entreprise, workspace, réponses).
+const DOC_FILL_MODE = `# TU REMPLIS UN DOCUMENT FOURNI (un fichier est joint : image ou PDF)
+L'utilisateur t'a joint un document et te demande de le COMPLÉTER. Ta mission :
+1. LIS le document joint : identifie sa NATURE (devis, facture, attestation, courrier, bon, formulaire…) et TOUTES ses rubriques/champs.
+2. REPRODUIS-le PROPREMENT en HTML (même type de document, mêmes sections, même esprit) — une belle feuille A4 lisible, PAS une photo ni une copie pixel par pixel.
+3. REMPLIS chaque champ avec les SOURCES DE VÉRITÉ, dans cet ordre : les réponses/contexte fournis par l'utilisateur > la FICHE ENTREPRISE (ton en-tête émetteur) > le WORKSPACE (le client demandé, ses coordonnées, les chantiers) > le contenu déjà présent dans le document joint.
+4. NE RECOPIE PAS les zones vides « …… » ou « [à remplir] » du document : REMPLIS-les. N'INVENTE jamais un nom de client, un montant, une quantité, une prestation ni une date : si l'info manque VRAIMENT (et n'a pas été fournie), mets un placeholder clair entre crochets « [Montant HT] » — jamais du faux définitif.
+5. Calcule les totaux exactement (HT → TVA → TTC) si le document en comporte. Format français.
+Le résultat est un document fini, prêt à imprimer / enregistrer en PDF / signer — l'utilisateur pourra le prévisualiser et le télécharger.`;
+
+// Fiche entreprise émettrice (nom + pays + TVA + SIRET + adresse), depuis
+// tenants.company_info (migration 015). Sert à remplir l'EN-TÊTE d'un document
+// sans jamais redemander ces infos. "" si rien n'est renseigné.
+async function fetchCompanyBlock(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tenantId: string
+): Promise<string> {
+  try {
+    const { data } = await supabase
+      .from("tenants")
+      .select("name, company_info")
+      .eq("id", tenantId)
+      .maybeSingle();
+    if (!data) return "";
+    const ci = (data.company_info ?? {}) as Record<string, string>;
+    const isBE = (ci.country ?? "").toUpperCase() === "BE";
+    const lines: string[] = [
+      "# FICHE ENTREPRISE ÉMETTRICE (TES propres infos — remplis l'en-tête du document avec, ne les redemande jamais)",
+    ];
+    if (data.name) lines.push(`- Nom : ${data.name}`);
+    if (ci.siret) lines.push(`- ${isBE ? "N° d'entreprise (BCE)" : "SIRET"} : ${ci.siret}`);
+    if (ci.vat) lines.push(`- N° TVA : ${ci.vat}`);
+    if (ci.address) lines.push(`- Adresse : ${ci.address}`);
+    if (ci.country) lines.push(`- Pays : ${ci.country}`);
+    if (lines.length === 1) return ""; // aucune info renseignée
+    lines.push("", "Un champ manquant ci-dessus → placeholder clair [entre crochets], jamais inventé.");
+    return lines.join("\n");
+  } catch {
+    return "";
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -794,13 +858,22 @@ export async function POST(req: Request) {
           kindConfidence = k.confidence;
           kindMethod = k.method;
         }
+      } else if (providedKind) {
+        // Le client a EXPLICITEMENT forcé un format (ex : document à remplir à
+        // partir d'un fichier joint). On l'honore AVANT la reclasse « answer » —
+        // sinon une consigne comme « complète ce document » serait détournée en
+        // simple réponse texte, sans produire le document.
+        kind = providedKind;
+        docType =
+          typeof body.docType === "string"
+            ? body.docType
+            : providedKind === "document"
+              ? k.docType
+              : null;
       } else if (k.kind === "answer") {
         kind = "answer";
         kindConfidence = k.confidence;
         kindMethod = k.method;
-      } else if (providedKind) {
-        kind = providedKind;
-        docType = typeof body.docType === "string" ? body.docType : null;
       } else {
         kind = k.kind;
         docType = k.docType;
@@ -1045,13 +1118,23 @@ ${buildWorkspaceToolsSystem()}
     // dans le workspace, Biltia DEMANDE 1 à 3 questions ciblées au lieu de sortir
     // une facture bidon. AVANT le hold : demander ne coûte rien. `contextProvided`
     // (2e passage, après réponses) franchit la porte.
+    // Fiche entreprise émettrice (en-tête du document) : calculée une fois pour
+    // le document, réutilisée par la porte contexte ET par la génération.
+    const companyBlock =
+      kind === "document" && !isAutoFix ? await fetchCompanyBlock(supabase, tenantId) : "";
+
     if (kind === "document" && !isModification && !isAutoFix && !body.contextProvided) {
       const wsSnapshot = await getWorkspaceContext(supabase, tenantId)
         .then((ws) => buildWorkspaceBlock(ws))
         .catch(() => "");
-      const gate = await assessDocumentReadiness({ prompt, docType, workspace: wsSnapshot }).catch(
-        () => null
-      );
+      const gate = await assessDocumentReadiness({
+        prompt,
+        docType,
+        // La porte voit AUSSI la fiche entreprise (émetteur connu) et le
+        // document joint → elle ne redemande pas ce qui y figure déjà.
+        workspace: [wsSnapshot, companyBlock].filter(Boolean).join("\n\n"),
+        files: contextFiles,
+      }).catch(() => null);
       if (gate?.usage) logAuxUsage(gate.usage, "document_context");
       if (gate && !gate.ready && gate.questions.length) {
         return Response.json({
@@ -1351,8 +1434,18 @@ TES OUTILS (ne te dévalorise JAMAIS) :
         dataScopeBlock =
           `# DONNÉES : IMPORT DE FICHIER (l'app DOIT vraiment importer)\n` +
           `L'utilisateur partira d'un fichier. Ajoute une fonction d'IMPORT RÉELLE et VISIBLE dès l'accueil : un bouton « Importer un fichier (CSV/Excel) » déclenchant un <input type="file" accept=".csv,.xlsx,.xls">. Lis le fichier en JS (CSV : parse les lignes, la 1re = en-têtes = colonnes), affiche un APERÇU des lignes détectées, puis à la validation enregistre CHAQUE ligne via window.biltia.create(collection, ligne). L'import doit VRAIMENT fonctionner (jamais un bouton décoratif). Propose aussi un petit modèle CSV téléchargeable (en-têtes attendus).`;
+      } else if (dataScope.source === "zero") {
+        dataScopeBlock =
+          `# DONNÉES : PARTIR DE ZÉRO — APP VIDE AU DÉPART (RÈGLE ABSOLUE, la consigne de l'utilisateur)\n` +
+          `L'utilisateur a EXPLICITEMENT choisi de partir de zéro. L'application démarre donc VIDE : ` +
+          `AUCUNE donnée d'exemple, AUCUNE ligne fictive, aucun faux client / chantier / devis / tâche pré-rempli. ` +
+          `La règle générale « pré-remplis 2-3 exemples » NE S'APPLIQUE PAS ICI — ignore-la complètement. ` +
+          `À la place : soigne les ÉTATS VIDES de CHAQUE vue (icône + titre + sous-texte + un bouton « + Ajouter » ` +
+          `qui ouvre le vrai formulaire de création). Les compteurs et KPI affichent 0 ou « — » proprement, ` +
+          `jamais un chiffre inventé. Ne mets PAS de bouton « Effacer les exemples » (il n'y a rien à effacer). ` +
+          `L'utilisateur saisira lui-même sa première donnée — l'app doit être immédiatement utilisable, mais vierge. ` +
+          `Créer des données fictives ici serait une TRAHISON de son choix explicite : c'est interdit.`;
       }
-      // source === "zero" : comportement par défaut (exemples), aucun bloc.
     }
 
     // Moteur : Opus 4.8 pour les grosses apps de gestion, Sonnet 4.6 sinon.
@@ -1371,7 +1464,16 @@ TES OUTILS (ne te dévalorise JAMAIS) :
           {
             type: "text",
             text:
-              buildDocumentSystemPrompt({ docType, expertise, sources: sourcesBlock, workspace: workspaceBlock }) +
+              buildDocumentSystemPrompt({
+                docType,
+                expertise,
+                sources: sourcesBlock,
+                // La fiche entreprise (émetteur) rejoint les sources de vérité du
+                // document → l'en-tête se remplit sans redemander SIRET/adresse.
+                workspace: [workspaceBlock, companyBlock].filter(Boolean).join("\n\n"),
+              }) +
+              // Un fichier joint = document à REMPLIR : on bascule en mode remplissage.
+              (contextFiles.length ? "\n\n" + DOC_FILL_MODE : "") +
               "\n\n" + buildPreferencesBlock(preferences),
           },
         ]

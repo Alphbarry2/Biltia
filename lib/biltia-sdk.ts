@@ -20,14 +20,18 @@
  *
  *  v3 : appels via postMessage → parent (localhost:3000) plutôt que fetch direct
  *  depuis l'iframe srcdoc (origin: null → CORS bloqué). */
-const SDK_MARKER = "__biltia_sdk_v5__";
+const SDK_MARKER = "__biltia_sdk_v6__";
 
 export const BILTIA_SDK_SCRIPT = `<script>
 /* ${SDK_MARKER} */
 (function(){
   if (window.biltia) return;
-  function toast(msg){
+  /* Un SEUL toast, mais deux tons NETS : succès (✓ vert, discret, 2,4 s) vs
+     erreur (⚠ rouge, 5 s). Une confirmation d'enregistrement ne doit JAMAIS
+     porter l'icône d'alerte — c'est déroutant pour un artisan. */
+  function toast(msg, kind){
     try {
+      var isErr = kind === 'error';
       var host = document.getElementById('__biltia_toasts');
       if (!host) {
         host = document.createElement('div');
@@ -36,14 +40,19 @@ export const BILTIA_SDK_SCRIPT = `<script>
         document.body.appendChild(host);
       }
       var el = document.createElement('div');
-      el.style.cssText = 'max-width:92vw;background:#0A0A0A;color:#fff;font-size:13px;font-weight:600;line-height:1.45;padding:11px 16px;border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.28);opacity:0;transition:opacity .2s, transform .2s;transform:translateY(6px)';
-      el.textContent = '⚠️ ' + msg;
+      el.style.cssText = 'display:flex;align-items:center;gap:8px;max-width:92vw;background:#0A0A0A;color:#fff;font-size:13px;font-weight:600;line-height:1.45;padding:11px 15px;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.22);opacity:0;transition:opacity .2s, transform .2s;transform:translateY(6px)';
+      var ico = document.createElement('span');
+      ico.style.cssText = 'font-size:14px;line-height:1;color:' + (isErr ? '#FB7185' : '#34D399');
+      ico.textContent = isErr ? '⚠' : '✓';
+      var txt = document.createElement('span');
+      txt.textContent = String(msg || '');
+      el.appendChild(ico); el.appendChild(txt);
       host.appendChild(el);
       requestAnimationFrame(function(){ el.style.opacity = '1'; el.style.transform = 'none'; });
       setTimeout(function(){
         el.style.opacity = '0'; el.style.transform = 'translateY(6px)';
         setTimeout(function(){ el.remove(); }, 250);
-      }, 5000);
+      }, isErr ? 5000 : 2400);
     } catch (e) {}
   }
   /* Pont postMessage : l'iframe (origin:null) ne peut pas faire fetch directement.
@@ -54,7 +63,7 @@ export const BILTIA_SDK_SCRIPT = `<script>
       var id = Math.random().toString(36).slice(2) + Date.now().toString(36);
       var timer = setTimeout(function(){
         window.removeEventListener('message', handler);
-        toast('Délai dépassé — workspace injoignable.');
+        toast('Connexion trop lente — réessayez.', 'error');
         reject(new Error('timeout'));
       }, 30000);
       function handler(e){
@@ -62,7 +71,7 @@ export const BILTIA_SDK_SCRIPT = `<script>
         window.removeEventListener('message', handler);
         clearTimeout(timer);
         if (e.data.error) {
-          toast(e.data.error);
+          toast(e.data.error, 'error');
           reject(new Error(e.data.error));
         } else {
           resolve(e.data.result);
@@ -78,7 +87,7 @@ export const BILTIA_SDK_SCRIPT = `<script>
     create: function(entity, values){ return call({ entity: entity, action: 'create', values: values }).then(function(r){ return r.data; }); },
     update: function(entity, id, values){ return call({ entity: entity, action: 'update', id: id, values: values }).then(function(r){ return r.data; }); },
     remove: function(entity, id){ return call({ entity: entity, action: 'delete', id: id }).then(function(r){ return r.ok; }); },
-    notify: function(msg){ toast(String(msg || '')); },
+    notify: function(msg){ toast(String(msg || ''), 'success'); },
     /* IA vision : lit une PHOTO (dataURL base64) et renvoie les champs demandés,
        prêts à stocker via biltia.create(). opts.fields = ['numero','fournisseur',…].
        Ex : var d = await biltia.extract(photoDataUrl, {fields:['numero','date']}); */
@@ -116,9 +125,9 @@ export const BILTIA_SDK_SCRIPT = `<script>
 })();
 <\/script>`;
 
-/** Insère le SDK dans le <head> du HTML généré (idempotent, upgrade v1/v2 → v3). */
+/** Insère le SDK dans le <head> du HTML généré (idempotent, upgrade v1…v5 → v6). */
 export function injectBiltiaSDK(html: string): string {
-  if (html.includes(SDK_MARKER)) return html; // déjà v4
+  if (html.includes(SDK_MARKER)) return html; // déjà à jour
   // Versions antérieures présentes → on remplace par la v4 (ajout window.biltia.extract).
   if (html.includes("__biltia_sdk_v1__")) {
     return html.replace(/<script>\s*\/\* __biltia_sdk_v1__ \*\/[\s\S]*?<\/script>/, BILTIA_SDK_SCRIPT);
@@ -131,6 +140,9 @@ export function injectBiltiaSDK(html: string): string {
   }
   if (html.includes("__biltia_sdk_v4__")) {
     return html.replace(/<script>\s*\/\* __biltia_sdk_v4__ \*\/[\s\S]*?<\/script>/, BILTIA_SDK_SCRIPT);
+  }
+  if (html.includes("__biltia_sdk_v5__")) {
+    return html.replace(/<script>\s*\/\* __biltia_sdk_v5__ \*\/[\s\S]*?<\/script>/, BILTIA_SDK_SCRIPT);
   }
   if (/<head[^>]*>/i.test(html)) {
     return html.replace(/<head[^>]*>/i, (m) => m + "\n" + BILTIA_SDK_SCRIPT);

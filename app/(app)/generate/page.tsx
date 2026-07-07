@@ -126,6 +126,26 @@ function kindLabel(kind: Kind, docType: string | null): string {
   return kind === "action" ? "Action" : "Module";
 }
 
+// Intention « remplis / complète un document » sur un fichier joint : on
+// distingue le REMPLISSAGE (produire un document rempli, prévisualisable +
+// téléchargeable) de l'ANALYSE (résumer / vérifier / extraire). Heuristique
+// tolérante aux accents ; en cas de doute, on retombe sur l'analyse (défaut).
+function looksLikeDocumentFill(text: string): boolean {
+  const t = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  if (!t.trim()) return false;
+  const fillVerb =
+    /(complet|rempli|remplir|redig|etabli|etablir|prepar|gener|fais(?:-| )?(?:moi )?|cree|creer|ecri|refai|mets? a jour)/;
+  const docNoun =
+    /(document|devis|facture|attestation|courrier|lettre|contrat|avenant|bon de (commande|livraison)|mise en demeure|ordre de service|recu|avoir|certificat|\bpv\b|proces[- ]verbal|releve|formulaire|cerfa|situation de travaux)/;
+  // « complète-le », « remplis ce document », « complète ce fichier »
+  if (/(complet|rempli|remplir|redig).{0,14}(le|ce|cette|ca|celui|document|fichier|formulaire)/.test(t))
+    return true;
+  if (fillVerb.test(t) && docNoun.test(t)) return true;
+  // Verbe de remplissage + « le/ce » (sous-entend le fichier joint)
+  if (fillVerb.test(t) && /\b(le|ce|cette|ca)\b/.test(t)) return true;
+  return false;
+}
+
 
 const FORMATS: { id: Format; label: string; icon: React.ReactNode }[] = [
   { id: "auto", label: "Auto", icon: <LayoutTemplate className="w-3.5 h-3.5" /> },
@@ -265,7 +285,7 @@ export default function GeneratePage() {
   // Questions préalables avant production : "module" = questionnaire de création
   // d'app (façon Lovable) ; "document" = porte « contexte suffisant ? » (l'employé
   // demande les infos manquantes avant de rédiger le PDF).
-  const [clarify, setClarify] = useState<{ questions: ClarifyQuestion[]; prompt: string; kind?: "module" | "document" } | null>(null);
+  const [clarify, setClarify] = useState<{ questions: ClarifyQuestion[]; prompt: string; kind?: "module" | "document"; files?: { name: string; mediaType: string; data: string }[] } | null>(null);
   const [loadingLabel, setLoadingLabel] = useState<string | null>(null);
   // Crédits insuffisants (pré-vérification client OU 402 serveur) → widget
   // d'upgrade affiché dans le fil, jamais un simple message sans issue.
@@ -405,6 +425,25 @@ export default function GeneratePage() {
             { role: "assistant", content: "Impossible de charger ce modèle. Décrivez plutôt l'outil dont vous avez besoin." },
           ]);
         });
+      return;
+    }
+
+    // 1bis) Démarrage FRAIS demandé (ex. « Recruter un agent » depuis /agents) :
+    //       page assistant VIERGE — on n'ouvre NI la dernière app NI le dernier fil
+    //       (sinon on retombe sur une app existante, cf. bug remonté). Selon
+    //       l'intention (?new=agent), on oriente le message d'accueil.
+    const fresh = params.get("new");
+    if (fresh) {
+      conversationIdRef.current = null;
+      if (fresh === "agent") {
+        setMessages([
+          {
+            role: "assistant",
+            content:
+              "Décrivez la **mission permanente** que je dois prendre en charge, et je m'en occupe tout seul, en temps et en heure.\n\nPar exemple :\n• « Chaque lundi à 8h, envoie-moi la liste de mes factures impayées »\n• « Relance le client Martin tous les 3 jours tant qu'il n'a pas payé »\n• « Tous les soirs à 18h, fais-moi le récap des heures pointées du jour »\n\nQue voulez-vous me déléguer ?",
+          },
+        ]);
+      }
       return;
     }
 
@@ -1003,6 +1042,23 @@ export default function GeneratePage() {
       return;
     }
 
+    // Fichier joint + intention « complète / remplis ce document » (sans app
+    // ouverte) → on REMPLIT le document : génération d'un document propre,
+    // prévisualisable + téléchargeable, avec les infos entreprise + workspace.
+    // Ce qui manque VRAIMENT est demandé (porte contexte), jamais inventé.
+    if (attached.length > 0 && !generatedHTML && looksLikeDocumentFill(trimmed)) {
+      const files = attached.map((f) => ({ name: f.name, mediaType: f.mediaType, data: f.data }));
+      const fileNames = attached.map((f) => f.name).join(", ");
+      setMessages((prev) => [...prev, { role: "user", content: `${trimmed}\n\n📎 ${fileNames}` }]);
+      setInput("");
+      setAttached([]);
+      setUpsell(null);
+      setKind("document");
+      kindRef.current = "document";
+      await executeGeneration(trimmed, { files, docFill: true });
+      return;
+    }
+
     // Fichiers joints → analyse (1) ou automatisation par lot (≥2).
     // Si un contrôle a été demandé AVANT de joindre les fichiers, on reprend
     // cette instruction mémorisée (promesse « décrivez le contrôle »).
@@ -1097,6 +1153,9 @@ export default function GeneratePage() {
   const onClarifyDone = (answersText: string | null, structured?: Record<string, string[]>) => {
     const base = clarify?.prompt ?? "";
     const clarifyKind = clarify?.kind ?? "module";
+    // Document joint à remplir : on garde le fichier pour le 2e passage (sinon la
+    // génération perd le document une fois les infos manquantes fournies).
+    const clarifyFiles = clarify?.files;
     setClarify(null);
 
     // Synchronise le format avec le device choisi dans le questionnaire (app only).
@@ -1138,7 +1197,9 @@ export default function GeneratePage() {
       }
     }
 
-    const genOpts = isDoc ? { contextProvided: true } : { formatOverride, dataScope };
+    const genOpts = isDoc
+      ? { contextProvided: true, files: clarifyFiles, docFill: !!clarifyFiles?.length }
+      : { formatOverride, dataScope };
     const header = isDoc
       ? "# CONTEXTE FOURNI PAR L'UTILISATEUR (à utiliser tel quel, ne rien inventer)"
       : "# PRÉCISIONS DE L'UTILISATEUR (questionnaire avant création)";
@@ -1162,6 +1223,9 @@ export default function GeneratePage() {
       contextProvided?: boolean;
       // Portée des données choisie au questionnaire (workspace / import / zéro).
       dataScope?: DataScope;
+      // Remplissage d'un document joint : force kind=document côté serveur pour
+      // qu'un fichier + « complète-le » produise le document (et pas une réponse).
+      docFill?: boolean;
     }
   ) => {
     const isModification = generatedHTML.length > 0;
@@ -1179,7 +1243,8 @@ export default function GeneratePage() {
           previousHTML: isModification ? generatedHTML : undefined,
           format: effectiveFormat,
           // En itération, on conserve le format d'origine (pas de reclassement).
-          kind: isModification ? kind ?? undefined : undefined,
+          // Remplissage de document : on force kind=document dès la création.
+          kind: isModification ? kind ?? undefined : opts?.docFill ? "document" : undefined,
           docType: isModification ? docType ?? undefined : undefined,
           contextProvided: opts?.contextProvided,
           // Captures / documents joints comme contexte de la demande.
@@ -1292,7 +1357,7 @@ export default function GeneratePage() {
         if (typeof data.recap === "string" && data.recap.trim()) {
           setMessages((prev) => [...prev, { role: "assistant", content: data.recap }]);
         }
-        setClarify({ questions: data.questions, prompt: apiPrompt, kind: "document" });
+        setClarify({ questions: data.questions, prompt: apiPrompt, kind: "document", files: opts?.files });
         return;
       }
 

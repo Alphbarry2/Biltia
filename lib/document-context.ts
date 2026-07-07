@@ -93,6 +93,8 @@ Ce que tu DÉDUIS seul (ne demande JAMAIS) : le taux de TVA (10% rénovation, 20
 
 Économie de friction : ne pose que le strict nécessaire. Si la demande est déjà suffisante (« facture pour Dupont, rénovation SdB, 2000 € HT »), ready=true, aucune question. Un seul trou → une seule question.
 
+DOCUMENT JOINT : si un fichier (image ou PDF) est fourni, c'est le document À COMPLÉTER. LIS-LE : la plupart des champs (nature du document, lignes, mentions, structure) y sont déjà. Ne demande QUE ce qui manque à la fois DANS le document joint, DANS la demande ET DANS le workspace (typiquement : pour quel client, ou un montant absent). Si le document + la fiche entreprise + le workspace suffisent, ready=true sans question.
+
 Réponds UNIQUEMENT via l'outil assess_document_context.`;
 
 /**
@@ -105,6 +107,9 @@ export async function assessDocumentReadiness(opts: {
   prompt: string;
   docType: string | null;
   workspace: string;
+  // Document joint à compléter (image/PDF) : la porte le LIT pour ne pas
+  // redemander ce qui y figure déjà. `name` non utilisé ici → facultatif.
+  files?: { name?: string; mediaType: string; data: string }[];
 }): Promise<DocReadiness> {
   const okFallback: DocReadiness = { ready: true, recap: "", questions: [] };
 
@@ -114,13 +119,40 @@ export async function assessDocumentReadiness(opts: {
 
   try {
     const client = new Anthropic();
-    const userContent = [
+    const text = [
       `Type de document : ${opts.docType ?? "à déterminer d'après la demande"}`,
       `Demande du chef : « ${opts.prompt} »`,
       opts.workspace?.trim()
         ? opts.workspace
         : "WORKSPACE : aucune donnée pertinente trouvée (pas de fiche liée à cette demande).",
-    ].join("\n\n");
+      (opts.files?.length ?? 0) > 0
+        ? "UN DOCUMENT EST JOINT ci-dessus : lis-le, il porte déjà l'essentiel."
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    // Fichiers joints → blocs multimodaux (images / PDF) AVANT le texte.
+    const fileBlocks = (opts.files ?? [])
+      .map<Anthropic.ContentBlockParam | null>((f) =>
+        f.mediaType === "application/pdf"
+          ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: f.data } }
+          : /^image\/(png|jpeg|webp)$/.test(f.mediaType)
+            ? {
+                type: "image",
+                source: {
+                  type: "base64",
+                  media_type: f.mediaType as "image/png" | "image/jpeg" | "image/webp",
+                  data: f.data,
+                },
+              }
+            : null
+      )
+      .filter((b): b is Anthropic.ContentBlockParam => b !== null);
+
+    const userContent: Anthropic.MessageParam["content"] = fileBlocks.length
+      ? [...fileBlocks, { type: "text", text }]
+      : text;
 
     const message = await client.messages.create({
       model: ASSESS_MODEL,

@@ -193,11 +193,21 @@ export default function AgentsPage() {
   return (
     <div className="min-h-full bg-[#FCFCFD]">
       <div className="max-w-4xl mx-auto px-6 py-8">
-        <div className="flex items-center gap-3 mb-1.5">
-          <span className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500/15 to-pink-500/10 flex items-center justify-center">
-            <Bot className="w-5 h-5 text-violet-600" />
-          </span>
-          <h1 className="text-2xl font-black text-[#0A0A0A] tracking-[-0.03em]">Agents</h1>
+        <div className="flex items-center justify-between gap-3 mb-1.5">
+          <div className="flex items-center gap-3">
+            <span className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500/15 to-pink-500/10 flex items-center justify-center">
+              <Bot className="w-5 h-5 text-violet-600" />
+            </span>
+            <h1 className="text-2xl font-black text-[#0A0A0A] tracking-[-0.03em]">Agents</h1>
+          </div>
+          {rules.length > 0 && (
+            <Link
+              href="/generate?new=agent"
+              className="inline-flex items-center gap-1.5 rounded-full bg-[#0A0A0A] px-4 py-2 text-[12.5px] font-semibold text-white hover:opacity-90 transition-opacity flex-shrink-0"
+            >
+              <Zap className="w-3.5 h-3.5" /> Recruter un agent
+            </Link>
+          )}
         </div>
         <p className="text-[14px] text-[#6E6E6C] mb-6 ml-12">
           Vos missions déléguées : Biltia les exécute seul, en temps et en heure, et trace chaque
@@ -229,7 +239,7 @@ export default function AgentsPage() {
               relances, rappels, contrôles quotidiens.
             </p>
             <Link
-              href="/generate"
+              href="/generate?new=agent"
               className="inline-flex items-center gap-1.5 rounded-full bg-[#0A0A0A] px-4 py-2 text-[12.5px] font-semibold text-white hover:opacity-90 transition-opacity"
             >
               <Zap className="w-3.5 h-3.5" /> Recruter mon premier agent
