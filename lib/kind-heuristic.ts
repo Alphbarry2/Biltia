@@ -16,6 +16,10 @@ export type KindResult = {
   docType: string | null;
   /** Destinataire + objet + corps extraits quand `kind === "email"`. */
   email?: { to: string; subject: string; body: string };
+  /** Quand une app est ouverte : true si la demande veut MODIFIER cette app,
+   *  false si elle n'a rien à voir avec elle (question, autre tâche, hors-sujet).
+   *  Absent (undefined) quand la décision vient de l'heuristique (pas de signal). */
+  targetsOpenApp?: boolean;
   /** Comment la décision a été prise. */
   method: KindMethod;
   /** Confiance 0..1. */

@@ -214,7 +214,6 @@ export function SiteNav() {
             <Link href="/#demo" className="px-3.5 py-2 rounded-lg text-[14px] text-[#5B5B66] hover:text-[#0A0A0A] hover:bg-black/[0.04] transition-colors font-medium">En action</Link>
             <Link href="/blog" className="px-3.5 py-2 rounded-lg text-[14px] text-[#5B5B66] hover:text-[#0A0A0A] hover:bg-black/[0.04] transition-colors font-medium">Blog</Link>
             <Link href="/tarifs" className="px-3.5 py-2 rounded-lg text-[14px] text-[#5B5B66] hover:text-[#0A0A0A] hover:bg-black/[0.04] transition-colors font-medium">Tarifs</Link>
-            <ReserveDemoButton className="px-3.5 py-2 rounded-lg text-[14px] text-[#5B5B66] hover:text-[#0A0A0A] hover:bg-black/[0.04] transition-colors font-medium">Démo</ReserveDemoButton>
           </div>
 
           <div className="flex items-center gap-2">
@@ -245,11 +244,10 @@ export function SiteNav() {
                   );
                 })}
               </div>
-              <div className="flex items-center gap-5 pt-2 text-[16px] font-semibold text-[#0A0A0A]">
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-3 pt-2 text-[16px] font-semibold text-[#0A0A0A]">
                 <Link href="/#demo" onClick={() => setOpen(false)}>En action</Link>
                 <Link href="/blog" onClick={() => setOpen(false)}>Blog</Link>
                 <Link href="/tarifs" onClick={() => setOpen(false)}>Tarifs</Link>
-                <ReserveDemoButton onClick={() => setOpen(false)}>Démo</ReserveDemoButton>
                 <Link href="/login" onClick={() => setOpen(false)}>Se connecter</Link>
               </div>
               <a href="/signup" className={`${BLACK} font-semibold px-8 py-3.5 rounded-full text-[15px] text-center`}>Commencer</a>

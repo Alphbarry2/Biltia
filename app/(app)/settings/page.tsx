@@ -687,17 +687,17 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-full bg-[#FCFCFD]">
-      <div className="max-w-6xl mx-auto px-6 py-8">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* En-tête */}
         <div className="flex items-center gap-3 mb-1.5">
-          <span className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500/15 to-pink-500/10 flex items-center justify-center">
+          <span className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500/15 to-pink-500/10 flex items-center justify-center flex-shrink-0">
             <User className="w-5 h-5 text-violet-600" />
           </span>
-          <h1 className="text-2xl font-black text-[#0A0A0A] tracking-[-0.03em]">Paramètres</h1>
+          <h1 className="text-xl sm:text-2xl font-black text-[#0A0A0A] tracking-[-0.03em]">Paramètres</h1>
         </div>
-        <p className="text-[14px] text-[#6E6E6C] mb-6 ml-12">Vos préférences, pas de la technique.</p>
+        <p className="text-[14px] text-[#6E6E6C] mb-6 ml-0 sm:ml-12">Vos préférences, pas de la technique.</p>
 
-        <div className="flex flex-col md:flex-row gap-8">
+        <div className="flex flex-col md:flex-row gap-6 md:gap-8">
           {/* Nav interne */}
           <nav className="md:w-56 flex-shrink-0">
             <div className="flex md:flex-col gap-1 overflow-x-auto md:overflow-visible pb-2 md:pb-0 -mx-1 px-1 md:mx-0 md:px-0">

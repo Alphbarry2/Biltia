@@ -99,15 +99,15 @@ export default function ActivityPage() {
 
   return (
     <div className="min-h-full bg-[#FCFCFD]">
-      <div className="max-w-3xl mx-auto px-6 py-8">
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* En-tête */}
         <div className="flex items-center gap-3 mb-1.5">
-          <span className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500/15 to-pink-500/10 flex items-center justify-center">
+          <span className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500/15 to-pink-500/10 flex items-center justify-center flex-shrink-0">
             <ActivityIcon className="w-5 h-5 text-violet-600" />
           </span>
-          <h1 className="text-2xl font-black text-[#0A0A0A] tracking-[-0.03em]">Activité</h1>
+          <h1 className="text-xl sm:text-2xl font-black text-[#0A0A0A] tracking-[-0.03em]">Activité</h1>
         </div>
-        <p className="text-[14px] text-[#6E6E6C] mb-8 ml-12">Tout ce que Biltia a réalisé pour vous.</p>
+        <p className="text-[14px] text-[#6E6E6C] mb-8 ml-0 sm:ml-12">Tout ce que Biltia a réalisé pour vous.</p>
 
         {loading ? (
           <div className="flex items-center justify-center py-24 text-[#9A9A97]">

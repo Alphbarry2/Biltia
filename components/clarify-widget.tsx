@@ -10,8 +10,8 @@
 //                        filtrée par la réponse à la question "device"
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React, { useState } from "react";
-import { ChevronLeft, ChevronRight, Check } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { ChevronLeft, ChevronRight, Check, Search } from "lucide-react";
 
 export type ClarifyOption = {
   value: string;
@@ -27,10 +27,14 @@ export type ClarifyQuestion = {
   question: string;
   multi: boolean;
   options: ClarifyOption[];
-  type?: "color-palette" | "layout-preview";
+  type?: "color-palette" | "layout-preview" | "workspace-picker";
 };
 
 type Answer = { values: string[]; custom: string };
+
+// Catalogue workspace chargé en direct pour le picker (type "workspace-picker").
+type WsRecord = { id: string; label: string; sub: string | null };
+type WsEntity = { key: string; label: string; count: number; records: WsRecord[] };
 
 // ── Wireframe SVG thumbnails ──────────────────────────────────────────────────
 function WfSidebarKpi() {
@@ -266,10 +270,84 @@ export function ClarifyWidget({
   const [idx, setIdx]       = useState(0);
   const [answers, setAnswers] = useState<Record<string, Answer>>({});
 
+  // ── État du picker workspace (chargé à la demande, réutilisé entre étapes) ──
+  const [wsCatalog, setWsCatalog] = useState<WsEntity[] | null>(null);
+  const [wsLoading, setWsLoading] = useState(false);
+  const [wsError, setWsError]     = useState(false);
+  const [wsSearch, setWsSearch]   = useState("");
+  // Catégorie ouverte dans le picker (null = liste des catégories). La sélection
+  // se fait catégorie par catégorie pour rester tenable à 100+ enregistrements.
+  const [wsOpenKey, setWsOpenKey] = useState<string | null>(null);
+
   const get      = (id: string): Answer => answers[id] ?? { values: [], custom: "" };
-  const isRecap  = idx >= questions.length;
-  const q        = isRecap ? null : questions[idx];
+
+  // Une question "workspace-picker" n'est PERTINENTE que si l'utilisateur a
+  // répondu « Données du workspace » à la question `donnees`. Sinon on la SAUTE
+  // (elle ne compte pas, n'apparaît pas au récap, n'est pas envoyée).
+  const isApplicable = (qu: ClarifyQuestion): boolean =>
+    qu.type !== "workspace-picker" || (answers["donnees"]?.values.includes("workspace") ?? false);
+  const visible  = questions.filter(isApplicable);
+
+  const isRecap  = idx >= visible.length;
+  const q        = isRecap ? null : visible[idx];
   const deviceAnswer = answers["device"]?.values[0] as "mobile"|"desktop"|"tablet"|undefined;
+
+  // Charge le catalogue workspace la première fois qu'on atteint le picker.
+  useEffect(() => {
+    if (q?.type === "workspace-picker" && wsCatalog === null && !wsLoading && !wsError) {
+      setWsLoading(true);
+      fetch("/api/workspace/records", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      })
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error("catalogue indisponible"))))
+        .then((d) => setWsCatalog(Array.isArray(d.entities) ? (d.entities as WsEntity[]) : []))
+        .catch(() => setWsError(true))
+        .finally(() => setWsLoading(false));
+    }
+  }, [q?.type, wsCatalog, wsLoading, wsError]);
+
+  // ── Sélection workspace : "__all__" = tout ; "__choose__" + "entité:id" = tri ──
+  const wsScope = get("workspace_scope");
+  const wsMode: "all" | "choose" | null =
+    wsScope.values.includes("__all__")
+      ? "all"
+      : wsScope.values.includes("__choose__")
+        ? "choose"
+        : null;
+  const setWsAll = () =>
+    setAnswers((p) => ({ ...p, workspace_scope: { values: ["__all__"], custom: "" } }));
+  const setWsChoose = () =>
+    setAnswers((p) => {
+      const cur = (p["workspace_scope"]?.values ?? []).filter((v) => v !== "__all__");
+      return { ...p, workspace_scope: { values: cur.includes("__choose__") ? cur : ["__choose__", ...cur], custom: "" } };
+    });
+  const toggleWsToken = (token: string) =>
+    setAnswers((p) => {
+      const cur = (p["workspace_scope"]?.values ?? []).filter((v) => v !== "__all__");
+      const base = cur.includes("__choose__") ? cur : ["__choose__", ...cur];
+      const next = base.includes(token) ? base.filter((v) => v !== token) : [...base, token];
+      return { ...p, workspace_scope: { values: next, custom: "" } };
+    });
+  const toggleWsEntity = (ent: WsEntity) =>
+    setAnswers((p) => {
+      const tokens = ent.records.map((r) => `${ent.key}:${r.id}`);
+      const cur = (p["workspace_scope"]?.values ?? []).filter((v) => v !== "__all__");
+      const base = cur.includes("__choose__") ? cur : ["__choose__", ...cur];
+      const allOn = tokens.every((t) => base.includes(t));
+      const next = allOn ? base.filter((v) => !tokens.includes(v)) : Array.from(new Set([...base, ...tokens]));
+      return { ...p, workspace_scope: { values: next, custom: "" } };
+    });
+  const wsSelectedCount = wsScope.values.filter((v) => v !== "__choose__" && v !== "__all__").length;
+  const wsMatch = (r: WsRecord, ent: WsEntity): boolean => {
+    const t = wsSearch.trim().toLowerCase();
+    if (!t) return true;
+    return `${r.label} ${r.sub ?? ""} ${ent.label}`.toLowerCase().includes(t);
+  };
+  const wsSelCount = (ent: WsEntity): number =>
+    ent.records.reduce((n, r) => (wsScope.values.includes(`${ent.key}:${r.id}`) ? n + 1 : n), 0);
+  const wsOpenEnt = wsOpenKey ? wsCatalog?.find((e) => e.key === wsOpenKey) ?? null : null;
 
   const toggle = (qu: ClarifyQuestion, value: string) => {
     setAnswers((prev) => {
@@ -286,20 +364,26 @@ export function ClarifyWidget({
 
   const answeredLabels = (qu: ClarifyQuestion): string[] => {
     const a = get(qu.id);
+    // Picker workspace : libellé de synthèse (les valeurs sont des jetons internes).
+    if (qu.type === "workspace-picker") {
+      if (a.values.includes("__all__")) return ["Tout le workspace"];
+      const n = a.values.filter((v) => v !== "__choose__" && v !== "__all__").length;
+      return n ? [`${n} élément(s) sélectionné(s)`] : [];
+    }
     const labels = a.values.map((v) => qu.options.find((o) => o.value === v)?.label ?? v);
     if (a.custom.trim()) labels.push(a.custom.trim());
     return labels;
   };
 
   const send = () => {
-    const lines = questions
+    const lines = visible
       .map((qu) => {
         const labels = answeredLabels(qu);
         return labels.length ? `- ${qu.question} → ${labels.join(", ")}` : null;
       })
       .filter(Boolean) as string[];
     const structured: Record<string, string[]> = {};
-    for (const qu of questions) {
+    for (const qu of visible) {
       const a = get(qu.id);
       if (a.values.length) structured[qu.id] = a.values;
     }
@@ -321,7 +405,7 @@ export function ClarifyWidget({
           {isRecap ? "Vérifiez vos réponses" : q!.question}
         </p>
         <span className="flex-shrink-0 rounded-full bg-[#F6F6F9] px-2 py-0.5 text-[10.5px] font-bold tabular-nums text-[#9A9AA6]">
-          {Math.min(idx + 1, questions.length)}/{questions.length}
+          {Math.min(idx + 1, visible.length)}/{visible.length}
         </span>
       </div>
 
@@ -330,7 +414,7 @@ export function ClarifyWidget({
         {isRecap ? (
           // ── Récapitulatif ────────────────────────────────────────────────
           <div className="space-y-3 px-2 py-1">
-            {questions.map((qu) => {
+            {visible.map((qu) => {
               const labels = answeredLabels(qu);
               return (
                 <div key={qu.id}>
@@ -400,7 +484,7 @@ export function ClarifyWidget({
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
-                  if (idx >= questions.length - 1) setIdx(questions.length);
+                  if (idx >= visible.length - 1) setIdx(visible.length);
                   else setIdx((i) => i + 1);
                 }
               }}
@@ -449,6 +533,151 @@ export function ClarifyWidget({
               );
             })}
           </div>
+        ) : q!.type === "workspace-picker" ? (
+          // ── Sélecteur de données du workspace (tout / choisir + recherche) ──
+          <div className="px-2 py-1">
+            <div className="mb-2.5 flex gap-1.5">
+              <button
+                type="button"
+                onClick={setWsAll}
+                className={`flex-1 rounded-xl border px-3 py-2.5 text-[13px] font-semibold transition-colors ${wsMode === "all" ? "border-violet-300 bg-[#F3EFFC] text-[#0A0A0A]" : "border-[#ECECF2] bg-white text-[#6E6E6C] hover:bg-[#F6F6F9]"}`}
+              >
+                Tout le workspace
+              </button>
+              <button
+                type="button"
+                onClick={setWsChoose}
+                className={`flex-1 rounded-xl border px-3 py-2.5 text-[13px] font-semibold transition-colors ${wsMode === "choose" ? "border-violet-300 bg-[#F3EFFC] text-[#0A0A0A]" : "border-[#ECECF2] bg-white text-[#6E6E6C] hover:bg-[#F6F6F9]"}`}
+              >
+                Choisir des éléments
+              </button>
+            </div>
+
+            {wsMode !== "choose" ? (
+              <p className="px-1 py-2 text-[12.5px] leading-relaxed text-[#9A9AA6]">
+                {wsMode === "all"
+                  ? "L'application aura accès à toutes vos données du workspace (clients, chantiers, devis…)."
+                  : "« Tout le workspace » : l'app utilise l'ensemble de vos données. « Choisir » : ouvrez une catégorie et cochez les éléments voulus (les sélections se cumulent d'une catégorie à l'autre)."}
+              </p>
+            ) : wsLoading ? (
+              <p className="px-1 py-6 text-center text-[13px] text-[#9A9AA6]">Chargement de vos données…</p>
+            ) : wsError ? (
+              <p className="px-1 py-6 text-center text-[13px] text-[#9A9AA6]">
+                Impossible de charger vos données. Vous pouvez continuer avec « Tout le workspace ».
+              </p>
+            ) : !wsCatalog || wsCatalog.length === 0 ? (
+              <p className="px-1 py-6 text-center text-[13px] text-[#9A9AA6]">
+                {"Votre workspace est encore vide. Choisissez « Tout le workspace » (l'app se remplira à l'usage)."}
+              </p>
+            ) : !wsOpenEnt ? (
+              // ── Niveau 1 : liste des CATÉGORIES ──────────────────────────────
+              <div>
+                {wsSelectedCount > 0 && (
+                  <p className="px-1 pb-1.5 text-[11.5px] font-semibold text-[#7C3AED]">
+                    {wsSelectedCount} élément(s) sélectionné(s) au total
+                  </p>
+                )}
+                <div className="max-h-[320px] space-y-1 overflow-y-auto pr-0.5">
+                  {wsCatalog.map((ent) => {
+                    const sel = wsSelCount(ent);
+                    return (
+                      <button
+                        key={ent.key}
+                        type="button"
+                        onClick={() => { setWsOpenKey(ent.key); setWsSearch(""); }}
+                        className="flex w-full items-center gap-3 rounded-xl border border-[#ECECF2] bg-white px-3 py-2.5 text-left transition-colors hover:bg-[#F6F6F9]"
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[13.5px] font-semibold text-[#2A2A32]">{ent.label}</span>
+                          <span className="block text-[11px] text-[#9A9AA6]">{ent.count} élément(s)</span>
+                        </span>
+                        {sel > 0 && (
+                          <span className="flex-shrink-0 rounded-full bg-[#F3EFFC] px-2 py-0.5 text-[11px] font-bold text-[#7C3AED]">
+                            {sel} choisi(s)
+                          </span>
+                        )}
+                        <ChevronRight className="h-4 w-4 flex-shrink-0 text-[#9A9AA6]" />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              // ── Niveau 2 : éléments d'UNE catégorie (recherche + cases) ──────
+              (() => {
+                const ent = wsOpenEnt;
+                if (!ent) return null;
+                const rows = ent.records.filter((r) => wsMatch(r, ent));
+                const tokens = ent.records.map((r) => `${ent.key}:${r.id}`);
+                const allOn = tokens.length > 0 && tokens.every((t) => wsScope.values.includes(t));
+                const sel = wsSelCount(ent);
+                return (
+                  <div>
+                    <div className="mb-2 flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => { setWsOpenKey(null); setWsSearch(""); }}
+                        className="flex items-center gap-1 rounded-lg px-1.5 py-1 text-[12.5px] font-semibold text-[#6E6E6C] transition-colors hover:bg-[#F6F6F9] hover:text-[#0A0A0A]"
+                      >
+                        <ChevronLeft className="h-4 w-4" /> Catégories
+                      </button>
+                      <span className="text-[13px] font-bold text-[#0A0A0A]">{ent.label}</span>
+                      <button
+                        type="button"
+                        onClick={() => toggleWsEntity(ent)}
+                        className="ml-auto text-[11.5px] font-semibold text-[#7C3AED] hover:underline"
+                      >
+                        {allOn ? "Tout retirer" : "Tout sélectionner"}
+                      </button>
+                    </div>
+
+                    <div className="relative mb-2">
+                      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9A9AA6]" />
+                      <input
+                        value={wsSearch}
+                        onChange={(e) => setWsSearch(e.target.value)}
+                        placeholder={`Rechercher dans ${ent.label.toLowerCase()}…`}
+                        className="w-full rounded-lg border border-[#E7E7E4] bg-white py-2 pl-9 pr-3 text-[13px] text-[#0A0A0A] placeholder-[#9A9AA6] focus:border-[#7C3AED] focus:outline-none focus:ring-2 focus:ring-violet-500/15"
+                      />
+                    </div>
+
+                    {sel > 0 && (
+                      <p className="px-1 pb-1.5 text-[11.5px] font-semibold text-[#7C3AED]">
+                        {sel} sélectionné(s) dans cette catégorie
+                      </p>
+                    )}
+
+                    <div className="max-h-[280px] space-y-0.5 overflow-y-auto pr-0.5">
+                      {rows.length === 0 ? (
+                        <p className="px-1 py-6 text-center text-[13px] text-[#9A9AA6]">Aucun résultat.</p>
+                      ) : (
+                        rows.map((r) => {
+                          const token = `${ent.key}:${r.id}`;
+                          const on = wsScope.values.includes(token);
+                          return (
+                            <button
+                              key={token}
+                              type="button"
+                              onClick={() => toggleWsToken(token)}
+                              className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors ${on ? "bg-[#F3EFFC]" : "hover:bg-[#F6F6F9]"}`}
+                            >
+                              <span className={`grid h-[17px] w-[17px] flex-shrink-0 place-items-center rounded-[5px] border ${on ? "border-transparent bg-[#7C3AED]" : "border-[#D6D0E4] bg-white"}`}>
+                                {on && <Check className="h-3 w-3 text-white" strokeWidth={3.5} />}
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-[13px] font-semibold text-[#2A2A32]">{r.label}</span>
+                                {r.sub && <span className="block truncate text-[11px] text-[#9A9AA6]">{r.sub}</span>}
+                              </span>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                );
+              })()
+            )}
+          </div>
         ) : (
           // ── Options standard ─────────────────────────────────────────────
           <div className="space-y-1">
@@ -484,7 +713,7 @@ export function ClarifyWidget({
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
-                    if (idx >= questions.length - 1) setIdx(questions.length); // go to recap
+                    if (idx >= visible.length - 1) setIdx(visible.length); // go to recap
                     else setIdx((i) => i + 1);
                   }
                 }}
@@ -503,7 +732,7 @@ export function ClarifyWidget({
             className="rounded-lg p-1.5 text-[#6E6E6C] transition-colors hover:bg-[#F6F6F9] hover:text-[#0A0A0A] disabled:opacity-30">
             <ChevronLeft className="h-4 w-4"/>
           </button>
-          <button type="button" onClick={() => setIdx((i) => Math.min(questions.length, i + 1))} disabled={isRecap} aria-label="Question suivante"
+          <button type="button" onClick={() => setIdx((i) => Math.min(visible.length, i + 1))} disabled={isRecap} aria-label="Question suivante"
             className="rounded-lg p-1.5 text-[#6E6E6C] transition-colors hover:bg-[#F6F6F9] hover:text-[#0A0A0A] disabled:opacity-30">
             <ChevronRight className="h-4 w-4"/>
           </button>
@@ -521,7 +750,7 @@ export function ClarifyWidget({
           ) : (
             <button type="button" onClick={() => setIdx((i) => i + 1)}
               className="rounded-full bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 px-5 py-2 text-[13px] font-semibold text-white shadow-[0_6px_18px_rgba(139,92,246,0.35)] transition-all hover:shadow-[0_8px_24px_rgba(139,92,246,0.5)] active:scale-[0.98]">
-              {idx === questions.length - 1 ? "Réviser" : "Suivant"}
+              {idx === visible.length - 1 ? "Réviser" : "Suivant"}
             </button>
           )}
         </div>

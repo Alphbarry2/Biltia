@@ -22,7 +22,7 @@ export type ClarifyQuestion = {
   question: string;
   multi: boolean;
   options: ClarifyOption[];
-  type?: "color-palette" | "layout-preview"; // rendu spécial dans le widget
+  type?: "color-palette" | "layout-preview" | "workspace-picker"; // rendu spécial dans le widget
 };
 
 // ── Q1 : Support (toujours présente en premier) ───────────────────────────────
@@ -49,21 +49,37 @@ export const DATA_QUESTION: ClarifyQuestion = {
   ],
 };
 
-// ── Q palette couleurs (toujours en avant-dernière position) ──────────────────
+// ── Q portée workspace (n'apparaît QUE si « Données du workspace » a été choisi) ─
+// Le widget la SAUTE automatiquement si la réponse à `donnees` n'est pas
+// "workspace". Ses options sont chargées en direct (type "workspace-picker") :
+// « Tout le workspace » ou une sélection d'éléments précis (recherche + cases).
+export const WORKSPACE_SCOPE_QUESTION: ClarifyQuestion = {
+  id: "workspace_scope",
+  question: "Quelles données du workspace l'application doit-elle utiliser ?",
+  multi: true,
+  type: "workspace-picker",
+  options: [], // dynamiques : chargées depuis /api/workspace/records
+};
+
+// ── Q palette (toujours en avant-dernière position) ───────────────────────────
+// PALETTE de couleurs UNIES (décision user 2026-07-07) : chaque choix est une
+// palette de 2-3 couleurs SOLIDES (un accent + un ton assorti), JAMAIS un dégradé.
+// Cliquer applique CETTE palette comme thème. L'utilisateur qui veut un dégradé
+// le décrit dans le champ libre — c'est SON choix, pas le défaut qu'on impose.
 export const THEME_QUESTION: ClarifyQuestion = {
   id: "theme",
   question: "Quelle palette de couleurs pour votre application ?",
   multi: false,
   type: "color-palette",
   options: [
-    { value: "surprise",  label: "Surprenez-moi",      hint: "Biltia choisit une palette adaptée à votre métier",    palette: ["#7C3AED","#EC4899","#3B82F6"] },
-    { value: "violet",    label: "Violet / Indigo",     hint: "Moderne, énergique",                                   palette: ["#4F46E5","#7C3AED","#A855F7"] },
-    { value: "ocean",     label: "Bleu océan",          hint: "Sobre et professionnel",                               palette: ["#0369A1","#0EA5E9","#BAE6FD"] },
-    { value: "foret",     label: "Vert forêt",          hint: "Naturel, apaisant",                                    palette: ["#166534","#16A34A","#BBF7D0"] },
-    { value: "chantier",  label: "Ambre chantier",      hint: "Chaleureux, terrain",                                  palette: ["#92400E","#D97706","#FDE68A"] },
-    { value: "graphite",  label: "Graphite",            hint: "Minimal, sobre, élégant",                              palette: ["#111827","#374151","#9CA3AF"] },
-    { value: "rouge",     label: "Rouge / Corail",      hint: "Dynamique, accrocheur",                                palette: ["#991B1B","#EF4444","#FCA5A5"] },
-    { value: "beige",     label: "Beige / Brun",        hint: "Chaleureux, naturel, matières",                        palette: ["#78350F","#A16207","#FEF3C7"] },
+    { value: "surprise",  label: "Surprenez-moi",   hint: "Biltia choisit une palette adaptée à votre métier", palette: ["#7C3AED", "#EC4899", "#3B82F6"] },
+    { value: "violet",    label: "Violet & lilas",  hint: "Moderne, énergique",            palette: ["#7C3AED", "#EDE9FE"] },
+    { value: "ocean",     label: "Bleu & ciel",     hint: "Sobre et professionnel",        palette: ["#2563EB", "#DBEAFE"] },
+    { value: "foret",     label: "Vert & menthe",   hint: "Naturel, apaisant",             palette: ["#16A34A", "#DCFCE7"] },
+    { value: "chantier",  label: "Ambre & crème",   hint: "Chaleureux, terrain",           palette: ["#D97706", "#FEF3C7"] },
+    { value: "graphite",  label: "Graphite & gris", hint: "Minimal, sobre, élégant",       palette: ["#111827", "#E5E7EB"] },
+    { value: "rouge",     label: "Rouge & rosé",    hint: "Dynamique, accrocheur",         palette: ["#DC2626", "#FEE2E2"] },
+    { value: "beige",     label: "Brun & beige",    hint: "Chaleureux, naturel, matières", palette: ["#92400E", "#F5E6D3"] },
   ],
 };
 
@@ -128,5 +144,8 @@ export const FALLBACK_SPECIFIC: ClarifyQuestion[] = [
  *  d'onglets/burger en petit) — la mise en page s'adapte à l'écran, pas à un
  *  choix. Ordre : spécifique → Palette. La question DONNÉES est injectée à part. */
 export function buildStaticClarifyQuestions(): ClarifyQuestion[] {
-  return [...FALLBACK_SPECIFIC.slice(0, 2), THEME_QUESTION];
+  // La question DONNÉES (workspace / import / zéro) est posée SYSTÉMATIQUEMENT,
+  // y compris dans ce repli hors-ligne (décision user 2026-07-07). La question
+  // de portée workspace suit : le widget la saute si « workspace » n'est pas choisi.
+  return [...FALLBACK_SPECIFIC.slice(0, 2), DATA_QUESTION, WORKSPACE_SCOPE_QUESTION, THEME_QUESTION];
 }

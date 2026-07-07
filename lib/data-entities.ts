@@ -220,6 +220,31 @@ export const RELATION_DISPLAY: Record<string, string[]> = {
   catalogue: ["designation"],
 };
 
+// Colonnes-libellé de repli quand l'entité n'est pas dans RELATION_DISPLAY.
+const LABEL_FALLBACK_COLS = ["nom", "designation", "numero", "title", "type", "marque", "reference"];
+
+/**
+ * Libellé humain d'un enregistrement, quelle que soit son entité — source unique
+ * partagée par l'API catalogue (/api/workspace/records) et la génération scopée.
+ * Pur (client-safe) : ne dépend que de la ligne fournie.
+ */
+export function recordLabel(entity: string, row: Record<string, unknown>): string {
+  const cols = RELATION_DISPLAY[entity];
+  if (cols) {
+    const composed = cols
+      .map((c) => row[c])
+      .filter((x) => x != null && String(x).trim() !== "")
+      .join(" ")
+      .trim();
+    if (composed) return composed.slice(0, 80);
+  }
+  for (const c of LABEL_FALLBACK_COLS) {
+    const v = row[c];
+    if (v != null && String(v).trim() !== "") return String(v).trim().slice(0, 80);
+  }
+  return "(sans nom)";
+}
+
 export const FORM_FIELDS: Record<string, FormField[]> = {
   clients: [
     { key: "nom", label: "Nom", type: "text", required: true, placeholder: "Jean Dupont / SCI Les Lilas" },

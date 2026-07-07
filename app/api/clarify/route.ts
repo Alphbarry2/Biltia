@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { TIER_SIMPLE } from "@/lib/models";
+import { TIER_MEDIUM } from "@/lib/models";
 import { createClient } from "@/lib/supabase-server";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
 import { enforceRateLimit, LIMITS } from "@/lib/rate-limit";
@@ -8,6 +8,8 @@ import { classifyKind } from "@/lib/kind-router";
 import {
   type ClarifyQuestion,
   DEVICE_QUESTION,
+  DATA_QUESTION,
+  WORKSPACE_SCOPE_QUESTION,
   THEME_QUESTION,
   LAYOUT_QUESTION,
   FALLBACK_SPECIFIC,
@@ -24,8 +26,12 @@ import {
 // vite : le questionnaire ne doit jamais être sacrifié pour cause de lenteur.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CLARIFY_MODEL = TIER_SIMPLE;
-const LLM_TIMEOUT_MS = 4000;
+// COMPRÉHENSION AVANT VITESSE (2026-07-07) : les questions préalables sont
+// rédigées par Sonnet 5 (pas Haiku) et on lui laisse le temps de réfléchir
+// (12 s). Des questions pertinentes valent mieux que des questions rapides mais
+// génériques — le repli statique reste là si le modèle dépasse le délai.
+const CLARIFY_MODEL = TIER_MEDIUM;
+const LLM_TIMEOUT_MS = 12000;
 
 const PROPOSE_TOOL = {
   name: "propose_questions",
@@ -195,7 +201,9 @@ export async function POST(req: Request) {
 
   // On ne demande PLUS le support ni l'organisation d'écran : les apps sont
   // responsive (adaptatives) par défaut. Ordre : 2 questions LLM SPÉCIFIQUES à la
-  // demande → Palette. Le besoin en données est auto-détecté à la génération.
-  const questions = [...specific.slice(0, 2), THEME_QUESTION];
+  // demande → DONNÉES (d'où viennent-elles ?) → Palette. La question DONNÉES est
+  // posée SYSTÉMATIQUEMENT (décision user 2026-07-07) : workspace / import / zéro
+  // change tout ce qui suit, on ne la déduit plus en silence.
+  const questions = [...specific.slice(0, 2), DATA_QUESTION, WORKSPACE_SCOPE_QUESTION, THEME_QUESTION];
   return Response.json({ questions });
 }

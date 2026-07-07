@@ -22,14 +22,17 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import Anthropic from "@anthropic-ai/sdk";
-import { TIER_SIMPLE } from "./models";
+import { TIER_MEDIUM } from "./models";
 import { classifyKindHeuristic, looksLikePureQuestion, looksLikeCalendar } from "./kind-heuristic";
 import type { BiltiaKind, KindResult } from "./kind-heuristic";
 
 export { classifyKindHeuristic, looksLikePureQuestion };
 export type { BiltiaKind, KindMethod, KindResult } from "./kind-heuristic";
 
-const KIND_MODEL = TIER_SIMPLE;
+// COMPRÉHENSION AVANT VITESSE (décision user 2026-07-07) : l'aiguillage et
+// l'extraction agenda tournent sur Sonnet 5, pas sur Haiku. Une mauvaise
+// compréhension coûte bien plus cher qu'un appel un peu plus lent/onéreux.
+const KIND_MODEL = TIER_MEDIUM;
 
 export const DOC_TYPES = [
   "avenant",
@@ -50,7 +53,13 @@ function buildKindSystem(hasExistingApp: boolean): string {
   const modContext = hasExistingApp
     ? `
 
-CONTEXTE : l'utilisateur a DÉJÀ une application ou un document ouvert dans l'atelier. Choisis "answer" UNIQUEMENT si sa demande est une pure question d'information qui ne demande AUCUN changement au livrable ouvert (ex : « quel est le taux de TVA ? », « j'ai combien de clients ? »). Toute demande de changement, même tournée en question (« tu peux ajouter un champ TVA ? », « et si on mettait un export PDF ? ») → "module".`
+CONTEXTE — UNE APPLICATION (ou un document) EST DÉJÀ OUVERTE DANS L'ATELIER. Ta mission ici est AUSSI de dire si la demande VISE cette application, via le champ "targets_open_app" :
+
+- targets_open_app = true UNIQUEMENT si la demande veut MODIFIER, corriger, compléter, refaire ou ajuster l'application ouverte : « ajoute un champ TVA », « change la couleur en bleu », « corrige le bouton qui ne marche pas », « mets un export PDF », « et si on ajoutait une colonne ? », « enlève la section du bas ». Là, choisis kind="module".
+
+- targets_open_app = false pour TOUT LE RESTE — une demande qui n'a RIEN à voir avec l'application ouverte : une question générale (« quel taux de TVA ? », « c'est quoi la RE2020 ? », « j'ai combien de clients ? »), ou une tâche autonome (« écris-moi un mail pour mon client », « traduis ça en anglais », « fais-moi un devis », « rappelle-moi d'appeler le fournisseur demain », « raconte-moi une blague »). Là, ne choisis SURTOUT PAS "module" : classe la demande selon sa VRAIE nature (answer / email / document / calendar / data / rule), exactement comme s'il n'y avait aucune application ouverte. Biltia répondra alors EN CHAT, sans jamais toucher à l'application.
+
+RÈGLE D'OR : on ne réécrit JAMAIS l'application pour une demande qui ne la concerne pas. Test simple : si la demande ne parle ni de l'app, ni d'un écran, ni d'un champ, ni d'un bouton, ni d'une couleur, ni d'une donnée affichée dedans → targets_open_app = false.`
     : "";
   return `Tu es l'AIGUILLEUR de Biltia, l'OS opérationnel du BTP. On te donne la demande d'un artisan/chef de chantier, dictée au micro ou tapée, en langage courant. Tu identifies la NATURE exacte du besoin et tu choisis le FORMAT DE SORTIE le plus efficace pour le résoudre. Tu ne résous rien toi-même : tu aiguilles.
 
@@ -105,12 +114,17 @@ const CLASSIFY_TOOL = {
         type: "string",
         description: "Si kind=email : corps complet de l'email, professionnel, prêt à envoyer. Vide sinon.",
       },
+      targets_open_app: {
+        type: "boolean",
+        description:
+          "UNIQUEMENT quand une application est déjà ouverte : true si la demande veut MODIFIER/compléter cette application ouverte, false si elle n'a rien à voir avec elle (question, autre tâche, hors-sujet — on répond alors en chat sans toucher à l'app). Aucune application ouverte → false.",
+      },
       confidence: {
         type: "number",
         description: "Confiance de 0 à 1.",
       },
     },
-    required: ["kind", "doc_type", "email_to", "email_subject", "email_body", "confidence"],
+    required: ["kind", "doc_type", "email_to", "email_subject", "email_body", "targets_open_app", "confidence"],
     additionalProperties: false,
   },
 } as Anthropic.Tool;
@@ -144,6 +158,7 @@ async function classifyWithLLM(
     email_to?: string;
     email_subject?: string;
     email_body?: string;
+    targets_open_app?: boolean;
     confidence?: number;
   };
   if (
@@ -172,6 +187,7 @@ async function classifyWithLLM(
     kind: input.kind,
     docType,
     email,
+    targetsOpenApp: typeof input.targets_open_app === "boolean" ? input.targets_open_app : undefined,
     method: "llm",
     confidence: typeof input.confidence === "number" ? input.confidence : 0.7,
     reasoning: "classification Haiku",
@@ -206,11 +222,13 @@ export async function classifyKind(opts: {
   //     production (ancien « garde-fou » : désormais on n'appelle plus le LLM).
   //   • signaux forts (confiance ≥ 0.8 = plusieurs mots-clés concordants).
   const heuristic = classifyKindHeuristic(prompt, hasExistingApp);
-  // Une demande « agenda » ne doit jamais être tranchée par la seule heuristique
-  // (« qu'est-ce que j'ai lundi » matche « qu'est-ce » = pure question) : on
-  // laisse le LLM comprendre calendar vs answer.
-  const heuristicIsSure =
-    !looksLikeCalendar(prompt) && (looksLikePureQuestion(prompt) || heuristic.confidence >= 0.8);
+  // On ne court-circuite le modèle QUE pour une pure question d'information : là
+  // l'heuristique fait autorité (et le garde-fou « une question ne devient jamais
+  // une production » l'exige de toute façon). Pour TOUT le reste — création,
+  // document, agent, données — on consulte Sonnet plutôt que de trancher sur des
+  // mots-clés. C'est ce qui sortait l'IA de ses cases : la confiance heuristique
+  // (≥ 0.8) ne suffit plus à sauter la vraie compréhension (décision 2026-07-07).
+  const heuristicIsSure = !looksLikeCalendar(prompt) && looksLikePureQuestion(prompt);
 
   const hasKey =
     !!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.startsWith("your_");

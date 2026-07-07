@@ -1086,6 +1086,13 @@ export default function GeneratePage() {
   };
 
   // Réponses du questionnaire → prompt enrichi → génération.
+  // Portée des données transmise à /api/generate (branchement de l'app).
+  type DataScope =
+    | { source: "workspace"; mode: "all" }
+    | { source: "workspace"; mode: "select"; records: { entity: string; id: string }[] }
+    | { source: "import" }
+    | { source: "zero" };
+
   // `structured` permet de lire la réponse device pour forcer le format.
   const onClarifyDone = (answersText: string | null, structured?: Record<string, string[]>) => {
     const base = clarify?.prompt ?? "";
@@ -1102,7 +1109,36 @@ export default function GeneratePage() {
     // Document : les réponses SONT le contexte manquant → on relance avec
     // contextProvided (la porte est franchie). App : précisions du questionnaire.
     const isDoc = clarifyKind === "document";
-    const genOpts = isDoc ? { contextProvided: true } : { formatOverride };
+
+    // Portée des données choisie au questionnaire (question `donnees` + picker
+    // workspace). Décide comment l'app se branche aux données : tout le workspace,
+    // une sélection d'éléments précis, un import de fichier, ou zéro (exemples).
+    let dataScope: DataScope | undefined;
+    if (!isDoc) {
+      const donnees = structured?.donnees?.[0];
+      if (donnees === "workspace") {
+        const scope = structured?.workspace_scope ?? [];
+        if (scope.includes("__all__")) {
+          dataScope = { source: "workspace", mode: "all" };
+        } else {
+          const records = scope
+            .filter((t) => t.includes(":"))
+            .map((t) => {
+              const i = t.indexOf(":");
+              return { entity: t.slice(0, i), id: t.slice(i + 1) };
+            });
+          dataScope = records.length
+            ? { source: "workspace", mode: "select", records }
+            : { source: "workspace", mode: "all" };
+        }
+      } else if (donnees === "import") {
+        dataScope = { source: "import" };
+      } else if (donnees === "zero") {
+        dataScope = { source: "zero" };
+      }
+    }
+
+    const genOpts = isDoc ? { contextProvided: true } : { formatOverride, dataScope };
     const header = isDoc
       ? "# CONTEXTE FOURNI PAR L'UTILISATEUR (à utiliser tel quel, ne rien inventer)"
       : "# PRÉCISIONS DE L'UTILISATEUR (questionnaire avant création)";
@@ -1124,6 +1160,8 @@ export default function GeneratePage() {
       // Document : contexte déjà fourni par l'utilisateur → ne pas re-poser de
       // questions côté serveur (la porte « contexte suffisant ? » est franchie).
       contextProvided?: boolean;
+      // Portée des données choisie au questionnaire (workspace / import / zéro).
+      dataScope?: DataScope;
     }
   ) => {
     const isModification = generatedHTML.length > 0;
@@ -1146,6 +1184,8 @@ export default function GeneratePage() {
           contextProvided: opts?.contextProvided,
           // Captures / documents joints comme contexte de la demande.
           files: opts?.files,
+          // Portée des données (workspace tout/sélection, import, zéro).
+          dataScope: opts?.dataScope,
         }),
       });
 

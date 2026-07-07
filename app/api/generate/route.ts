@@ -9,7 +9,7 @@ import { classifyQuestionTopic } from "@/lib/question-topics";
 import { buildDocumentSystemPrompt, injectDocumentRuntime } from "@/lib/document-generator";
 import { assessDocumentReadiness } from "@/lib/document-context";
 import { retrieveContext, buildSourcesBlock } from "@/lib/rag";
-import { detectConnectedEntities, buildDataModeBlock } from "@/lib/data-entities";
+import { detectConnectedEntities, buildDataModeBlock, ENTITIES, ALLOWED_ENTITIES, recordLabel } from "@/lib/data-entities";
 import {
   buildPreferencesBlock,
   normalizePreferences,
@@ -117,6 +117,12 @@ const BUILD_RULES = `
 
 Tu génères une application web AUTONOME, RÉELLEMENT UTILISABLE et VISUELLEMENT IRRÉPROCHABLE.
 
+## PRINCIPE ZÉRO — LA CONSIGNE DE L'UTILISATEUR PRIME SUR TOUT
+Les règles de design ci-dessous sont des DÉFAUTS de bon goût, PAS des barreaux de prison. Dès que l'utilisateur demande explicitement quelque chose (un fond rose, un dégradé, une couleur précise, une disposition particulière, un champ, un comportement), tu le FAIS — sa demande écrase le défaut correspondant, sans discuter, sans « préserver son choix » contre lui. Tu n'obéis à un défaut QUE là où l'utilisateur n'a rien dit. Ne jamais répondre « je ne peux pas » à une demande de style légitime : la seule limite est de ne pas casser la lisibilité (contraste) ni de fabriquer une donnée qui n'existe pas.
+
+## PRINCIPE UN — CHAQUE ÉLÉMENT EST COHÉRENT ET FONCTIONNE VRAIMENT
+C'est la règle NON NÉGOCIABLE. Tout ce que tu affiches doit faire EXACTEMENT ce que son libellé annonce, avec une logique juste — sinon ça n'existe pas. Un bouton « Changer le statut » change le statut (et RIEN d'autre) ; « Prendre une photo » ouvre l'appareil et enregistre la photo ; « Marquer payé » passe la facture à payé et met à jour le solde ; « Supprimer » supprime après confirmation ; « Ajouter » ouvre un formulaire et crée la ligne. INTERDIT : un bouton décoratif, un contrôle qui fait autre chose que son libellé, un effet de bord illogique (changer un statut ne modifie pas l'avancement ; enregistrer une fiche ne vide pas une autre), un « bientôt disponible », une action sans effet visible. Avant d'afficher CHAQUE contrôle, vérifie : « fait-il réellement ce qu'il annonce, de façon logique et vérifiable par l'utilisateur ? » Si la réponse n'est pas un oui franc, retire-le. La COHÉRENCE prime sur la quantité : moins de boutons, mais tous vrais et prévisibles. Un artisan doit pouvoir se fier à chaque bouton les yeux fermés.
+
 ## TECHNIQUE (obligatoire)
 1. Un seul fichier HTML complet : commence par \`<!DOCTYPE html>\`, finit par \`</html>\`. Rien d'autre.
 2. PAS de Tailwind CDN — CSS pur inline dans \`<style>\` uniquement.
@@ -142,7 +148,7 @@ L'utilisateur doit se dire : « cet outil peut devenir CENTRAL dans mon entrepri
 2. FICHE DÉTAIL : cliquer sur une ligne ou une carte ouvre une FICHE complète (modal large ou panneau) : informations groupées par sections, badges de statut, actions contextuelles (modifier, changer le statut, supprimer), notes/historique si pertinent. Une liste dont les lignes ne s'ouvrent pas est un tableau mort — interdit.
 3. TABLEAU DE BORD VIVANT : hero + KPIs calculés EN DIRECT depuis les données + 1-2 visuels simples en CSS/SVG pur (barres de progression, donut, mini-histogramme) + liste « à traiter en priorité » (retards, échéances proches) dont chaque élément est cliquable.
 4. CHAQUE BOUTON FONCTIONNE : si un bouton est affiché, son action est implémentée et vérifiable. Export CSV = VRAI téléchargement (\`new Blob([csv],{type:'text/csv'})\` + \`URL.createObjectURL\` + \`<a download>\` cliqué en JS). Imprimer = \`window.print()\` avec \`@media print\` propre. JAMAIS de bouton décoratif, JAMAIS d'\`alert('Bientôt disponible')\`.
-5. WORKFLOWS MÉTIER : changement de statut en un clic (À faire → En cours → Terminé), calculs qui se propagent immédiatement (avancement moyen, totaux, marges), alertes automatiques (retard, dépassement de budget).
+5. WORKFLOWS MÉTIER : changement de statut en un clic (À faire → En cours → Terminé), calculs qui se propagent immédiatement (avancement moyen, totaux, marges), alertes automatiques (retard, dépassement de budget). ATTENTION LOGIQUE : chaque champ est INDÉPENDANT — changer le STATUT ne touche À AUCUN autre champ. Ne fais JAMAIS sauter l'avancement à 100% parce que le statut passe à « Terminé », et n'écris jamais une valeur en douce que l'utilisateur n'a pas saisie. Un chantier « En cours » peut être à 22% comme à 90% ; l'avancement se règle SÉPARÉMENT (curseur / champ %), le statut se règle à part. Une action ne fait QUE ce qu'elle annonce.
 6. RESPIRATION : sections espacées de 24-32px, gaps de grille 14-18px, padding interne des cards 20-24px. L'écran respire — jamais tassé, jamais de grands vides.
 
 ## LE SAUT « PRODUIT QU'ON A ENVIE D'OUVRIR » (c'est ICI qu'on gagne, pas dans les couleurs)
@@ -180,20 +186,40 @@ Réfère-toi à Lovable / Linear : clair, calme, évident. La beauté vient de l
 - La richesse est FONCTIONNELLE (boutons qui marchent, navigation réelle, vraies données, calculs), PAS visuelle. En regardant l'écran, l'artisan doit se dire en 2 secondes « c'est propre, c'est clair, je sais quoi faire ».
 Cette règle PRIME sur toute envie d'en mettre plus : dans le doute entre « plus riche » et « plus épuré », choisis TOUJOURS plus épuré.
 
+## RÈGLE ANTI-FLUO & DOSAGE DE LA COULEUR (opérationnelle — c'est ELLE qui fait le « premium »)
+Le défaut n°1 qui rend une app cheap : de GRANDS aplats d'accent saturé. On l'interdit, concrètement :
+1. L'accent (\`--vio\`/\`--grad\`) couvre AU PLUS ~10% de l'écran. Il vit sur : UN bouton principal, l'onglet/menu actif, les puces de statut, les petites icônes, les anneaux d'avatar, les barres de progression. Les grandes surfaces (fonds, cartes, lignes de tableau, en-têtes) restent NEUTRES (blanc, #FBFBFC, gris très pâles). Une bande de couleur pleine largeur = INTERDIT.
+2. UN SEUL \`.btn-primary\` (bouton plein d'accent) VISIBLE par écran — l'action n°1. Il est dimensionné à son libellé (jamais \`width:100%\` sauf le CTA unique d'une modale ou d'un état vide). TOUT le reste = \`.btn-ghost\` (bord fin, fond blanc) ou \`.btn-ink\`.
+3. Les boutons d'ACTION dans une liste, une carte ou une ligne (« Terminer », « Attribuer », « Voir », « Modifier ») sont DISCRETS : \`.btn-ghost\` ou \`.btn-sm\`, JAMAIS une barre pleine d'accent. Répéter un aplat de couleur sur chaque ligne écrase l'écran et fait « fluo ».
+4. Couleurs NORMALES, jamais fluo/néon : pas de violet électrique, vert acide, rose vif, cyan pétant, jaune fluo. L'accent doit paraître PROFESSIONNEL et calme. Les seules couleurs vives tolérées sont les statuts métier (vert=ok, rouge=alerte, ambre=à surveiller), en petits chips uniquement.
+5. Le « waouh » vient de l'ESPACE, de la hiérarchie typographique et de la cohérence — PAS de la quantité de couleur. Si tu hésites à colorer une zone, laisse-la neutre.
+
+## FINITION PREMIUM (le détail qui sépare « correct » de « beau »)
+- Beaucoup d'air : marges généreuses, rythme d'espacement régulier (multiples de 4px : 8/12/16/24/32). Rien de tassé, rien de collé aux bords.
+- Bordures FINES (1px, \`--line\`) et ombres DISCRÈTES pour séparer — jamais d'ombres lourdes ni de traits épais. La séparation se fait par l'espace d'abord, la ligne ensuite.
+- Hiérarchie typographique nette et CALME : un titre fort, des libellés uppercase discrets en \`--faint\`, du corps en \`--mut\`. Maximum 2 tailles de texte par zone. Chiffres en \`font-variant-numeric:tabular-nums\`.
+- Surfaces cohérentes : toutes les cartes ont le MÊME rayon, la MÊME bordure, la MÊME ombre. Zéro carte « spéciale » qui casse le système.
+- Alignement au pixel : les colonnes s'alignent, les paddings sont identiques d'une carte à l'autre. L'œil doit sentir une grille invisible.
+
 ## SYSTÈME DE DESIGN BILTIA — CSS OBLIGATOIRE
 
-C'est l'identité Biltia : fond clair #FCFCFD, cards blanches très arrondies (18-24px),
-ombres douces violacées, UN accent violet #7C3AED et LE dégradé signature
-indigo→violet→rose. Simple, épuré, waouh. Inclus CE BLOC EXACT dans le \`<style>\`
-de chaque app, puis ajoute uniquement le CSS spécifique à ton app.
+C'est l'identité Biltia : fond clair #FBFBFC, cards blanches très arrondies (18-24px),
+ombres douces et discrètes, une PALETTE de couleurs UNIES (aplats) — UN SEUL accent
+SOBRE + des tons pâles assortis, par défaut violet tamisé #6E56CF, JAMAIS un dégradé
+(sauf demande explicite de l'utilisateur). L'accent est PROFESSIONNEL, jamais fluo ni
+criard, et il PONCTUE l'écran (il ne le recouvre pas). Simple, épuré, premium — pense à
+un tableau de bord Linear / Vercel / Stripe. Inclus CE BLOC EXACT dans le \`<style>\` de
+chaque app, puis ajoute uniquement le CSS spécifique à ton app.
 
 DEBUT_CSS
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{--bg:#FCFCFD;--ink:#0A0A0A;--mut:#6E6E6C;--faint:#9A9AA6;--line:#ECECF2;--soft:#F6F6F9;
-/* THÈME (à remplacer selon la palette choisie — voir THÈME COULEUR) */
---vio:#7C3AED;--grad:linear-gradient(135deg,#6366F1,#A855F7 45%,#EC4899);--glow:139,92,246;--tint:#F3EFFC;--tintline:#E2D9F8;
---shadow:0 1px 3px rgba(20,20,40,.05),0 8px 24px rgba(20,20,40,.06);--shadow-lg:0 12px 40px rgba(20,20,40,.14)}
-body{background:var(--bg);font-family:'Inter',system-ui,sans-serif;color:var(--ink);font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
+img,svg,video,canvas{max-width:100%;height:auto}
+:root{--bg:#FBFBFC;--ink:#111114;--mut:#63636B;--faint:#9A9AA6;--line:#ECECF0;--soft:#F6F6F8;
+/* THÈME (à remplacer selon la palette choisie — voir THÈME COULEUR).
+   Accent SOBRE, jamais fluo — la couleur ponctue, elle ne recouvre pas. */
+--vio:#6E56CF;--grad:#6E56CF;--glow:110,86,207;--tint:#F2EFFB;--tintline:#DDD4F4;
+--shadow:0 1px 2px rgba(17,17,26,.04),0 6px 18px rgba(17,17,26,.05);--shadow-lg:0 14px 44px rgba(17,17,26,.12)}
+body{background:var(--bg);font-family:'Inter',system-ui,sans-serif;color:var(--ink);font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased;overflow-x:hidden;overflow-wrap:break-word}
 .card{background:#fff;border:1px solid var(--line);border-radius:20px;padding:20px;overflow:hidden;box-shadow:var(--shadow)}
 .hero{position:relative;margin:16px;padding:24px 22px;border-radius:24px;color:var(--ink);background:#fff;border:1px solid var(--line);box-shadow:var(--shadow);overflow:hidden}
 .hero::after{content:"";position:absolute;right:-52px;top:-52px;width:180px;height:180px;border-radius:50%;background:var(--tint);opacity:.75}
@@ -206,8 +232,8 @@ body{background:var(--bg);font-family:'Inter',system-ui,sans-serif;color:var(--i
 .kpi-sub{font-size:11px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:none;cursor:pointer;font-family:inherit;font-weight:600;transition:all .18s;border-radius:12px;white-space:nowrap;font-size:13px;padding:10px 18px}
 .btn:active{transform:scale(.97)}
-.btn-primary{background:var(--grad);color:#fff;box-shadow:0 6px 18px rgba(var(--glow),.35)}
-.btn-primary:hover{box-shadow:0 8px 26px rgba(var(--glow),.5)}
+.btn-primary{background:var(--grad);color:#fff;box-shadow:0 4px 12px rgba(var(--glow),.20)}
+.btn-primary:hover{box-shadow:0 6px 18px rgba(var(--glow),.30)}
 .btn-ink{background:#0A0A0A;color:#fff}
 .btn-ink:hover{background:#26262E}
 .btn-ghost{background:#fff;color:var(--ink);border:1px solid var(--line)}
@@ -232,13 +258,13 @@ input.invalid,select.invalid,textarea.invalid{border-color:#E11D48;box-shadow:0 
 .tab-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:8px 4px 10px;cursor:pointer;border:none;background:none;font-size:10px;font-weight:600;color:#9A9AA6;transition:color .15s;font-family:inherit}
 .tab-item.active{color:var(--vio)}
 .tab-icon{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
-.fab{position:fixed;right:16px;bottom:86px;z-index:120;width:54px;height:54px;border-radius:50%;border:none;cursor:pointer;color:#fff;font-size:26px;line-height:1;background:var(--grad);box-shadow:0 10px 28px rgba(var(--glow),.45);display:flex;align-items:center;justify-content:center;transition:transform .18s}
+.fab{position:fixed;right:16px;bottom:86px;z-index:120;width:54px;height:54px;border-radius:50%;border:none;cursor:pointer;color:#fff;font-size:26px;line-height:1;background:var(--grad);box-shadow:0 8px 22px rgba(var(--glow),.28);display:flex;align-items:center;justify-content:center;transition:transform .18s}
 .fab:active{transform:scale(.94)}
 .app-main{padding-top:68px;padding-bottom:78px;min-height:100vh}
 .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;padding:0 16px 16px}
 .search-bar{padding:0 16px 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .section-pad{padding:0 16px 16px}
-.table-wrap{background:#fff;border:1px solid var(--line);border-radius:18px;overflow:hidden;box-shadow:var(--shadow)}
+.table-wrap{background:#fff;border:1px solid var(--line);border-radius:18px;overflow-x:auto;-webkit-overflow-scrolling:touch;box-shadow:var(--shadow)}
 table{width:100%;border-collapse:collapse}
 th{font-size:10px;font-weight:700;color:#9A9AA6;text-transform:uppercase;letter-spacing:.08em;padding:10px 16px;background:#FAFAFC;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
 td{padding:13px 16px;border-bottom:1px solid #F4F4F7;color:var(--ink);vertical-align:middle;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -270,6 +296,20 @@ tr:hover td{background:#FAFAFC}
 ::-webkit-scrollbar{width:4px;height:4px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:#E7E7E4;border-radius:2px}
+/* MOBILE — plancher 375px : tout s'adapte, zéro débordement horizontal */
+@media(max-width:520px){
+  .hero{margin:12px;padding:18px 16px;border-radius:20px}
+  .hero-value{font-size:26px;white-space:normal;overflow:visible;text-overflow:clip;line-height:1.2}
+  .kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:0 12px 12px}
+  .kpi{padding:13px 14px}
+  .kpi-value{font-size:20px}
+  .card{padding:16px}
+  .search-bar,.section-pad{padding-left:12px;padding-right:12px}
+  th,td{padding:10px 12px;font-size:12px}
+  .modal{padding:20px 16px}
+  .app-title{max-width:150px}
+  .btn{padding:11px 16px}
+}
 FIN_CSS
 
 ### STRUCTURE HTML TYPE (adapte les champs au besoin métier) :
@@ -306,34 +346,42 @@ Utilise toujours cette structure :
 2. TEXTE DE BOUTON TOUJOURS LISIBLE : sur fond dégradé/coloré → texte blanc \`#fff\`, jamais sombre ni gris pâle (contraste AA mini). Un bouton à icône seule reçoit un \`aria-label\`. Jamais de libellé coupé : si le bouton est étroit, garde le texte lisible OU passe en icône seule.
 3. CIBLES TACTILES ≥ 44px de haut sur mobile (boutons, onglets, lignes cliquables, \`.fab\`) et ≥ 8px d'écart entre deux éléments cliquables — jamais collés ni superposés.
 4. LA \`.tab-bar\` EN BAS EST MOBILE UNIQUEMENT. Sur desktop, navigation en sidebar ou top-nav, PAS une barre d'onglets flottante en bas.
-5. TEST MENTAL À 360px DE LARGE avant de rendre : zéro débordement horizontal, aucun texte qui passe sous un autre, aucun bouton coupé par le bord, aucun bloc \`position:absolute\` superposé hors du \`.hero\`.
+5. LARGEUR PLANCHER 375px (le mobile de référence ; robuste jusqu'à 360px) : à cette largeur, TOUT s'adapte proprement — le texte se met à la ligne ou se réduit (jamais coupé, jamais tronqué, jamais débordant), chaque card passe en UNE colonne pleine largeur, zéro débordement ou scroll horizontal, aucun bouton coupé par le bord, aucun bloc \`position:absolute\` superposé hors du \`.hero\`. Emploie des unités FLUIDES (%, \`clamp()\`, \`minmax()\`, \`max-width:100%\`) et \`overflow-wrap:anywhere\` sur les textes longs (noms, adresses, e-mails). Teste mentalement l'app à 375px AVANT de rendre.
 6. MODALES : \`max-height:88vh\` + \`overflow-y:auto\`, et la barre d'actions (\`.modal-actions\`) TOUJOURS atteignable (collée en bas si le contenu est long) — jamais un « Valider » injoignable sous le pli.
 
 ### THÈME COULEUR (varie d'une app à l'autre) :
-La structure et la qualité ne changent JAMAIS ; seule la palette d'accent change, via les
-5 variables \`--vio\` (accent), \`--grad\` (dégradé), \`--glow\` (RGB pour les ombres),
-\`--tint\` (fond pâle), \`--tintline\` (bordure pâle) du :root. Palettes disponibles :
-- **violet** : #7C3AED · linear-gradient(135deg,#6366F1,#A855F7 45%,#EC4899) · 139,92,246 · #F3EFFC · #E2D9F8
-- **ocean** : #0284C7 · linear-gradient(135deg,#0EA5E9,#6366F1) · 14,165,233 · #EFF8FF · #BAE2FD
-- **foret** : #059669 · linear-gradient(135deg,#10B981,#0EA5E9) · 16,185,129 · #ECFDF5 · #A7F3D0
-- **ambre** : #D97706 · linear-gradient(135deg,#F59E0B,#EF4444) · 245,158,11 · #FFFBEB · #FDE68A
-- **corail** : #E11D48 · linear-gradient(135deg,#F43F5E,#A855F7) · 225,29,72 · #FFF1F2 · #FECDD3
-- **graphite** : #334155 · linear-gradient(135deg,#475569,#94A3B8) · 51,65,85 · #F1F5F9 · #CBD5E1
+La structure et la qualité ne changent JAMAIS ; seule la couleur d'accent change, via les
+5 variables \`--vio\` (accent), \`--grad\` (couleur des boutons/accents — UNIE, un aplat, PAS
+un dégradé), \`--glow\` (RGB pour les ombres), \`--tint\` (fond pâle), \`--tintline\` (bordure
+pâle) du :root. Palettes disponibles (toutes SOBRES et professionnelles, \`--grad\` = même
+aplat que \`--vio\`) :
+- **violet** (défaut) : #6E56CF · #6E56CF · 110,86,207 · #F2EFFB · #DDD4F4
+- **indigo** : #4F46E5 · #4F46E5 · 79,70,229 · #EEF0FE · #D8DCFA
+- **ocean** : #0369A1 · #0369A1 · 3,105,161 · #EFF6FC · #C3E0F1
+- **foret** : #047857 · #047857 · 4,120,87 · #ECFDF5 · #A7F3D0
+- **ardoise** : #475569 · #475569 · 71,85,105 · #F1F5F9 · #CBD5E1
+- **terracotta** : #B4530A · #B4530A · 180,83,10 · #FBF1E9 · #EBCBAA
 
 RÈGLES :
+- PALETTE D'APLATS PAR DÉFAUT : un thème = 2-3 couleurs UNIES qui vont ensemble (un accent
+  \`--vio\` + des tons pâles \`--tint\`/\`--tintline\`), appliquées comme des aplats DISTINCTS —
+  jamais fondues en dégradé. \`--grad\` est une couleur SOLIDE (identique à \`--vio\`), jamais un
+  \`linear-gradient\` : boutons, FAB, barres de progression = aplats nets. Si l'utilisateur
+  décrit une palette (« brun et beige », « noir et blanc »), applique CES couleurs en aplats
+  (l'une porte le fond/les surfaces, l'autre l'accent). Un dégradé UNIQUEMENT s'il le demande.
 - Ces règles de choix valent UNIQUEMENT À LA CRÉATION. En MODIFICATION d'une app
   existante, tu RECOPIES la palette en place à l'identique (voir la règle de
   modification chirurgicale) — jamais de nouveau tirage.
 - Si la demande précise un thème (réponse au questionnaire, ex. « Thème couleur : ocean »),
-  applique CETTE palette. Sinon, choisis une palette SOBRE adaptée au métier (violet, ocean,
-  foret, graphite = les plus sûrs). ÉVITE les palettes très saturées (ambre, corail) sauf si
-  l'utilisateur les demande explicitement — elles rendent l'app criarde. Dans le doute : violet.
+  applique CETTE palette. Sinon, choisis une palette SOBRE adaptée au métier (violet, indigo,
+  ocean, ardoise = les plus sûrs). N'invente JAMAIS un accent fluo/saturé (violet électrique,
+  vert acide, rose vif, cyan pétant) — reste sur ces tons professionnels. Dans le doute : violet.
 - Si l'utilisateur DÉCRIT sa palette librement (ex. « des tons orangés chaleureux », « bleu
   marine et doré »), DÉRIVE toi-même les 5 variables (--vio, --grad, --glow, --tint,
   --tintline) dans cet esprit : accent saturé lisible, dégradé harmonieux à 2-3 teintes
-  voisines, tint pâle assorti. Le fond #FCFCFD et les cards blanches restent INCHANGÉS.
-- Fond de page \`#FCFCFD\` et cards blanches, bordure \`#ECECF2\`, arrondis 18-24 px : identiques quelle que soit la palette. JAMAIS de fond ivoire/beige.
-- RESPECTE la couleur choisie : elle doit être BIEN PRÉSENTE et reconnaissable — boutons, accents, puces, reliefs, petits dégradés. Si l'utilisateur veut du rose (même écrit librement, hors palettes proposées), l'app est visiblement rose. MAIS avec GOÛT : pas de grand aplat de couleur SATURÉE/criarde, surtout pas un hero plein de couleur. Cartes claires, fond majoritairement blanc, la couleur PONCTUE avec élégance. But : épuré ET coloré — jamais fade, jamais criard.
+  voisines, tint pâle assorti. Le fond #FBFBFC et les cards blanches restent INCHANGÉS.
+- Fond de page \`#FBFBFC\` et cards blanches, bordure \`#ECECF0\`, arrondis 18-24 px : identiques quelle que soit la palette. JAMAIS de fond ivoire/beige.
+- RESPECTE la couleur choisie : elle doit être BIEN PRÉSENTE et reconnaissable — boutons, accents, puces, reliefs (aplats unis). Si l'utilisateur veut du rose (même écrit librement, hors palettes proposées), l'app est visiblement rose. Par DÉFAUT, avec GOÛT : la couleur PONCTUE (cartes claires, fond blanc), pas de grand aplat criard. MAIS si l'utilisateur demande EXPLICITEMENT un fond coloré (« mets le fond en rose »), tu le fais — sa consigne prime sur ce défaut (voir PRINCIPE ZÉRO). But : épuré ET coloré — jamais fade, jamais criard.
 - Vert / rouge / ambre pour les statuts métier UNIQUEMENT (payé, retard, à surveiller) — indépendants de la palette.
 - INTERDIT : plus d'une palette par app, fond ivoire \`#F7F5EF\`, accents fluo saturés, boutons gris ternes.
 
@@ -345,7 +393,7 @@ RÈGLES :
    un toast d'erreur — toi, remets l'UI dans un état cohérent : bouton réactivé, modal encore
    ouverte, saisie NON perdue.
 3. Toute action réussie a un feedback immédiat : la liste se rafraîchit, la modal se ferme,
-   ou \`biltia.notify('Enregistré')\` pour les actions sans effet visible.
+   ou \`biltia.notify("Enregistré")\` pour les actions sans effet visible.
 
 ## FIABILITÉ — ZÉRO BUG
 - Chaque onclick → fonction définie. Zéro référence morte.
@@ -353,6 +401,16 @@ RÈGLES :
 - render() appelé après chaque modification.
 - Calculs : Number() sur tout, || 0 sur vide. Jamais de NaN affiché.
 - HTML valide : une seule \`<html>\`, \`<head>\`, \`<body>\`, \`</html>\`.
+- ⚠️ APOSTROPHES FRANÇAISES = LA cause n°1 de script mort. Une chaîne JS en quotes SIMPLES
+  qui contient une apostrophe (« L'opération », « d'accord », « aujourd'hui », « l'app »)
+  se ferme AU MILIEU du mot et casse tout le script (\`SyntaxError: missing ) after argument
+  list\`). RÈGLE STRICTE : toute chaîne JS contenant du texte français s'écrit en DOUBLE
+  quotes \`"…"\` ou en backticks \`\`…\`\`, JAMAIS en quotes simples. Écris \`notify("Chantier
+  enregistré")\` ou \`\`\`Devis de \${client} créé\`\`\`, jamais \`notify('L'opération…')\`.
+  Contrôle CHAQUE chaîne de texte avant de rendre.
+- SYNTAXE JS VALIDE : parenthèses/accolades/crochets équilibrés, chaque appel de fonction
+  refermé, virgules entre les arguments. Relis mentalement tout le \`<script>\` — il doit
+  s'exécuter sans UNE SEULE SyntaxError (sinon l'app est morte à l'ouverture).
 
 ## PERSISTANCE CLOUD (window.biltia — déjà injectée, backend géré automatiquement)
 TOUTES les données se sauvegardent dans le CLOUD (partagé entre appareils et membres de
@@ -366,6 +424,41 @@ Au démarrage : \`load()\` via \`biltia.list\` dans un try/catch + état de char
 create/update/remove : recharge la liste. Un échec API affiche déjà un toast (le SDK) — ne
 bascule JAMAIS sur localStorage. Si des ENTITÉS WORKSPACE sont listées plus bas (DONNÉES
 PARTAGÉES), utilise LEURS noms exacts pour ces données ; le reste va dans tes collections.
+
+## LES CAPACITÉS IA VONT JUSQU'AU BOUT — DICTÉE & PHOTO REMPLISSENT LE FORMULAIRE (jamais « juste la transcription »)
+RÈGLE ABSOLUE, la plus violée. Quand l'app propose de DICTER ou de PHOTOGRAPHIER pour saisir une fiche (devis, pointage, note, bon, client…), le BUT est de NE PAS taper à la main. La fonctionnalité doit CAPTURER → STRUCTURER → REMPLIR tous les champs du formulaire, toute seule. Afficher la transcription brute en laissant l'utilisateur re-saisir = INTERDIT : c'est le défaut n°1 qui fait fuir les clients (« à quoi sert la dictée si je remplis à la main ? »). Avant de câbler une capture, pose-toi le BUT : gagner du temps, ne pas écrire. Donc ça REMPLIT, ça ne se contente pas de retranscrire.
+
+### DICTÉE → remplissage automatique du formulaire (obligatoire)
+1. Enregistre l'audio (MediaRecorder → dataURL base64).
+2. Appelle biltia.transcribe(audioDataUrl, { fields: [...] }) en passant EXACTEMENT les noms (id/name) des champs de TON formulaire — ex. ['client','date','description','quantite','prix_unitaire','tva'].
+3. Le serveur renvoie { text, data } : data est un objet { champ: valeur } déjà structuré. AFFECTE chaque valeur à l'input correspondant, PUIS recalcule les totaux. Ne présente JAMAIS le texte brut comme résultat final.
+4. Un champ non dicté reste vide (jamais inventé) ; TOUT ce qui a été dit est déjà rempli. L'utilisateur relit et valide — il ne retape rien.
+
+Patron (adapte les champs au métier) :
+  async function dicter(){
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const rec = new MediaRecorder(stream), chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      const blob = new Blob(chunks, { type: 'audio/webm' });
+      const dataUrl = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(blob); });
+      try {
+        const res = await biltia.transcribe(dataUrl, { fields: ['client','date','description','quantite','prix'] });
+        if (res && res.data) Object.keys(res.data).forEach(k => { const el = document.getElementById(k); if (el && res.data[k]) el.value = res.data[k]; });
+        recompute();                       // recalcule HT / TVA / TTC, totaux, etc.
+        biltia.notify('Fiche pré-remplie, vérifiez et validez');
+      } catch (e) {}
+    };
+    rec.start();                           // le bouton « Stop » appelle rec.stop()
+  }
+Idem pour la PHOTO : biltia.extract(photoDataUrl, { fields:[...] }) renvoie les mêmes champs → remplis les mêmes inputs. Confirme visiblement (« Devis pré-rempli »), puis laisse l'utilisateur valider.
+
+### CHAQUE BOUTON FAIT SON ACTION EN ENTIER (sinon il n'existe pas)
+- Imprimer → window.print() ET un bloc @media print propre : masque nav / onglets / boutons ( @media print{ .app-header,.tab-bar,.fab,.no-print{ display:none !important } } ), met le document en pleine page et lisible. Cliquer « Imprimer » DOIT ouvrir l'aperçu d'impression avec un vrai document — jamais un clic sans effet.
+- Exporter / Télécharger → vrai fichier : new Blob([...]) + URL.createObjectURL + un <a download> cliqué en JS.
+- Envoyer / Partager → action réelle : lien mailto: pré-rempli, ou navigator.share quand c'est dispo.
+- Test avant d'afficher un bouton : « quand je clique, qu'est-ce qui se passe CONCRÈTEMENT et VISIBLEMENT ? ». Si tu ne sais pas l'implémenter en entier, NE METS PAS le bouton. Une demi-fonctionnalité est pire que pas de fonctionnalité.
 `;
 
 
@@ -380,9 +473,10 @@ function formatInstruction(format: string): string {
   if (format === "mobile") {
     return `
 # FORMAT CIBLE : MOBILE (smartphone, sur chantier)
-- Mise en page une seule colonne, pensée pour le pouce : largeur ~ max-w-md centrée, tout empilé verticalement.
-- Boutons GRANDS (min 48px de haut), zones de tap larges, texte lisible.
-- Données en CARTES empilées plutôt qu'en tableau large. Bouton d'action flottant \`.fab\` (dégradé signature) en bas à droite.
+CONÇUE ET VÉRIFIÉE À 375px DE LARGE (le plancher). À cette largeur, TOUT s'affiche PARFAITEMENT : zéro débordement horizontal, aucun texte coupé ou tronqué, aucun bouton hors écran, aucune carte qui dépasse. C'est le critère d'acceptation n°1.
+- UNE seule colonne sur TOUTE la largeur (\`width:100%\`, AUCUN \`max-width\` figé qui laisserait des marges vides), tout empilé verticalement. Unités FLUIDES uniquement (%, \`clamp()\`, \`minmax(0,1fr)\`) — jamais de largeur en pixels fixes sur un conteneur.
+- Boutons GRANDS (min 48px de haut), zones de tap larges (≥ 44px), texte lisible (≥ 13px). \`.fab\` d'ajout en bas à droite, \`.tab-bar\` en bas.
+- Données en CARTES empilées (\`.card\`), JAMAIS un tableau large : à 375px un tableau multi-colonnes est illisible. Si un tableau est vraiment nécessaire, il vit dans \`.table-wrap\` (qui défile horizontalement, sans casser la page) — mais sur mobile, préfère TOUJOURS les cartes.
 - Navigation simple, pas de survol indispensable. Optimisé pour une utilisation rapide avec des gants.`;
   }
   return `
@@ -488,6 +582,53 @@ function validateHtml(html: string): string | null {
   return null;
 }
 
+// ── PORTÉE DES DONNÉES (question du questionnaire) ────────────────────────────
+// Forme lâche : la valeur vient du client, on ne fait confiance à rien.
+type DataScopeInput = {
+  source?: "workspace" | "import" | "zero";
+  mode?: "all" | "select";
+  records?: { entity?: string; id?: string }[];
+};
+
+/** Résout les enregistrements choisis en libellés lisibles, groupés par entité
+ *  (requête `in(id)` par entité, bornée). Sert à SCOPER l'app sur ces éléments. */
+async function resolveScopeLabels(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tenantId: string,
+  records: { entity: string; id: string }[]
+): Promise<string> {
+  const byEntity = new Map<string, string[]>();
+  for (const r of records) {
+    if (!ALLOWED_ENTITIES.includes(r.entity)) continue;
+    const arr = byEntity.get(r.entity) ?? [];
+    if (arr.length < 100) arr.push(r.id);
+    byEntity.set(r.entity, arr);
+  }
+  const lines: string[] = [];
+  let total = 0;
+  for (const [entity, ids] of byEntity) {
+    if (total >= 60) break;
+    const def = ENTITIES[entity];
+    if (!def) continue;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data } = await (supabase.from as any)(def.table)
+        .select("*")
+        .eq("tenant_id", tenantId)
+        .in("id", ids);
+      const rows = (data ?? []) as Record<string, unknown>[];
+      const labels = rows.map((row) => recordLabel(entity, row)).filter((l) => l && l !== "(sans nom)");
+      if (labels.length) {
+        lines.push(`- ${def.label} : ${labels.slice(0, 40).join(", ")}`);
+        total += labels.length;
+      }
+    } catch {
+      // entité indisponible → on saute
+    }
+  }
+  return lines.join("\n");
+}
+
 export async function POST(req: Request) {
   try {
     if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY.startsWith("your_")) {
@@ -540,6 +681,8 @@ export async function POST(req: Request) {
       // manquant → court-circuite la porte « contexte suffisant ? ».
       contextProvided?: boolean;
       files?: { name?: string; mediaType?: string; data?: string }[];
+      // Portée des données choisie au questionnaire (workspace / import / zéro).
+      dataScope?: DataScopeInput;
     };
     try {
       body = await req.json();
@@ -629,16 +772,33 @@ export async function POST(req: Request) {
       const k = await classifyKind({ prompt, sector, hasExistingApp: isModification });
       logAuxUsage(k.usage, "classify_kind");
       emailDraft = k.email;
-      // App ouverte : une demande n'est traitée en RÉPONSE TEXTE que si
-      // l'heuristique locale confirme une pure question. Sinon, un « corrige
-      // les espaces blancs » mal classé répondrait en texte au lieu de
-      // MODIFIER l'app — l'utilisateur croit que la modification est morte.
-      if (k.kind === "answer" && (!isModification || looksLikePureQuestion(prompt))) {
+      if (isModification) {
+        // ── APP OUVERTE : deux issues seulement — MODIFIER l'app, ou RÉPONDRE
+        // EN CHAT. Une demande qui ne VISE PAS l'app (« traduis ça », « écris un
+        // mot à mon client », « c'est quoi la RE2020 ? », « raconte une blague »)
+        // ne doit JAMAIS réécrire l'application : on répond en texte et on débite
+        // le prix d'une question, pas d'une modification. `targets_open_app`
+        // (classifieur Sonnet) tranche modification vs hors-sujet ; sans signal
+        // LLM (repli heuristique), on garde le comportement historique — tout ce
+        // qui n'est pas une pure question est une modification.
+        const pureQuestion = looksLikePureQuestion(prompt);
+        const wantsAppChange =
+          typeof k.targetsOpenApp === "boolean" ? k.targetsOpenApp : !pureQuestion;
+        if (wantsAppChange && !pureQuestion) {
+          // Vraie modification de l'app ouverte : on conserve son format.
+          kind = providedKind ?? "module";
+          docType = providedKind ? (typeof body.docType === "string" ? body.docType : null) : null;
+        } else {
+          // Hors-sujet ou pure question → réponse en chat, sans toucher à l'app.
+          kind = "answer";
+          kindConfidence = k.confidence;
+          kindMethod = k.method;
+        }
+      } else if (k.kind === "answer") {
         kind = "answer";
         kindConfidence = k.confidence;
         kindMethod = k.method;
       } else if (providedKind) {
-        // Modification : on conserve le format du livrable ouvert.
         kind = providedKind;
         docType = typeof body.docType === "string" ? body.docType : null;
       } else {
@@ -1152,13 +1312,56 @@ TES OUTILS (ne te dévalorise JAMAIS) :
       ? []
       : detectConnectedEntities(prompt, route.appType);
 
+    // ── PORTÉE DES DONNÉES CHOISIE AU QUESTIONNAIRE ───────────────────────────
+    // workspace(all)    → connecte les entités détectées + données réelles ;
+    // workspace(select) → force les entités choisies + liste les éléments précis ;
+    // import            → exige une VRAIE fonction d'import ; zéro → exemples (défaut).
+    // Uniquement à la création (une modification conserve le branchement existant).
+    const dataScope = body.dataScope;
+    let effectiveEntities = connectedEntities;
+    let dataScopeBlock = "";
+    if (!isDocument && !isModification && dataScope) {
+      if (dataScope.source === "workspace") {
+        const selKeys = Array.from(
+          new Set(
+            (dataScope.records ?? [])
+              .map((r) => String(r?.entity))
+              .filter((k) => ALLOWED_ENTITIES.includes(k))
+          )
+        );
+        effectiveEntities = Array.from(new Set([...connectedEntities, ...selKeys]));
+        if (dataScope.mode === "select" && Array.isArray(dataScope.records) && dataScope.records.length) {
+          const clean = dataScope.records
+            .filter(
+              (r): r is { entity: string; id: string } =>
+                !!r && typeof r.entity === "string" && typeof r.id === "string"
+            )
+            .slice(0, 200);
+          const labels = await resolveScopeLabels(supabase, tenantId, clean);
+          dataScopeBlock =
+            `# DONNÉES CHOISIES PAR L'UTILISATEUR (portée de l'application)\n` +
+            `L'utilisateur veut une app centrée sur CES éléments PRÉCIS de son workspace. Lis-les en direct via window.biltia (leurs entités sont connectées ci-dessous — données réelles, JAMAIS d'exemples fictifs) et oriente les vues, filtres et compteurs par défaut sur eux :\n` +
+            (labels || "(éléments sélectionnés)");
+        } else {
+          dataScopeBlock =
+            `# DONNÉES : TOUT LE WORKSPACE\n` +
+            `L'utilisateur veut que l'application s'appuie sur l'ENSEMBLE de ses données réelles du workspace. Connecte les entités pertinentes via window.biltia (données en direct), sans exemples fictifs.`;
+        }
+      } else if (dataScope.source === "import") {
+        dataScopeBlock =
+          `# DONNÉES : IMPORT DE FICHIER (l'app DOIT vraiment importer)\n` +
+          `L'utilisateur partira d'un fichier. Ajoute une fonction d'IMPORT RÉELLE et VISIBLE dès l'accueil : un bouton « Importer un fichier (CSV/Excel) » déclenchant un <input type="file" accept=".csv,.xlsx,.xls">. Lis le fichier en JS (CSV : parse les lignes, la 1re = en-têtes = colonnes), affiche un APERÇU des lignes détectées, puis à la validation enregistre CHAQUE ligne via window.biltia.create(collection, ligne). L'import doit VRAIMENT fonctionner (jamais un bouton décoratif). Propose aussi un petit modèle CSV téléchargeable (en-têtes attendus).`;
+      }
+      // source === "zero" : comportement par défaut (exemples), aucun bloc.
+    }
+
     // Moteur : Opus 4.8 pour les grosses apps de gestion, Sonnet 4.6 sinon.
     const buildModel = pickBuildModel({
       prompt,
       isDocument,
       isModification,
       previousHTMLLength: typeof previousHTML === "string" ? previousHTML.length : 0,
-      connectedEntities,
+      connectedEntities: effectiveEntities,
     });
 
     // Système en blocs : socle statique mis en cache (prompt caching Anthropic),
@@ -1182,9 +1385,11 @@ TES OUTILS (ne te dévalorise JAMAIS) :
                 ? `# MARQUE DE L'EN-TÊTE\nLe \`.app-eyebrow\` de l'en-tête affiche « ${brandName.toUpperCase()} » (l'entreprise de l'utilisateur), PAS « Biltia ».`
                 : "",
               sourcesBlock,
+              // Portée des données choisie au questionnaire (tout / sélection / import).
+              dataScopeBlock,
               // Modules connectés : les vraies données arrivent en live via /api/data,
               // pas de graine figée. Modules non connectés : on injecte le contexte.
-              connectedEntities.length ? buildDataModeBlock(connectedEntities) : workspaceBlock,
+              effectiveEntities.length ? buildDataModeBlock(effectiveEntities) : workspaceBlock,
               buildPreferencesBlock(preferences),
             ]),
           },
@@ -1192,13 +1397,18 @@ TES OUTILS (ne te dévalorise JAMAIS) :
 
     const noun = isDocument ? "le document" : "l'application";
     const userContent = isModification
-      ? `Voici ${noun} HTML existant :\n\`\`\`html\n${previousHTML}\n\`\`\`\n\nDemande de modification de l'utilisateur : « ${prompt} »\n\nRenvoie ${noun} COMPLET et mis à jour intégrant cette modification.
+      ? `Voici ${noun} HTML existant :\n\`\`\`html\n${previousHTML}\n\`\`\`\n\nDemande de modification de l'utilisateur : « ${prompt} »\n\nRenvoie ${noun} COMPLET et mis à jour intégrant cette modification.${
+          isAutoFix
+            ? `\n\n⚠️ MODE CORRECTION AUTOMATIQUE : la « demande » ci-dessus est un MESSAGE D'ERREUR remonté par l'app. Trouve la CAUSE et corrige-la, sans rien changer d'autre. À vérifier EN PREMIER (cause n°1 de « SyntaxError: missing ) after argument list ») : une APOSTROPHE FRANÇAISE dans une chaîne JS en quotes simples (ex : notify('L'opération…')) qui ferme la chaîne au milieu → repasse ces chaînes en DOUBLE quotes ou backticks. Vérifie ensuite les parenthèses/accolades/crochets non refermés autour de la ligne signalée.`
+            : ""
+        }
 
 RÈGLE ABSOLUE DE MODIFICATION CHIRURGICALE : tu modifies UNIQUEMENT ce que la demande cible. TOUT LE RESTE reste STRICTEMENT IDENTIQUE :
 - la PALETTE DE COULEURS existante (les valeurs actuelles de --vio, --grad, --glow, --tint, --tintline dans :root) — tu les RECOPIES à l'identique, tu n'en choisis JAMAIS une nouvelle ;
 - la disposition, la navigation, les textes, les données d'exemple et les fonctionnalités existantes.
-L'utilisateur a choisi son thème à la création : changer les couleurs lors d'une modification est une TRAHISON de son choix. Seule exception : s'il demande EXPLICITEMENT de changer les couleurs.
-(Seul cas de migration : si l'existant utilise l'ANCIENNE charte au fond ivoire #F7F5EF / teal #14B8A6, migre la structure vers le SYSTÈME DE DESIGN BILTIA sans rien perdre.)`
+L'utilisateur a choisi son thème à la création : ne change PAS les couleurs de ta propre initiative. MAIS dès qu'il demande un changement de style (« mets le fond en rose », « passe l'accent en bleu », « enlève le dégradé », « agrandis le titre »), c'est une consigne EXPLICITE que tu appliques PLEINEMENT et VISIBLEMENT — jamais tu ne la refuses ni ne la minimises au nom de la préservation du thème (voir PRINCIPE ZÉRO). Tu touches alors la partie ciblée et RIEN d'autre.
+(Seul cas de migration : si l'existant utilise l'ANCIENNE charte au fond ivoire #F7F5EF / teal #14B8A6, migre la structure vers le SYSTÈME DE DESIGN BILTIA sans rien perdre.)
+RATTRAPAGE RESPONSIVE (amélioration attendue, PAS un écart) : si le CSS de l'app ne contient pas déjà le socle mobile à jour, AJOUTE-le sans toucher au reste — \`.table-wrap{overflow-x:auto}\` (au lieu de overflow:hidden qui coupe les colonnes), \`body{overflow-x:hidden;overflow-wrap:break-word}\`, \`img,svg,video,canvas{max-width:100%}\`, et un \`@media(max-width:520px)\` qui met les KPI sur 2 colonnes, réduit les paddings et laisse les gros chiffres revenir à la ligne. L'app doit s'afficher PARFAITEMENT à 375px de large (zéro débordement horizontal, cartes empilées).`
       : `Demande de l'utilisateur : « ${prompt} »\n\nConstruis ${noun} complet correspondant.`;
 
     // Fichiers joints → blocs multimodaux AVANT le texte (captures, PDF).

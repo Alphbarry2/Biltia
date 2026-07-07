@@ -24,7 +24,11 @@ import { TIER_SIMPLE, TIER_MEDIUM, TIER_COMPLEX } from "./models";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getEntitlementsForTenant } from "./entitlements";
 
-const PARSE_MODEL = TIER_SIMPLE;
+// COMPRÉHENSION AVANT VITESSE (2026-07-07) : le recruteur d'agents lit la mission
+// avec Sonnet 5, pas Haiku. Comprendre la vraie intention (« relance mon ami tous
+// les jours ») vaut mieux qu'un parsing rapide et bête. (L'EXÉCUTION garde son
+// palier par complexité ci-dessous : un simple rappel reste sur Haiku.)
+const PARSE_MODEL = TIER_MEDIUM;
 const PARIS_TZ = "Europe/Paris";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -389,6 +393,28 @@ export type ResolveResult =
   | { ok: false; reason: string; missing: MissingInfo | null };
 
 /**
+ * Nettoie le nom de destinataire renvoyé par le modèle avant tout affichage.
+ * Le parseur doit remplir un champ obligatoire ; sur un envoi SANS destinataire
+ * nommé (ex : « fais-moi du cold email »), il glisse parfois un marqueur du type
+ * « <UNKNOWN> », « inconnu », « N/A ». On ne doit JAMAIS montrer ça à l'artisan :
+ * on le ramène à une chaîne vide → le flux demande alors « à qui ? » proprement.
+ */
+export function cleanRecipientName(raw: string | null | undefined): string {
+  const name = (raw ?? "").trim();
+  if (!name) return "";
+  // Marqueur entre chevrons (<UNKNOWN>, <nom>, <destinataire>…) → vide.
+  if (/^<.*>$/.test(name)) return "";
+  const placeholders = new Set([
+    "unknown", "n/a", "na", "none", "null", "undefined", "inconnu", "inconnue",
+    "destinataire", "le destinataire", "client", "le client", "employe", "?",
+  ]);
+  if (placeholders.has(name.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase())) {
+    return "";
+  }
+  return name;
+}
+
+/**
  * Résout le destinataire d'un send_email contre les VRAIES fiches du workspace.
  * L'agent ne devine jamais : introuvable, ambigu ou sans email → { ok: false }
  * avec la question exacte à poser à l'utilisateur.
@@ -560,6 +586,10 @@ export async function createAgentRule(opts: {
   }
 
   const parsed = await parseInstruction(instruction);
+  // Nettoyage AVANT toute résolution/affichage : jamais de « <UNKNOWN> » à l'écran.
+  // Un nom vide fera dire « à qui dois-je écrire ? » (resolveRecipients) au lieu
+  // de chercher un client-fantôme.
+  parsed.recipientName = cleanRecipientName(parsed.recipientName);
   const schedule: AgentSchedule = { time: parsed.time, days: parsed.days, tz: PARIS_TZ };
 
   // Résolution immédiate pour un envoi : on préfère bloquer MAINTENANT avec une

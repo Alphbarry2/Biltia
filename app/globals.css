@@ -47,6 +47,10 @@
   --font-family-sans:    'Satoshi', ui-sans-serif, system-ui, sans-serif;
   --font-family-display: 'Clash Display', 'Satoshi', sans-serif;
   --font-family-mono:    ui-monospace, 'Cascadia Code', monospace;
+
+  /* Breakpoint mobile fin : l'app est pensée 375px d'abord. `xs` = 30rem (480px)
+     pour basculer libellés longs → courts, colonnes 1→2, etc. */
+  --breakpoint-xs: 30rem;
 }
 
 /* ── Dark mode ───────────────────────────────────────────────────────── */
@@ -80,6 +84,15 @@ body {
   color: #0A0A0A;
   font-family: 'Satoshi', ui-sans-serif, system-ui, sans-serif;
   line-height: 1.6;
+  /* App pensée 375px d'abord : un élément trop large ne doit JAMAIS faire
+     défiler toute la page horizontalement. Filet de sécurité en plus des
+     correctifs à la racine. */
+  overflow-x: hidden;
+}
+
+/* Médias et tableaux ne débordent jamais de leur conteneur sur mobile. */
+img, svg, video, canvas {
+  max-width: 100%;
 }
 
 /* ── Typography utilities ────────────────────────────────────────────── */

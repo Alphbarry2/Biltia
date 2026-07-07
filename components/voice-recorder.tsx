@@ -52,6 +52,9 @@ export function VoiceRecorder({
   const [seconds, setSeconds] = useState(0);
   const [status, setStatus] = useState<"connecting" | "listening" | "finalizing" | "error">("connecting");
   const [errorMsg, setErrorMsg] = useState("");
+  // Bump pour REDÉMARRER une dictée après une erreur (« Réessayer ») : relance
+  // proprement tout le pipeline micro (l'effet dépend de retryKey).
+  const [retryKey, setRetryKey] = useState(0);
 
   const barsRef = useRef<(HTMLSpanElement | null)[]>([]);
   const rafRef = useRef<number | null>(null);
@@ -167,24 +170,57 @@ export function VoiceRecorder({
   useEffect(() => {
     let cancelled = false;
 
+    // (Ré)ouverture : on repart d'un état PROPRE. Indispensable au « refaire une
+    // dictée » — sans ça, les refs gardaient l'état de la session précédente
+    // (stoppedRef=true, anciens chunks) et la 2e dictée semblait morte.
+    stoppedRef.current = false;
+    serverDownRef.current = false;
+    chunksRef.current = [];
+    speechFinalRef.current = "";
+    speechInterimRef.current = "";
+    setSpeechText("");
+    setSeconds(0);
+    setErrorMsg("");
+    setStatus("connecting");
+
+    // Ouvre le micro avec RÉESSAIS : après une session précédente (surtout en PWA
+    // iOS), le micro met un instant à se libérer et getUserMedia jette un
+    // NotReadableError/AbortError transitoire — la cause n°1 du « je refais un
+    // vocal et ça bugue ». Une permission RÉELLEMENT refusée ne se retente pas.
+    async function openMic(): Promise<MediaStream> {
+      const constraints: MediaStreamConstraints = {
+        // Audio NETTOYÉ pour gpt-4o : autoGainControl remonte une voix faible/loin,
+        // noiseSuppression coupe le fond, echoCancellation évite le larsen. Mono.
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
+      };
+      let lastErr: unknown;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (cancelled) throw new Error("cancelled");
+        try {
+          return await navigator.mediaDevices.getUserMedia(constraints);
+        } catch (e) {
+          lastErr = e;
+          const name = (e as { name?: string })?.name;
+          if (name === "NotAllowedError" || name === "SecurityError") throw e; // vrai refus
+          await new Promise((r) => setTimeout(r, 350)); // laisse le micro se libérer
+        }
+      }
+      throw lastErr;
+    }
+
     async function begin() {
       let stream: MediaStream;
       try {
-        // Audio NETTOYÉ pour gpt-4o : autoGainControl remonte une voix faible/loin
-        // (cause n°1 des mots courants ratés), noiseSuppression coupe le fond,
-        // echoCancellation évite le larsen. Mono 16 kHz = format idéal du modèle.
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-            channelCount: 1,
-          },
-        });
-      } catch {
+        stream = await openMic();
+      } catch (e) {
         if (cancelled) return;
+        const name = (e as { name?: string })?.name;
         setStatus("error");
-        setErrorMsg("Micro bloqué. Autorisez l'accès au microphone dans votre navigateur, puis réessayez.");
+        setErrorMsg(
+          name === "NotAllowedError" || name === "SecurityError"
+            ? "Micro bloqué. Autorisez l'accès au microphone dans votre navigateur, puis réessayez."
+            : "Micro momentanément indisponible (déjà utilisé ou pas encore libéré). Réessayez."
+        );
         return;
       }
       if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
@@ -196,6 +232,10 @@ export function VoiceRecorder({
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       const ctx: AudioContext = new AudioCtx();
       audioCtxRef.current = ctx;
+      // Mobile / PWA : l'AudioContext démarre souvent « suspended » (politique
+      // autoplay) → les ondes restent mortes. On le réveille explicitement.
+      if (ctx.state === "suspended") { try { await ctx.resume(); } catch { /* ignore */ } }
+      if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
       const source = ctx.createMediaStreamSource(stream);
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 128;
@@ -280,7 +320,7 @@ export function VoiceRecorder({
       cleanup();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [retryKey]);
 
   const isError = status === "error";
   const isFinalizing = status === "finalizing";
@@ -360,6 +400,15 @@ export function VoiceRecorder({
           >
             {isError ? "Fermer" : "Annuler"}
           </button>
+          {isError && (
+            <button
+              onClick={() => { setErrorMsg(""); setStatus("connecting"); setRetryKey((k) => k + 1); }}
+              className="flex items-center gap-1.5 px-4 py-2 text-[13px] font-semibold rounded-full text-white bg-gradient-to-br from-indigo-500 via-violet-500 to-pink-500 shadow-[0_6px_20px_rgba(139,92,246,0.4)] hover:shadow-[0_8px_28px_rgba(139,92,246,0.55)] active:scale-95 transition-all"
+            >
+              <Mic className="w-4 h-4" />
+              Réessayer
+            </button>
+          )}
           {!isError && (
             <button
               onClick={commit}

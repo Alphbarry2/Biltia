@@ -39,6 +39,7 @@ import {
   RefreshCw,
   Gauge,
   Plus,
+  Pencil,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { ENTITIES, FORM_FIELDS, RELATION_DISPLAY, type FormField } from "@/lib/data-entities";
@@ -334,7 +335,7 @@ function RelatedGroup({
 
 // ─── Panneau de détail (drawer) ─────────────────────────────────────────────
 function DetailDrawer({
-  entity, id, data, onClose, onOpen, onRefresh,
+  entity, id, data, onClose, onOpen, onRefresh, onEdit,
 }: {
   entity: string;
   id: string;
@@ -343,6 +344,8 @@ function DetailDrawer({
   onOpen: (entity: string, id: string) => void;
   /** Recharge les données après une mutation faite depuis le drawer (GPS…). */
   onRefresh?: () => void;
+  /** Ouvre le formulaire d'édition de cette fiche. */
+  onEdit?: (entity: string, row: Row) => void;
 }) {
   const meta = ENTITY_META[entity];
   const row = (data[entity] ?? []).find((r) => r.id === id);
@@ -487,9 +490,20 @@ function DetailDrawer({
               </div>
             )}
           </div>
-          <button onClick={onClose} className="w-8 h-8 rounded-lg hover:bg-black/[0.05] flex items-center justify-center text-[#9A9A97] hover:text-[#0A0A0A] transition-colors flex-shrink-0">
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {onEdit && FORM_FIELDS[entity] && (
+              <button
+                onClick={() => onEdit(entity, row)}
+                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-[#0A0A0A] text-white text-[12.5px] font-semibold hover:opacity-90 transition-opacity"
+                title="Modifier cette fiche"
+              >
+                <Pencil className="w-3.5 h-3.5" /> Modifier
+              </button>
+            )}
+            <button onClick={onClose} className="w-8 h-8 rounded-lg hover:bg-black/[0.05] flex items-center justify-center text-[#9A9A97] hover:text-[#0A0A0A] transition-colors">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
@@ -1337,9 +1351,27 @@ function downloadFile(url: string) {
 // Chaque entité expose ses champs PERTINENTS (curés dans lib/data-entities.ts).
 // Les champs de relation (client_id…) sont des <select> peuplés depuis le
 // workspace — jamais de saisie libre d'un nom qui existe déjà.
-function AddRecordModal({ entity, onClose, onCreated }: { entity: string; onClose: () => void; onCreated: () => void }) {
+// Valeurs de départ d'un formulaire d'édition : ligne existante → champs du form.
+function initialFormValues(fields: FormField[], row?: Row | null): Record<string, string | boolean> {
+  if (!row) return {};
+  const init: Record<string, string | boolean> = {};
+  for (const f of fields) {
+    const raw = row[f.key];
+    if (raw === null || raw === undefined) continue;
+    if (f.type === "checkbox") init[f.key] = raw === true;
+    else if (f.type === "date") init[f.key] = String(raw).slice(0, 10); // timestamptz → AAAA-MM-JJ
+    else init[f.key] = String(raw);
+  }
+  return init;
+}
+
+// Modal d'ajout OU de modification (même formulaire). `row` fourni → mode édition.
+function RecordFormModal({
+  entity, row, onClose, onSaved,
+}: { entity: string; row?: Row | null; onClose: () => void; onSaved: () => void }) {
+  const isEdit = !!row;
   const fields = FORM_FIELDS[entity] ?? [];
-  const [values, setValues] = useState<Record<string, string | boolean>>({});
+  const [values, setValues] = useState<Record<string, string | boolean>>(() => initialFormValues(fields, row));
   const [relOptions, setRelOptions] = useState<Record<string, { id: string; label: string }[]>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1383,14 +1415,26 @@ function AddRecordModal({ entity, onClose, onCreated }: { entity: string; onClos
     const payload: Record<string, unknown> = {};
     for (const f of fields) {
       const v = values[f.key];
-      if (f.type === "checkbox") payload[f.key] = v === true;
-      else if (typeof v === "string" && v.trim() !== "") payload[f.key] = f.type === "number" ? Number(v) : v.trim();
+      if (f.type === "checkbox") { payload[f.key] = v === true; continue; }
+      const s = typeof v === "string" ? v.trim() : "";
+      if (s !== "") {
+        payload[f.key] = f.type === "number" ? Number(s) : s;
+      } else if (isEdit) {
+        // Champ vidé en édition : on l'efface (→ null) SEULEMENT s'il avait une
+        // valeur avant. Sinon on l'omet (évite d'écraser un défaut serveur en null).
+        const had = row && row[f.key] != null && String(row[f.key]).trim() !== "";
+        if (had) payload[f.key] = null;
+      }
     }
     try {
       const res = await fetch("/api/data", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ entity, action: "create", values: payload }),
+        body: JSON.stringify(
+          isEdit
+            ? { entity, action: "update", id: row!.id, values: payload }
+            : { entity, action: "create", values: payload }
+        ),
       });
       const j = await res.json();
       if (!res.ok) {
@@ -1398,7 +1442,7 @@ function AddRecordModal({ entity, onClose, onCreated }: { entity: string; onClos
         setSaving(false);
         return;
       }
-      onCreated();
+      onSaved();
       onClose();
     } catch {
       setError("Enregistrement impossible.");
@@ -1415,7 +1459,7 @@ function AddRecordModal({ entity, onClose, onCreated }: { entity: string; onClos
       <div className="relative w-full max-w-lg max-h-[85vh] overflow-y-auto bg-white rounded-3xl shadow-[0_30px_90px_rgba(20,20,50,0.25)] p-6">
         <div className="flex items-center justify-between mb-5">
           <h3 className="text-[16px] font-bold text-[#0A0A0A] tracking-[-0.02em]">
-            Ajouter — {ENTITIES[entity]?.label ?? entity}
+            {isEdit ? "Modifier" : "Ajouter"} — {ENTITIES[entity]?.label ?? entity}
           </h3>
           <button onClick={onClose} className="text-[#9A9A97] hover:text-[#0A0A0A] transition-colors" aria-label="Fermer">
             <X className="w-5 h-5" />
@@ -1480,7 +1524,8 @@ function AddRecordModal({ entity, onClose, onCreated }: { entity: string; onClos
             disabled={saving}
             className="inline-flex items-center gap-1.5 rounded-full bg-[#0A0A0A] px-4 py-2 text-[13px] font-semibold text-white hover:opacity-90 transition-opacity disabled:opacity-50"
           >
-            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />} Ajouter
+            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : isEdit ? <Check className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+            {isEdit ? "Enregistrer" : "Ajouter"}
           </button>
         </div>
       </div>
@@ -1534,6 +1579,7 @@ export default function WorkspacePage() {
   const [importEntity, setImportEntity] = useState<string | null>(null);
   const [importAll, setImportAll] = useState(false);
   const [addEntity, setAddEntity] = useState<string | null>(null);
+  const [editRecord, setEditRecord] = useState<{ entity: string; row: Row } | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
@@ -1576,6 +1622,9 @@ export default function WorkspacePage() {
       if (n.has(id)) n.delete(id); else n.add(id);
       return n;
     });
+  // Tout sélectionner / tout désélectionner pour l'entité affichée.
+  const toggleSelectAll = (ids: string[]) =>
+    setSelectedIds((prev) => (prev.size >= ids.length && ids.length > 0 ? new Set() : new Set(ids)));
   const deleteSelected = async () => {
     if (!selected || selectedIds.size === 0) return;
     if (!window.confirm(`Supprimer ${selectedIds.size} élément(s) ? Cette action est définitive.`)) return;
@@ -1610,24 +1659,24 @@ export default function WorkspacePage() {
 
   return (
     <div className="min-h-full bg-[#FCFCFD]">
-      <div className="max-w-7xl mx-auto px-6 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* En-tête */}
-        <div className="flex items-center gap-3 mb-1.5">
-          <span className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500/15 to-pink-500/10 flex items-center justify-center">
+        <div className="flex items-center gap-3 mb-1.5 flex-wrap">
+          <span className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500/15 to-pink-500/10 flex items-center justify-center flex-shrink-0">
             <Boxes className="w-5 h-5 text-violet-600" />
           </span>
-          <h1 className="text-2xl font-black text-[#0A0A0A] tracking-[-0.03em]">Workspace</h1>
-          <div className="ml-auto flex items-center gap-2">
+          <h1 className="text-xl sm:text-2xl font-black text-[#0A0A0A] tracking-[-0.03em]">Workspace</h1>
+          <div className="ml-auto flex items-center gap-2 flex-wrap justify-end">
             {total > 0 && <ExportButton entity="all" label="Exporter" />}
             <button
               onClick={() => setImportAll(true)}
-              className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 text-white text-[13px] font-semibold px-4 py-2.5 rounded-full shadow-[0_8px_22px_rgba(124,58,190,0.30)] hover:brightness-105 active:scale-[0.98] transition"
+              className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 text-white text-[13px] font-semibold px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-full shadow-[0_8px_22px_rgba(124,58,190,0.30)] hover:brightness-105 active:scale-[0.98] transition"
             >
-              <Upload className="w-4 h-4" /> Importer des données
+              <Upload className="w-4 h-4" /> <span className="hidden xs:inline">Importer des données</span><span className="xs:hidden">Importer</span>
             </button>
           </div>
         </div>
-        <p className="text-[14px] text-[#6E6E6C] mb-6 ml-12">
+        <p className="text-[14px] text-[#6E6E6C] mb-6 ml-0 sm:ml-12">
           La mémoire de votre entreprise. {loading ? "Chargement…" : `${total} éléments reliés.`}
         </p>
 
@@ -1678,15 +1727,15 @@ export default function WorkspacePage() {
             >
               <ArrowLeft className="w-4 h-4" /> Vue d&apos;ensemble
             </button>
-            <div className="flex items-center gap-2.5 mb-4">
+            <div className="flex items-center gap-2.5 mb-4 flex-wrap">
               {(() => { const I = ENTITY_META[selected].icon; return (
-                <span className={`w-9 h-9 rounded-xl flex items-center justify-center ${ENTITY_META[selected].accent}`}>
+                <span className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${ENTITY_META[selected].accent}`}>
                   <I className="w-5 h-5" />
                 </span>
               ); })()}
               <h2 className="text-lg font-bold text-[#0A0A0A]">{ENTITY_META[selected].label}</h2>
               <span className="text-[13px] text-[#9A9A97] tabular-nums">{data[selected]?.length ?? 0}</span>
-              <div className="ml-auto flex items-center gap-2">
+              <div className="ml-auto flex items-center gap-2 flex-wrap justify-end">
                 <ExportButton entity={selected} />
                 <button
                   onClick={() => setImportEntity(selected)}
@@ -1738,8 +1787,30 @@ export default function WorkspacePage() {
                   </div>
                 )}
                 <div className="bg-white border border-[#E7E7E4] rounded-2xl p-2 divide-y divide-[#F1F1EC]">
+                  {/* En-tête : tout sélectionner d'un coup */}
+                  {(() => {
+                    const ids = (data[selected] ?? []).map((r) => String(r.id));
+                    const allSelected = ids.length > 0 && selectedIds.size >= ids.length;
+                    const someSelected = selectedIds.size > 0 && !allSelected;
+                    return (
+                      <label className="flex items-center gap-1 pl-2.5 py-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={allSelected}
+                          ref={(el) => { if (el) el.indeterminate = someSelected; }}
+                          onChange={() => toggleSelectAll(ids)}
+                          aria-label="Tout sélectionner"
+                          className="w-4 h-4 rounded border-[#D4D4DE] text-violet-600 focus:ring-violet-500/40 cursor-pointer flex-shrink-0"
+                        />
+                        <span className="ml-2 text-[12px] font-medium text-[#9A9A97]">
+                          {allSelected ? "Tout désélectionner" : "Tout sélectionner"}
+                          <span className="tabular-nums"> · {ids.length}</span>
+                        </span>
+                      </label>
+                    );
+                  })()}
                   {(data[selected] ?? []).map((row) => (
-                    <div key={row.id} className={`flex items-center gap-1 pl-2.5 py-0.5 rounded-xl ${selectedIds.has(row.id) ? "bg-violet-50/70" : ""}`}>
+                    <div key={row.id} className={`group/row flex items-center gap-1 pl-2.5 pr-2 py-0.5 rounded-xl ${selectedIds.has(row.id) ? "bg-violet-50/70" : ""}`}>
                       <input
                         type="checkbox"
                         checked={selectedIds.has(row.id)}
@@ -1750,6 +1821,16 @@ export default function WorkspacePage() {
                       <div className="flex-1 min-w-0">
                         <RelatedItem entity={selected} row={row} onOpen={openDrawer} />
                       </div>
+                      {FORM_FIELDS[selected] && (
+                        <button
+                          onClick={() => setEditRecord({ entity: selected, row })}
+                          className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-[#9A9A97] opacity-0 group-hover/row:opacity-100 hover:bg-black/[0.05] hover:text-[#0A0A0A] transition-all"
+                          title="Modifier"
+                          aria-label="Modifier"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1825,6 +1906,7 @@ export default function WorkspacePage() {
           onClose={() => setDrawer(null)}
           onOpen={openDrawer}
           onRefresh={load}
+          onEdit={(entity, row) => setEditRecord({ entity, row })}
         />
       )}
 
@@ -1844,10 +1926,19 @@ export default function WorkspacePage() {
       )}
 
       {addEntity && (
-        <AddRecordModal
+        <RecordFormModal
           entity={addEntity}
           onClose={() => setAddEntity(null)}
-          onCreated={load}
+          onSaved={load}
+        />
+      )}
+
+      {editRecord && (
+        <RecordFormModal
+          entity={editRecord.entity}
+          row={editRecord.row}
+          onClose={() => setEditRecord(null)}
+          onSaved={load}
         />
       )}
     </div>
