@@ -55,7 +55,7 @@ export async function GET() {
   const [{ data: rules }, { data: runs }] = await Promise.all([
     supabase
       .from("agent_rules")
-      .select("id, title, instruction, schedule, action, status, blocked_reason, missing, next_run_at, last_run_at, created_at")
+      .select("id, title, instruction, trigger_type, trigger, schedule, action, status, blocked_reason, missing, next_run_at, last_run_at, meta, created_at")
       .eq("tenant_id", membership.tenant_id)
       .order("created_at", { ascending: false })
       .limit(100),
@@ -120,6 +120,7 @@ export async function POST(req: Request) {
       model: result.usage.model,
       inputTokens: result.usage.inputTokens,
       outputTokens: result.usage.outputTokens,
+      internal: true, // recrutement (parsing de la règle) : coût réel, pas de plancher 5cr
     }).catch(() => {});
   }
 
@@ -176,13 +177,18 @@ export async function PATCH(req: Request) {
   // La règle DOIT appartenir au tenant actif (RLS + filtre explicite).
   const { data: rule } = await supabase
     .from("agent_rules")
-    .select("id, tenant_id, created_by, title, instruction, schedule, action, status, blocked_reason, missing, next_run_at")
+    .select("id, tenant_id, created_by, title, instruction, trigger_type, trigger, schedule, action, status, blocked_reason, missing, next_run_at, monthly_credit_budget, daily_credit_budget")
     .eq("tenant_id", tenantId)
     .eq("id", id)
     .maybeSingle();
   if (!rule) return NextResponse.json({ error: "Agent introuvable." }, { status: 404 });
 
   const schedule = rule.schedule as unknown as AgentSchedule;
+  const isEvent = rule.trigger_type === "event";
+  // Agent-événement : « prochain passage » = un scan imminent (pas un créneau
+  // horaire). computeNextRun(schedule) renverrait null (schedule vide) → on force
+  // une reprise immédiate pour que le cron le réévalue au prochain tick.
+  const nextRunFor = (): Date | null => (isEvent ? new Date() : computeNextRun(schedule));
 
   if (action === "pause") {
     await supabase
@@ -194,7 +200,7 @@ export async function PATCH(req: Request) {
   }
 
   if (action === "resume") {
-    const next = computeNextRun(schedule);
+    const next = nextRunFor();
     await supabase
       .from("agent_rules")
       .update({
@@ -250,7 +256,7 @@ export async function PATCH(req: Request) {
         return NextResponse.json({ error: "Dites-moi quoi envoyer (message trop court)." }, { status: 400 });
       }
       const act = rule.action as unknown as AgentAction;
-      const next = computeNextRun(schedule);
+      const next = nextRunFor();
       await supabase
         .from("agent_rules")
         .update({
@@ -306,7 +312,7 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: `Toujours bloqué : ${resolved.reason}.` }, { status: 400 });
     }
 
-    const next = computeNextRun(schedule);
+    const next = nextRunFor();
     await supabase
       .from("agent_rules")
       .update({

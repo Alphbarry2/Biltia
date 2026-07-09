@@ -49,6 +49,7 @@ import {
   type BillingCycle,
   type PlanId,
 } from "@/lib/plans";
+import { CreditPacksPanel } from "@/components/credit-packs";
 import KnowledgeManager from "@/components/knowledge-manager";
 import {
   DEFAULT_PREFERENCES,
@@ -223,8 +224,8 @@ export default function SettingsPage() {
       if (!user) return;
       setEmail(user.email ?? "");
 
-      supabase.from("user_credits").select("balance").eq("user_id", user.id).single()
-        .then(({ data }) => { if (data) setCredits(data.balance); });
+      supabase.from("user_credits").select("balance, topup_balance").eq("user_id", user.id).single()
+        .then(({ data }) => { if (data) setCredits((data.balance ?? 0) + (data.topup_balance ?? 0)); });
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (supabase as unknown as { from: (t: string) => any })
@@ -1009,7 +1010,7 @@ export default function SettingsPage() {
                   <div className="flex items-center gap-3 p-3.5 rounded-xl bg-gradient-to-r from-violet-500/[0.08] to-pink-500/[0.05] border border-violet-200/60 mb-5">
                     <Zap className="w-4 h-4 text-violet-600 flex-shrink-0" />
                     <span className="text-sm text-[#0A0A0A] font-semibold tabular-nums">
-                      {credits !== null ? `${credits} crédits disponibles` : "Chargement…"}
+                      {credits !== null ? `${credits.toLocaleString("fr-FR")} crédits disponibles` : "Chargement…"}
                     </span>
                     <span className="ml-auto text-[12px] text-[#9A9A97]">
                       Plan {currentPlan.name}
@@ -1080,6 +1081,11 @@ export default function SettingsPage() {
                       : <>{currentPlanId === "free" ? "S'abonner" : "Changer d'offre"} <ArrowRight className="h-4 w-4" /></>}
                   </button>
                   <p className="text-xs text-[#9A9A97] mt-3 text-center">Paiement via Stripe · Sans engagement · Résiliation à tout moment</p>
+                </Card>
+
+                <Card>
+                  <SectionTitle title="Recharger des crédits" desc="Un pack ponctuel qui s'ajoute à votre solde. Les crédits achetés ne périment jamais." />
+                  <CreditPacksPanel showHeader={false} />
                 </Card>
 
                 <div className="space-y-3">

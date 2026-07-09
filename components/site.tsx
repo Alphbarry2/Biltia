@@ -261,12 +261,48 @@ export function SiteNav() {
 
 // ── Galerie de modèles (aperçu live via iframe /t/[id]) ──────────────────────
 
+// Aperçu qui S'ADAPTE à la place disponible : mesure la largeur du conteneur et
+// rend l'app à une résolution de référence (desktop large / mobile étroit selon
+// la place) mise à l'échelle pour REMPLIR la largeur SANS rien rogner. Le vrai
+// design de l'app apparaît en entier, joliment cadré, quelle que soit la taille.
+function ScaledPreview({ id, title, maxH }: { id: string; title: string; maxH?: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [w, setW] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const u = () => setW(el.clientWidth);
+    u();
+    const ro = new ResizeObserver(u);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  // ≥480px : rendu DESKTOP (1240) réduit pour tenir → mini-tableau de bord net.
+  // <480px : rendu MOBILE à la taille NATIVE (scale 1, jamais agrandi/flou), hauteur clippée.
+  const desktop = w >= 480;
+  const refW = desktop ? 1240 : Math.max(w, 300);
+  const refH = desktop ? 800 : 1100;
+  const scale = desktop && w ? w / refW : 1;
+  const h = Math.min(desktop ? Math.round(refH * scale) || 240 : Math.round(w * 1.42) || 260, maxH ?? 9999);
+  return (
+    <div ref={ref} className="relative w-full overflow-hidden" style={{ height: h, background: "#FBFBFD" }}>
+      {w > 0 && (
+        <iframe
+          src={`/t/${id}`}
+          title={title}
+          loading="lazy"
+          sandbox="allow-scripts allow-same-origin"
+          className="absolute top-0 left-0 border-0 pointer-events-none select-none"
+          style={{ width: refW, height: refH, transform: `scale(${scale})`, transformOrigin: "top left" }}
+        />
+      )}
+    </div>
+  );
+}
+
 function TemplateCard({ t, onActivate, ctaLabel }: { t: TemplatePreview; onActivate: (t: TemplatePreview) => void; ctaLabel: string }) {
-  const [hover, setHover] = useState(false);
   return (
     <div
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
       onClick={() => onActivate(t)}
       role="button"
       tabIndex={0}
@@ -282,17 +318,7 @@ function TemplateCard({ t, onActivate, ctaLabel }: { t: TemplatePreview; onActiv
           Aperçu live
         </span>
       </div>
-      <div className="relative h-[230px] overflow-hidden" style={{ background: "#F7F5EF" }}>
-        <iframe
-          src={`/t/${t.id}`}
-          title={t.name}
-          loading="lazy"
-          sandbox="allow-scripts allow-same-origin"
-          className="absolute top-0 left-0 border-0 pointer-events-none select-none origin-top-left"
-          style={{ width: "1280px", height: "900px", transform: hover ? "scale(0.315)" : "scale(0.30)", transition: "transform 600ms cubic-bezier(0.16,1,0.3,1)" }}
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/[0.04] to-transparent pointer-events-none" />
-      </div>
+      <ScaledPreview id={t.id} title={t.name} />
       <div className="p-5">
         <div className="flex items-center justify-between gap-2 mb-1.5">
           <h3 className="text-[16px] font-bold text-[#0A0A0A] tracking-[-0.01em] truncate">{t.name}</h3>
@@ -312,7 +338,7 @@ function TemplatePreviewModal({ t, onClose, onUse }: { t: TemplatePreview; onClo
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-6" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-[#0A0A0F]/55 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-5xl h-[88vh] bg-white rounded-[24px] overflow-hidden shadow-[0_50px_130px_rgba(20,20,50,0.45)] flex flex-col">
+      <div className="relative w-full sm:w-[78vw] max-w-[1560px] h-[92vh] sm:h-[88vh] bg-white rounded-[24px] overflow-hidden shadow-[0_50px_130px_rgba(20,20,50,0.45)] flex flex-col">
         <div className="flex items-center justify-between gap-3 px-5 h-14 border-b border-[#ECECF2] flex-shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
             <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: t.accent }} />
@@ -403,9 +429,14 @@ export function TemplateCarousel({ onUse }: { onUse: (t: TemplatePreview) => voi
 
   const isNarrow = w < 640;
   // Carte quasi pleine largeur sur mobile, grande et centrée sur desktop.
-  const slideW = Math.round(Math.min(Math.max(w * (isNarrow ? 0.88 : 0.62), 240), 940));
-  const previewH = Math.round(slideW * (isNarrow ? 1.12 : 0.74));
-  const cardH = previewH + 128;
+  const slideW = Math.round(Math.min(Math.max(w * (isNarrow ? 0.88 : 0.62), 240), 960));
+  // Aperçu : ≥480px = app desktop réduite (mini, net) ; <480px = app mobile NATIVE (jamais agrandie).
+  const pvDesktop = slideW >= 480;
+  const pvRefW = pvDesktop ? 1240 : slideW;
+  const pvRefH = pvDesktop ? 800 : 1100;
+  const pvScale = pvDesktop ? slideW / pvRefW : 1;
+  const previewH = pvDesktop ? Math.round(pvRefH * pvScale) : Math.round(slideW * 1.42);
+  const cardH = previewH + 118;
   const arrowTop = 46 + previewH / 2;
   const go = (d: number) => setActive((a) => (a + d + n) % n);
   const accent = items[active].accent;
@@ -477,7 +508,7 @@ export function TemplateCarousel({ onUse }: { onUse: (t: TemplatePreview) => voi
                     loading="lazy"
                     sandbox="allow-scripts allow-same-origin"
                     className="absolute top-0 left-0 border-0 pointer-events-none select-none"
-                    style={{ width: slideW, height: 1400 }}
+                    style={{ width: pvRefW, height: pvRefH, transform: `scale(${pvScale})`, transformOrigin: "top left" }}
                   />
                 </div>
                 <div className="p-5 flex items-center justify-between gap-3">

@@ -8,8 +8,10 @@
 
 import Stripe from "stripe";
 import {
+  LEGACY_PRO_TIERS,
   PAID_PLAN_IDS,
   getPlan,
+  stripePackEnvVar,
   stripePriceEnvVar,
   type BillingCycle,
   type CreditTier,
@@ -46,6 +48,14 @@ export function resolvePriceId(
 }
 
 /**
+ * Résout le Stripe Price ID (one-time) d'un pack de crédits depuis l'environnement.
+ * Ex : 1000 → lit STRIPE_PACK_1000. Retourne `null` si non configuré.
+ */
+export function resolvePackPriceId(credits: number): string | null {
+  return process.env[stripePackEnvVar(credits)] ?? null;
+}
+
+/**
  * Correspondance inverse : à partir d'un Price ID reçu d'un webhook Stripe,
  * retrouve le plan + palier (+ cycle) associés. Les deux cycles sont testés.
  * Retourne `null` si inconnu. Les crédits attribués sont les mêmes quel que
@@ -55,7 +65,10 @@ export function findTierByPriceId(
   priceId: string
 ): { plan: PlanId; tier: CreditTier; cycle: BillingCycle } | null {
   for (const planId of PAID_PLAN_IDS) {
-    for (const tier of getPlan(planId).tiers) {
+    // Paliers en vente + anciens paliers (abonnés déjà en cours, cf. LEGACY_PRO_TIERS).
+    // Les legacy ne concernent que "pro" ; getPlan(planId).tiers ne les contient plus.
+    const tiers = planId === "pro" ? [...getPlan(planId).tiers, ...LEGACY_PRO_TIERS] : getPlan(planId).tiers;
+    for (const tier of tiers) {
       for (const cycle of BILLING_CYCLES) {
         if (resolvePriceId(planId, tier.credits, cycle) === priceId) {
           return { plan: planId, tier, cycle };

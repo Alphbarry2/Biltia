@@ -31,15 +31,17 @@ function GoogleLogo() {
 
 // ── Boutons OAuth ─────────────────────────────────────────────────────────────
 
-export function OAuthButtons({ next = "/dashboard", onError }: {
+export function OAuthButtons({ next = "/dashboard", onError, disabled = false }: {
   /** Destination après le callback (le callback force /onboarding si besoin). */
   next?: string;
   onError?: (message: string) => void;
+  /** Bloque le bouton tant qu'une condition n'est pas remplie (ex. CGU non acceptées). */
+  disabled?: boolean;
 }) {
   const [pending, setPending] = useState(false);
 
   const go = async () => {
-    if (pending) return;
+    if (pending || disabled) return;
     setPending(true);
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOAuth({
@@ -53,8 +55,12 @@ export function OAuthButtons({ next = "/dashboard", onError }: {
   };
 
   return (
-    <button type="button" onClick={go} disabled={pending}
-      className="w-full flex items-center justify-center gap-2.5 py-3 rounded-xl border border-[#E7E7E4] bg-white text-[14px] font-semibold text-[#0A0A0A] transition-all hover:border-[#C9BEF0] hover:shadow-[0_8px_22px_rgba(124,58,190,0.12)] active:scale-[0.99] disabled:opacity-60 disabled:cursor-wait">
+    <button type="button" onClick={go} disabled={pending || disabled}
+      className={`w-full flex items-center justify-center gap-2.5 py-3 rounded-xl border border-[#E7E7E4] bg-white text-[14px] font-semibold text-[#0A0A0A] transition-all active:scale-[0.99] disabled:opacity-60 ${
+        disabled
+          ? "cursor-not-allowed disabled:active:scale-100"
+          : "hover:border-[#C9BEF0] hover:shadow-[0_8px_22px_rgba(124,58,190,0.12)] disabled:cursor-wait"
+      }`}>
       {pending
         ? <span className="h-4 w-4 rounded-full border-2 border-[#D6D0E4] border-t-[#7C3AED] animate-spin" />
         : <GoogleLogo />}

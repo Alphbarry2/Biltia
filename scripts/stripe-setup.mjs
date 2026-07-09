@@ -18,21 +18,18 @@ import fs from "node:fs";
 import path from "node:path";
 import Stripe from "stripe";
 
-// [credits, prixMensuelEUR] — miroir de PRO_TIERS (lib/plans.ts).
+// [credits, prixMensuelEUR] — miroir EXACT de PRO_TIERS (lib/plans.ts).
+// Grille resserrée 2026-07-09 : 6 paliers (2 cartes Solo/TPE + Business).
+// Les ANCIENS paliers (4000, 8000, …) ne sont PAS recréés ici : leurs Prices
+// restent en place tant qu'un abonné y est (grandfathering, cf. LEGACY_PRO_TIERS
+// + findTierByPriceId). Ne PAS les supprimer côté Stripe.
 const TIERS = [
   [1000, 49],
-  [2000, 99],
-  [4000, 199],
-  [8000, 399],
-  [12000, 579],
-  [20000, 949],
-  [30000, 1399],
-  [40000, 1799],
-  [50000, 2199],
-  [75000, 3699],
-  [100000, 4399],
-  [150000, 6490],
-  [200000, 8499],
+  [2000, 89],
+  [3000, 129],
+  [10000, 399],
+  [15000, 579],
+  [25000, 949],
 ];
 const ANNUAL_MONTHS_BILLED = 10; // 2 mois offerts
 
@@ -91,31 +88,88 @@ const lk = (credits, cycle) => `biltia_pro_${credits}_${cycle}`;
 
 async function ensurePrice(credits, monthlyEur, cycle) {
   const lookupKey = lk(credits, cycle);
-  const existing = await stripe.prices.list({ lookup_keys: [lookupKey], limit: 1 });
-  if (existing.data[0]) return { id: existing.data[0].id, reused: true };
-
-  const productId = await findOrCreateProduct(credits);
   const unitAmount =
     cycle === "monthly" ? monthlyEur * 100 : monthlyEur * ANNUAL_MONTHS_BILLED * 100;
+
+  const existing = await stripe.prices.list({ lookup_keys: [lookupKey], limit: 1 });
+  const prev = existing.data[0];
+  // Prix déjà présent AU BON MONTANT → on réutilise tel quel.
+  if (prev && prev.unit_amount === unitAmount) return { id: prev.id, reused: true };
+
+  const productId = await findOrCreateProduct(credits);
+  // Un Price Stripe est IMMUABLE : si le montant a changé (ex. 2000 crédits
+  // 99 → 89 €), on crée un nouveau Price et on lui TRANSFÈRE la lookup_key
+  // (l'ancien Price se détache de la clé mais reste valable pour les abonnés
+  // qui le référencent déjà). `transfer_lookup_key` ne casse aucun abonnement.
   const price = await stripe.prices.create({
     product: productId,
     currency: "eur",
     unit_amount: unitAmount,
     recurring: { interval: cycle === "monthly" ? "month" : "year" },
     lookup_key: lookupKey,
+    transfer_lookup_key: Boolean(prev),
     nickname: `Pro ${credits} crédits (${cycle === "monthly" ? "mensuel" : "annuel"})`,
     metadata: { biltia_plan: "pro", biltia_credits: String(credits), biltia_cycle: cycle },
   });
-  return { id: price.id, reused: false };
+  return { id: price.id, reused: false, retariffed: Boolean(prev) };
 }
 
 for (const [credits, monthlyEur] of TIERS) {
   for (const cycle of ["monthly", "annual"]) {
-    const { id, reused } = await ensurePrice(credits, monthlyEur, cycle);
+    const { id, reused, retariffed } = await ensurePrice(credits, monthlyEur, cycle);
     const envName = `STRIPE_PRICE_PRO_${credits}${cycle === "annual" ? "_ANNUAL" : ""}`;
     envLines.push(`${envName}=${id}`);
-    console.log(`  ${String(credits).padStart(6)} ${cycle.padEnd(7)} ${id} ${reused ? "(déjà présent)" : "✓ créé"}`);
+    const status = reused ? "(déjà présent)" : retariffed ? "✓ recréé (nouveau tarif)" : "✓ créé";
+    console.log(`  ${String(credits).padStart(6)} ${cycle.padEnd(7)} ${id} ${status}`);
   }
+}
+
+// ── Packs de crédits (one-time) ───────────────────────────────────────────────
+// Miroir EXACT de CREDIT_PACKS (lib/plans.ts). Prix « payment » (pas d'abonnement).
+const PACKS = [
+  [1000, 59],
+  [3000, 149],
+  [10000, 449],
+];
+const lkPack = (credits) => `biltia_pack_${credits}`;
+
+async function findOrCreatePackProduct(credits) {
+  const found = await stripe.prices.list({ lookup_keys: [lkPack(credits)], limit: 1 });
+  if (found.data[0]) {
+    return typeof found.data[0].product === "string" ? found.data[0].product : found.data[0].product.id;
+  }
+  const product = await stripe.products.create({
+    name: `Biltia — Pack ${credits.toLocaleString("fr-FR")} crédits`,
+    metadata: { biltia_kind: "pack", biltia_credits: String(credits) },
+  });
+  return product.id;
+}
+
+async function ensurePackPrice(credits, eur) {
+  const lookupKey = lkPack(credits);
+  const unitAmount = eur * 100;
+  const existing = await stripe.prices.list({ lookup_keys: [lookupKey], limit: 1 });
+  const prev = existing.data[0];
+  if (prev && prev.unit_amount === unitAmount) return { id: prev.id, reused: true };
+  const productId = await findOrCreatePackProduct(credits);
+  const price = await stripe.prices.create({
+    product: productId,
+    currency: "eur",
+    unit_amount: unitAmount,
+    lookup_key: lookupKey,
+    transfer_lookup_key: Boolean(prev),
+    nickname: `Pack ${credits} crédits`,
+    metadata: { biltia_kind: "pack", biltia_credits: String(credits) },
+  });
+  return { id: price.id, reused: false, retariffed: Boolean(prev) };
+}
+
+console.log(`\nPacks de crédits (one-time)…\n`);
+for (const [credits, eur] of PACKS) {
+  const { id, reused, retariffed } = await ensurePackPrice(credits, eur);
+  envLines.push(`STRIPE_PACK_${credits}=${id}`);
+  const status = reused ? "(déjà présent)" : retariffed ? "✓ recréé (nouveau tarif)" : "✓ créé";
+  console.log(`  pack ${String(credits).padStart(6)}        ${id} ${status}`);
 }
 
 console.log(

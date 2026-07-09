@@ -63,6 +63,96 @@ async function runExtraction(
   return { data: (fields.length ? input : (input.donnees ?? input)) as Record<string, unknown> };
 }
 
+// Modèle de raisonnement pour découper une dictée en PLUSIEURS devis structurés.
+const DEVIS_MODEL = "claude-sonnet-5";
+
+type ParsedDevisLine = {
+  designation: string;
+  quantite: number;
+  unite: string;
+  prix_unitaire_ht: number;
+  taux_tva: number;
+};
+type ParsedDevis = {
+  client_nom: string;
+  chantier_nom: string;
+  date_devis: string;
+  lignes: ParsedDevisLine[];
+  notes: string;
+};
+
+// Découpe une dictée libre en un TABLEAU de devis (un par client/affaire évoquée),
+// chacun avec ses lignes chiffrées. N'invente jamais un prix : 0 si non dicté.
+async function runDevisParse(text: string): Promise<{ devis: ParsedDevis[] } | { error: string; status: number }> {
+  const tool = {
+    name: "enregistrer_devis",
+    description: "Enregistre un ou plusieurs devis reconstitués à partir de la dictée de l'artisan.",
+    input_schema: {
+      type: "object",
+      properties: {
+        devis: {
+          type: "array",
+          description: "Un élément par devis distinct évoqué (un par client/affaire).",
+          items: {
+            type: "object",
+            properties: {
+              client_nom: { type: "string", description: "Nom du client tel que dicté (vide si non précisé)." },
+              chantier_nom: { type: "string", description: "Intitulé du chantier/de l'affaire (ex: « Rénovation salle de bain »), vide si absent." },
+              date_devis: { type: "string", description: "Date du devis AAAA-MM-JJ si dictée, sinon vide." },
+              lignes: {
+                type: "array",
+                description: "Une ligne par prestation/fourniture chiffrée.",
+                items: {
+                  type: "object",
+                  properties: {
+                    designation: { type: "string", description: "Libellé de la prestation ou fourniture." },
+                    quantite: { type: "number", description: "Quantité (1 par défaut si non précisée)." },
+                    unite: { type: "string", description: "Unité : u, m², m³, ml, kg, h, forfait (u par défaut)." },
+                    prix_unitaire_ht: { type: "number", description: "Prix unitaire HT en euros. 0 si non dicté (JAMAIS inventé)." },
+                    taux_tva: { type: "number", description: "Taux de TVA : 20, 10 ou 5.5 (20 par défaut)." },
+                  },
+                  required: ["designation", "quantite", "unite", "prix_unitaire_ht", "taux_tva"],
+                  additionalProperties: false,
+                },
+              },
+              notes: { type: "string", description: "Remarques utiles (conditions, délais…), vide sinon." },
+            },
+            required: ["client_nom", "chantier_nom", "date_devis", "lignes", "notes"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["devis"],
+      additionalProperties: false,
+    },
+  } as Anthropic.Tool;
+
+  let message: Anthropic.Message;
+  try {
+    message = await client.messages.create({
+      model: DEVIS_MODEL,
+      max_tokens: 4000,
+      system:
+        "Tu es l'assistant devis d'un artisan du BTP français. On te donne une dictée libre qui peut contenir PLUSIEURS devis (« je dois faire 3 devis : pour le client Martin… ; ensuite pour Durand… »). " +
+        "Découpe-la en un tableau de devis distincts (un par client/affaire). Pour chaque devis, liste les prestations en lignes chiffrées. " +
+        "RÈGLES ABSOLUES : n'invente JAMAIS un prix (prix_unitaire_ht = 0 si non dicté). Quantité 1 par défaut, unité « u » par défaut, TVA 20 par défaut. " +
+        "Regroupe correctement : tout ce qui suit « pour le client X » appartient au devis de X jusqu'au client suivant. " +
+        "Sépare fourniture et main d'œuvre en lignes distinctes quand c'est dicté ainsi. Réponds UNIQUEMENT en appelant l'outil enregistrer_devis.",
+      tools: [tool],
+      tool_choice: { type: "tool", name: "enregistrer_devis" },
+      messages: [{ role: "user", content: `Dictée à transformer en devis :\n\n« ${text} »` }],
+    });
+  } catch {
+    return { error: "Structuration des devis indisponible.", status: 502 };
+  }
+  const tb = message.content.find((b) => b.type === "tool_use");
+  if (!tb || tb.type !== "tool_use") return { error: "Aucun devis reconnu dans la dictée.", status: 502 };
+  const input = tb.input as { devis?: unknown };
+  const list = Array.isArray(input.devis) ? (input.devis as ParsedDevis[]) : [];
+  if (!list.length) return { error: "Aucun devis reconnu dans la dictée.", status: 502 };
+  return { devis: list };
+}
+
 export async function POST(req: Request) {
   try {
     const supabase = await createClient();
@@ -97,7 +187,7 @@ export async function POST(req: Request) {
     }
 
     const action = body.action;
-    if (action !== "extract" && action !== "transcribe") {
+    if (action !== "extract" && action !== "transcribe" && action !== "parse_devis") {
       return Response.json({ error: "Action IA non supportée." }, { status: 400 });
     }
 
@@ -107,8 +197,9 @@ export async function POST(req: Request) {
     const question = typeof body.question === "string" ? body.question.trim().slice(0, 1000) : "";
 
     const founder = isFounderEmail(user.email);
-    // Tarif à plat, prévisible : extraction photo 25 ; dictée 10 (+15 si structuration).
-    const HOLD = founder ? 0 : action === "extract" ? 25 : fields.length ? 25 : 10;
+    // Tarif à plat, prévisible : extraction photo 25 ; dictée→devis 30 (transcription
+    // + structuration lourde en tableau) ; dictée 10 (+15 si structuration en champs).
+    const HOLD = founder ? 0 : action === "extract" ? 25 : action === "parse_devis" ? 30 : fields.length ? 25 : 10;
     if (HOLD > 0) {
       const { data: credited } = await supabase.rpc("deduct_credits", { p_amount: HOLD });
       if (!credited) {
@@ -167,6 +258,20 @@ export async function POST(req: Request) {
     if ("error" in t) {
       await refund();
       return Response.json({ error: t.error, fallback: true }, { status: t.status });
+    }
+
+    // ── DICTÉE → PLUSIEURS DEVIS ──────────────────────────────────────────────
+    if (action === "parse_devis") {
+      if (!t.text) {
+        await refund();
+        return Response.json({ error: "Dictée vide — rien à transformer en devis. Vos crédits ont été remboursés.", fallback: true }, { status: 502 });
+      }
+      const parsed = await runDevisParse(t.text);
+      if ("error" in parsed) {
+        await refund();
+        return Response.json({ error: `${parsed.error} Vos crédits ont été remboursés.` }, { status: parsed.status });
+      }
+      return Response.json({ text: t.text, devis: parsed.devis });
     }
 
     // Si des champs sont demandés, on STRUCTURE la dictée (ex : pointage → heures).

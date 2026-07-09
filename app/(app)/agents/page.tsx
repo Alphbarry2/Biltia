@@ -23,15 +23,21 @@ import {
   XCircle,
   Clock,
   Mail,
+  Sparkles,
+  ChevronDown,
 } from "lucide-react";
+import { AgentTemplateGallery } from "@/components/agent-templates";
 
 type AgentSchedule = { time: string; days: number[]; tz: string };
+type AgentTrigger = { watcher: string; params?: { days?: number }; scanEveryMinutes?: number };
 type AgentMissing = { entity: string; id: string | null; name: string; field: string } | null;
 
 type AgentRule = {
   id: string;
   title: string;
   instruction: string;
+  trigger_type?: string | null;
+  trigger?: AgentTrigger | null;
   schedule: AgentSchedule;
   action: {
     type: string;
@@ -72,6 +78,28 @@ function describeSchedule(s: AgentSchedule | null | undefined): string {
   return `${when} à ${s.time}`;
 }
 
+// Ce que surveille un agent-événement (miroir court de lib/agent-watchers.ts).
+const WATCHER_LABELS: Record<string, string> = {
+  chantier_en_retard: "les chantiers en retard",
+  chantier_hors_budget: "les chantiers qui dépassent leur budget",
+  chantier_sans_activite: "les chantiers qui n'avancent plus",
+  chantier_sans_devis: "les chantiers démarrés sans devis signé",
+  demande_urgente: "les demandes clients urgentes sans réponse (jugées par l'IA)",
+  devis_non_signe: "les devis non signés",
+  facture_impayee: "les factures impayées",
+  echeance_proche: "les échéances à venir (docs, assurances, contrats, entretiens)",
+  visite_terminee: "les visites terminées (compte-rendu auto)",
+};
+
+/** Agent-événement → « surveille X » ; agent planifié → son planning. */
+function describeTrigger(r: AgentRule): string {
+  if (r.trigger_type === "event" && r.trigger?.watcher) {
+    const what = WATCHER_LABELS[r.trigger.watcher] ?? "une condition";
+    return `surveille ${what}, en continu`;
+  }
+  return describeSchedule(r.schedule);
+}
+
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
   try {
@@ -92,6 +120,8 @@ const ACTION_LABELS: Record<string, string> = {
   send_email: "Email automatique",
   notify: "Rappel",
   report: "Contrôle + synthèse",
+  team_planning: "Planning équipe",
+  compte_rendu: "Compte-rendu auto",
 };
 
 export default function AgentsPage() {
@@ -104,6 +134,8 @@ export default function AgentsPage() {
   const [emailInputs, setEmailInputs] = useState<Record<string, string>>({});
   // Message à fournir pour un agent bloqué faute de contenu (« quel message ? »).
   const [contentInputs, setContentInputs] = useState<Record<string, string>>({});
+  // Galerie de modèles d'agents (ouverte d'office quand aucun agent recruté).
+  const [templatesOpen, setTemplatesOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -112,6 +144,8 @@ export default function AgentsPage() {
       if (res.ok) {
         setRules(data.rules ?? []);
         setRuns(data.runs ?? []);
+        // Aucun agent encore : on met les modèles prêts à l'emploi en avant.
+        if ((data.rules ?? []).length === 0) setTemplatesOpen(true);
       } else {
         setError(data.error ?? "Chargement impossible.");
       }
@@ -210,9 +244,10 @@ export default function AgentsPage() {
           )}
         </div>
         <p className="text-[14px] text-[#6E6E6C] mb-6 ml-12">
-          Vos missions déléguées : Biltia les exécute seul, en temps et en heure, et trace chaque
-          passage. Recrutez depuis le chat — par exemple : «&nbsp;relance le client Martin tous les
-          jours à midi&nbsp;» ou «&nbsp;chaque soir à 18h, vérifie mes factures impayées&nbsp;».
+          Vos missions déléguées : Biltia les exécute seul et trace chaque passage. À heure fixe
+          («&nbsp;chaque soir à 18h, vérifie mes factures impayées&nbsp;») ou <strong>sur événement</strong>,
+          dès qu&apos;une fiche le déclenche («&nbsp;préviens-moi quand un chantier prend du
+          retard&nbsp;», «&nbsp;relance les devis non signés&nbsp;»). Recrutez depuis le chat.
         </p>
 
         {notice && (
@@ -225,6 +260,36 @@ export default function AgentsPage() {
             {error}
           </div>
         )}
+
+        {/* ── MODÈLES D'AGENTS : prêts à l'emploi, activables en un clic ────── */}
+        <div className="mb-8 rounded-2xl border border-[#EDEDF2] bg-white overflow-hidden">
+          <button
+            onClick={() => setTemplatesOpen((v) => !v)}
+            className="w-full flex items-center justify-between gap-3 px-4 py-3.5 text-left hover:bg-[#FBFBFD] transition-colors"
+          >
+            <span className="flex items-center gap-2.5 min-w-0">
+              <span className="w-8 h-8 rounded-xl bg-gradient-to-br from-violet-500/15 to-pink-500/10 flex items-center justify-center flex-shrink-0">
+                <Sparkles className="w-4 h-4 text-violet-600" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[14px] font-bold text-[#0A0A0A] tracking-[-0.01em]">
+                  Agents prêts à l&apos;emploi
+                </span>
+                <span className="block text-[12px] text-[#9A9A97]">
+                  Activez, ils travaillent tout seuls.
+                </span>
+              </span>
+            </span>
+            <ChevronDown
+              className={`w-4 h-4 text-[#9A9A97] flex-shrink-0 transition-transform ${templatesOpen ? "rotate-180" : ""}`}
+            />
+          </button>
+          {templatesOpen && (
+            <div className="px-4 pb-5 pt-1 border-t border-[#F4F4F2]">
+              <AgentTemplateGallery query="" onActivated={load} />
+            </div>
+          )}
+        </div>
 
         {loading ? (
           <div className="flex items-center gap-2 text-[13px] text-[#9A9A97] py-10 justify-center">
@@ -254,14 +319,21 @@ export default function AgentsPage() {
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="text-[14px] font-semibold text-[#0A0A0A]">{r.title}</p>
                       {statusBadge(r)}
+                      {r.trigger_type === "event" && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 border border-violet-200 px-2 py-0.5 text-[11px] font-semibold text-violet-700">
+                          <Zap className="w-3 h-3" /> Surveillance
+                        </span>
+                      )}
                       <span className="text-[11px] text-[#9A9A97]">
                         {ACTION_LABELS[r.action?.type ?? ""] ?? "Mission"}
                       </span>
                     </div>
                     <p className="text-[12.5px] text-[#6E6E6C] mt-1">
-                      {describeSchedule(r.schedule)}
+                      {describeTrigger(r)}
                       {r.status === "active" && r.next_run_at && (
-                        <span className="text-[#9A9A97]"> · prochain passage : {formatDate(r.next_run_at)}</span>
+                        <span className="text-[#9A9A97]">
+                          {" "}· {r.trigger_type === "event" ? "prochaine vérification" : "prochain passage"} : {formatDate(r.next_run_at)}
+                        </span>
                       )}
                       {r.last_run_at && (
                         <span className="text-[#9A9A97]"> · dernier : {formatDate(r.last_run_at)}</span>

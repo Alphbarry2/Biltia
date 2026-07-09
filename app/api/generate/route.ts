@@ -9,7 +9,7 @@ import { classifyQuestionTopic } from "@/lib/question-topics";
 import { buildDocumentSystemPrompt, injectDocumentRuntime } from "@/lib/document-generator";
 import { assessDocumentReadiness } from "@/lib/document-context";
 import { retrieveContext, buildSourcesBlock } from "@/lib/rag";
-import { detectConnectedEntities, buildDataModeBlock, ENTITIES, ALLOWED_ENTITIES, recordLabel } from "@/lib/data-entities";
+import { detectConnectedEntities, buildDataModeBlock, buildEntityBindingCatalog, ENTITIES, ALLOWED_ENTITIES, recordLabel } from "@/lib/data-entities";
 import {
   buildPreferencesBlock,
   normalizePreferences,
@@ -17,6 +17,7 @@ import {
   type UserPreferences,
 } from "@/lib/user-preferences";
 import { injectBiltiaSDK } from "@/lib/biltia-sdk";
+import { injectChartEngine } from "@/lib/app-charts";
 import { getWorkspaceContext, buildWorkspaceBlock } from "@/lib/workspace-context";
 import { createClient } from "@/lib/supabase-server";
 import { createAdminClient } from "@/lib/supabase-admin";
@@ -30,6 +31,8 @@ import { logActivity } from "@/lib/activity";
 import { sendPushToUser } from "@/lib/push";
 import { createAgentRule } from "@/lib/agent-rules";
 import { runAgentLoop, buildWorkspaceToolsSystem } from "@/lib/agent-tools";
+import { canSendOutbound } from "@/lib/outbound-email";
+import { resolveAudience, isTaskAudience, AUDIENCE_LABELS, SEND_CAP } from "@/lib/task-now";
 import { TIER_SIMPLE, TIER_MEDIUM, TIER_COMPLEX } from "@/lib/models";
 
 const client = new Anthropic();
@@ -146,7 +149,7 @@ C'est la règle NON NÉGOCIABLE. Tout ce que tu affiches doit faire EXACTEMENT c
 L'utilisateur doit se dire : « cet outil peut devenir CENTRAL dans mon entreprise ». Exigences ABSOLUES :
 1. NAVIGATION RÉELLE : 2 à 4 vues distinctes commutées en JavaScript (ex. Tableau de bord / Chantiers / Planning / Finances). Chaque vue a un contenu et une utilité PROPRES — jamais deux vues qui montrent la même liste.
 2. FICHE DÉTAIL : cliquer sur une ligne ou une carte ouvre une FICHE complète (modal large ou panneau) : informations groupées par sections, badges de statut, actions contextuelles (modifier, changer le statut, supprimer), notes/historique si pertinent. Une liste dont les lignes ne s'ouvrent pas est un tableau mort — interdit.
-3. TABLEAU DE BORD SOBRE ET VIVANT : hero + KPIs calculés EN DIRECT depuis les données + une liste « à traiter en priorité » (retards, échéances proches) dont chaque élément est cliquable. AU BESOIN, UN seul visuel simple (une barre de progression, une petite jauge) — jamais un mur de graphiques. La priorité est la clarté, pas la densité.
+3. TABLEAU DE BORD VIVANT : hero clair OU bandeau \`.cockpit\` sombre (gros chiffre) + KPIs calculés EN DIRECT depuis les données + UN graphique INTERACTIF (voir « GRAPHIQUES INTERACTIFS ») dès qu'une métrique évolue dans le temps + une liste « à traiter en priorité » (retards, échéances proches) dont chaque élément est cliquable. 1 à 2 graphiques UTILES, jamais un mur. La priorité reste la clarté, pas la densité.
 4. CHAQUE BOUTON FONCTIONNE : si un bouton est affiché, son action est implémentée et vérifiable. Export CSV = VRAI téléchargement (\`new Blob([csv],{type:'text/csv'})\` + \`URL.createObjectURL\` + \`<a download>\` cliqué en JS). Imprimer = \`window.print()\` avec \`@media print\` propre. JAMAIS de bouton décoratif, JAMAIS d'\`alert('Bientôt disponible')\`.
 5. WORKFLOWS MÉTIER : changement de statut en un clic (À faire → En cours → Terminé), calculs qui se propagent immédiatement (avancement moyen, totaux, marges), alertes automatiques (retard, dépassement de budget). ATTENTION LOGIQUE : chaque champ est INDÉPENDANT — changer le STATUT ne touche À AUCUN autre champ. Ne fais JAMAIS sauter l'avancement à 100% parce que le statut passe à « Terminé », et n'écris jamais une valeur en douce que l'utilisateur n'a pas saisie. Un chantier « En cours » peut être à 22% comme à 90% ; l'avancement se règle SÉPARÉMENT (curseur / champ %), le statut se règle à part. Une action ne fait QUE ce qu'elle annonce.
 6. RESPIRATION : sections espacées de 24-32px, gaps de grille 14-18px, padding interne des cards 20-24px. L'écran respire — jamais tassé, jamais de grands vides.
@@ -157,12 +160,31 @@ Tes utilisateurs ne sont PAS technophiles : ce sont des gens du bâtiment, souve
 Ce que ça veut dire concrètement :
 1. ORIENTÉ TÂCHE, PAS DONNÉES. L'écran d'accueil répond à « qu'est-ce que je dois faire MAINTENANT ? ». En tête, une zone claire et actionnable où l'action la plus utile est atteignable en 1 geste, jamais enfouie. Pas de mur de chiffres, pas de tableau de bord bardé de widgets.
 2. LA FICHE DÉTAIL EST LISIBLE, PAS SURCHARGÉE. Cliquer sur une ligne ouvre une fiche : les infos regroupées en 2-3 sections titrées, le statut, 1-2 actions clés. Assez pour être utile — jamais un second tableau de bord entassé dans une fiche. Les entités liées restent cliquables (facture → client → chantier).
-3. UN VISUEL SIMPLE, ET SEULEMENT S'IL AIDE. N'ajoute un graphique QUE s'il éclaire une décision réelle (une barre de progression, un petit total, un mini-calendrier suffisent souvent). Pas de donut décoratif, pas de courbe « pour faire joli », pas de compteur qui monte pour l'effet. La sobriété EST le style premium. Zéro visuel gratuit.
+3. LES GRAPHIQUES INTERACTIFS SONT UNE SIGNATURE — quand ils AIDENT. Sur une métrique qui évolue (dans le temps, répartition par chantier/poste), pose un graphique interactif animé (le chiffre bouge au survol — voir le bloc dédié) : c'est l'effet que l'utilisateur adore. Ailleurs, une barre de progression ou un total suffit. Reste juste : 1 à 2 par vue utile, jamais un donut purement décoratif, jamais un mur de widgets.
 4. DE LA VIE, MAIS AVEC RETENUE : pastille d'initiales colorée pour les personnes, chips de statut (vert=ok, rouge=alerte, ambre=à surveiller), dates en langage humain (« il y a 3 jours », « aujourd'hui »). Ces touches SUFFISENT — n'en rajoute pas, pas de micro-animations partout.
 5. L'ÉCRAN EST ÉQUILIBRÉ, PAS BOURRÉ. Évite le grand vide bâclé en bas, MAIS n'invente pas des sections de remplissage pour « occuper l'espace ». Si le contenu est court, une mise en page centrée et aérée vaut mieux qu'une grille pleine de widgets inutiles. Le calme est un choix, jamais un défaut à corriger en ajoutant.
 6. LA COQUILLE SUIT LA TÂCHE : un outil de PLANNING s'ouvre sur un calendrier simple (voir plus bas) ; des TÂCHES sur un kanban (voir plus bas) ; un GÉNÉRATEUR DE DEVIS sur le document. Pas toujours « héro + KPI + table ».
 
 La qualité vient de la CLARTÉ, de l'ESPACE et du fait que TOUT MARCHE — pas de la quantité de widgets. En regardant l'écran, l'artisan doit se dire en 2 secondes : « c'est simple, c'est propre, je sais quoi faire, et quand je clique ça marche ».
+
+## SIGNATURE VISUELLE BILTIA — INSPIRE-TOI DES APPS PHARES (ce que l'utilisateur ADORE)
+Les meilleures apps Biltia ont une IDENTITÉ FORTE et un « waouh » immédiat, tout en restant lisibles. Vise CE niveau — épuré ne veut PAS dire fade :
+1. LAYOUT PROPRE AU MÉTIER, jamais un gabarit unique répété. Selon la tâche, l'accueil peut être : un tableau de bord (hero clair OU cockpit sombre + graphique interactif + « à traiter »), un COCKPIT sombre (bandeau \`.cockpit\`, gros chiffre qui défile — idéal finance/trésorerie/pilotage), une GRILLE agenda (planning), un KANBAN (tâches, glisser-déposer), un REGISTRE centré-jour (pointage/feuille d'heures, avec bande de jours + stepper), un COCKPIT DE CONFORMITÉ (ruban de statuts colorés + liste d'alertes). Deux apps de métiers différents ne doivent PAS se ressembler.
+2. GRAPHIQUE INTERACTIF SIGNATURE (voir le bloc dédié ci-dessous) : sur toute vue à métrique qui évolue, un graphique ANIMÉ dont les CHIFFRES BOUGENT au survol. C'est l'effet préféré de l'utilisateur — mets-le en valeur.
+3. IDENTITÉ COULEUR ASSUMÉE : une couleur d'accent CLAIRE et reconnaissable qui ponctue l'écran (boutons, onglet actif, puces, reliefs, bandeau cockpit). L'app a une « couleur », elle n'est jamais grise/fade. Les surfaces (fonds, cartes) restent claires ; un SEUL bandeau sombre (cockpit) est toléré en tête.
+4. BRIQUES RICHES MAIS SOBRES qui donnent le côté « produit fini » : bandeau cockpit (chiffre fort), ruban de 2-3 stats à BORDURE GAUCHE colorée (vert/ambre/rouge), listes à bordure gauche colorée par statut/priorité, mini-barres par jour, pastilles d'initiales colorées, chips de statut, steppers (−/+), bandes de jours cliquables, jauges. Utilise-les quand elles servent — jamais en décor gratuit.
+5. Le « waouh » = identité + UN graphique vivant + hiérarchie nette + tout qui marche. PAS la densité : garde l'air, garde la clarté.
+
+## GRAPHIQUES INTERACTIFS — MOTEUR DÉJÀ CHARGÉ (tu APPELLES, tu n'écris PAS le moteur)
+Un moteur de graphiques (interactif + animé, zéro dépendance) est PRÉ-INJECTÉ dans chaque app. NE le redéfinis JAMAIS (aucun \`<script>\` de charting, aucune lib externe, aucun \`<canvas>\` maison). Tu poses juste le conteneur et tu appelles les fonctions globales :
+- Conteneur : \`<div class="chart-card"><div class="chart-hd"><b>Titre</b><span class="rd" id="rd-ca">—</span></div><div class="chart-host" id="ch-ca"></div></div>\` (les classes \`.chart-*\` et \`.rd\` sont déjà stylées).
+- \`drawArea(host, series, opt)\` → courbe (aire + ligne). \`drawBars(host, series, opt)\` → barres. \`host\` = l'élément \`#ch-ca\` (\`document.getElementById("ch-ca")\`).
+- \`series\` = tableau d'objets \`{ value:Number, label:String (axe X), tip?:String }\`.
+- \`opt\` = \`{ id:"ca", color:"#hex de ton accent", color2:"#teinte claire", fmt:function(v){return Math.round(v).toLocaleString("fr-FR")+" €";}, unit:"", rd:"rd-ca", rdDef:"valeur par défaut du readout" }\`. Mets TA couleur d'accent dans \`color\`.
+- \`chartCountUp(el, valeur, fmt)\` → un grand nombre qui DÉFILE à l'affichage (parfait pour le chiffre d'un cockpit).
+- Au SURVOL : repère vertical + point/barre en avant + infobulle + le readout \`#rd-ca\` se met à jour. À l'affichage : la courbe se trace, les barres montent. C'est L'EFFET SIGNATURE que l'utilisateur adore.
+- Monte le graphique APRÈS avoir injecté le HTML de la vue (l'élément \`#ch-ca\` doit exister), dans un \`try/catch\`. Re-dessine au \`resize\` (throttlé) pour rester net.
+- DOSAGE : 1 à 2 graphiques par vue qui en a besoin (métrique dans le temps, répartition par chantier/poste). Jamais un mur ; une petite app peut n'en avoir aucun.
 
 ## PLANNING / CALENDRIER — SIMPLE ET BEAU (ne le surcharge JAMAIS)
 Le planning est ce que tu surcharges le plus — arrête. Un calendrier doit être ÉPURÉ et lisible d'un coup d'œil, comme un vrai agenda propre :
@@ -182,16 +204,16 @@ Pour gérer des tâches ou un avancement (à faire → en cours → terminé), u
 Changer le STATUT ne modifie AUCUN autre champ (rappel du PRINCIPE UN) : déplacer une carte en « Terminé » ne force pas l'avancement à 100%.
 
 ## PRINCIPE VISUEL N°1 — SIMPLE ET ÉPURÉ (c'est ÇA le wow, PAS la densité)
-Réfère-toi à Lovable / Linear : clair, calme, évident. La beauté vient de la CLARTÉ et de l'ESPACE, jamais de la surcharge ni des couleurs vives.
-- Des cartes BLANCHES propres, beaucoup de blanc, UN accent discret. L'écran doit respirer.
+Réfère-toi à Lovable / Linear / Stripe : clair, calme, évident, avec une IDENTITÉ. La beauté vient de la CLARTÉ, de l'ESPACE et d'un accent ASSUMÉ — jamais de la surcharge ni du fluo.
+- Des cartes BLANCHES propres, beaucoup de blanc, un accent bien présent (boutons, onglet actif, reliefs). L'écran doit respirer ET avoir une couleur.
 - MOINS d'éléments, mieux espacés. Si un visuel ou une section n'est pas VRAIMENT utile, ENLÈVE-LE. Dans le doute, retire.
-- JAMAIS de gros bloc de couleur saturée. JAMAIS de mise en page bancale (une carte seule à côté d'un grand vide, un KPI orphelin).
+- Un SEUL bandeau fort en tête est permis (\`.cockpit\` sombre \`var(--ink)\`, ou hero clair) — mais PAS d'aplats d'accent SATURÉ à répétition. JAMAIS de mise en page bancale (une carte seule à côté d'un grand vide, un KPI orphelin).
 - La richesse est FONCTIONNELLE (boutons qui marchent, navigation réelle, vraies données, calculs), PAS visuelle. En regardant l'écran, l'artisan doit se dire en 2 secondes « c'est propre, c'est clair, je sais quoi faire ».
 Cette règle PRIME sur toute envie d'en mettre plus : dans le doute entre « plus riche » et « plus épuré », choisis TOUJOURS plus épuré.
 
 ## RÈGLE ANTI-FLUO & DOSAGE DE LA COULEUR (opérationnelle — c'est ELLE qui fait le « premium »)
 Le défaut n°1 qui rend une app cheap : de GRANDS aplats d'accent saturé. On l'interdit, concrètement :
-1. L'accent (\`--vio\`/\`--grad\`) couvre AU PLUS ~10% de l'écran. Il vit sur : UN bouton principal, l'onglet/menu actif, les puces de statut, les petites icônes, les anneaux d'avatar, les barres de progression. Les grandes surfaces (fonds, cartes, lignes de tableau, en-têtes) restent NEUTRES (blanc, #FBFBFC, gris très pâles). Une bande de couleur pleine largeur = INTERDIT.
+1. L'accent (\`--vio\`/\`--grad\`) couvre AU PLUS ~10% de l'écran. Il vit sur : UN bouton principal, l'onglet/menu actif, les puces de statut, les petites icônes, les anneaux d'avatar, les barres de progression. Les grandes surfaces (fonds, cartes, lignes de tableau, en-têtes) restent NEUTRES (blanc, #FBFBFC, gris très pâles). Une bande d'ACCENT SATURÉ pleine largeur = INTERDIT — SEULE EXCEPTION : l'unique bandeau \`.cockpit\` en tête, dont le fond est SOMBRE (\`var(--ink)\`, façon cockpit finance) et non un aplat d'accent criard.
 2. UN SEUL \`.btn-primary\` (bouton plein d'accent) VISIBLE par écran — l'action n°1. Il est dimensionné à son libellé (jamais \`width:100%\` sauf le CTA unique d'une modale ou d'un état vide). TOUT le reste = \`.btn-ghost\` (bord fin, fond blanc) ou \`.btn-ink\`.
 3. Les boutons d'ACTION dans une liste, une carte ou une ligne (« Terminer », « Attribuer », « Voir », « Modifier ») sont DISCRETS : \`.btn-ghost\` ou \`.btn-sm\`, JAMAIS une barre pleine d'accent. Répéter un aplat de couleur sur chaque ligne écrase l'écran et fait « fluo ».
 4. Couleurs NORMALES, jamais fluo/néon : pas de violet électrique, vert acide, rose vif, cyan pétant, jaune fluo. L'accent doit paraître PROFESSIONNEL et calme. Les seules couleurs vives tolérées sont les statuts métier (vert=ok, rouge=alerte, ambre=à surveiller), en petits chips uniquement.
@@ -225,10 +247,14 @@ img,svg,video,canvas{max-width:100%;height:auto}
 body{background:var(--bg);font-family:'Inter',system-ui,sans-serif;color:var(--ink);font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased;overflow-x:hidden;overflow-wrap:break-word}
 .card{background:#fff;border:1px solid var(--line);border-radius:20px;padding:20px;overflow:hidden;box-shadow:var(--shadow)}
 .hero{position:relative;margin:16px;padding:24px 22px;border-radius:24px;color:var(--ink);background:#fff;border:1px solid var(--line);box-shadow:var(--shadow);overflow:hidden}
-.hero::after{content:"";position:absolute;right:-52px;top:-52px;width:180px;height:180px;border-radius:50%;background:var(--tint);opacity:.75}
-.hero-label{position:relative;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--vio)}
-.hero-value{position:relative;font-size:34px;font-weight:800;letter-spacing:-.02em;line-height:1.15;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.hero-sub{position:relative;font-size:12.5px;color:var(--mut)}
+.hero-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--vio)}
+.hero-value{font-size:34px;font-weight:800;letter-spacing:-.02em;line-height:1.15;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hero-sub{font-size:12.5px;color:var(--mut)}
+/* Bandeau COCKPIT (alternative au hero clair — fond sombre, chiffre fort ; JAMAIS de cercle décoratif) */
+.cockpit{position:relative;margin:16px;padding:22px;border-radius:24px;background:var(--ink);color:#fff;overflow:hidden;box-shadow:var(--shadow-lg)}
+.cockpit .c-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:rgba(255,255,255,.6)}
+.cockpit .c-value{font-size:34px;font-weight:800;letter-spacing:-.02em;line-height:1.15;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cockpit .c-sub{font-size:12.5px;color:rgba(255,255,255,.72)}
 .kpi{background:#fff;border:1px solid var(--line);border-radius:18px;padding:16px 18px;display:flex;flex-direction:column;gap:5px;overflow:hidden;box-shadow:var(--shadow)}
 .kpi-label{font-size:10px;font-weight:700;color:var(--faint);text-transform:uppercase;letter-spacing:.1em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .kpi-value{font-size:25px;font-weight:800;color:var(--ink);line-height:1.1;letter-spacing:-.02em;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -320,7 +346,7 @@ FIN_CSS
 Utilise toujours cette structure :
 - \`<header class="app-header">\` fixe : \`.app-eyebrow\` (la marque — le bloc « MARQUE DE L'EN-TÊTE » du prompt donne le nom exact ; à défaut « BILTIA ») + \`.app-title\`, et à droite UN bouton \`.btn btn-primary btn-sm\`.
 - \`<main class="app-main">\`.
-- L'ÉLÉMENT MARQUANT en premier : \`<section class="hero">\` avec \`.hero-label\`, \`.hero-value\` (LE chiffre qui compte pour ce métier : CA du mois, chantiers en cours, heures de la semaine…) et \`.hero-sub\`. UN seul héro par app — c'est lui qu'on remarque.
+- L'ÉLÉMENT MARQUANT en premier : soit un \`<section class="hero">\` clair (\`.hero-label\`/\`.hero-value\`/\`.hero-sub\`), soit un \`<section class="cockpit">\` sombre (\`.c-label\`/\`.c-value\`/\`.c-sub\`, idéal finance/pilotage — le \`.c-value\` peut défiler via \`chartCountUp\`). \`.hero-value\`/\`.c-value\` = LE chiffre qui compte pour ce métier (CA du mois, chantiers en cours, heures de la semaine…). UN SEUL bandeau en tête (hero OU cockpit), jamais les deux — c'est lui qu'on remarque. AUCUN cercle/halo décoratif (pas de \`::after\` en rond).
 - KPI dans \`<div class="kpi-grid">\` : EXACTEMENT 2 ou 4 (JAMAIS 1 ni 3). Avec 3, la grille laisse une carte seule à côté d'un grand vide — défaut visuel interdit. Si tu n'as que 3 idées de KPI, choisis les 2 plus utiles, ou ajoute un 4ᵉ pertinent.
 - Recherche/filtres dans \`.search-bar\`, données dans \`.table-wrap\` (desktop) ou en cartes \`.card\` empilées (mobile).
 - Modal dans \`<div class="overlay">\` avec \`<div class="modal">\` (titre + \`.modal-sub\`).
@@ -423,6 +449,8 @@ par type de donnée (ex : 'bons', 'pointages', 'interventions') :
 - \`await biltia.create('bons', { ...champs })\` → ligne créée (avec \`id\`) ; n'envoie jamais \`id\` ni les dates, le serveur les gère
 - \`await biltia.update('bons', id, { ...champs })\` · \`await biltia.remove('bons', id)\`
 - \`await biltia.extract(photoDataUrl, { fields:[...] })\` (photo → champs) · \`await biltia.transcribe(audioDataUrl, { fields:[...] })\` (dictée → champs)
+- \`await biltia.sendEmail({ to:'client@ex.fr', subject:'Votre devis', body:'Bonjour...' })\` → ENVOIE un email au nom de l'entreprise (Gmail connecté de l'utilisateur si dispo, sinon envoi Biltia). \`to\` accepte une adresse ou un tableau. Résout \`{ ok, via }\` (échec → toast auto). Dès qu'un document commercial (devis, facture) ou un message client est en jeu, propose un bouton « Envoyer par email » qui appelle ceci : vérifie qu'une adresse existe (sinon demande-la, ne l'invente JAMAIS), affiche « Envoi… », puis un retour clair. C'est la connexion du COMPTE (pas de l'app) : aucun réglage à faire dans l'app.
+- \`await biltia.sendSms({ to:'+33612345678', body:'Rappel : RDV demain 9h' })\` → ENVOIE un SMS au nom de l'entreprise (numéro au format +33…). Idéal pour une relance de facture ou une confirmation de RDV quand le client ne lit pas ses mails. Résout \`{ ok, sent }\` (échec → toast auto). Propose un bouton « Relancer par SMS » / « Confirmer par SMS » là où c'est pertinent ; vérifie qu'un numéro existe, ne l'invente JAMAIS.
 Au démarrage : \`load()\` via \`biltia.list\` dans un try/catch + état de chargement. Après
 une action, tu mets à jour l'ÉTAT LOCAL et tu réaffiches TOUT DE SUITE (voir « MISE À JOUR
 INSTANTANÉE ») — ne re-télécharge pas toute la liste juste pour voir ta propre modification.
@@ -646,6 +674,36 @@ function validateHtml(html: string): string | null {
   return null;
 }
 
+// ── MODIFICATION CIBLÉE (mode « patch ») ──────────────────────────────────────
+// Pour une modification d'app, le modèle renvoie des blocs RECHERCHE/REMPLACE au
+// lieu de réécrire toute l'app (sortie ~30k tokens → quelques centaines : bien
+// plus rapide et bien moins cher). On applique chaque bloc au HTML existant.
+// SÉCURITÉ ABSOLUE : on n'applique un remplacement QUE si le passage recherché
+// existe ET est UNIQUE dans le fichier (sinon impossible de garantir la bonne
+// cible). Au moindre doute (bloc introuvable, ambigu, ou aucun bloc) on renvoie
+// `null` → l'appelant retombe sur la réécriture complète. Le mode patch ne peut
+// donc JAMAIS corrompre une app : au pire, on retrouve le comportement d'avant.
+const EDIT_BLOCK_RE =
+  /<{5,9}\s*RECHERCHE\r?\n([\s\S]*?)\r?\n={5,9}\r?\n([\s\S]*?)\r?\n>{5,9}\s*REMPLACE/g;
+
+function applyTargetedEdits(original: string, modelOutput: string): string | null {
+  EDIT_BLOCK_RE.lastIndex = 0;
+  let out = original;
+  let count = 0;
+  let m: RegExpExecArray | null;
+  while ((m = EDIT_BLOCK_RE.exec(modelOutput)) !== null) {
+    const search = m[1];
+    const replace = m[2];
+    if (!search) return null; // bloc vide / insertion sans ancre → non supporté
+    const first = out.indexOf(search);
+    if (first === -1) return null; // introuvable → repli réécriture complète
+    if (out.indexOf(search, first + search.length) !== -1) return null; // ambigu (non unique)
+    out = out.slice(0, first) + replace + out.slice(first + search.length);
+    count++;
+  }
+  return count > 0 ? out : null; // aucun bloc valide → repli
+}
+
 // ── PORTÉE DES DONNÉES (question du questionnaire) ────────────────────────────
 // Forme lâche : la valeur vient du client, on ne fait confiance à rien.
 type DataScopeInput = {
@@ -816,6 +874,7 @@ export async function POST(req: Request) {
         inputTokens: usage.inputTokens,
         outputTokens: usage.outputTokens,
         sector: sector ?? undefined,
+        internal: true, // plomberie (classify_kind, route_agent…) : coût réel, pas de plancher 5cr
       }).catch(() => {});
     };
 
@@ -828,6 +887,7 @@ export async function POST(req: Request) {
     let kindConfidence = 1;
     let kindMethod = "provided";
     let emailDraft: { to: string; subject: string; body: string } | undefined;
+    let taskDraft: { audience: string; subject: string; body: string } | undefined;
     if (isAutoFix) {
       // Auto-fix : on itère toujours sur le livrable existant, pas de reclasse.
       kind = providedKind ?? "module";
@@ -836,6 +896,7 @@ export async function POST(req: Request) {
       const k = await classifyKind({ prompt, sector, hasExistingApp: isModification });
       logAuxUsage(k.usage, "classify_kind");
       emailDraft = k.email;
+      taskDraft = k.task;
       if (isModification) {
         // ── APP OUVERTE : deux issues seulement — MODIFIER l'app, ou RÉPONDRE
         // EN CHAT. Une demande qui ne VISE PAS l'app (« traduis ça », « écris un
@@ -941,6 +1002,83 @@ export async function POST(req: Request) {
         kind: "email",
         status: "error",
         message: `Je n'ai pas pu envoyer l'email (${why}). Voici le message prêt à copier :\n\nÀ : ${to}\nObjet : ${subject}\n\n${bodyText}`,
+      });
+    }
+
+    // ── TASK : ENVOI GROUPÉ « fais-le maintenant ». Le workspace a la donnée, la
+    // messagerie est branchée → Biltia EXÉCUTE (au lieu de refuser). Deux temps
+    // pour la sûreté : ici on RÉSOUT le groupe et on rend un APERÇU (aucun envoi) ;
+    // l'envoi réel part de /api/task/execute après validation dans le chat. Avant
+    // le hold : préparer un aperçu ne coûte pas une génération.
+    if (kind === "task" && !isModification && !isAutoFix) {
+      const audience = (taskDraft?.audience ?? "").trim();
+      const subject = (taskDraft?.subject ?? "").trim() || "Message de votre part";
+      const bodyText = (taskDraft?.body ?? "").trim();
+
+      if (!isTaskAudience(audience)) {
+        return Response.json({
+          kind: "task",
+          status: "need_audience",
+          message:
+            "À qui dois-je envoyer ce message ? Dis-moi le groupe : **tes clients**, **ton équipe** ou **tes fournisseurs**.",
+        });
+      }
+      const label = AUDIENCE_LABELS[audience];
+
+      if (!bodyText) {
+        return Response.json({
+          kind: "task",
+          status: "need_content",
+          message: `Que veux-tu dire à tes ${label.plural} ? Donne-moi le message et je le prépare pour validation.`,
+        });
+      }
+
+      // Moyen d'envoi d'abord (échec précoce et clair, jamais un aperçu inutile).
+      const channels = await canSendOutbound(tenantId, user.id);
+      if (!channels.ok) {
+        return Response.json({
+          kind: "task",
+          status: "not_connected",
+          message:
+            `Pour écrire à tes ${label.plural}, connecte ta messagerie **Gmail** (Réglages → Connexions). ` +
+            `Voici le message prêt à copier :\n\nObjet : ${subject}\n\n${bodyText}`,
+        });
+      }
+
+      // Résolution du groupe (lecture seule, RLS tenant). Aucun envoi ici.
+      const resolved = await resolveAudience(supabase, tenantId, audience);
+      if (resolved.total === 0) {
+        return Response.json({
+          kind: "task",
+          status: "empty",
+          message: `Tu n'as aucun ${label.singular} dans ton workspace pour l'instant. Ajoute-les (ou importe-les) et je pourrai les contacter.`,
+        });
+      }
+      if (resolved.recipients.length === 0) {
+        return Response.json({
+          kind: "task",
+          status: "no_email",
+          message: `Tes ${resolved.total} ${label.plural} n'ont pas d'email renseigné dans le workspace. Complète au moins un email et je m'en occupe.`,
+        });
+      }
+
+      const count = resolved.recipients.length;
+      const cappedNote = count > SEND_CAP ? ` (j'enverrai aux ${SEND_CAP} premiers pour commencer)` : "";
+      const sample = resolved.recipients.slice(0, 3).map((r) => r.name).join(", ");
+      const skippedNote = resolved.skipped.length
+        ? ` ${resolved.skipped.length} ${resolved.skipped.length > 1 ? "fiches sautées" : "fiche sautée"} (pas d'email).`
+        : "";
+      const message =
+        `📣 Prêt à envoyer à **${count} ${count > 1 ? label.plural : label.singular}**${cappedNote}` +
+        `${sample ? ` — ${sample}${count > 3 ? "…" : ""}` : ""}.${skippedNote}\n\n` +
+        `**Objet :** ${subject}\n\n${bodyText}\n\n` +
+        `👉 Réponds « **oui, envoie** » pour lancer, ou dis-moi quoi changer.`;
+
+      return Response.json({
+        kind: "task",
+        status: "preview",
+        message,
+        task: { audience, subject, body: bodyText },
       });
     }
 
@@ -1073,6 +1211,9 @@ export async function POST(req: Request) {
 
 ${buildWorkspaceToolsSystem()}
 
+## Sûreté — OPÉRATION EN MASSE (règle ABSOLUE)
+Si la demande vise PLUSIEURS fiches d'un coup en SUPPRESSION ou en ÉCRASEMENT de statut (« supprime TOUS mes clients », « passe TOUTES mes factures impayées en payées », « efface tout », « remets tous les chantiers à zéro ») : tu n'exécutes RIEN d'abord. Tu comptes les fiches concernées (workspace_list en lecture seule), puis tu DEMANDES une confirmation explicite en citant le nombre (« Cela concerne 24 clients. Confirme en écrivant "oui, supprime les 24" et je le fais. »). Tu n'effectues l'opération qu'après cette confirmation nette dans la demande. Une opération sur UNE fiche identifiée (« supprime le client Martin », « passe le devis D-12 en accepté ») reste normale : exécute-la directement.
+
 ## Ta réponse finale (français, brève)
 - Opération faite → confirme FACTUELLEMENT ce qui a été fait, avec les valeurs clés (« ✓ Client **Jean Dupont** ajouté (06 12 34 56 78) »).
 - Ambiguïté → liste les fiches candidates et demande laquelle. Tu n'as RIEN modifié.
@@ -1082,6 +1223,11 @@ ${buildWorkspaceToolsSystem()}
           db: supabase,
           actor: { tenantId, userId: user.id, label: "Assistant" },
           maxIterations: 6,
+          // Filet dur : au plus 3 suppressions/écrasements par passage de chat.
+          // Un « supprime tous mes clients » demande d'abord confirmation (règle
+          // ci-dessus) ; si le modèle passe outre, il est stoppé net à 3 fiches.
+          // Les opérations légitimes (1 fiche) restent très en deçà.
+          maxDestructiveWrites: 3,
         });
 
         void trackAiUsage({
@@ -1228,9 +1374,21 @@ ${buildWorkspaceToolsSystem()}
         ),
     ]);
     logAuxUsage(route.usage, "route_agent");
-    // Focus métier : connaissance des sous-corps de la catégorie retenue.
-    const cat = route.agent !== "generalist" ? getCategory(route.agent) : undefined;
-    const expertise = cat ? buildKnowledgeBlock(cat.subTrades.map((s) => s.id)) : undefined;
+    // Focus métier : connaissance des sous-corps de la catégorie retenue par le
+    // routeur. À défaut (demande générique → generalist), on retombe sur le MÉTIER
+    // DÉCLARÉ à l'onboarding, pour que la profession colore même un simple planning
+    // (« un électricien qui demande un suivi de chantier doit parler électricien »).
+    const cat =
+      (route.agent !== "generalist" ? getCategory(route.agent) : undefined) ??
+      (sector ? getCategory(sector) : undefined);
+    const expertise =
+      cat || preferences.activity_type || preferences.sector_detail
+        ? buildKnowledgeBlock(
+            cat ? cat.subTrades.map((s) => s.id) : [],
+            preferences.activity_type,
+            preferences.sector_detail
+          )
+        : undefined;
 
     // ── RAG : récupération de sources VÉRIFIÉES (bibliothèque BTP globale +
     // documents privés du tenant). Client authentifié → RLS → le tenant ne voit
@@ -1489,8 +1647,13 @@ TES OUTILS (ne te dévalorise JAMAIS) :
               sourcesBlock,
               // Portée des données choisie au questionnaire (tout / sélection / import).
               dataScopeBlock,
-              // Modules connectés : les vraies données arrivent en live via /api/data,
-              // pas de graine figée. Modules non connectés : on injecte le contexte.
+              // SOURCE UNIQUE : catalogue des entités canoniques + règle de liaison,
+              // TOUJOURS injecté (même si la détection par mots-clés a raté) → une app
+              // qui gère un concept du workspace l'écrit dans la vraie table partagée,
+              // jamais dans une collection isolée. C'est ce qui garantit « toujours synchro ».
+              buildEntityBindingCatalog(),
+              // Entités détectées : schémas de champs détaillés + vraies données en live
+              // via /api/data. Sinon, contexte workspace résumé (données d'exemple réelles).
               effectiveEntities.length ? buildDataModeBlock(effectiveEntities) : workspaceBlock,
               buildPreferencesBlock(preferences),
             ]),
@@ -1498,6 +1661,18 @@ TES OUTILS (ne te dévalorise JAMAIS) :
         ];
 
     const noun = isDocument ? "le document" : "l'application";
+
+    // Mode PATCH : pour une modification d'app, le modèle renvoie des blocs
+    // RECHERCHE/REMPLACE ciblés au lieu de réécrire toute l'app. Documents exclus
+    // (déjà courts). Repli automatique sur la réécriture complète si un bloc ne
+    // s'applique pas proprement (cf. applyTargetedEdits).
+    const patchMode = isModification && !isDocument;
+    // Le repérage/remplacement exact ne demande pas Opus : Sonnet est rapide,
+    // fiable et bien moins cher. Le repli (réécriture) garde, lui, le modèle
+    // dimensionné (Opus sur grosse app) pour ne rien perdre en qualité.
+    const patchModel = TIER_MEDIUM;
+
+    // Instruction de réécriture COMPLÈTE (création, document, et repli de modif).
     const userContent = isModification
       ? `Voici ${noun} HTML existant :\n\`\`\`html\n${previousHTML}\n\`\`\`\n\nDemande de modification de l'utilisateur : « ${prompt} »\n\nRenvoie ${noun} COMPLET et mis à jour intégrant cette modification.${
           isAutoFix
@@ -1513,27 +1688,51 @@ L'utilisateur a choisi son thème à la création : ne change PAS les couleurs d
 RATTRAPAGE RESPONSIVE (amélioration attendue, PAS un écart) : si le CSS de l'app ne contient pas déjà le socle mobile à jour, AJOUTE-le sans toucher au reste — \`.table-wrap{overflow-x:auto}\` (au lieu de overflow:hidden qui coupe les colonnes), \`body{overflow-x:hidden;overflow-wrap:break-word}\`, \`img,svg,video,canvas{max-width:100%}\`, et un \`@media(max-width:520px)\` qui met les KPI sur 2 colonnes, réduit les paddings et laisse les gros chiffres revenir à la ligne. L'app doit s'afficher PARFAITEMENT à 375px de large (zéro débordement horizontal, cartes empilées).`
       : `Demande de l'utilisateur : « ${prompt} »\n\nConstruis ${noun} complet correspondant.`;
 
+    // Instruction de modification CIBLÉE (mode patch) : le modèle n'émet QUE des
+    // blocs RECHERCHE/REMPLACE, jamais l'app entière.
+    const patchInstruction =
+      `Voici l'application HTML existante :\n\`\`\`html\n${previousHTML}\n\`\`\`\n\n` +
+      `Demande de modification de l'utilisateur : « ${prompt} »\n\n` +
+      (isAutoFix
+        ? `⚠️ MODE CORRECTION AUTOMATIQUE : la « demande » ci-dessus est un MESSAGE D'ERREUR remonté par l'app. Trouve la CAUSE (souvent une APOSTROPHE FRANÇAISE dans une chaîne JS en quotes simples, ex : notify('L'opération…'), ou une parenthèse/accolade/crochet non refermé) et corrige-la de façon CIBLÉE.\n\n`
+        : "") +
+      `Tu NE réécris PAS toute l'application. Tu produis UNIQUEMENT les changements nécessaires, sous forme de blocs de remplacement. Pour CHAQUE endroit à modifier, émets EXACTEMENT ce bloc (marqueurs compris) :\n\n` +
+      `<<<<<<< RECHERCHE\n` +
+      `(recopie ICI, CARACTÈRE POUR CARACTÈRE, le passage EXACT du HTML ci-dessus à remplacer — mêmes espaces et indentation, et assez de lignes pour que ce passage soit UNIQUE dans le fichier)\n` +
+      `=======\n` +
+      `(le nouveau passage qui le remplace)\n` +
+      `>>>>>>> REMPLACE\n\n` +
+      `RÈGLES STRICTES :\n` +
+      `- Le bloc RECHERCHE doit correspondre MOT POUR MOT à du texte réellement présent dans le HTML ci-dessus (sinon la modification est rejetée).\n` +
+      `- Donne assez de contexte pour que le passage soit UNIQUE (jamais une accolade ou une balise seule qui apparaît partout).\n` +
+      `- Un bloc par endroit à changer ; ne touche à RIEN d'autre (ni couleurs, ni mise en page, ni fonctions non visées).\n` +
+      `- CONSERVE la palette existante (--vio, --grad, --glow, --tint, --tintline) SAUF si l'utilisateur demande explicitement un changement de style — dans ce cas applique-le pleinement et visiblement (PRINCIPE ZÉRO).\n` +
+      `- Ne produis AUCUN autre texte : ni explication, ni fence \`\`\`, UNIQUEMENT les blocs RECHERCHE/REMPLACE.`;
+
     // Fichiers joints → blocs multimodaux AVANT le texte (captures, PDF).
-    const firstUserContent: Anthropic.MessageParam["content"] = contextFiles.length
-      ? [
-          ...contextFiles.map<Anthropic.ContentBlockParam>((f) =>
-            f.mediaType === "application/pdf"
-              ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: f.data } }
-              : {
-                  type: "image",
-                  source: {
-                    type: "base64",
-                    media_type: f.mediaType as "image/png" | "image/jpeg" | "image/webp",
-                    data: f.data,
-                  },
-                }
-          ),
-          {
-            type: "text",
-            text: `${userContent}\n\n(Les fichiers joints ci-dessus montrent le problème ou servent de référence : prends-les en compte dans ta réponse.)`,
-          },
-        ]
-      : userContent;
+    const withFiles = (text: string): Anthropic.MessageParam["content"] =>
+      contextFiles.length
+        ? [
+            ...contextFiles.map<Anthropic.ContentBlockParam>((f) =>
+              f.mediaType === "application/pdf"
+                ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: f.data } }
+                : {
+                    type: "image",
+                    source: {
+                      type: "base64",
+                      media_type: f.mediaType as "image/png" | "image/jpeg" | "image/webp",
+                      data: f.data,
+                    },
+                  }
+            ),
+            {
+              type: "text",
+              text: `${text}\n\n(Les fichiers joints ci-dessus montrent le problème ou servent de référence : prends-les en compte dans ta réponse.)`,
+            },
+          ]
+        : text;
+
+    const firstUserContent = patchMode ? withFiles(patchInstruction) : withFiles(userContent);
 
     // ── GÉNÉRATION STREAMÉE (SSE) : le HTML arrive au fur et à mesure → le client
     // construit l'aperçu EN DIRECT (fini l'attente aveugle). Validation, sauvegarde
@@ -1545,42 +1744,83 @@ RATTRAPAGE RESPONSIVE (amélioration attendue, PAS un écart) : si le CSS de l'a
         const send = (obj: unknown) =>
           controller.enqueue(buildEnc.encode(`data: ${JSON.stringify(obj)}\n\n`));
         try {
-          const messages: Anthropic.MessageParam[] = [{ role: "user", content: firstUserContent }];
+          // Une passe de génération streamée, avec continuation si le modèle
+          // s'arrête sur max_tokens. `stream=true` pousse le texte au client en
+          // direct (création) ; `false` = passe silencieuse (repérage patch, que
+          // le client n'affiche de toute façon pas pendant une modification).
+          const runTurns = async (
+            initialContent: Anthropic.MessageParam["content"],
+            model: string,
+            stream: boolean
+          ): Promise<{ text: string; inTok: number; outTok: number; stopReason: string | null }> => {
+            const messages: Anthropic.MessageParam[] = [{ role: "user", content: initialContent }];
+            let text = "";
+            let inTok = 0;
+            let outTok = 0;
+            let stopReason: string | null = null;
+            const MAX_TURNS = 4;
+            for (let turn = 0; turn < MAX_TURNS; turn++) {
+              const ms = client.messages.stream({ model, max_tokens: MAX_TOKENS, system, messages });
+              let turnText = "";
+              for await (const ev of ms) {
+                if (ev.type === "content_block_delta" && ev.delta.type === "text_delta") {
+                  turnText += ev.delta.text;
+                  text += ev.delta.text;
+                  if (stream) send({ type: "html", text: ev.delta.text });
+                }
+              }
+              const finalMsg = await ms.finalMessage();
+              inTok += finalMsg.usage.input_tokens;
+              outTok += finalMsg.usage.output_tokens;
+              stopReason = finalMsg.stop_reason;
+              if (finalMsg.stop_reason === "max_tokens") {
+                messages.push({ role: "assistant", content: turnText });
+                messages.push({
+                  role: "user",
+                  content: stream
+                    ? "Continue exactement où tu t'es arrêté, sans rien répéter ni rouvrir de balise déjà fermée. Termine le fichier HTML."
+                    : "Continue exactement où tu t'es arrêté, sans rien répéter. Termine les blocs RECHERCHE/REMPLACE.",
+                });
+                continue;
+              }
+              break;
+            }
+            return { text, inTok, outTok, stopReason };
+          };
+
           let html = "";
           let stopReason: string | null = null;
           let inTok = 0;
           let outTok = 0;
-          const MAX_TURNS = 4;
+          let usedModel = buildModel;
 
-          for (let turn = 0; turn < MAX_TURNS; turn++) {
-            const ms = client.messages.stream({
-              model: buildModel,
-              max_tokens: MAX_TOKENS,
-              system,
-              messages,
-            });
-            let turnText = "";
-            for await (const ev of ms) {
-              if (ev.type === "content_block_delta" && ev.delta.type === "text_delta") {
-                turnText += ev.delta.text;
-                html += ev.delta.text;
-                send({ type: "html", text: ev.delta.text });
-              }
+          if (patchMode) {
+            // 1) Repérage ciblé (Sonnet, silencieux) → blocs RECHERCHE/REMPLACE.
+            const patchRun = await runTurns(firstUserContent, patchModel, false);
+            inTok += patchRun.inTok;
+            outTok += patchRun.outTok;
+            const patched = applyTargetedEdits(previousHTML, stripFences(patchRun.text));
+            if (patched != null) {
+              html = patched;
+              stopReason = patchRun.stopReason;
+              usedModel = patchModel;
+            } else {
+              // 2) Repli : un bloc n'a pas collé proprement → réécriture complète
+              // (comportement historique), streamée et sur le modèle dimensionné.
+              const fullRun = await runTurns(withFiles(userContent), buildModel, true);
+              inTok += fullRun.inTok;
+              outTok += fullRun.outTok;
+              html = fullRun.text;
+              stopReason = fullRun.stopReason;
+              usedModel = buildModel;
             }
-            const finalMsg = await ms.finalMessage();
-            inTok += finalMsg.usage.input_tokens;
-            outTok += finalMsg.usage.output_tokens;
-            stopReason = finalMsg.stop_reason;
-
-            if (finalMsg.stop_reason === "max_tokens") {
-              messages.push({ role: "assistant", content: turnText });
-              messages.push({
-                role: "user",
-                content: "Continue exactement où tu t'es arrêté, sans rien répéter ni rouvrir de balise déjà fermée. Termine le fichier HTML.",
-              });
-              continue;
-            }
-            break;
+          } else {
+            const run = await runTurns(firstUserContent, buildModel, true);
+            inTok += run.inTok;
+            outTok += run.outTok;
+            html = run.text;
+            stopReason = run.stopReason;
+            usedModel = buildModel;
           }
 
     html = stripFences(html);
@@ -1643,6 +1883,10 @@ RATTRAPAGE RESPONSIVE (amélioration attendue, PAS un écart) : si le CSS de l'a
       // persistance CLOUD (entités workspace OU collection générique via app_records),
       // extraction photo et transcription. Idempotent — n'écrase pas un SDK présent.
       html = injectBiltiaSDK(html);
+      // Moteur de graphiques interactifs (signature Biltia) : drawArea/drawBars/
+      // chartCountUp + classes .chart-* pré-chargés dans chaque app générée. Le
+      // prompt demande au modèle de les APPELER ; ici on garantit qu'ils existent.
+      html = injectChartEngine(html);
     }
 
     // ── Crédits : coût réel + réconciliation du hold (best-effort) ────────────
@@ -1659,7 +1903,7 @@ RATTRAPAGE RESPONSIVE (amélioration attendue, PAS un écart) : si le CSS de l'a
         userId: user.id,
         tenantId,
         action: isModification ? "edit_app" : "create_app",
-        model: buildModel,
+        model: usedModel,
         inputTokens: inTok,
         outputTokens: outTok,
         agent: route.agent,
@@ -1697,7 +1941,7 @@ RATTRAPAGE RESPONSIVE (amélioration attendue, PAS un écart) : si le CSS de l'a
           doc_type: docType,
           kind_method: kindMethod,
           kind_confidence: kindConfidence,
-          build_model: buildModel,
+          build_model: usedModel,
           connected_entities: connectedEntities,
           rag_used: ragChunks.length > 0,
           rag_chunks: ragChunks.length,

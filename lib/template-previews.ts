@@ -11,10 +11,12 @@ export type TemplatePreview = {
 };
 
 export const TEMPLATE_PREVIEWS: TemplatePreview[] = [
-  { id: "suivi_chantiers", name: "Suivi de chantiers", category: "Gestion", accent: "#6366F1", tagline: "Avancement, budget et facturation, en direct." },
-  { id: "devis_factures", name: "Devis & Factures", category: "Commercial", accent: "#EC4899", tagline: "Devis et factures BTP, TVA et totaux automatiques." },
-  { id: "planning_chantier", name: "Planning chantier", category: "Planning", accent: "#A855F7", tagline: "Vos équipes affectées, semaine par semaine." },
-  { id: "pointage_equipes", name: "Pointage des heures", category: "RH", accent: "#F59E0B", tagline: "Heures et heures supp, zéro feuille perdue." },
-  { id: "sous_traitants", name: "Sous-traitants", category: "Conformité", accent: "#EF4444", tagline: "QUALIBAT, URSSAF, décennale. Alertes 30 jours avant." },
-  { id: "tableau_bord", name: "Tableau de bord", category: "Pilotage", accent: "#3B82F6", tagline: "Toute votre activité BTP d'un coup d'œil." },
+  { id: "suivi_chantiers", name: "Suivi de chantiers", category: "Gestion", accent: "#4F46E5", tagline: "Tableau de bord, chantiers, équipe et matériel — en direct." },
+  { id: "finance_budgets", name: "Finance & recouvrement", category: "Finance", accent: "#6D5EF6", tagline: "Cash bloqué, DSO, relances : pilotez votre trésorerie." },
+  { id: "devis_factures", name: "Devis à la voix", category: "Commercial", accent: "#0D9488", tagline: "Dictez vos devis, ils se rédigent et s'envoient seuls." },
+  { id: "equipes_taches", name: "Équipes & tâches", category: "Équipe", accent: "#EA580C", tagline: "Kanban plein écran : glissez les tâches, suivez la charge." },
+  { id: "planning_chantier", name: "Planning chantier", category: "Planning", accent: "#0284C7", tagline: "Affectez vos équipes aux chantiers, semaine par semaine." },
+  { id: "pointage_equipes", name: "Pointage des heures", category: "RH", accent: "#DB2777", tagline: "Pointez le temps, validez d'une coche, zéro feuille perdue." },
+  { id: "sous_traitants", name: "Sous-traitance & conformité", category: "Conformité", accent: "#334155", tagline: "Assurance décennale, échéances, relances. Alertes 30 jours avant." },
+  { id: "crm_clients", name: "CRM — Pipeline commercial", category: "Commercial", accent: "#059669", tagline: "De la piste au chantier signé : suivez tout votre pipeline." },
 ];

@@ -87,12 +87,19 @@ export default function AppViewerPage() {
         const target = (event.source as Window | null) ?? iframeRef.current?.contentWindow ?? null;
         target?.postMessage({ type: "BILTIA_API_RESPONSE", id: callId, ...payload }, "*");
       };
-      const apiUrl = (body as { __endpoint?: string } | null)?.__endpoint === "app-ai" ? "/api/app-ai" : "/api/data";
+      const ep = (body as { __endpoint?: string } | null)?.__endpoint;
+      const apiUrl =
+        ep === "app-ai" ? "/api/app-ai" : ep === "email" ? "/api/app-email" : ep === "sms" ? "/api/app-sms" : "/api/data";
+      // Sur /api/data on joint l'id du module : le serveur lit sa portée de données
+      // (modules.data_scope) et filtre la LECTURE en conséquence (vierge/import/
+      // sélection). Les écritures ignorent la portée → tout va au workspace.
+      const outBody =
+        !ep && body && typeof body === "object" ? { ...(body as Record<string, unknown>), moduleId: id } : body;
       fetch(apiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify(body),
+        body: JSON.stringify(outBody),
       })
         .then(async (res) => {
           const result = await res.json().catch(() => null);
@@ -103,7 +110,7 @@ export default function AppViewerPage() {
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, []);
+  }, [id]);
 
   if (loading) {
     return (

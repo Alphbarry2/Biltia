@@ -563,7 +563,8 @@ Adapte-toi au vocabulaire de l'utilisateur sans jamais lui demander de préciser
 
 export function buildKnowledgeBlock(
   subTradeIds: string[],
-  activityTypeId?: string | null
+  activityTypeId?: string | null,
+  sectorDetail?: string | null
 ): string {
   const blocks: string[] = [];
 
@@ -599,6 +600,14 @@ export function buildKnowledgeBlock(
     if (activity) {
       blocks.push(`## Activité principale : ${activity.label}\n${activity.hint}`);
     }
+  }
+
+  // Précision libre saisie par l'utilisateur : rattrape la spécialité exacte que
+  // la famille ne capture pas (« électricien spécialisé bornes de recharge »).
+  // On la place en DERNIER pour qu'elle prime dans le ton et le vocabulaire.
+  const detail = sectorDetail?.trim();
+  if (detail) {
+    blocks.push(`## Spécialité déclarée par l'utilisateur\n« ${detail} ». Emploie précisément ce vocabulaire et ces cas d'usage.`);
   }
 
   return blocks.join("\n\n");

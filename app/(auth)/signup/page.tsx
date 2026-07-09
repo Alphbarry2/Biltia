@@ -16,6 +16,7 @@ export default function SignupPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [awaitingEmail, setAwaitingEmail] = useState(false);
@@ -49,6 +50,7 @@ export default function SignupPage() {
     if (!fullName.trim()) { setError("Indiquez votre nom pour personnaliser votre espace."); return; }
     if (!passwordOk) { setError("Le mot de passe ne respecte pas encore les deux critères."); return; }
     if (!passwordsMatch) { setError("Les deux mots de passe ne correspondent pas."); return; }
+    if (!acceptedTerms) { setError("Vous devez accepter les conditions pour créer un compte."); return; }
     if (turnstileEnabled && !captchaToken) { setError("Confirmez que vous n'êtes pas un robot."); return; }
     setLoading(true);
     setError("");
@@ -123,7 +125,7 @@ export default function SignupPage() {
       <h1 className="mb-1.5 text-[28px] font-black tracking-[-0.03em] text-[#0A0A0A]">Créez votre compte.</h1>
       <p className="mb-7 text-sm text-[#6E6E6C]">300 crédits offerts. Sans carte bancaire.</p>
 
-      <OAuthButtons next="/onboarding" onError={setError} />
+      <OAuthButtons next="/onboarding" onError={setError} disabled={!acceptedTerms} />
       <OrDivider />
 
       <form onSubmit={handleSignup} className="space-y-4">
@@ -177,12 +179,32 @@ export default function SignupPage() {
 
         <Turnstile ref={turnstileRef} onToken={setCaptchaToken} />
 
+        <label htmlFor="signup-terms" className="flex cursor-pointer select-none items-start gap-3">
+          <span className="relative mt-0.5 grid h-5 w-5 flex-shrink-0 place-items-center">
+            <input id="signup-terms" type="checkbox" checked={acceptedTerms}
+              onChange={(e) => setAcceptedTerms(e.target.checked)} className="peer sr-only" />
+            <span className="h-5 w-5 rounded-md border border-[#D6D0E4] bg-white transition-all peer-checked:border-transparent peer-checked:bg-gradient-to-br peer-checked:from-indigo-500 peer-checked:via-violet-500 peer-checked:to-pink-500 peer-focus-visible:ring-2 peer-focus-visible:ring-violet-500/40" />
+            <Check className="pointer-events-none absolute h-3 w-3 text-white opacity-0 transition-opacity peer-checked:opacity-100" strokeWidth={4} />
+          </span>
+          <span className="text-xs leading-relaxed text-[#6E6E6C]">
+            J&apos;ai lu et j&apos;accepte les{" "}
+            <a href="/mentions-legales" target="_blank" rel="noopener noreferrer" className="font-semibold text-[#7C3AED] underline-offset-2 hover:underline">mentions légales</a>,{" "}
+            les <a href="/cgu" target="_blank" rel="noopener noreferrer" className="font-semibold text-[#7C3AED] underline-offset-2 hover:underline">CGU</a>,{" "}
+            les <a href="/cgv" target="_blank" rel="noopener noreferrer" className="font-semibold text-[#7C3AED] underline-offset-2 hover:underline">CGV</a> et la{" "}
+            <a href="/confidentialite" target="_blank" rel="noopener noreferrer" className="font-semibold text-[#7C3AED] underline-offset-2 hover:underline">politique de confidentialité</a>.
+          </span>
+        </label>
+
         {error && (
           <p className="rounded-lg border border-rose-100 bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</p>
         )}
 
-        <button type="submit" disabled={loading}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 py-3 font-semibold text-white shadow-[0_8px_24px_rgba(139,92,246,0.4)] transition-all hover:shadow-[0_10px_30px_rgba(139,92,246,0.55)] active:scale-[0.99] disabled:cursor-wait disabled:opacity-60">
+        <button type="submit" disabled={loading || !acceptedTerms}
+          className={`flex w-full items-center justify-center gap-2 rounded-xl py-3 font-semibold text-white transition-all ${
+            acceptedTerms
+              ? "bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 shadow-[0_8px_24px_rgba(139,92,246,0.4)] hover:shadow-[0_10px_30px_rgba(139,92,246,0.55)] active:scale-[0.99] disabled:cursor-wait disabled:opacity-60"
+              : "cursor-not-allowed bg-[#D6D3DE] shadow-none"
+          }`}>
           {loading ? (
             <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
           ) : (
@@ -191,9 +213,6 @@ export default function SignupPage() {
         </button>
       </form>
 
-      <p className="mt-4 text-center text-xs text-[#9A9AA6]">
-        En créant un compte, vous acceptez nos <a href="/cgu" className="underline transition-colors hover:text-[#0A0A0A]">CGU</a> et notre <a href="/confidentialite" className="underline transition-colors hover:text-[#0A0A0A]">politique de confidentialité</a>.
-      </p>
       <p className="mt-5 text-center text-sm text-[#6E6E6C]">
         Déjà un compte ?{" "}
         <Link href="/login" className="font-semibold text-[#7C3AED] transition-colors hover:text-[#0A0A0A]">Se connecter</Link>

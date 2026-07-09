@@ -5,7 +5,7 @@
 // La partie LLM (Haiku) vit dans kind-router.ts (serveur uniquement).
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type BiltiaKind = "answer" | "document" | "action" | "module" | "rule" | "data" | "email" | "calendar";
+export type BiltiaKind = "answer" | "document" | "action" | "module" | "rule" | "data" | "email" | "calendar" | "task";
 
 export type KindMethod = "llm" | "heuristic" | "default";
 
@@ -16,6 +16,8 @@ export type KindResult = {
   docType: string | null;
   /** Destinataire + objet + corps extraits quand `kind === "email"`. */
   email?: { to: string; subject: string; body: string };
+  /** Audience (groupe workspace) + objet + corps quand `kind === "task"` (envoi groupé). */
+  task?: { audience: string; subject: string; body: string };
   /** Quand une app est ouverte : true si la demande veut MODIFIER cette app,
    *  false si elle n'a rien à voir avec elle (question, autre tâche, hors-sujet).
    *  Absent (undefined) quand la décision vient de l'heuristique (pas de signal). */
@@ -146,6 +148,24 @@ const DATA_NOUNS = [
   "article", "prestation", "chaudiere", "compagnon",
 ];
 
+// ENVOI GROUPÉ (« task ») : écrire MAINTENANT à un GROUPE du workspace. Détecté
+// par la CO-OCCURRENCE d'un verbe d'envoi ET d'une cible collective — « envoie un
+// message à tous mes clients », « préviens mon équipe », « écris à mes
+// fournisseurs ». Un envoi à UNE personne nommée reste « email » (couloir simple) ;
+// c'est la CIBLE COLLECTIVE qui bascule vers le moteur « fais-le maintenant ».
+const SEND_VERBS = [
+  "envoie", "envoyer", "envoie-leur", "envoie leur", "ecris a", "ecris-leur", "ecris leur",
+  "ecrire a", "previens", "prevenir", "previens-les", "previens les", "prevenez",
+  "contacte", "contacter", "informe", "informer", "notifie", "notifier",
+  "relance", "relancer", "message a", "un message", "un mail", "un email", "un sms",
+];
+const GROUP_TARGETS = [
+  "tous mes clients", "toutes mes clients", "a mes clients", "mes clients", "tous les clients",
+  "mon equipe", "l'equipe", "les equipes", "mes equipes", "toute l'equipe", "mes employes",
+  "mes salaries", "mes ouvriers", "les gars", "mes fournisseurs", "tous mes fournisseurs",
+  "tout le monde", "chaque client", "chaque fournisseur", "mes contacts", "tous mes contacts",
+];
+
 // Pure question d'information (réglementation, conseil, donnée du workspace).
 const ANSWER_SIGNALS = [
   "quel est", "quelle est", "quels sont", "quelles sont", "c'est quoi",
@@ -177,6 +197,7 @@ type Scores = {
   moduleScore: number;
   ruleScore: number;
   dataScore: number;
+  commScore: number;
   docType: string | null;
 };
 
@@ -203,6 +224,10 @@ function scorePrompt(prompt: string): Scores {
     dataScore:
       countHits(text, DATA_VERBS) > 0 && countHits(text, DATA_NOUNS) > 0
         ? 2 + countHits(text, DATA_VERBS) + countHits(text, DATA_NOUNS)
+        : 0,
+    commScore:
+      countHits(text, SEND_VERBS) > 0 && countHits(text, GROUP_TARGETS) > 0
+        ? 3 + countHits(text, SEND_VERBS) + countHits(text, GROUP_TARGETS)
         : 0,
     docType,
   };
@@ -287,6 +312,20 @@ export function classifyKindHeuristic(prompt: string, hasExistingApp = false): K
       method: "heuristic",
       confidence: Math.min(0.55 + s.dataScore * 0.06, 0.88),
       reasoning: `opération workspace détectée (${s.dataScore})`,
+    };
+  }
+
+  // ENVOI GROUPÉ : écrire à un groupe du workspace, maintenant. Passe AVANT
+  // module (« tous mes clients » y matche) : c'est une ACTION ponctuelle, pas la
+  // demande d'un outil de gestion. La récurrence (« …chaque lundi ») a déjà été
+  // captée par « rule » plus haut, donc ici c'est bien un envoi unique.
+  if (s.commScore > 0) {
+    return {
+      kind: "task",
+      docType: null,
+      method: "heuristic",
+      confidence: Math.min(0.6 + s.commScore * 0.06, 0.9),
+      reasoning: `envoi groupé détecté (${s.commScore})`,
     };
   }
 

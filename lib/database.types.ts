@@ -64,16 +64,19 @@ export type Database = {
           blocked_reason: string | null
           created_at: string
           created_by: string | null
+          daily_credit_budget: number
           id: string
           instruction: string
           last_run_at: string | null
           meta: Json
           missing: Json | null
+          monthly_credit_budget: number
           next_run_at: string | null
           schedule: Json
           status: string
           tenant_id: string
           title: string
+          trigger: Json
           trigger_type: string
           updated_at: string
         }
@@ -82,16 +85,19 @@ export type Database = {
           blocked_reason?: string | null
           created_at?: string
           created_by?: string | null
+          daily_credit_budget?: number
           id?: string
           instruction: string
           last_run_at?: string | null
           meta?: Json
           missing?: Json | null
+          monthly_credit_budget?: number
           next_run_at?: string | null
           schedule?: Json
           status?: string
           tenant_id: string
           title: string
+          trigger?: Json
           trigger_type?: string
           updated_at?: string
         }
@@ -100,18 +106,48 @@ export type Database = {
           blocked_reason?: string | null
           created_at?: string
           created_by?: string | null
+          daily_credit_budget?: number
           id?: string
           instruction?: string
           last_run_at?: string | null
           meta?: Json
           missing?: Json | null
+          monthly_credit_budget?: number
           next_run_at?: string | null
           schedule?: Json
           status?: string
           tenant_id?: string
           title?: string
+          trigger?: Json
           trigger_type?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      agent_event_fires: {
+        Row: {
+          created_at: string
+          fire_key: string
+          id: string
+          label: string
+          rule_id: string
+          tenant_id: string
+        }
+        Insert: {
+          created_at?: string
+          fire_key: string
+          id?: string
+          label?: string
+          rule_id: string
+          tenant_id: string
+        }
+        Update: {
+          created_at?: string
+          fire_key?: string
+          id?: string
+          label?: string
+          rule_id?: string
+          tenant_id?: string
         }
         Relationships: []
       }
@@ -1856,16 +1892,19 @@ export type Database = {
       user_credits: {
         Row: {
           balance: number
+          topup_balance: number
           updated_at: string | null
           user_id: string
         }
         Insert: {
           balance?: number
+          topup_balance?: number
           updated_at?: string | null
           user_id: string
         }
         Update: {
           balance?: number
+          topup_balance?: number
           updated_at?: string | null
           user_id?: string
         }

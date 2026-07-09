@@ -246,6 +246,28 @@ export async function POST(req: Request) {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
+
+        // Pack de crédits (paiement one-time) : crédite la poche topup_balance
+        // (non expirable) via redeem_credit_pack, idempotent sur l'ID de session
+        // (Stripe peut rejouer l'événement sans double-créditer).
+        if (session.mode === "payment" && session.metadata?.kind === "pack") {
+          const userId = session.metadata.user_id;
+          const packCredits = Number(session.metadata.credits);
+          if (
+            userId &&
+            Number.isFinite(packCredits) &&
+            packCredits > 0 &&
+            session.payment_status === "paid"
+          ) {
+            await db.rpc("redeem_credit_pack", {
+              p_session_id: session.id,
+              p_user_id: userId,
+              p_amount: packCredits,
+            });
+          }
+          break;
+        }
+
         const subId =
           typeof session.subscription === "string"
             ? session.subscription

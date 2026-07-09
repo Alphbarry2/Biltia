@@ -128,6 +128,7 @@ export async function POST(req: Request) {
               model: k.usage.model,
               inputTokens: k.usage.inputTokens,
               outputTokens: k.usage.outputTokens,
+              internal: true, // classification : coût réel journalisé, pas de plancher 5cr
             }).catch(() => {});
           }
         } catch { /* tracking best-effort */ }

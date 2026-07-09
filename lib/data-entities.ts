@@ -438,7 +438,7 @@ export const FORM_FIELDS: Record<string, FormField[]> = {
 // ─── Détection : la demande porte-t-elle sur une entité connectée ? ──────────
 
 const ENTITY_KEYWORDS: Record<string, string[]> = {
-  chantiers: ["chantier", "chantiers", "projet", "projets", "suivi de chantier"],
+  chantiers: ["chantier", "chantiers", "projet", "projets", "suivi de chantier", "affaire", "affaires", "carnet de commandes", "réalisation", "realisation", "opération de travaux", "operation de travaux"],
   clients: ["client", "clients", "crm", "devis", "facture", "factures", "relance", "prospect"],
   employees: ["employé", "employe", "ouvrier", "salarié", "salarie", "équipe", "equipe", "main d'oeuvre", "personnel", "pointage", "heures", "compagnon", "chef de chantier"],
   documents: ["document", "attestation", "qualibat", "urssaf", "kbis", "décennale", "decennale", "conformité", "conformite"],
@@ -520,10 +520,66 @@ export function detectConnectedEntities(prompt: string, appType?: string | null)
   return [...hits];
 }
 
+// Aides de liaison pour les concepts dont la formulation varie (paraphrases qui
+// échappent aux mots-clés) → le générateur rattache quand même à l'entité canonique.
+const ENTITY_ALIASES: Record<string, string> = {
+  clients: "clients, prospects, CRM, « mes clients »",
+  chantiers: "chantiers, projets, affaires, « carnet de commandes », réalisations, opérations",
+  employees: "équipe, salariés, ouvriers, compagnons, personnel, « mon équipe »",
+  devis: "devis, estimations, chiffrages, propositions commerciales",
+  factures: "factures, facturation, impayés, encaissements, relances, « qui me doit de l'argent »",
+  interventions: "interventions, SAV, dépannages, entretien, maintenance",
+  materials: "matériaux, matériel, stock, fournitures",
+  suppliers: "fournisseurs, sous-traitants, négoces",
+  equipment: "équipements, engins, outillage, machines",
+  tasks: "tâches, todo, planning, « qui fait quoi »",
+  catalogue: "catalogue de prix, bordereau, tarifs, prestations, ouvrages",
+  documents: "documents, attestations, Qualibat, URSSAF, décennale",
+  pointages: "pointages, feuille d'heures, temps passé, main d'œuvre",
+  contrats: "contrats d'entretien, abonnements, échéances récurrentes",
+  parc_installe: "parc installé, équipement client posé (chaudière, PAC, VMC…)",
+  lignes: "lignes de devis/facture (désignation, quantité, prix)",
+};
+
+/**
+ * CATALOGUE DE LIAISON — injecté à CHAQUE génération d'app de données, que la
+ * détection par mots-clés ait matché ou non. Garantit la SOURCE UNIQUE : toute
+ * app qui gère un concept canonique l'écrit sous le NOM EXACT de l'entité (table
+ * workspace partagée), jamais dans une collection à elle → synchro structurelle,
+ * pas un job de synchro. Sans ce bloc, une formulation inattendue (« mes affaires »)
+ * ratait la liaison et l'app se retrouvait isolée du reste.
+ */
+export function buildEntityBindingCatalog(): string {
+  const catalog = ALLOWED_ENTITIES.map(
+    (k) => `- \`${k}\` — ${ENTITIES[k].label}${ENTITY_ALIASES[k] ? ` (${ENTITY_ALIASES[k]})` : ""}`
+  ).join("\n");
+
+  return `# SOURCE UNIQUE DE VÉRITÉ — LE WORKSPACE (règle de synchronisation, ABSOLUE)
+Ton application n'est PAS une base isolée : c'est une FENÊTRE sur le workspace
+partagé de l'entreprise. Le workspace est l'application de fond ; ton app lit et
+écrit DEDANS. Conséquence : ajouter, modifier ou supprimer dans ton app = faire la
+même chose dans le workspace, INSTANTANÉMENT — et les autres apps (et le copilote,
+et les agents) voient aussitôt le même état. Ce n'est pas une copie qu'on synchronise,
+c'est LA donnée.
+
+## Concepts canoniques (utilise le NOM EXACT à gauche, via window.biltia)
+Si une notion gérée par ton app correspond — même de loin — à l'un de ces concepts,
+tu DOIS la stocker via \`window.biltia\` sous ce nom d'entité. JAMAIS dans une collection
+à toi pour ces notions-là (sinon la donnée serait invisible au reste de l'entreprise).
+${catalog}
+
+## Règles de liaison (obligatoires)
+1. Rattache TOUJOURS à l'entité canonique la plus proche : « suivi de mes affaires » → \`chantiers\` ; « mon équipe » → \`employees\` ; « ce qu'on me doit » → \`factures\` ; « mes clients » → \`clients\`.
+2. Relations = vrais liens : un chantier référence son client (\`client_id\`) ; ajouter un chantier à un client via \`biltia.create('chantiers', { client_id, … })\` fait apparaître ce chantier chez CE client partout, à l'instant. Les champs \`*_id\` se remplissent par un \`<select>\` peuplé via \`biltia.list(...)\` (+ option « + Nouveau… » qui crée la fiche liée dans le workspace).
+3. Pas besoin d'avoir importé quoi que ce soit au départ : ce que l'utilisateur saisit dans l'app CRÉE la donnée dans le workspace (première fiche incluse).
+4. SEULS les concepts SANS aucune entité ci-dessus vont dans une collection \`window.biltia\` libre (nom court en snake_case). En cas de doute : rattache, n'invente pas.`;
+}
+
 /**
  * Bloc injecté dans le system prompt quand la demande mappe des entités connectées.
- * Indique à l'IA d'utiliser window.biltia (async) au lieu de localStorage POUR CES
- * entités-là. Le reste de l'app garde localStorage.
+ * Indique à l'IA d'utiliser window.biltia (async) POUR CES entités-là (leurs noms
+ * exacts → tables workspace partagées) avec leurs SCHÉMAS DE CHAMPS détaillés. Le
+ * reste passe AUSSI par window.biltia (collections libres, cloud) — JAMAIS localStorage.
  */
 export function buildDataModeBlock(entityKeys: string[]): string {
   if (!entityKeys.length) return "";
@@ -552,6 +608,8 @@ ${list}
 - \`await biltia.remove('${primary}', id)\` → suppression
 - \`await biltia.extract(photoDataUrl, { fields:['numero','fournisseur','date'] })\` → **IA VISION** : lit une PHOTO (bon de livraison, facture, plan…) et renvoie un objet \`{numero, fournisseur, date, …}\` (chaîne vide si illisible). À enchaîner avec \`biltia.create(...)\` pour stocker. ~25 crédits/photo.
 - \`await biltia.transcribe(audioDataUrl, { fields:['employe','heures','date'] })\` → **IA VOIX** : transcrit une DICTÉE et renvoie \`{ text, data:{employe, heures, date} }\` (sans \`fields\` → \`{ text }\` seul). Idéal pour pointer/noter à la voix, mains libres. ~10-25 crédits.
+- \`await biltia.sendEmail({ to:'client@ex.fr', subject:'…', body:'…' })\` → **ENVOI EMAIL** au nom de l'entreprise (Gmail connecté de l'utilisateur si dispo, sinon envoi Biltia). Dès qu'un devis/une facture/un message client est en jeu, propose un bouton « Envoyer par email » qui appelle ceci (vérifie qu'une adresse existe, ne l'invente jamais).
+- \`await biltia.sendSms({ to:'+33612345678', body:'…' })\` → **ENVOI SMS** au nom de l'entreprise (relance facture, confirmation RDV). Bouton « Relancer par SMS » là où c'est utile ; vérifie qu'un numéro existe, ne l'invente jamais.
 Chaque ligne possède un \`id\` (uuid) généré par le serveur. N'envoie jamais \`id\`,
 \`tenant_id\` ni les dates \`*_at\` dans create/update : le serveur les gère.
 Pour un champ optionnel laissé vide (uuid de liaison, date, nombre), envoie \`null\`
@@ -585,7 +643,10 @@ Pour un champ optionnel laissé vide (uuid de liaison, date, nombre), envoie \`n
    dataURL via FileReader), appelle \`biltia.transcribe(audioDataUrl, { fields:[…] })\`,
    pré-remplis le formulaire avec \`data\` (ou insère \`text\`), l'utilisateur valide → \`biltia.create(...)\`.
 
-Pour toute donnée qui ne correspond PAS à une entité ci-dessus, continue d'utiliser
-localStorage comme d'habitude.
+Pour toute donnée qui ne correspond PAS à une entité ci-dessus, utilise une
+COLLECTION \`window.biltia\` libre (cloud, partagée) : \`biltia.list/create/update/remove('ma_collection', …)\`,
+avec un nom court en snake_case. JAMAIS \`localStorage\` — même ces données libres
+doivent vivre dans le cloud partagé, pour survivre au rechargement, se synchroniser
+entre appareils/membres, et rester visibles par le copilote et les agents.
 `;
 }

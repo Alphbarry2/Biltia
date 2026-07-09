@@ -39,18 +39,29 @@ function calcCost(
 /** Taux USD→EUR (coûts modèles facturés en USD, unité de marge en EUR). */
 const USD_TO_EUR = 0.92;
 
-/** Échelle ×10 : jamais de fraction. On arrondit au multiple de 5 SUPÉRIEUR
- *  (l'arrondi vers le haut ne fait qu'ajouter de la marge), plancher 5 crédits. */
-const CREDIT_STEP = 5;
-const MIN_CREDITS = 5;
+/** Crédits ENTIERS, sans fraction. On arrondit au SUPÉRIEUR (l'arrondi ne fait
+ *  qu'ajouter de la marge), plancher 1 crédit.
+ *  Plancher/palier à 1 (et non 5) : les usages fréquents et quasi gratuits
+ *  (une question simple ≈ 1 à 2 crédits) ne doivent JAMAIS être surfacturés à un
+ *  minimum de 5. La marge reste structurelle (coût réel × 1/CREDIT_COST_EUR),
+ *  une question à 2 crédits = ~0,10 € pour ~0,005 € de coût = marge ~95 %. Le
+ *  business model porte sur les apps et les agents, pas sur les questions. */
+const CREDIT_STEP = 1;
+const MIN_CREDITS = 1;
 
 /**
  * Convertit un coût réel (USD, tous postes confondus) en crédits ENTIERS à
- * débiter via public.deduct_credits(). Arrondi au palier de 5 supérieur.
+ * débiter via public.deduct_credits(). Arrondi au crédit supérieur.
+ *
+ * `internal` : appel de PLOMBERIE (routage, classification, recrutement d'agent…)
+ * jamais débité au client, seulement journalisé. On enregistre alors le coût
+ * RÉEL en crédits (arrondi entier, sans plancher) : le reporting reste fidèle.
+ * Les actions facturées gardent le plancher de 1 (marge).
  */
-export function creditsForCost(costUsd: number): number {
+export function creditsForCost(costUsd: number, opts: { internal?: boolean } = {}): number {
   const costEur = costUsd * USD_TO_EUR;
   const raw = costEur / CREDIT_COST_EUR;
+  if (opts.internal) return Math.max(0, Math.round(raw));
   const stepped = Math.ceil(raw / CREDIT_STEP) * CREDIT_STEP;
   return Math.max(MIN_CREDITS, stepped);
 }
@@ -68,6 +79,9 @@ interface TrackUsageParams {
   agent?: string;
   sector?: string;
   promptType?: "create" | "modify" | "autofix";
+  /** Appel interne de plomberie (routage, classification…) : coût réel journalisé,
+   *  sans le plancher de 5 crédits qui gonflerait le reporting. Voir creditsForCost. */
+  internal?: boolean;
 }
 
 export async function trackAiUsage({
@@ -83,9 +97,10 @@ export async function trackAiUsage({
   agent,
   sector,
   promptType,
+  internal = false,
 }: TrackUsageParams): Promise<number> {
   const costUsd = calcCost(model, inputTokens, outputTokens, cachedInputTokens);
-  const credits = creditsForCost(costUsd);
+  const credits = creditsForCost(costUsd, { internal });
 
   // La policy RLS d'ai_usage refuse l'INSERT au rôle authenticated (with_check
   // false) : l'écriture DOIT passer par service_role, sinon elle échoue en

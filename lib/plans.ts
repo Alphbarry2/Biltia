@@ -33,6 +33,11 @@ export interface PlanLimits {
   customUrl: boolean;
   multiNiche: boolean;
   accountingConnectors: boolean;
+  /** Envoi automatique d'emails / SMS depuis les apps ET les agents. */
+  autoMessaging: boolean;
+  /** Agents qui AGISSENT (relance email, compte-rendu, rapport, planning équipe).
+   *  Les alertes (notify) restent libres, même en Free : « le Free goûte, le Pro exécute ». */
+  agentActions: boolean;
 }
 
 export interface Plan {
@@ -74,25 +79,39 @@ export const SIGNUP_FREE_CREDITS = 300;
 // (marque blanche, multi-métiers, SSO, revente) passe par l'offre Entreprise,
 // sur devis (voir ENTERPRISE ci-dessous).
 
-// Échelle ×10 (crédits fins, sans fraction). Prix en euros INCHANGÉS.
-// ⚠️ Paliers 2 000 et 30 000 = NOUVEAUX (comblent les sauts) : prix interpolés,
-//    à confirmer avant de créer les Prices Stripe.
+// Grille dégressive resserrée (2026-07-09) : 6 paliers, regroupés en 2 cartes
+// (Solo/TPE ≤ 3 000, Business ≤ 25 000) sur la page tarifs. Un seul plan payant,
+// toutes les fonctionnalités incluses ; seul le VOLUME de crédits change. Le
+// meilleur tarif au crédit est intégré dans le saut de palier (dégressif jusqu'à
+// -22 %), c'est ce qui pousse à l'upgrade — pas un blocage de features.
+// ⚠️ Chaque palier a besoin de son Price Stripe (STRIPE_PRICE_PRO_<crédits>).
+//    Créer les prix AVANT de déployer (sinon checkout 503) : scripts/stripe-sync-prices.ts.
 const PRO_TIERS: CreditTier[] = [
-  { credits: 1000, priceEur: 49 },
-  { credits: 2000, priceEur: 99 }, // NEW
+  { credits: 1000, priceEur: 49 }, //   0,049 €/cr
+  { credits: 2000, priceEur: 89 }, //   0,045 €/cr  (-9 %)
+  { credits: 3000, priceEur: 129 }, //  0,043 €/cr  (-12 %)
+  { credits: 10000, priceEur: 399 }, // 0,040 €/cr  (-19 %)
+  { credits: 15000, priceEur: 579 }, // 0,039 €/cr  (-21 %)
+  { credits: 25000, priceEur: 949 }, // 0,038 €/cr  (-22 %)
+];
+
+// Anciens paliers RETIRÉS de la vente, conservés UNIQUEMENT pour reconnaître au
+// webhook les abonnements déjà en cours (leur renouvellement doit continuer à
+// créditer). Jamais proposés à l'achat (isValidTier ne les accepte pas). Leurs
+// Price Stripe (STRIPE_PRICE_PRO_<crédits>) restent donc en place tant qu'un
+// abonné y est. Voir findTierByPriceId (lib/stripe.ts).
+export const LEGACY_PRO_TIERS: CreditTier[] = [
   { credits: 4000, priceEur: 199 },
   { credits: 8000, priceEur: 399 },
   { credits: 12000, priceEur: 579 },
   { credits: 20000, priceEur: 949 },
-  { credits: 30000, priceEur: 1399 }, // NEW
+  { credits: 30000, priceEur: 1399 },
   { credits: 40000, priceEur: 1799 },
   { credits: 50000, priceEur: 2199 },
   { credits: 75000, priceEur: 3699 },
   { credits: 100000, priceEur: 4399 },
-  // Haut de gamme self-service (remplace l'ancien plafond Business, mais au VOLUME
-  // et non en refacturant les mêmes crédits) : ~0,043 €/crédit, marge ≥ 91 %.
-  { credits: 150000, priceEur: 6490 }, // NEW — à confirmer avant Prices Stripe
-  { credits: 200000, priceEur: 8499 }, // NEW — = ancien plafond Business 100k, ici pour 200k crédits
+  { credits: 150000, priceEur: 6490 },
+  { credits: 200000, priceEur: 8499 },
 ];
 
 // ── Définition des plans ─────────────────────────────────────────────────────
@@ -123,6 +142,8 @@ export const PLANS: Record<PlanId, Plan> = {
       customUrl: false,
       multiNiche: false,
       accountingConnectors: false,
+      autoMessaging: false,
+      agentActions: false,
     },
   },
 
@@ -135,9 +156,9 @@ export const PLANS: Record<PlanId, Plan> = {
     defaultCredits: 1000,
     features: [
       "Tout l'outil, aucune fonctionnalité bridée",
-      "Applications en ligne illimitées",
+      "Apps, devis, questions et agents selon vos crédits IA",
       "Commande vocale et mode hors-ligne",
-      "Workspace partagé, sièges illimités",
+      "Workspace partagé, sièges inclus",
       "Connecteurs comptables inclus",
       "Crédits renouvelés chaque mois",
     ],
@@ -152,6 +173,8 @@ export const PLANS: Record<PlanId, Plan> = {
       customUrl: false, // réservé à l'offre Entreprise (sur devis)
       multiNiche: false, // réservé à l'offre Entreprise (sur devis)
       accountingConnectors: true,
+      autoMessaging: true,
+      agentActions: true,
     },
   },
 };
@@ -169,7 +192,7 @@ export const ENTERPRISE = {
   audience: "Pour les grands comptes et le secteur public",
   contactEmail: "contact@biltia.com",
   features: [
-    "Tout le plan Pro, en volume sur mesure",
+    "Capacité IA personnalisée, au meilleur tarif",
     "Marque blanche et URL personnalisée",
     "Multi-métiers (plusieurs activités)",
     "SSO et provisioning des comptes",
@@ -178,16 +201,46 @@ export const ENTERPRISE = {
   ],
 } as const;
 
+// ── Packs de crédits (recharges one-time, NON expirables) ─────────────────────
+// Achetés à l'unité quand le solde est bas. Volontairement PLUS CHERS au crédit
+// que l'abonnement équivalent : recharger doit toujours coûter plus que monter
+// d'un cran de forfait, pour pousser l'upgrade (modèle usage-based). One-time
+// (Stripe mode:payment), crédités dans user_credits.topup_balance (ne périme
+// jamais, cf. migration 027).
+export interface CreditPack {
+  credits: number;
+  priceEur: number;
+}
+
+export const CREDIT_PACKS: CreditPack[] = [
+  { credits: 1000, priceEur: 59 }, //  0,059 €/cr  (vs Solo 1 000 à 49 €)
+  { credits: 3000, priceEur: 149 }, // 0,050 €/cr  (vs Pro 3 000 à 129 €)
+  { credits: 10000, priceEur: 449 }, // 0,045 €/cr (vs Business 10 000 à 399 €)
+];
+
+export function getPack(credits: number): CreditPack | undefined {
+  return CREDIT_PACKS.find((p) => p.credits === credits);
+}
+
+export function isValidPack(credits: number): boolean {
+  return !!getPack(credits);
+}
+
+/** Nom de la variable d'env contenant le Stripe Price ID (one-time) d'un pack.
+ *  Ex : 1000 → "STRIPE_PACK_1000". Retourne le NOM, jamais la valeur (pas de secret). */
+export function stripePackEnvVar(credits: number): string {
+  return `STRIPE_PACK_${credits}`;
+}
+
 // ── Regroupement des paliers par profil (pour le sélecteur de crédits) ────────
 // Le plan Pro couvre tous les profils : ce découpage sert UNIQUEMENT à orienter
-// l'utilisateur ("c'est destiné à qui"), pas à la facturation. Un TPE vit dans
-// 1 000 a 4 000, une PME dans 8 000 a 20 000 ; au-dela = agences / revendeurs /
-// gros volumes (surtout de l'ancrage tarifaire).
+// l'utilisateur ("c'est destiné à qui") et à rendre 2 cartes sur la page tarifs,
+// pas à la facturation. Solo/TPE = 1 000 à 3 000 ; Business = 10 000 à 25 000.
+// Au-delà de 25 000 : offre Entreprise, sur devis.
 
 export const TIER_SEGMENTS: { label: string; maxCredits: number }[] = [
-  { label: "Indépendant / TPE", maxCredits: 4000 },
-  { label: "PME", maxCredits: 20000 },
-  { label: "Grande équipe / agence", maxCredits: UNLIMITED },
+  { label: "Solo / TPE", maxCredits: 3000 },
+  { label: "Business", maxCredits: UNLIMITED },
 ];
 
 /** Segment (profil) auquel appartient un volume de crédits. */

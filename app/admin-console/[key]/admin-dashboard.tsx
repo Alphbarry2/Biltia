@@ -23,13 +23,20 @@ type Bucket = { key: string; calls: number; inTok: number; outTok: number; costU
 type Count = { key: string; count: number };
 type Stats = {
   generatedAt: string;
+  meta: { truncated: boolean; founderAccounts: number; costIsEstimate: boolean };
   totals: {
-    calls: number; costUsd: number; costEur: number; credits: number; revenueEur: number;
-    marginPct: number | null; inputTokens: number; outputTokens: number; salePerCreditEur: number;
+    calls: number; costUsd: number; costEur: number; credits: number;
+    inputTokens: number; outputTokens: number; salePerCreditEur: number;
   };
+  business: {
+    mrrEur: number; payingTenants: number; businessMarginPct: number | null;
+    clientConsumedValueEur: number; clientCredits: number; clientCostUsd: number;
+    clientCostEur: number; marginPct: number | null; salePerCreditEur: number;
+  };
+  internal: { costUsd: number; costEur: number; credits: number; calls: number };
   product: {
     users: number; tenants: number; apps: number; edits: number; documents: number;
-    reports: number; conversations: number; outstandingCredits: number;
+    reports: number; conversations: number; outstandingCredits: number; clientUsers: number;
   };
   activation: { totalUsers: number; activatedUsers: number; activationRatePct: number | null; ttfvMedianHours: number | null };
   engagement: { dau: number; wau: number; mau: number; stickinessPct: number | null; returningUsers: number };
@@ -89,7 +96,8 @@ const NAV: { id: SectionId; label: string; icon: typeof LayoutDashboard; desc: s
 ];
 
 const costByDay = (d: Stats): Point[] => d.byDay.map((r) => ({ x: r.day.slice(5), y: r.costUsd, tip: `${r.calls} appel${r.calls > 1 ? "s" : ""}` }));
-const revByDay = (d: Stats): Point[] => d.byDay.map((r) => ({ x: r.day.slice(5), y: r.credits * d.totals.salePerCreditEur, tip: `${nf.format(r.credits)} crédits` }));
+// Valeur THÉORIQUE de la consommation (tout compris, tests inclus) — ≠ chiffre d'affaires.
+const valueByDay = (d: Stats): Point[] => d.byDay.map((r) => ({ x: r.day.slice(5), y: r.credits * d.totals.salePerCreditEur, tip: `${nf.format(r.credits)} crédits` }));
 const signupsPts = (d: Stats): Point[] => d.signupsByDay.map((r) => ({ x: r.day.slice(5), y: r.count, tip: r.day }));
 
 function CompanySizeTable({ rows }: { rows: Stats["byCompanySize"] }) {
@@ -163,13 +171,13 @@ function Overview({ d }: { d: Stats }) {
     <div className="space-y-6">
       <DemoBookingsSection />
       <div className={GRID4}>
-        <Kpi accent icon={<TrendingUp className="h-4 w-4" />} value={pct(d.totals.marginPct)} label="Marge brute" hint={`sur ${eur(d.totals.revenueEur)} de valeur vendue`} />
-        <Kpi icon={<Wallet className="h-4 w-4" />} value={eur(d.totals.revenueEur)} label="Revenu estimé" hint={`${nf.format(d.totals.credits)} crédits × ${d.totals.salePerCreditEur.toFixed(3)} €`} />
-        <Kpi icon={<Coins className="h-4 w-4" />} value={usd(d.totals.costUsd)} label="Coût API réel" hint={`${eur(d.totals.costEur)} · ${d.totals.calls} appels`} />
-        <Kpi icon={<Cpu className="h-4 w-4" />} value={`${tok(d.totals.inputTokens)} / ${tok(d.totals.outputTokens)}`} label="Tokens in / out" hint={`${nf.format(d.totals.credits)} crédits consommés`} />
+        <Kpi accent icon={<Wallet className="h-4 w-4" />} value={eur(d.business.mrrEur)} label="CA réel (MRR)" hint={`${d.business.payingTenants} abonnement${d.business.payingTenants > 1 ? "s" : ""} payant${d.business.payingTenants > 1 ? "s" : ""}`} />
+        <Kpi icon={<TrendingUp className="h-4 w-4" />} value={pct(d.business.marginPct)} label="Marge structurelle" hint="sur la conso client" />
+        <Kpi icon={<Coins className="h-4 w-4" />} value={usd(d.totals.costUsd)} label="Coût API (estimé)" hint={`${eur(d.totals.costEur)} · ${d.totals.calls} appels`} />
+        <Kpi icon={<Cpu className="h-4 w-4" />} value={usd(d.internal.costUsd)} label="Tests internes (R&D)" hint={`${nf.format(d.internal.calls)} appels · ${nf.format(d.internal.credits)} crédits`} />
       </div>
       <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
-        <Tile icon={<Users className="h-4 w-4" />} value={nf.format(d.product.users)} label="Comptes" />
+        <Tile icon={<Users className="h-4 w-4" />} value={nf.format(d.product.clientUsers)} label="Clients" />
         <Tile icon={<Building2 className="h-4 w-4" />} value={nf.format(d.product.tenants)} label="Espaces" />
         <Tile icon={<Boxes className="h-4 w-4" />} value={nf.format(d.product.apps)} label="Apps" />
         <Tile icon={<FileText className="h-4 w-4" />} value={nf.format(d.product.documents)} label="Documents" />
@@ -177,8 +185,8 @@ function Overview({ d }: { d: Stats }) {
         <Tile icon={<Coins className="h-4 w-4" />} value={nf.format(d.product.outstandingCredits)} label="Crédits actifs" />
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card className="p-5"><BlockTitle icon={<Coins className="h-4 w-4" />}>Coût API par jour</BlockTitle><AreaChart data={costByDay(d)} format={usd} color="#7C3AED" empty="Aucune activité facturée." /></Card>
-        <Card className="p-5"><BlockTitle icon={<Wallet className="h-4 w-4" />}>Revenu estimé par jour</BlockTitle><AreaChart data={revByDay(d)} format={eur} color="#EC4899" empty="Aucun crédit consommé." /></Card>
+        <Card className="p-5"><BlockTitle icon={<Coins className="h-4 w-4" />}>Coût API par jour (tout compris)</BlockTitle><AreaChart data={costByDay(d)} format={usd} color="#7C3AED" empty="Aucune activité facturée." /></Card>
+        <Card className="p-5"><BlockTitle icon={<Wallet className="h-4 w-4" />}>Valeur consommée / jour (théorique)</BlockTitle><AreaChart data={valueByDay(d)} format={eur} color="#EC4899" empty="Aucun crédit consommé." /></Card>
       </div>
       <Card className="p-5"><BlockTitle icon={<Activity className="h-4 w-4" />}>Activité récente</BlockTitle><ActivityFeed rows={d.activity} /></Card>
     </div>
@@ -189,13 +197,13 @@ function Revenue({ d }: { d: Stats }) {
   return (
     <div className="space-y-6">
       <div className={GRID4}>
-        <Kpi accent icon={<Wallet className="h-4 w-4" />} value={eur(d.totals.revenueEur)} label="Revenu estimé" hint="crédits consommés × tarif Pro" />
-        <Kpi icon={<TrendingUp className="h-4 w-4" />} value={pct(d.totals.marginPct)} label="Marge brute" hint={`coût API ${eur(d.totals.costEur)}`} />
-        <Kpi icon={<Coins className="h-4 w-4" />} value={`${d.totals.salePerCreditEur.toFixed(3)} €`} label="Prix / crédit" hint="palier Pro de base" />
-        <Kpi icon={<Coins className="h-4 w-4" />} value={nf.format(d.totals.credits)} label="Crédits vendus" hint="sur la fenêtre analysée" />
+        <Kpi accent icon={<Wallet className="h-4 w-4" />} value={eur(d.business.mrrEur)} label="CA réel (MRR)" hint="abonnements payants actifs" />
+        <Kpi icon={<TrendingUp className="h-4 w-4" />} value={pct(d.business.businessMarginPct)} label="Marge business" hint={d.business.payingTenants > 0 ? "(MRR − coût client) / MRR" : "aucun client payant"} />
+        <Kpi icon={<Coins className="h-4 w-4" />} value={eur(d.business.clientConsumedValueEur)} label="Valeur consommée client" hint="théorique, si facturée au tarif Pro" />
+        <Kpi icon={<Users className="h-4 w-4" />} value={nf.format(d.business.payingTenants)} label="Clients payants" hint="abonnements Pro actifs" />
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card className="p-5"><BlockTitle icon={<Wallet className="h-4 w-4" />}>Revenu estimé par jour</BlockTitle><AreaChart data={revByDay(d)} format={eur} color="#EC4899" empty="Aucun crédit consommé." /></Card>
+        <Card className="p-5"><BlockTitle icon={<Wallet className="h-4 w-4" />}>Valeur consommée / jour (théorique)</BlockTitle><AreaChart data={valueByDay(d)} format={eur} color="#EC4899" empty="Aucun crédit consommé." /></Card>
         <Card className="p-5"><BlockTitle icon={<Layers className="h-4 w-4" />}>Répartition des abonnements</BlockTitle><Donut data={d.plans.map((p) => ({ label: p.key, value: p.count }))} empty="Aucun abonnement payant." /></Card>
       </div>
       <Card className="p-5"><BlockTitle icon={<Users className="h-4 w-4" />}>Payé &amp; crédits par taille d&apos;entreprise</BlockTitle><CompanySizeTable rows={d.byCompanySize} /></Card>
@@ -210,12 +218,12 @@ function Usage({ d }: { d: Stats }) {
   return (
     <div className="space-y-6">
       <div className={GRID4}>
-        <Kpi icon={<Coins className="h-4 w-4" />} value={usd(d.totals.costUsd)} label="Coût API (USD)" hint={`${d.totals.calls} appels`} />
-        <Kpi icon={<Wallet className="h-4 w-4" />} value={eur(d.totals.costEur)} label="Coût API (EUR)" hint="conversion 0,92" />
-        <Kpi icon={<Cpu className="h-4 w-4" />} value={tok(d.totals.inputTokens)} label="Tokens entrée" />
-        <Kpi icon={<Cpu className="h-4 w-4" />} value={tok(d.totals.outputTokens)} label="Tokens sortie" />
+        <Kpi icon={<Coins className="h-4 w-4" />} value={usd(d.totals.costUsd)} label="Coût API (estimé)" hint={`${d.totals.calls} appels · ${eur(d.totals.costEur)}`} />
+        <Kpi icon={<Users className="h-4 w-4" />} value={usd(d.business.clientCostUsd)} label="dont clients" hint={eur(d.business.clientCostEur)} />
+        <Kpi icon={<Cpu className="h-4 w-4" />} value={usd(d.internal.costUsd)} label="dont tests internes" hint={`${nf.format(d.internal.calls)} appels · ${eur(d.internal.costEur)}`} />
+        <Kpi icon={<Cpu className="h-4 w-4" />} value={`${tok(d.totals.inputTokens)} / ${tok(d.totals.outputTokens)}`} label="Tokens in / out" />
       </div>
-      <Card className="p-5"><BlockTitle icon={<Coins className="h-4 w-4" />}>Coût API par jour</BlockTitle><AreaChart data={costByDay(d)} format={usd} color="#7C3AED" height={200} empty="Aucune activité facturée." /></Card>
+      <Card className="p-5"><BlockTitle icon={<Coins className="h-4 w-4" />}>Coût API par jour (tout compris)</BlockTitle><AreaChart data={costByDay(d)} format={usd} color="#7C3AED" height={200} empty="Aucune activité facturée." /></Card>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card className="p-5"><BlockTitle icon={<Cpu className="h-4 w-4" />}>Coût par modèle</BlockTitle><BarList rows={modelRows} format={usd} empty="Aucun appel modèle." /></Card>
         <Card className="p-5"><BlockTitle icon={<Wrench className="h-4 w-4" />}>Coût par tâche</BlockTitle><BarList rows={actionRows} format={usd} empty="Aucune tâche facturée." /></Card>
@@ -229,7 +237,7 @@ function Clients({ d }: { d: Stats }) {
   return (
     <div className="space-y-6">
       <div className={GRID4}>
-        <Kpi icon={<Users className="h-4 w-4" />} value={nf.format(d.product.users)} label="Comptes" />
+        <Kpi icon={<Users className="h-4 w-4" />} value={nf.format(d.product.clientUsers)} label="Clients" hint="hors comptes de test" />
         <Kpi icon={<Building2 className="h-4 w-4" />} value={nf.format(d.product.tenants)} label="Espaces" />
         <Kpi icon={<Rocket className="h-4 w-4" />} value={pct(d.activation.activationRatePct)} label="Activation" hint={`${d.activation.activatedUsers}/${d.activation.totalUsers} ont créé`} />
         <Kpi icon={<Timer className="h-4 w-4" />} value={dur(d.activation.ttfvMedianHours)} label="Time-to-value" hint="inscription → 1ʳᵉ app" />
@@ -439,7 +447,9 @@ export default function AdminDashboard({ email }: { email: string }) {
           )}
 
           <p className="mt-8 text-center text-[11px] text-[#B4B4BE]">
-            Données réelles calculées sur la base ({data ? `${usd(data.totals.costUsd)} de coût sur ${data.totals.calls} appels` : "…"}). Revenu et marge estimés au tarif Pro de base. Optimisé pour desktop.
+            {data
+              ? `Toutes les lignes agrégées (${usd(data.totals.costUsd)} de coût API estimé sur ${data.totals.calls} appels, dont ${data.meta.founderAccounts} compte(s) de test isolé(s)). CA = abonnements payants réels ; « valeur consommée » = théorique. Coût API estimé (calcul interne, peut différer légèrement de la facture fournisseur : tarif intro Sonnet, cache). Optimisé pour desktop.`
+              : "…"}
           </p>
         </div>
       </main>

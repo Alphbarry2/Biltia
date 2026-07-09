@@ -18,6 +18,17 @@ export type UserPreferences = {
   ai_notifications: boolean;
   /** Ton des libellés et messages produits. */
   tone: Tone;
+  /**
+   * Type de travail principal (ACTIVITY_TYPES : neuf, réno, dépannage…).
+   * Contexte MÉTIER (pas un réglage de style) : injecté dans buildKnowledgeBlock,
+   * pas dans buildPreferencesBlock. Renseigné à l'onboarding.
+   */
+  activity_type?: string | null;
+  /**
+   * Précision libre du métier (« électricien spécialisé bornes de recharge »).
+   * Contexte MÉTIER : rattrape ce que la famille ne dit pas (surtout « Autre »).
+   */
+  sector_detail?: string | null;
 };
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
@@ -26,6 +37,8 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   prefer_app: false,
   ai_notifications: true,
   tone: "pro",
+  activity_type: null,
+  sector_detail: null,
 };
 
 /** Coerce une valeur jsonb inconnue (ou une colonne absente) vers des préférences sûres. */
@@ -37,6 +50,8 @@ export function normalizePreferences(raw: unknown): UserPreferences {
     prefer_app: p.prefer_app === true,
     ai_notifications: p.ai_notifications !== false, // défaut activé
     tone: p.tone === "friendly" || p.tone === "concise" ? p.tone : "pro",
+    activity_type: typeof p.activity_type === "string" && p.activity_type ? p.activity_type : null,
+    sector_detail: typeof p.sector_detail === "string" && p.sector_detail.trim() ? p.sector_detail.trim() : null,
   };
 }
 

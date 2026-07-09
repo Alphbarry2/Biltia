@@ -26,6 +26,7 @@ import { enforceRateLimit, LIMITS } from "@/lib/rate-limit";
 import { getEntitlementsForTenant, FROZEN_MESSAGE } from "@/lib/entitlements";
 import { isFounderEmail } from "@/lib/founder";
 import { ENTITIES, ALLOWED_ENTITIES } from "@/lib/data-entities";
+import { listAppCollections, listAppRecords } from "@/lib/app-records";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const client = new Anthropic();
@@ -59,6 +60,36 @@ const QUERY_TOOL: Anthropic.Tool = {
     additionalProperties: false,
   },
 };
+
+// ── Lecture des données d'apps hors entités standard (collections libres) ──────
+const APP_COLLECTIONS_TOOL: Anthropic.Tool = {
+  name: "app_collections",
+  description:
+    "Liste les COLLECTIONS de données créées par les applications de l'utilisateur (données hors entités workspace standard) : chaque nom + son nombre de fiches. Appelle-le AVANT de conclure « je n'ai pas cette donnée » : elle est peut-être dans une collection d'app.",
+  input_schema: { type: "object", properties: {}, additionalProperties: false },
+};
+
+const APP_DATA_TOOL: Anthropic.Tool = {
+  name: "app_data_list",
+  description:
+    "Lit les fiches d'une collection d'app (nom exact via app_collections). `match` filtre par égalité sur les champs. Lecture seule.",
+  input_schema: {
+    type: "object",
+    properties: {
+      collection: { type: "string", description: "Nom exact de la collection (voir app_collections)." },
+      match: {
+        type: "object",
+        description: "Filtres d'égalité optionnels (ex : { statut: \"en_retard\" }).",
+        additionalProperties: true,
+      },
+      limit: { type: "number", description: "Nombre max de fiches (défaut 50, max 200)." },
+    },
+    required: ["collection"],
+    additionalProperties: false,
+  },
+};
+
+const ASK_TOOLS: Anthropic.Tool[] = [QUERY_TOOL, APP_COLLECTIONS_TOOL, APP_DATA_TOOL];
 
 type QueryArgs = {
   entity?: string;
@@ -118,6 +149,8 @@ Aujourd'hui = ${today}.
 
 Entités disponibles :
 ${entityList}
+
+Certaines apps stockent aussi des données dans des COLLECTIONS libres (hors de ces entités). Si la question peut les concerner, ou si l'entité standard ne contient rien, appelle \`app_collections\` (inventaire) puis \`app_data_list(collection)\`. Ne conclus « je n'ai pas cette donnée » qu'APRÈS avoir vérifié les entités ET les collections d'app.
 
 ## 2. Questions de NORME BTP
 Ex : « épaisseur minimum d'une chape ? », « section de câble ? », « taux de TVA en rénovation ? ».
@@ -193,7 +226,9 @@ export async function POST(req: Request) {
     // Pré-autorisation (hold), réconciliée au coût réel après la réponse.
     // Compte fondateur : jamais de hold ni de débit (usage journalisé quand même).
     const founder = isFounderEmail(user.email);
-    const HOLD = founder ? 0 : 15;
+    // Pré-autorisation basse : une question coûte réellement ~1 à 10 crédits
+    // (réconcilié au coût réel après la réponse). On ne « réserve » pas 15.
+    const HOLD = founder ? 0 : 5;
     if (HOLD > 0) {
       const { data: credited } = await supabase.rpc("deduct_credits", { p_amount: HOLD });
       if (!credited) {
@@ -247,6 +282,7 @@ export async function POST(req: Request) {
         inputTokens: route.usage.inputTokens,
         outputTokens: route.usage.outputTokens,
         sector: sector ?? undefined,
+        internal: true, // routage : coût réel journalisé, pas de plancher 5cr
       }).catch(() => {});
     }
     const cat = route.agent !== "generalist" ? getCategory(route.agent) : undefined;
@@ -270,7 +306,7 @@ export async function POST(req: Request) {
           model: MODEL,
           max_tokens: MAX_TOKENS,
           system,
-          tools: [QUERY_TOOL],
+          tools: ASK_TOOLS,
           messages,
         });
         inTok += message.usage.input_tokens;
@@ -296,9 +332,21 @@ export async function POST(req: Request) {
 
         const results: Anthropic.ToolResultBlockParam[] = [];
         for (const tu of toolUses) {
-          const args = (tu.input ?? {}) as QueryArgs;
-          if (args.entity) queried.add(args.entity);
-          const result = await runQuery(supabase, tenantId, args);
+          let result: Record<string, unknown>;
+          if (tu.name === "app_collections") {
+            const collections = await listAppCollections(supabase, tenantId);
+            result = { count: collections.length, collections };
+          } else if (tu.name === "app_data_list") {
+            const a = (tu.input ?? {}) as { collection?: string; match?: Record<string, unknown>; limit?: number };
+            result = (await listAppRecords(supabase, tenantId, a.collection ?? "", {
+              match: a.match,
+              limit: a.limit,
+            })) as Record<string, unknown>;
+          } else {
+            const args = (tu.input ?? {}) as QueryArgs;
+            if (args.entity) queried.add(args.entity);
+            result = await runQuery(supabase, tenantId, args);
+          }
           results.push({
             type: "tool_result",
             tool_use_id: tu.id,

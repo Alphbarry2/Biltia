@@ -20,7 +20,7 @@
  *
  *  v3 : appels via postMessage → parent (localhost:3000) plutôt que fetch direct
  *  depuis l'iframe srcdoc (origin: null → CORS bloqué). */
-const SDK_MARKER = "__biltia_sdk_v6__";
+const SDK_MARKER = "__biltia_sdk_v9__";
 
 export const BILTIA_SDK_SCRIPT = `<script>
 /* ${SDK_MARKER} */
@@ -85,6 +85,10 @@ export const BILTIA_SDK_SCRIPT = `<script>
     list: function(entity, opts){ return call(Object.assign({ entity: entity, action: 'list' }, opts || {})).then(function(r){ return r.data || []; }); },
     get: function(entity, id){ return call({ entity: entity, action: 'get', id: id }).then(function(r){ return r.data; }); },
     create: function(entity, values){ return call({ entity: entity, action: 'create', values: values }).then(function(r){ return r.data; }); },
+    /* Insertion en masse : cree PLUSIEURS lignes d'un coup (ex: les lignes d'un
+       devis). rows = tableau d'objets. Resout { ok, inserted }. Bien plus rapide
+       et fiable qu'une boucle de create() pour des lots (lignes de devis/facture). */
+    bulkCreate: function(entity, rows){ return call({ entity: entity, action: 'bulk_create', rows: Array.isArray(rows) ? rows : [] }).then(function(r){ return r || {}; }); },
     update: function(entity, id, values){ return call({ entity: entity, action: 'update', id: id, values: values }).then(function(r){ return r.data; }); },
     remove: function(entity, id){ return call({ entity: entity, action: 'delete', id: id }).then(function(r){ return r.ok; }); },
     notify: function(msg){ toast(String(msg || ''), 'success'); },
@@ -120,6 +124,49 @@ export const BILTIA_SDK_SCRIPT = `<script>
         fields: opts.fields || opts.champs || null,
         question: opts.question || opts.instructions || '' })
         .then(function(r){ return r || {}; });
+    },
+    /* IA VOIX → DEVIS : transcrit une dictee qui peut contenir PLUSIEURS devis
+       ("je fais 3 devis : pour le client Martin, renovation SdB, depose 400 pose
+       carrelage 1200 ; pour Durand ...") et renvoie un TABLEAU de devis structures :
+       { text, devis:[{ client_nom, chantier_nom, date_devis, lignes:[{designation,
+       quantite, unite, prix_unitaire_ht, taux_tva}], notes }] }. L'app affiche
+       chaque devis en carte editable AVANT enregistrement. ~30 credits. */
+    parseDevis: function(audioDataUrl){
+      var au = String(audioDataUrl || '');
+      if (au.indexOf('data:') !== 0 || au.indexOf(';base64,') < 0) {
+        return Promise.reject(new Error('biltia.parseDevis attend un audio (dataURL base64).'));
+      }
+      var mt = au.slice(5, au.indexOf(';base64,'));
+      var d = au.slice(au.indexOf(';base64,') + 8);
+      return call({ __endpoint: 'app-ai', action: 'parse_devis', audio: { mediaType: mt, data: d } })
+        .then(function(r){ return r || {}; });
+    },
+    /* EMAIL : envoie un email au nom de l'entreprise. Utilise le Gmail connecté
+       de l'utilisateur si dispo (les réponses lui reviennent), sinon l'envoi
+       Biltia. Ex : await biltia.sendEmail({ to:'client@ex.fr', subject:'Votre devis',
+       body:'Bonjour, veuillez trouver...' }). Résout { ok, via, note } ; rejette
+       (toast) si aucun canal ou destinataire manquant. */
+    sendEmail: function(opts){
+      opts = opts || {};
+      var to = Array.isArray(opts.to) ? opts.to : (opts.to ? [opts.to] : []);
+      return call({ __endpoint: 'email',
+        to: to,
+        subject: String(opts.subject || opts.objet || ''),
+        body: String(opts.body || opts.corps || opts.text || opts.message || '') })
+        .then(function(r){ return r || {}; });
+    },
+    /* SMS : envoie un SMS court au nom de l'entreprise (relance, confirmation de
+       RDV…). Idéal quand le client ne lit pas ses mails. Numéros au format +33…
+       Ex : await biltia.sendSms({ to:'+33612345678', body:'Rappel : RDV demain 9h' }).
+       Résout { ok, sent, failed } ; rejette (toast) si SMS non configuré ou numéro
+       invalide. */
+    sendSms: function(opts){
+      opts = opts || {};
+      var to = Array.isArray(opts.to) ? opts.to : (opts.to ? [opts.to] : []);
+      return call({ __endpoint: 'sms',
+        to: to,
+        body: String(opts.body || opts.message || opts.text || opts.corps || '') })
+        .then(function(r){ return r || {}; });
     }
   };
 })();
@@ -143,6 +190,15 @@ export function injectBiltiaSDK(html: string): string {
   }
   if (html.includes("__biltia_sdk_v5__")) {
     return html.replace(/<script>\s*\/\* __biltia_sdk_v5__ \*\/[\s\S]*?<\/script>/, BILTIA_SDK_SCRIPT);
+  }
+  if (html.includes("__biltia_sdk_v6__")) {
+    return html.replace(/<script>\s*\/\* __biltia_sdk_v6__ \*\/[\s\S]*?<\/script>/, BILTIA_SDK_SCRIPT);
+  }
+  if (html.includes("__biltia_sdk_v7__")) {
+    return html.replace(/<script>\s*\/\* __biltia_sdk_v7__ \*\/[\s\S]*?<\/script>/, BILTIA_SDK_SCRIPT);
+  }
+  if (html.includes("__biltia_sdk_v8__")) {
+    return html.replace(/<script>\s*\/\* __biltia_sdk_v8__ \*\/[\s\S]*?<\/script>/, BILTIA_SDK_SCRIPT);
   }
   if (/<head[^>]*>/i.test(html)) {
     return html.replace(/<head[^>]*>/i, (m) => m + "\n" + BILTIA_SDK_SCRIPT);

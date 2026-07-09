@@ -9,6 +9,7 @@ import { can } from "@/lib/permissions";
 import { SubscriptionBanner } from "@/components/subscription-banner";
 import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 import { BiltiaLogo } from "@/components/brand";
+import { CreditPacksDialog } from "@/components/credit-packs";
 import {
   Home,
   Boxes,
@@ -21,7 +22,7 @@ import {
   Zap,
   Menu,
   X,
-  ChevronRight,
+  Plus,
   PanelLeftClose,
   PanelLeftOpen,
   Sparkles,
@@ -39,6 +40,7 @@ function Sidebar({
   const pathname = usePathname();
   const router = useRouter();
   const [credits, setCredits] = useState<number | null>(null);
+  const [packsOpen, setPacksOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [userName, setUserName] = useState("");
   const [isPaid, setIsPaid] = useState(false);
@@ -55,11 +57,12 @@ function Sidebar({
       setUserName(name);
       supabase
         .from("user_credits")
-        .select("balance")
+        .select("balance, topup_balance")
         .eq("user_id", user.id)
         .single()
         .then(({ data }) => {
-          if (data) setCredits(data.balance);
+          // Solde total = abonnement (balance) + packs (topup_balance, non expirable).
+          if (data) setCredits((data.balance ?? 0) + (data.topup_balance ?? 0));
         });
 
       // Abonnement actif ? → masque le CTA « Passer à Pro ».
@@ -178,28 +181,36 @@ function Sidebar({
       {/* Credits */}
       <div className="px-2.5 pb-3">
         {collapsed ? (
-          <Link
-            href="/settings"
-            title={credits !== null ? `${credits} crédits` : "Crédits"}
-            className="flex items-center justify-center py-2.5 rounded-xl hover:bg-black/[0.04] transition-colors"
+          <button
+            type="button"
+            onClick={() => setPacksOpen(true)}
+            title={credits !== null ? `${credits} crédits · Recharger` : "Recharger"}
+            className="flex w-full items-center justify-center py-2.5 rounded-xl hover:bg-black/[0.04] transition-colors"
           >
             <Zap className="w-4 h-4 text-[#7C3AED]" />
-          </Link>
+          </button>
         ) : (
-          <div className="flex items-center gap-2 px-3 py-2.5 bg-white border border-[#E7E7E4] rounded-xl">
-            <Zap className="w-3.5 h-3.5 text-[#7C3AED] flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-xs text-[#0A0A0A] font-semibold tabular-nums">
-                {credits !== null ? `${credits} crédits` : "…"}
-              </p>
-              <p className="text-[10px] text-[#9A9A97]">Solde disponible</p>
+          <div className="overflow-hidden rounded-xl border border-[#E7E7E4] bg-white">
+            <div className="flex items-center gap-2 px-3 py-2.5">
+              <Zap className="w-3.5 h-3.5 text-[#7C3AED] flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-[#0A0A0A] font-semibold tabular-nums">
+                  {credits !== null ? `${credits.toLocaleString("fr-FR")} crédits` : "…"}
+                </p>
+                <p className="text-[10px] text-[#9A9A97]">Solde disponible</p>
+              </div>
             </div>
-            <Link href="/settings" className="text-[#9A9A97] hover:text-[#0A0A0A] transition-colors">
-              <ChevronRight className="w-3.5 h-3.5" />
-            </Link>
+            <button
+              type="button"
+              onClick={() => setPacksOpen(true)}
+              className="flex w-full items-center justify-center gap-1.5 border-t border-[#EDEDE9] py-2 text-[12px] font-semibold text-[#7C3AED] transition-colors hover:bg-[#F7F4FD]"
+            >
+              <Plus className="w-3.5 h-3.5" strokeWidth={2.5} /> Recharger
+            </button>
           </div>
         )}
       </div>
+      <CreditPacksDialog open={packsOpen} onClose={() => setPacksOpen(false)} />
 
       {/* User */}
       <div className="px-2.5 pb-4 border-t border-[#EDEDE9] pt-3 flex-shrink-0">

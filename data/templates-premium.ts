@@ -290,85 +290,70 @@ const st = shell(
 </div>`
 );
 
-/* ===================== 6. TABLEAU DE BORD · COCKPIT ===================== */
-const tb = shell(
-  "Tableau de bord",
+/* ===================== 7. ÉQUIPES & TÂCHES · KANBAN ===================== */
+const taches = shell(
+  "Équipes & tâches",
   `${acc("#6366F1", "#8B5CF6")}
-.hero{position:relative;overflow:hidden;border-radius:22px;padding:30px 32px;color:#fff;background:linear-gradient(140deg,#0C0C15,#16161F 55%,#0C0C15);box-shadow:0 24px 60px rgba(10,10,22,.30);margin-top:20px}
-.hero::before{content:'';position:absolute;inset:0;background:radial-gradient(60% 130% at 100% 0%,rgba(139,92,246,.55),transparent 58%),radial-gradient(50% 120% at 0% 100%,rgba(99,102,241,.4),transparent 55%)}
-.hero>*{position:relative}
-.hnum{font-family:'Clash Display',sans-serif;font-weight:600;font-size:58px;line-height:1;letter-spacing:-.035em}
-.hlab{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
-.seg{display:flex;height:11px;border-radius:7px;overflow:hidden;background:rgba(255,255,255,.1);margin-top:24px}
-.seg>span{height:100%;transform-origin:left}
-.leg{display:flex;flex-wrap:wrap;gap:16px;margin-top:12px}
-.leg span{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:rgba(255,255,255,.72)}
-.leg i{width:8px;height:8px;border-radius:3px}
-.chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:7px 12px;border-radius:9999px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.16)}
-.ring{position:relative;width:96px;height:96px}
-.ring .t{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
-.ins{display:flex;gap:12px;align-items:center;padding:14px 16px;background:#fff;border:1px solid var(--line);border-left:3px solid var(--a1);border-radius:0 12px 12px 0}
-.ins-i{width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex-shrink:0}
-.panel{background:#fff;border:1px solid var(--line);border-radius:18px;padding:20px 22px;box-shadow:0 1px 2px rgba(16,24,40,.05)}
-.cols{display:grid;grid-template-columns:1.5fr 1fr;gap:16px;margin-top:14px}
-.bars{display:flex;align-items:flex-end;gap:14px;height:140px;padding-top:8px}
-.bcol{flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;height:100%;justify-content:flex-end}
-.bar{width:58%;border-radius:6px 6px 0 0;transform-origin:bottom;animation:gy 1s cubic-bezier(.16,1,.3,1) both}
-@keyframes gy{from{transform:scaleY(0)}}
-.crow{display:flex;align-items:center;gap:14px;padding:14px 2px;border-bottom:1px solid var(--line2)}
-.crow:last-child{border-bottom:none}
-.uline{height:3px;border-radius:2px;margin-top:8px}
-.amt{font-family:'Clash Display',sans-serif;font-weight:600;font-size:16px}
-@media(max-width:820px){.cols{grid-template-columns:1fr}}
-@media(max-width:560px){.hero{padding:22px 18px}.hnum{font-size:38px}.ring{width:78px;height:78px}.crow{flex-wrap:wrap;gap:6px 10px}.crow>div:last-child{margin-left:auto}.bars{height:120px}}`,
-  `<div class="bar"><div class="bar-l"><span class="logo">B</span><span class="bar-t">Tableau de bord</span></div><span class="pill p-indigo">Juillet 2026</span></div>
+.board{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;align-items:start;margin-top:20px}
+.col{background:#F5F5F8;border:1px solid var(--line);border-radius:18px;padding:12px 12px 4px}
+.col-h{display:flex;align-items:center;gap:8px;padding:6px 6px 12px}
+.col-dot{width:9px;height:9px;border-radius:50%}
+.col-h b{font-size:13px;font-weight:600;flex:1}
+.count{font-size:11px;font-weight:700;color:var(--mut);background:#fff;border:1px solid var(--line);border-radius:9999px;padding:2px 9px}
+.kc{background:#fff;border:1px solid var(--line);border-radius:14px;padding:13px 14px;box-shadow:0 1px 2px rgba(16,24,40,.05);margin-bottom:10px}
+.kc-t{font-weight:600;font-size:14px;line-height:1.4}
+.tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+.tag{font-size:11px;font-weight:700;padding:3px 9px;border-radius:9999px;background:#F4F4F5;color:#52525B}
+.kc-meta{display:flex;align-items:center;gap:7px;margin-top:11px}
+@media(max-width:820px){.board{grid-template-columns:1fr}}`,
+  `<div class="bar"><div class="bar-l"><span class="logo">B</span><span class="bar-t">Équipes &amp; tâches</span></div><button class="btn">+ Nouvelle tâche</button></div>
 <div class="wrap">
-  <div class="hero anim">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:24px;flex-wrap:wrap">
-      <div>
-        <div class="hlab" style="color:#FB7185;display:flex;align-items:center;gap:8px"><i style="width:8px;height:8px;border-radius:50%;background:#FB7185;display:inline-block"></i>Cash bloqué chez vos clients</div>
-        <div class="hnum" style="margin:14px 0 8px"><span data-to="228900" data-group data-suf=" €">0</span></div>
-        <div style="color:rgba(255,255,255,.62);font-size:13px">Sur <b style="color:#fff">13 factures</b> · <b style="color:#fff">21 dossiers</b> prioritaires</div>
-      </div>
-      <div style="display:flex;align-items:center;gap:14px">
-        <div class="ring"><svg width="96" height="96" viewBox="0 0 96 96"><circle cx="48" cy="48" r="40" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="9"/><circle cx="48" cy="48" r="40" fill="none" stroke="#F59E0B" stroke-width="9" stroke-linecap="round" stroke-dasharray="251.3" stroke-dashoffset="158" transform="rotate(-90 48 48)"/></svg><div class="t"><b class="f" style="color:#fff;font-size:22px">37</b><small style="color:rgba(255,255,255,.55);font-size:9px;text-transform:uppercase;letter-spacing:.06em">score</small></div></div>
-        <span class="chip" style="background:rgba(251,113,133,.16);border-color:rgba(251,113,133,.3)">DSO 58 j</span>
-      </div>
-    </div>
-    <div class="seg"><span class="bx" style="width:38%;background:#10B981"></span><span class="bx" style="width:30%;background:#F59E0B;--d:.1s"></span><span class="bx" style="width:20%;background:#F97316;--d:.2s"></span><span class="bx" style="width:12%;background:#EF4444;--d:.3s"></span></div>
-    <div class="leg"><span><i style="background:#10B981"></i>0 à 30 j · 87 k€</span><span><i style="background:#F59E0B"></i>30 à 60 j · 69 k€</span><span><i style="background:#F97316"></i>60 à 90 j · 46 k€</span><span><i style="background:#EF4444"></i>90 j et + · 27 k€</span></div>
+  <div class="statline anim">
+    <div class="stat"><div class="k"><span data-to="7">0</span></div><div class="l">Tâches ouvertes</div></div>
+    <div class="stat"><div class="k" style="color:#E11D48"><span data-to="2">0</span></div><div class="l">Prioritaires</div></div>
+    <div class="stat"><div class="k"><span data-to="12">0</span></div><div class="l">Terminées</div></div>
+    <div class="stat"><div class="k"><span data-to="5">0</span></div><div class="l">Équipiers</div></div>
   </div>
-
-  <div style="display:grid;gap:10px;margin-top:14px">
-    <div class="ins anim" style="--d:.05s;border-left-color:#F59E0B"><div class="ins-i" style="background:#FFF7ED;color:#C2410C">!</div><div><b>5 clients représentent 69%</b> de votre cash bloqué.</div></div>
-    <div class="ins anim" style="--d:.1s;border-left-color:#10B981"><div class="ins-i" style="background:#ECFDF5;color:#059669">✓</div><div>Votre <b>DSO s'améliore de 8 jours</b> sur 3 mois.</div></div>
-  </div>
-
-  <div class="cols">
-    <div class="panel anim" style="--d:.12s">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><b style="font-size:14px">Santé d'encaissement</b><span class="muted">6 mois</span></div>
-      <svg viewBox="0 0 440 160" width="100%" height="160"><g stroke="#F1F1F6" stroke-width="1"><line x1="0" y1="30" x2="440" y2="30"/><line x1="0" y1="75" x2="440" y2="75"/><line x1="0" y1="120" x2="440" y2="120"/></g><defs><linearGradient id="la" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8B5CF6" stop-opacity=".25"/><stop offset="1" stop-color="#8B5CF6" stop-opacity="0"/></linearGradient></defs><path d="M0,40 L88,40 L176,46 L264,110 L352,138 L440,110 L440,160 L0,160 Z" fill="url(#la)"/><path d="M0,40 L88,40 L176,46 L264,110 L352,138 L440,110" fill="none" stroke="#8B5CF6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="352" cy="138" r="4" fill="#EF4444"/><circle cx="440" cy="110" r="4.5" fill="#fff" stroke="#8B5CF6" stroke-width="2.5"/></svg>
-      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--mut2);margin-top:6px"><span>Fév</span><span>Mars</span><span>Avr</span><span>Mai</span><span>Juin</span><span>Juil</span></div>
-    </div>
-    <div class="panel anim" style="--d:.18s">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><b style="font-size:14px">Encaissé par mois</b><span class="muted">k€</span></div>
-      <div class="bars">
-        <div class="bcol"><div class="bar" style="height:44%;background:#C4B5FD"></div><span class="muted" style="font-size:11px">Fév</span></div>
-        <div class="bcol"><div class="bar" style="height:58%;background:#C4B5FD;animation-delay:.08s"></div><span class="muted" style="font-size:11px">Mars</span></div>
-        <div class="bcol"><div class="bar" style="height:52%;background:#C4B5FD;animation-delay:.16s"></div><span class="muted" style="font-size:11px">Avr</span></div>
-        <div class="bcol"><div class="bar" style="height:74%;background:#A78BFA;animation-delay:.24s"></div><span class="muted" style="font-size:11px">Mai</span></div>
-        <div class="bcol"><div class="bar" style="height:88%;background:#8B5CF6;animation-delay:.32s"></div><span class="muted" style="font-size:11px">Juin</span></div>
-        <div class="bcol"><div class="bar" style="height:100%;background:#8B5CF6;animation-delay:.4s"></div><span class="muted" style="font-size:11px">Juil</span></div>
+  <div class="board">
+    <div class="col anim" style="--d:.05s">
+      <div class="col-h"><span class="col-dot" style="background:#F59E0B"></span><b>À faire</b><span class="count">3</span></div>
+      <div class="kc" style="border-left:3px solid #EF4444">
+        <div class="kc-t">Poser le carrelage salle de bain</div>
+        <div class="tags"><span class="tag" style="background:#FEF2F2;color:#E11D48">Haute</span><span class="tag">Villa Amrani</span><span class="tag">📅 12/04</span></div>
+        <div class="kc-meta"><span class="avatar" style="background:#6366F1;width:26px;height:26px">MA</span><span class="muted">Mohammed A.</span></div>
+      </div>
+      <div class="kc">
+        <div class="kc-t">Commander la robinetterie</div>
+        <div class="tags"><span class="tag" style="background:#EFF6FF;color:#2563EB">Normale</span><span class="tag">Résidence Les Pins</span></div>
+        <div class="kc-meta"><span class="avatar" style="background:#EC4899;width:26px;height:26px">SM</span><span class="muted">Sofia M.</span></div>
       </div>
     </div>
-  </div>
-
-  <div class="panel anim" style="--d:.2s;margin-top:14px">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b style="font-size:14px">Clients qui bloquent votre cash</b><span class="link" style="color:var(--a1);font-size:12px;font-weight:600">Tous les clients →</span></div>
-    <div class="crow"><span class="avatar" style="background:#E11D5B">IG</span><div style="flex:1;min-width:0"><div style="font-weight:600">Industria Group</div><div class="muted">3 factures · 48 j de retard</div><div class="uline" style="width:70%;background:#EF4444"></div></div><span class="pill p-amber">Silence relance</span><div style="text-align:right;width:150px"><div class="amt">77 700 €</div><div class="muted" style="color:var(--a1)">Escalade →</div></div></div>
-    <div class="crow"><span class="avatar" style="background:#6366F1">VP</span><div style="flex:1;min-width:0"><div style="font-weight:600">Vertex Pharma</div><div class="muted">1 facture · 58 j de retard</div><div class="uline" style="width:52%;background:#F97316"></div></div><span class="pill p-amber">Retard</span><div style="text-align:right;width:150px"><div class="amt">57 400 €</div><div class="muted" style="color:var(--a1)">Relancer →</div></div></div>
-    <div class="crow"><span class="avatar" style="background:#0EA5E9">OC</span><div style="flex:1;min-width:0"><div style="font-weight:600">Optima Conseil</div><div class="muted">1 facture · 45 j de retard</div><div class="uline" style="width:34%;background:#F59E0B"></div></div><span class="pill p-amber">Retard</span><div style="text-align:right;width:150px"><div class="amt">27 200 €</div><div class="muted" style="color:var(--a1)">Relancer →</div></div></div>
-    <div class="crow"><span class="avatar" style="background:#10B981">SE</span><div style="flex:1;min-width:0"><div style="font-weight:600">Solis Énergie</div><div class="muted">2 factures · 17 j de retard</div><div class="uline" style="width:22%;background:#10B981"></div></div><span class="pill p-blue">Simple</span><div style="text-align:right;width:150px"><div class="amt">22 600 €</div><div class="muted" style="color:var(--a1)">Relancer →</div></div></div>
+    <div class="col anim" style="--d:.12s">
+      <div class="col-h"><span class="col-dot" style="background:#6366F1"></span><b>En cours</b><span class="count">2</span></div>
+      <div class="kc" style="border-left:3px solid #EF4444">
+        <div class="kc-t">Tirage des gaines électriques</div>
+        <div class="tags"><span class="tag" style="background:#FEF2F2;color:#E11D48">Haute</span><span class="tag">Extension Duval</span></div>
+        <div class="kc-meta"><span class="avatar" style="background:#0EA5E9;width:26px;height:26px">LB</span><span class="muted">Lucas B.</span></div>
+      </div>
+      <div class="kc">
+        <div class="kc-t">Enduit mur nord</div>
+        <div class="tags"><span class="tag" style="background:#EFF6FF;color:#2563EB">Normale</span><span class="tag">École de Montbel</span><span class="tag">📅 15/04</span></div>
+        <div class="kc-meta"><span class="avatar" style="background:#10B981;width:26px;height:26px">AB</span><span class="muted">Ahmed B.</span></div>
+      </div>
+    </div>
+    <div class="col anim" style="--d:.19s">
+      <div class="col-h"><span class="col-dot" style="background:#10B981"></span><b>Terminé</b><span class="count">2</span></div>
+      <div class="kc">
+        <div class="kc-t">Terrassement et fondations</div>
+        <div class="tags"><span class="tag">Villa Amrani</span></div>
+        <div class="kc-meta"><span class="avatar" style="background:#F59E0B;width:26px;height:26px">KB</span><span class="muted">Karim B.</span></div>
+      </div>
+      <div class="kc">
+        <div class="kc-t">Dépose ancienne salle de bain</div>
+        <div class="tags"><span class="tag">Résidence Les Pins</span></div>
+        <div class="kc-meta"><span class="avatar" style="background:#6366F1;width:26px;height:26px">MA</span><span class="muted">Mohammed A.</span></div>
+      </div>
+    </div>
   </div>
 </div>`
 );
@@ -379,5 +364,5 @@ export const PREMIUM_APPS: TemplateApp[] = [
   { id: "planning_chantier", name: "Planning chantier", emoji: "📅", category: "Planning", categoryColor: "bg-amber-50 text-amber-600", description: "Calendrier de la semaine : équipes affectées par chantier.", html: planning },
   { id: "pointage_equipes", name: "Pointage des heures", emoji: "⏱️", category: "RH", categoryColor: "bg-sky-50 text-sky-600", description: "Feuille de temps hebdo : heures et heures supp par équipier.", html: pointage },
   { id: "sous_traitants", name: "Sous-traitants", emoji: "🤝", category: "Conformité", categoryColor: "bg-rose-50 text-rose-600", description: "Annuaire de fiches : QUALIBAT, URSSAF, décennale et alertes.", html: st },
-  { id: "tableau_bord", name: "Tableau de bord", emoji: "📊", category: "Pilotage", categoryColor: "bg-violet-50 text-violet-600", description: "Cockpit de direction : cash, encaissement et priorités.", html: tb },
+  { id: "equipes_taches", name: "Équipes & tâches", emoji: "👷", category: "Équipe", categoryColor: "bg-indigo-50 text-indigo-600", description: "Attribuez les tâches à vos équipiers et suivez-les en kanban.", html: taches },
 ];

@@ -21,6 +21,9 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { ENTITIES, ALLOWED_ENTITIES } from "./data-entities";
 import { logActivity } from "./activity";
+import { listAppCollections, listAppRecords } from "./app-records";
+import { sendOutboundEmail } from "./outbound-email";
+import { sendSms } from "./outbound-sms";
 
 // Client base minimal (session RLS ou service_role) — motif lib/activity.ts.
 type MinimalClient = {
@@ -128,6 +131,77 @@ export const WORKSPACE_TOOLS: Anthropic.Tool[] = [
   },
 ];
 
+// Lecture des données d'apps HORS entités standard (collections libres, table
+// app_records). Toujours disponibles : lecture seule, aucun risque. Sans elles,
+// l'agent est aveugle à tout ce que les apps stockent en dehors du registre.
+export const APP_DATA_TOOLS: Anthropic.Tool[] = [
+  {
+    name: "app_collections",
+    description:
+      "Liste les COLLECTIONS de données créées par les applications de l'utilisateur (données hors entités workspace standard) : chaque nom de collection + son nombre de fiches. Appelle-le AVANT de dire « je n'ai pas cette donnée » : elle est peut-être dans une collection d'app.",
+    input_schema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "app_data_list",
+    description:
+      "Lit les fiches d'une collection d'app (nom exact obtenu via app_collections). `match` filtre par égalité sur les champs. Lecture seule.",
+    input_schema: {
+      type: "object",
+      properties: {
+        collection: { type: "string", description: "Nom exact de la collection (voir app_collections)." },
+        match: {
+          type: "object",
+          description: "Filtres d'égalité optionnels champ→valeur (ex : {\"statut\":\"en_retard\"}).",
+          additionalProperties: true,
+        },
+        limit: { type: "integer", description: "Max fiches (défaut 50, max 200)." },
+      },
+      required: ["collection"],
+      additionalProperties: false,
+    },
+  },
+];
+
+// Envoi d'email : les « mains » de l'agent vers l'extérieur. OPT-IN (activé par
+// l'appelant via allowEmail) — le chat lecture seule ne l'a pas par défaut.
+export const SEND_EMAIL_TOOL: Anthropic.Tool = {
+  name: "send_email",
+  description:
+    "Envoie un email AU NOM de l'entreprise. Canal choisi automatiquement : le Gmail connecté de l'utilisateur si disponible (les réponses lui reviennent), sinon l'envoi transactionnel Biltia. N'envoie QUE si la mission le demande explicitement, à des destinataires que tu as identifiés (workspace ou collections d'app). JAMAIS de placeholder ([nom], XXX) : si une donnée manque, n'envoie pas — signale-le.",
+  input_schema: {
+    type: "object",
+    properties: {
+      to: { type: "array", items: { type: "string" }, description: "Adresses email des destinataires." },
+      subject: { type: "string", description: "Objet de l'email." },
+      body: {
+        type: "string",
+        description: "Corps de l'email, prêt à envoyer (français professionnel, signé au nom de l'entreprise).",
+      },
+    },
+    required: ["to", "subject", "body"],
+    additionalProperties: false,
+  },
+};
+
+// Envoi de SMS : relances/confirmations vers les mobiles clients. OPT-IN (allowSms).
+export const SEND_SMS_TOOL: Anthropic.Tool = {
+  name: "send_sms",
+  description:
+    "Envoie un SMS court AU NOM de l'entreprise (relance de facture, confirmation de RDV…). Idéal quand le client ne lit pas ses mails. N'envoie QUE si la mission le demande, à des numéros identifiés (workspace/collections d'app). Numéros au format +33… de préférence. JAMAIS de placeholder : si le numéro ou une donnée manque, n'envoie pas et signale-le.",
+  input_schema: {
+    type: "object",
+    properties: {
+      to: { type: "array", items: { type: "string" }, description: "Numéros des destinataires (ex : +33612345678)." },
+      body: {
+        type: "string",
+        description: "Message court (≤ ~300 caractères conseillé), signé du nom de l'entreprise.",
+      },
+    },
+    required: ["to", "body"],
+    additionalProperties: false,
+  },
+};
+
 /** Bloc système : le catalogue des entités + les règles d'opérateur. */
 export function buildWorkspaceToolsSystem(): string {
   return `# LE WORKSPACE (tu y as accès TOTAL via les outils workspace_*)
@@ -135,10 +209,17 @@ export function buildWorkspaceToolsSystem(): string {
 ## Entités disponibles
 ${entityCatalog()}
 
+## Données d'applications (hors entités standard)
+Certaines apps de l'utilisateur stockent leurs données dans des COLLECTIONS libres
+(hors du catalogue ci-dessus). Pour toute question qui pourrait les concerner :
+appelle d'abord \`app_collections\` (inventaire), puis \`app_data_list(collection)\`
+pour lire. Ne réponds JAMAIS « je n'ai pas cette donnée » sans avoir vérifié les
+collections d'app — la donnée y est peut-être.
+
 ## Règles d'opérateur (ABSOLUES)
 1. RÉSOUDRE AVANT D'AGIR : pour modifier/supprimer, commence par workspace_list (search) pour identifier LA fiche. Tu ne devines JAMAIS un id.
 2. AMBIGUÏTÉ = STOP : plusieurs fiches correspondent → tu ne modifies RIEN, tu listes les candidats dans ta réponse et tu demandes de préciser.
-3. INTROUVABLE = HONNÊTETÉ : la fiche n'existe pas → tu le dis, et tu proposes de la créer si pertinent.
+3. INTROUVABLE = HONNÊTETÉ : la fiche n'existe pas (workspace ET collections d'app vérifiés) → tu le dis, et tu proposes de la créer si pertinent.
 4. Champs : respecte STRICTEMENT les noms et enums du catalogue. Optionnel vide → omets la clé (jamais "").
 5. Relations : un champ *_id se remplit avec l'uuid d'une fiche EXISTANTE (workspace_list pour le trouver). Si la fiche liée n'existe pas, crée-la d'abord.
 6. Suppression : UNE fiche à la fois, identifiée sans ambiguïté.`;
@@ -167,9 +248,15 @@ function rowName(row: Record<string, unknown> | null | undefined): string {
   return typeof n === "string" && n.trim() ? n.trim().slice(0, 60) : "";
 }
 
-export type ToolActor = { tenantId: string; userId?: string | null; label: string };
+export type ToolActor = {
+  tenantId: string;
+  userId?: string | null;
+  label: string;
+  /** Email de l'acteur — reply-to du repli Resend quand l'agent envoie un email. */
+  fromEmail?: string | null;
+};
 
-export type ToolTrace = { action: "create" | "update" | "delete"; description: string };
+export type ToolTrace = { action: "create" | "update" | "delete" | "email" | "sms"; description: string };
 
 /**
  * Exécute un appel d'outil workspace_*. Tenant forcé, colonnes whitelistées.
@@ -294,6 +381,84 @@ export async function runWorkspaceTool(
   }
 }
 
+/**
+ * Dispatcher UNIQUE de tous les outils d'agent : lecture app_records, envoi
+ * d'email, ou opération workspace. Route vers le bon handler. Ne throw jamais
+ * (l'erreur revient AU MODÈLE dans le tool_result).
+ */
+export async function runAgentTool(
+  db: MinimalClient,
+  actor: ToolActor,
+  toolName: string,
+  input: Record<string, unknown>,
+  traces: ToolTrace[]
+): Promise<Record<string, unknown>> {
+  // ── Lecture des collections d'apps (app_records) ──────────────────────────
+  if (toolName === "app_collections") {
+    const collections = await listAppCollections(db, actor.tenantId);
+    return { count: collections.length, collections };
+  }
+  if (toolName === "app_data_list") {
+    const collection = typeof input.collection === "string" ? input.collection : "";
+    const res = await listAppRecords(db, actor.tenantId, collection, {
+      match: (input.match as Record<string, unknown> | undefined) ?? undefined,
+      limit: Number(input.limit) || undefined,
+    });
+    return res as Record<string, unknown>;
+  }
+
+  // ── Envoi d'email (opt-in : le tool n'est proposé que si allowEmail) ──────
+  if (toolName === "send_email") {
+    const to = Array.isArray(input.to) ? input.to.map(String).filter((e) => e.includes("@")) : [];
+    const subject = String(input.subject ?? "").trim().slice(0, 200);
+    const bodyText = String(input.body ?? "").slice(0, 6000);
+    if (!to.length || !subject || !bodyText) {
+      return { error: "Email incomplet : destinataire valide, objet et corps requis." };
+    }
+    const sent = await sendOutboundEmail({
+      tenantId: actor.tenantId,
+      userId: actor.userId ?? null,
+      fromEmail: actor.fromEmail ?? null,
+      to,
+      subject,
+      body: bodyText,
+    });
+    if (!sent.ok) return { error: sent.reason };
+    const desc = `Email « ${subject} » → ${to.join(", ")} (${sent.via})`;
+    traces.push({ action: "email", description: desc });
+    await logActivity(db, {
+      tenantId: actor.tenantId,
+      userId: actor.userId ?? undefined,
+      action: "send",
+      entityType: "email",
+      description: `${actor.label} — ${desc}`,
+    });
+    return { ok: true, via: sent.via, note: sent.note };
+  }
+
+  // ── Envoi de SMS (opt-in : le tool n'est proposé que si allowSms) ─────────
+  if (toolName === "send_sms") {
+    const to = Array.isArray(input.to) ? input.to.map(String).filter(Boolean) : [];
+    const bodyText = String(input.body ?? "").trim();
+    if (!to.length || !bodyText) return { error: "SMS incomplet : au moins un numéro et un message requis." };
+    const sent = await sendSms({ to, body: bodyText });
+    if (!sent.ok) return { error: sent.reason };
+    const desc = `SMS → ${to.join(", ")} (${sent.sent} envoyé${sent.sent > 1 ? "s" : ""}${sent.failed ? `, ${sent.failed} échec` : ""})`;
+    traces.push({ action: "sms", description: desc });
+    await logActivity(db, {
+      tenantId: actor.tenantId,
+      userId: actor.userId ?? undefined,
+      action: "send",
+      entityType: "sms",
+      description: `${actor.label} — ${desc}`,
+    });
+    return { ok: true, sent: sent.sent, failed: sent.failed };
+  }
+
+  // ── Sinon : opération workspace ───────────────────────────────────────────
+  return runWorkspaceTool(db, actor, toolName, input, traces);
+}
+
 // ── Boucle agentique partagée ────────────────────────────────────────────────
 
 export type AgentLoopResult = {
@@ -319,17 +484,34 @@ export async function runAgentLoop(opts: {
   db: MinimalClient;
   actor: ToolActor;
   finishTool?: Anthropic.Tool;
+  /** Expose l'outil send_email (envoi sortant). Opt-in : false par défaut. */
+  allowEmail?: boolean;
+  /** Expose l'outil send_sms (relances/confirmations). Opt-in : false par défaut. */
+  allowSms?: boolean;
   maxIterations?: number;
   maxTokens?: number;
+  /**
+   * FILET DE SÛRETÉ (opt-in) : nombre MAX d'écritures destructrices (suppression
+   * ou mise à jour) autorisées sur un même passage. Au-delà, l'outil n'est PAS
+   * exécuté — le modèle reçoit un signal l'invitant à s'arrêter et à demander
+   * confirmation. Défaut = Infinity : aucun changement pour l'exécuteur d'agents
+   * planifiés (qui doivent pouvoir traiter beaucoup de fiches). Le CHAT « data »
+   * le fixe bas pour qu'un « supprime tous mes clients » ne parte jamais en vrille.
+   */
+  maxDestructiveWrites?: number;
 }): Promise<AgentLoopResult> {
-  const { model, system, userMessage, db, actor, finishTool, maxIterations = 6, maxTokens = 1500 } = opts;
+  const { model, system, userMessage, db, actor, finishTool, allowEmail = false, allowSms = false, maxIterations = 6, maxTokens = 1500, maxDestructiveWrites = Infinity } = opts;
 
   const client = new Anthropic();
-  const tools: Anthropic.Tool[] = finishTool ? [...WORKSPACE_TOOLS, finishTool] : WORKSPACE_TOOLS;
+  const tools: Anthropic.Tool[] = [...WORKSPACE_TOOLS, ...APP_DATA_TOOLS];
+  if (allowEmail) tools.push(SEND_EMAIL_TOOL);
+  if (allowSms) tools.push(SEND_SMS_TOOL);
+  if (finishTool) tools.push(finishTool);
   const messages: Anthropic.MessageParam[] = [{ role: "user", content: userMessage }];
   const traces: ToolTrace[] = [];
   let inputTokens = 0;
   let outputTokens = 0;
+  let destructiveWrites = 0; // suppressions + mises à jour déjà effectuées ce passage
 
   for (let i = 0; i < maxIterations; i++) {
     const msg = await client.messages.create({ model, max_tokens: maxTokens, system, tools, messages });
@@ -360,10 +542,27 @@ export async function runAgentLoop(opts: {
       };
     }
 
-    // Exécute les outils workspace et renvoie les résultats au modèle.
+    // Exécute chaque outil (workspace / app_records / email) et renvoie au modèle.
     const results: Anthropic.ToolResultBlockParam[] = [];
     for (const block of toolBlocks) {
-      const result = await runWorkspaceTool(db, actor, block.name, block.input as Record<string, unknown>, traces);
+      // FILET DE SÛRETÉ : au-delà du plafond d'écritures destructrices (opt-in),
+      // on n'exécute PAS l'opération et on demande au modèle de s'arrêter pour
+      // confirmation. Protège contre un « supprime/passe TOUTES les fiches »
+      // qui enchaînerait les suppressions/écrasements sans validation humaine.
+      const isDestructive = block.name === "workspace_delete" || block.name === "workspace_update";
+      if (isDestructive && destructiveWrites >= maxDestructiveWrites) {
+        results.push({
+          type: "tool_result",
+          tool_use_id: block.id,
+          is_error: true,
+          content: JSON.stringify({
+            error: `Limite de sûreté atteinte : ${destructiveWrites} fiche(s) déjà modifiée(s)/supprimée(s) sur ce passage. STOP. N'exécute AUCUNE autre suppression ou mise à jour. Réponds en indiquant à l'utilisateur ce que tu as fait et combien de fiches restent concernées, et demande-lui une confirmation explicite avant d'aller plus loin.`,
+          }),
+        });
+        continue;
+      }
+      const result = await runAgentTool(db, actor, block.name, block.input as Record<string, unknown>, traces);
+      if (isDestructive && (result as { ok?: boolean }).ok) destructiveWrites++;
       results.push({
         type: "tool_result",
         tool_use_id: block.id,

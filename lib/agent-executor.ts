@@ -22,10 +22,15 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { computeNextRun, type AgentAction, type AgentSchedule } from "./agent-rules";
+import { computeNextRun, type AgentAction, type AgentSchedule, type AgentTrigger } from "./agent-rules";
+import { getEntitlementsForTenant } from "./entitlements";
 import { getWorkspaceContext, buildWorkspaceBlock } from "./workspace-context";
 import { runAgentLoop, buildWorkspaceToolsSystem, type ToolTrace } from "./agent-tools";
-import { sendEmail, hasMailerKey } from "./mailer";
+import { getWatcher, buildFireKey, type WatcherDef, type WatcherMatch } from "./agent-watchers";
+import { readTeamAgenda } from "./gcal";
+import { buildDocumentSystemPrompt, injectDocumentRuntime } from "./document-generator";
+import { sendOutboundEmail, canSendOutbound } from "./outbound-email";
+import { canSendSms } from "./outbound-sms";
 import { sendPushToUser } from "./push";
 import { trackAiUsage } from "./ai-usage";
 import { logActivity } from "./activity";
@@ -53,7 +58,44 @@ export type AgentRuleRow = {
   action: AgentAction;
   status: string;
   next_run_at: string | null;
+  /** 'schedule' (défaut, passage à heure fixe) | 'event' (surveillance d'une condition). */
+  trigger_type?: string | null;
+  /** Config du veilleur si trigger_type='event'. */
+  trigger?: AgentTrigger | null;
+  /** Plafond MENSUEL de crédits (0 = illimité). Atteint → agent en pause. Migration 026. */
+  monthly_credit_budget?: number | null;
+  /** Plafond QUOTIDIEN de crédits (0 = illimité). Atteint → fiches reportées à demain. Migration 026. */
+  daily_credit_budget?: number | null;
 };
+
+/**
+ * Dépense d'un agent (somme des crédits débités par ses passages) sur le mois et
+ * sur la journée en cours. Sert aux garde-fous de budget (levier 1 + 4). Fenêtres
+ * en UTC : suffisant pour un plafond de coût (throttle souple, pas de la compta).
+ */
+async function ruleSpend(
+  admin: SupabaseClient,
+  ruleId: string
+): Promise<{ today: number; month: number }> {
+  const now = new Date();
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+  const dayStart = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+  ).toISOString();
+  const { data } = await admin
+    .from("agent_runs")
+    .select("credits_used, created_at")
+    .eq("rule_id", ruleId)
+    .gte("created_at", monthStart);
+  let today = 0;
+  let month = 0;
+  for (const r of (data ?? []) as { credits_used: number | null; created_at: string }[]) {
+    const c = Number(r.credits_used) || 0;
+    month += c;
+    if (r.created_at >= dayStart) today += c;
+  }
+  return { today, month };
+}
 
 export type RunOutcome = {
   status: "success" | "blocked" | "failed" | "skipped";
@@ -97,6 +139,9 @@ async function compose(opts: {
   db: SupabaseClient;
   tenantId: string;
   userId: string | null;
+  fromEmail: string | null;
+  allowEmail: boolean;
+  allowSms: boolean;
   agentTitle: string;
 }): Promise<{
   subject: string;
@@ -116,10 +161,20 @@ async function compose(opts: {
         ? `Ton livrable : la SYNTHÈSE du contrôle demandé, pour le patron de « ${opts.companyName} ». Va droit aux faits : ce qui va, ce qui cloche, quoi faire. N'invente RIEN : uniquement ce que les données montrent. S'il n'y a rien à signaler, dis-le en une phrase.`
         : `Ton livrable : un RAPPEL bref (notification) pour le patron de « ${opts.companyName} ». Deux phrases max.`;
 
+  // Envois en cours de mission (opt-in) : réservés aux passages sans email de
+  // livraison (report/notify), pour qu'une surveillance puisse VRAIMENT agir
+  // (relancer un client) plutôt que seulement prévenir le patron. Garde-fou strict.
+  const channels: string[] = [];
+  if (opts.allowEmail) channels.push("send_email (email)");
+  if (opts.allowSms) channels.push("send_sms (SMS, idéal si le client ne lit pas ses mails)");
+  const outboundGuidance = channels.length
+    ? `\nOUTILS D'ENVOI (${channels.join(" · ")}) : tu peux écrire au nom de « ${opts.companyName} » UNIQUEMENT si la mission le demande explicitement (ex : relancer un client précis, confirmer un RDV, prévenir des employés). Identifie d'abord le destinataire et son contact (email/numéro) dans le workspace ou les collections d'app. JAMAIS de placeholder ([nom], XXX) : si un contact ou une donnée manque, n'envoie pas et signale-le dans ton livrable. Ces envois s'ajoutent à ton livrable ci-dessous, ne le remplacent pas.\n`
+    : "";
+
   const system = `Tu es un agent autonome de Biltia, l'OS opérationnel du BTP. Tu exécutes un passage planifié de la mission confiée par l'utilisateur. Tu peux LIRE et ÉCRIRE dans le workspace avec les outils workspace_* si la mission le demande (vérifier des données, mettre à jour un statut, créer une tâche…).
 
 ${roleLine}
-
+${outboundGuidance}
 MISSION DICTÉE PAR L'UTILISATEUR : « ${opts.instruction} »
 
 ${opts.workspaceBlock ? `${opts.workspaceBlock}\n` : ""}${opts.extraData ? `# DONNÉES DU JOUR (pré-chargées)\n${opts.extraData}\n` : ""}
@@ -133,8 +188,15 @@ Quand la mission du passage est accomplie, TERMINE OBLIGATOIREMENT en appelant l
       system,
       userMessage: "Exécute le passage d'aujourd'hui.",
       db: opts.db,
-      actor: { tenantId: opts.tenantId, userId: opts.userId, label: `Agent « ${opts.agentTitle} »` },
+      actor: {
+        tenantId: opts.tenantId,
+        userId: opts.userId,
+        label: `Agent « ${opts.agentTitle} »`,
+        fromEmail: opts.fromEmail,
+      },
       finishTool: COMPOSE_TOOL,
+      allowEmail: opts.allowEmail,
+      allowSms: opts.allowSms,
       maxIterations: 8,
       maxTokens: 1200,
     });
@@ -192,6 +254,729 @@ async function fetchFocusData(admin: SupabaseClient, tenantId: string): Promise<
   return lines.join("\n");
 }
 
+// ── Déclencheurs événementiels (« dès que… ») ────────────────────────────────
+
+/** Rédige UNE relance client focalisée sur une fiche déclenchante (appel IA unique). */
+async function composeRelance(opts: {
+  model: string;
+  companyName: string;
+  watcher: WatcherDef;
+  match: WatcherMatch;
+  instruction: string;
+}): Promise<{ subject: string; body: string; usage: { inputTokens: number; outputTokens: number } } | null> {
+  const hasKey = !!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.startsWith("your_");
+  if (!hasKey) return null;
+  const client = new Anthropic();
+  const system = `Tu es un agent de Biltia (OS opérationnel du BTP). Tu écris UN email de relance professionnel et courtois, AU NOM de l'entreprise « ${opts.companyName} », adressé à ${opts.match.contactName || "un client"}.
+
+SUJET DE LA RELANCE : ${opts.watcher.watching}.
+FICHE CONCERNÉE (seule source de faits) : ${opts.match.label} — ${opts.match.detail}.
+${opts.instruction ? `CONSIGNE DU PATRON : « ${opts.instruction} ».\n` : ""}
+Règles : français professionnel, ton courtois (une première relance n'est jamais comminatoire), 4 à 6 phrases, signe au nom de « ${opts.companyName} ». N'invente AUCUN montant, date ni référence au-delà de la fiche ci-dessus. Aucun placeholder ([nom], XXX).
+Termine en appelant l'outil compose (objet + corps prêts à envoyer).`;
+  try {
+    const msg = await client.messages.create({
+      model: opts.model,
+      max_tokens: 800,
+      system,
+      tools: [COMPOSE_TOOL],
+      tool_choice: { type: "tool", name: "compose" },
+      messages: [{ role: "user", content: "Rédige la relance." }],
+    });
+    const block = msg.content.find((b) => b.type === "tool_use");
+    if (!block || block.type !== "tool_use") return null;
+    const i = block.input as { subject?: string; body?: string };
+    if (!i.subject || !i.body) return null;
+    return {
+      subject: String(i.subject).slice(0, 180),
+      body: String(i.body).slice(0, 6000),
+      usage: { inputTokens: msg.usage.input_tokens, outputTokens: msg.usage.output_tokens },
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * CAS « l'IA LIT ET JUGE » (aiJudge) : parmi des candidats pré-filtrés en SQL,
+ * ne garde que ceux qui remplissent un critère exprimé en langage naturel
+ * (urgence, risque…). UN seul appel IA, borné, avec biais prudent (dans le doute,
+ * on exclut — mieux vaut rater un cas limite que crier au loup). Retourne null
+ * si l'IA est indisponible (l'appelant décide alors de ne rien affirmer).
+ */
+async function judgeMatches(opts: {
+  model: string;
+  criterion: string;
+  companyName: string;
+  matches: WatcherMatch[];
+}): Promise<{ kept: WatcherMatch[]; usage: { inputTokens: number; outputTokens: number } } | null> {
+  const hasKey = !!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.startsWith("your_");
+  if (!hasKey || opts.matches.length === 0) return null;
+  const list = opts.matches.map((m, i) => `[${i}] ${m.label} — ${m.detail}`).join("\n");
+  const tool: Anthropic.Tool = {
+    name: "flag",
+    description: "Retient les éléments qui remplissent STRICTEMENT le critère.",
+    input_schema: {
+      type: "object",
+      properties: {
+        indices: {
+          type: "array",
+          items: { type: "integer" },
+          description: "Indices [i] des éléments RETENUS. Tableau vide si aucun ne remplit le critère.",
+        },
+      },
+      required: ["indices"],
+      additionalProperties: false,
+    },
+  };
+  const system = `Tu tries une liste d'éléments pour l'entreprise « ${opts.companyName} ». Ne RETIENS que ceux qui remplissent STRICTEMENT ce critère :\n${opts.criterion}\n\nDans le doute, N'EXCLUS (il vaut mieux rater un cas limite que déclencher une fausse alerte). Réponds UNIQUEMENT en appelant l'outil flag avec les indices retenus.`;
+  try {
+    const client = new Anthropic();
+    const msg = await client.messages.create({
+      model: opts.model,
+      max_tokens: 400,
+      system,
+      tools: [tool],
+      tool_choice: { type: "tool", name: "flag" },
+      messages: [{ role: "user", content: `Liste à trier :\n${list}` }],
+    });
+    const block = msg.content.find((b) => b.type === "tool_use");
+    if (!block || block.type !== "tool_use") return null;
+    const raw = (block.input as { indices?: unknown }).indices;
+    const keep = new Set(
+      (Array.isArray(raw) ? raw : [])
+        .map((n) => Number(n))
+        .filter((n) => Number.isInteger(n) && n >= 0 && n < opts.matches.length)
+    );
+    return {
+      kept: opts.matches.filter((_, i) => keep.has(i)),
+      usage: { inputTokens: msg.usage.input_tokens, outputTokens: msg.usage.output_tokens },
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Génère le compte-rendu HTML d'une visite terminée (document A4 rangeable en bibliothèque). */
+async function composeCompteRendu(opts: {
+  model: string;
+  companyName: string;
+  match: WatcherMatch;
+}): Promise<{ title: string; html: string; usage: { inputTokens: number; outputTokens: number } } | null> {
+  const hasKey = !!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.startsWith("your_");
+  if (!hasKey) return null;
+  const r = opts.match.raw ?? {};
+  const line = (label: string, v: unknown) => (v != null && String(v).trim() !== "" ? `${label} : ${String(v).trim()}` : "");
+  const dataBlock = [
+    `Entreprise émettrice : ${opts.companyName}`,
+    line("Type d'intervention", r.type),
+    line("Chantier", r.chantier_nom),
+    line("Adresse", r.chantier_adresse),
+    line("Client", r.client_nom),
+    line("Intervenant", r.employee_nom),
+    line("Date de la visite", r.date_reelle),
+    line("Durée (h)", r.duree_heures),
+    line("Description de l'intervention", r.description),
+    line("Notes de l'intervenant sur place", r.rapport),
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const system = buildDocumentSystemPrompt({
+    sources: `# DONNÉES DE LA VISITE (SEULE SOURCE DE VÉRITÉ — n'invente rien au-delà)\n${dataBlock}`,
+  });
+  try {
+    const client = new Anthropic();
+    const msg = await client.messages.create({
+      model: opts.model,
+      max_tokens: 3200,
+      system,
+      messages: [
+        {
+          role: "user",
+          content:
+            "Rédige un COMPTE-RENDU DE VISITE DE CHANTIER professionnel à partir des données ci-dessus. Sections : en-tête entreprise + date ; titre « Compte-rendu de visite » ; contexte (chantier, client, intervenant) ; travaux réalisés / constatations ; observations et points de vigilance ; suites à donner. Prévois un pavé de signature (le client). N'invente aucun fait absent des données. Réponds UNIQUEMENT avec le HTML complet.",
+        },
+      ],
+    });
+    const html = msg.content
+      .filter((b): b is Anthropic.TextBlock => b.type === "text")
+      .map((b) => b.text)
+      .join("")
+      .trim();
+    if (!html.includes("<")) return null;
+    const titleMatch = html.match(/<title>([^<]{2,120})<\/title>/i);
+    const title = (titleMatch
+      ? titleMatch[1].trim()
+      : `Compte-rendu — ${String(r.chantier_nom || r.type || "visite")}${r.date_reelle ? ` (${String(r.date_reelle)})` : ""}`
+    ).slice(0, 120);
+    return {
+      title,
+      html: injectDocumentRuntime(html),
+      usage: { inputTokens: msg.usage.input_tokens, outputTokens: msg.usage.output_tokens },
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Planning à transmettre : agenda Google du patron si dispo, sinon repli workspace. Vide → { text:"" }. */
+async function buildTeamPlanning(
+  admin: SupabaseClient,
+  tenantId: string,
+  userId: string | null,
+  days: number
+): Promise<{ text: string; source: string }> {
+  if (userId) {
+    const cal = await readTeamAgenda({ tenantId, userId, days }).catch(() => null);
+    if (cal && cal.ok && cal.text.trim()) return { text: cal.text, source: "agenda" };
+  }
+  const ws = await buildWorkspacePlanning(admin, tenantId, days).catch(() => "");
+  if (ws.trim()) return { text: ws, source: "workspace" };
+  return { text: "", source: "" };
+}
+
+/** Repli workspace : interventions planifiées + tâches à échéance dans la fenêtre. */
+async function buildWorkspacePlanning(admin: SupabaseClient, tenantId: string, days: number): Promise<string> {
+  const nowIso = new Date().toISOString();
+  const todayIso = nowIso.slice(0, 10);
+  const horizonIso = new Date(Date.now() + Math.max(1, days) * 86_400_000).toISOString();
+  const [{ data: ivs }, { data: tks }] = await Promise.all([
+    admin
+      .from("interventions")
+      .select("type, date_prevue, statut")
+      .eq("tenant_id", tenantId)
+      .in("statut", ["planifie", "en_cours"])
+      .gte("date_prevue", nowIso)
+      .lte("date_prevue", horizonIso)
+      .order("date_prevue", { ascending: true })
+      .limit(60),
+    admin
+      .from("tasks")
+      .select("title, due_date, status")
+      .eq("tenant_id", tenantId)
+      .neq("status", "done")
+      .gte("due_date", todayIso)
+      .lte("due_date", horizonIso.slice(0, 10))
+      .order("due_date", { ascending: true })
+      .limit(60),
+  ]);
+  const lines: string[] = [];
+  for (const iv of (ivs ?? []) as { type: string | null; date_prevue: string | null }[]) {
+    const d = iv.date_prevue
+      ? new Date(iv.date_prevue).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" })
+      : "";
+    lines.push(`- ${d ? `${d} · ` : ""}${iv.type ?? "Intervention"}`);
+  }
+  for (const t of (tks ?? []) as { title: string | null; due_date: string | null }[]) {
+    const d = t.due_date
+      ? new Date(`${t.due_date}T00:00:00`).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" })
+      : "";
+    lines.push(`- ${d ? `${d} · ` : ""}${t.title ?? "Tâche"} (à faire)`);
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Exécute UN scan d'un agent-ÉVÉNEMENT : évalue le veilleur, RÉSERVE les fiches
+ * nouvellement concernées (idempotence par fiche via agent_event_fires), puis
+ * agit — compte-rendu, relance email par client OU alerte digest au patron.
+ * Ne throw jamais. `runKey` = le créneau de scan (idempotence du passage).
+ */
+async function executeEventRule(
+  admin: SupabaseClient,
+  rule: AgentRuleRow,
+  runKey: string
+): Promise<RunOutcome> {
+  // Verrou du SCAN (un même créneau ne scanne qu'une fois, même si le cron rejoue).
+  const { data: run, error: lockErr } = await admin
+    .from("agent_runs")
+    .insert({ rule_id: rule.id, tenant_id: rule.tenant_id, run_key: runKey, status: "running" })
+    .select("id")
+    .single();
+  if (lockErr || !run) return { status: "skipped", summary: "scan déjà exécuté (idempotence)" };
+
+  const cadence = Math.min(1440, Math.max(5, Number(rule.trigger?.scanEveryMinutes) || 60));
+
+  const finishRun = async (
+    status: "success" | "blocked" | "failed",
+    summary: string,
+    output: Record<string, unknown> = {},
+    error: string | null = null
+  ) => {
+    await admin
+      .from("agent_runs")
+      .update({ status, summary: summary.slice(0, 500), output, error, finished_at: new Date().toISOString() })
+      .eq("id", run.id);
+  };
+  const reschedule = async (block?: string) => {
+    const next = block ? null : new Date(Date.now() + cadence * 60_000);
+    await admin
+      .from("agent_rules")
+      .update({
+        last_run_at: new Date().toISOString(),
+        next_run_at: next ? next.toISOString() : null,
+        ...(block ? { status: "blocked", blocked_reason: block } : {}),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", rule.id);
+  };
+  const notifyOwner = async (title: string, body: string, url = "/agents") => {
+    if (rule.created_by) await sendPushToUser(rule.created_by, { title, body, url, tag: `agent-${rule.id}` });
+  };
+  const releaseFire = async (m: WatcherMatch, watcher: WatcherDef) => {
+    await admin
+      .from("agent_event_fires")
+      .delete()
+      .eq("rule_id", rule.id)
+      .eq("fire_key", buildFireKey(watcher, m));
+  };
+
+  try {
+    const watcher = getWatcher(rule.trigger?.watcher);
+    if (!watcher) {
+      await finishRun("failed", "Veilleur inconnu — surveillance suspendue.");
+      await reschedule("veilleur inconnu (mise à jour de Biltia requise)");
+      return { status: "failed", summary: "veilleur inconnu" };
+    }
+    const action = rule.action;
+    const execModel = pickExecModel(action);
+    const days = Number(rule.trigger?.params?.days) || watcher.defaultDays;
+
+    // 1) Évaluer la condition (lecture seule, tenant-scopée).
+    const matches = await watcher.run(admin, rule.tenant_id, days).catch(() => [] as WatcherMatch[]);
+
+    // 2) Réserver les fiches NOUVELLES : l'insert dans agent_event_fires échoue
+    //    (UNIQUE) si la fiche a déjà déclenché → on ne la retraite pas.
+    let fresh: WatcherMatch[] = [];
+    for (const m of matches) {
+      const { error } = await admin.from("agent_event_fires").insert({
+        rule_id: rule.id,
+        tenant_id: rule.tenant_id,
+        fire_key: buildFireKey(watcher, m),
+        label: m.label.slice(0, 120),
+      });
+      if (!error) fresh.push(m);
+    }
+
+    if (fresh.length === 0) {
+      await finishRun("success", `Rien de nouveau (${watcher.watching}).`);
+      await reschedule();
+      return { status: "success", summary: "rien de nouveau" };
+    }
+
+    // Email du créateur (reply-to + exemption fondateur) + nom d'entreprise.
+    let creatorEmail: string | null = null;
+    if (rule.created_by) {
+      try {
+        const { data } = await admin.auth.admin.getUserById(rule.created_by);
+        creatorEmail = data.user?.email ?? null;
+      } catch {
+        // sans email : pas de reply-to, débit normal
+      }
+    }
+    const founder = isFounderEmail(creatorEmail);
+    const { data: tenantRow } = await admin.from("tenants").select("name").eq("id", rule.tenant_id).single();
+    const companyName = tenantRow?.name ?? "l'entreprise";
+
+    // ── PLAN : « le Free goûte, le Pro exécute ». Un agent qui AGIT (relance email,
+    //    compte-rendu) est réservé à Pro ; l'alerte patron (notify/digest) reste
+    //    gratuite pour tous. Fondateur exempté. Filet pour une rétrogradation
+    //    Pro→Free avec un agent-action resté actif (l'activation le bloque déjà). ──
+    if (!founder && (action.type === "send_email" || action.type === "compte_rendu")) {
+      const ent = await getEntitlementsForTenant(admin, rule.tenant_id);
+      if (ent.plan !== "pro") {
+        for (const m of fresh) await releaseFire(m, watcher);
+        const reason = "action réservée au plan Pro — repassez à Pro pour que cet agent agisse";
+        await finishRun("blocked", `Agent Pro requis : ${fresh.length} fiche(s) en attente.`, {
+          deferred: fresh.length,
+        });
+        await reschedule(reason);
+        await notifyOwner(
+          "Agent en pause : réservé au plan Pro",
+          `« ${rule.title} » agit à votre place (envoi / compte-rendu) — réservé au plan Pro. Repassez à Pro pour le réactiver.`,
+          "/tarifs"
+        );
+        return { status: "blocked", summary: reason };
+      }
+    }
+
+    // ── GARDE-FOUS DE COÛT PAR AGENT (levier 1 : budget mensuel · levier 4 :
+    //    plafond quotidien). Ne concernent que les actions PAYANTES : le digest
+    //    (notify, gabarit) est gratuit et n'est jamais bridé. Fondateur exempté.
+    //    Mensuel atteint → PAUSE (+ notif). Quotidien atteint → fiches reportées
+    //    à demain (pas de pause). On relâche les réservations pour qu'elles
+    //    repartent « fraîches » au passage qui les traitera. ────────────────────
+    const needsJudge = !!watcher.aiJudge;
+    const paidAction = action.type === "compte_rendu" || action.type === "send_email" || needsJudge;
+    if (!founder && paidAction) {
+      const monthlyBudget = Number(rule.monthly_credit_budget) || 0; // 0 = illimité
+      const dailyBudget = Number(rule.daily_credit_budget) || 0;
+      if (monthlyBudget > 0 || dailyBudget > 0) {
+        const spend = await ruleSpend(admin, rule.id);
+        if (monthlyBudget > 0 && spend.month >= monthlyBudget) {
+          for (const m of fresh) await releaseFire(m, watcher);
+          const reason = `budget mensuel atteint (${spend.month}/${monthlyBudget} crédits) — reprise le mois prochain ou après relèvement du plafond`;
+          await finishRun("blocked", `Budget mensuel atteint : ${fresh.length} fiche(s) en attente.`, {
+            deferred: fresh.length,
+            spent_month: spend.month,
+            monthly_budget: monthlyBudget,
+          });
+          await reschedule(reason);
+          await notifyOwner(
+            "Agent en pause : budget mensuel atteint",
+            `« ${rule.title} » a atteint son plafond de ${monthlyBudget} crédits ce mois-ci. Relevez-le pour reprendre.`
+          );
+          return { status: "blocked", summary: reason };
+        }
+        if (dailyBudget > 0 && spend.today >= dailyBudget) {
+          for (const m of fresh) await releaseFire(m, watcher);
+          await finishRun(
+            "success",
+            `Plafond quotidien atteint (${spend.today}/${dailyBudget} crédits) : ${fresh.length} fiche(s) reportée(s) à demain.`,
+            { deferred: fresh.length, spent_today: spend.today, daily_budget: dailyBudget }
+          );
+          // Reporter au lendemain (≈ 00:05 UTC) plutôt qu'à la cadence : évite de
+          // re-scanner en boucle jusqu'à minuit. Le budget du jour se remet à zéro
+          // au changement de date, l'agent repart alors normalement.
+          const n = new Date();
+          const tomorrow = new Date(
+            Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate() + 1, 0, 5, 0)
+          );
+          await admin
+            .from("agent_rules")
+            .update({
+              last_run_at: n.toISOString(),
+              next_run_at: tomorrow.toISOString(),
+              updated_at: n.toISOString(),
+            })
+            .eq("id", rule.id);
+          return { status: "success", summary: "plafond quotidien atteint — reporté à demain" };
+        }
+      }
+    }
+
+    // ── 3·0) JUGEMENT IA (« l'IA lit et juge ») : réduire les candidats à ceux
+    //    qui remplissent VRAIMENT le critère en langage naturel (urgence…). Un
+    //    appel IA borné, débité au coût réel. Les fiches écartées restent
+    //    « consommées » (jugées une fois) → pas de re-paiement à chaque scan. ──
+    if (needsJudge && watcher.aiJudge) {
+      const judged = await judgeMatches({
+        model: TIER_SIMPLE, // classer « urgent ou pas » = tâche simple → Haiku
+        criterion: watcher.aiJudge.criterion,
+        companyName,
+        matches: fresh,
+      });
+      // IA indisponible → on n'affirme rien : relâcher pour re-juger plus tard.
+      if (!judged) {
+        for (const m of fresh) await releaseFire(m, watcher);
+        await admin.from("agent_runs").update({ credits_used: 0 }).eq("id", run.id);
+        await finishRun("success", "Examen indisponible — nouvel essai au prochain passage.");
+        await reschedule();
+        return { status: "success", summary: "jugement reporté" };
+      }
+      // Débit du jugement (fondateur exempté). Solde épuisé → pause + notif.
+      let judgeCredits = 0;
+      if (rule.created_by && judged.usage.inputTokens + judged.usage.outputTokens > 0) {
+        try {
+          const tracked = await trackAiUsage({
+            supabase: admin,
+            userId: rule.created_by,
+            tenantId: rule.tenant_id,
+            action: "agent_run",
+            model: TIER_SIMPLE,
+            inputTokens: judged.usage.inputTokens,
+            outputTokens: judged.usage.outputTokens,
+          });
+          if (!founder) {
+            const { data: debited } = await admin.rpc("deduct_credits_for_user", {
+              p_user_id: rule.created_by,
+              p_amount: tracked,
+            });
+            if (debited) {
+              judgeCredits = tracked;
+            } else {
+              await admin.from("agent_runs").update({ credits_used: 0 }).eq("id", run.id);
+              const reason = "crédits épuisés — rechargez puis relancez l'agent";
+              await finishRun("blocked", `Examen effectué ; ${reason} — agent en pause.`);
+              await reschedule(reason);
+              await notifyOwner("Agent en pause : crédits épuisés", `« ${rule.title} » : ${reason}. Passez à un plan supérieur pour qu'il reprenne aussitôt.`, "/tarifs");
+              return { status: "blocked", summary: "crédits épuisés" };
+            }
+          }
+        } catch {
+          // metering non bloquant
+        }
+      }
+      await admin.from("agent_runs").update({ credits_used: judgeCredits }).eq("id", run.id);
+
+      // Ne conserver que les fiches retenues par l'IA (les autres restent réservées).
+      fresh = judged.kept;
+      if (fresh.length === 0) {
+        await finishRun("success", `Rien à signaler (${watcher.watching}).`);
+        await reschedule();
+        return { status: "success", summary: "rien retenu" };
+      }
+
+      // Digest patron sur les fiches RETENUES (le jugement est déjà débité, le
+      // digest lui-même est gratuit → on ne re-touche pas credits_used).
+      const shown = fresh.slice(0, 20);
+      const lines = shown.map((m) => `• ${m.label} — ${m.detail}`).join("\n");
+      const more = fresh.length > shown.length ? `\n… +${fresh.length - shown.length} autres` : "";
+      const subject = `${watcher.label} : ${fresh.length} à traiter`;
+      const body = `${fresh.length > 1 ? `${fresh.length} demandes nécessitent` : "1 demande nécessite"} votre attention.\n\n${lines}${more}`;
+      await finishRun("success", `${subject}.`, { subject, body, matches: shown.map((m) => m.label) });
+      await reschedule();
+      await notifyOwner(subject, body.slice(0, 240));
+      await logActivity(admin, {
+        tenantId: rule.tenant_id,
+        userId: rule.created_by ?? undefined,
+        action: "document",
+        entityType: "agent",
+        description: `Agent « ${rule.title} » — ${subject}`,
+      });
+      return { status: "success", summary: subject };
+    }
+
+    // ── 3a-bis) COMPTE-RENDU : un document par visite terminée, rangé dans la
+    //    bibliothèque (modules) + notification au patron. ──────────────────────
+    if (action.type === "compte_rendu") {
+      if (!rule.created_by) {
+        await finishRun("failed", "Compte-rendu impossible : créateur inconnu.");
+        await reschedule();
+        return { status: "failed", summary: "créateur inconnu" };
+      }
+      const CAP = 3; // génération de document = lourde → borne stricte par passage
+      const batch = fresh.slice(0, CAP);
+      const deferred = fresh.slice(CAP);
+      for (const m of deferred) await releaseFire(m, watcher);
+
+      let made = 0;
+      let inTok = 0;
+      let outTok = 0;
+      const okLabels: string[] = [];
+      for (const m of batch) {
+        const doc = await composeCompteRendu({ model: execModel, companyName, match: m });
+        if (!doc) {
+          await releaseFire(m, watcher);
+          continue;
+        }
+        inTok += doc.usage.inputTokens;
+        outTok += doc.usage.outputTokens;
+        const { error: insErr } = await admin.from("modules").insert({
+          tenant_id: rule.tenant_id,
+          user_id: rule.created_by,
+          created_by: rule.created_by,
+          name: doc.title,
+          description: `Compte-rendu généré par l'agent « ${rule.title} »`,
+          html_content: doc.html,
+          kind: "document",
+          format: "document",
+        });
+        if (insErr) {
+          await releaseFire(m, watcher);
+          continue;
+        }
+        made++;
+        okLabels.push(m.label);
+        await logActivity(admin, {
+          tenantId: rule.tenant_id,
+          userId: rule.created_by ?? undefined,
+          action: "document",
+          entityType: "agent",
+          description: `Agent « ${rule.title} » — compte-rendu généré : ${m.label}`,
+        });
+      }
+
+      // Débit au coût réel (génération ~medium) — fondateur exempté.
+      let creditsUsed = 0;
+      if (inTok + outTok > 0) {
+        try {
+          const tracked = await trackAiUsage({
+            supabase: admin,
+            userId: rule.created_by,
+            tenantId: rule.tenant_id,
+            action: "agent_run",
+            model: execModel,
+            inputTokens: inTok,
+            outputTokens: outTok,
+          });
+          if (!founder) {
+            const { data: debited } = await admin.rpc("deduct_credits_for_user", {
+              p_user_id: rule.created_by,
+              p_amount: tracked,
+            });
+            if (debited) {
+              creditsUsed = tracked;
+            } else {
+              await admin.from("agent_runs").update({ credits_used: 0 }).eq("id", run.id);
+              const reason = "crédits épuisés — rechargez puis relancez l'agent";
+              await finishRun("blocked", `${made} compte(s)-rendu générés ; ${reason} — agent en pause.`, { made: okLabels });
+              await reschedule(reason);
+              await notifyOwner("Agent en pause : crédits épuisés", `« ${rule.title} » : ${reason}. Passez à un plan supérieur pour qu'il reprenne aussitôt.`, "/tarifs");
+              return { status: "blocked", summary: `${made} générés, crédits épuisés` };
+            }
+          }
+        } catch {
+          // metering non bloquant
+        }
+      }
+      await admin.from("agent_runs").update({ credits_used: creditsUsed }).eq("id", run.id);
+
+      const parts: string[] = [];
+      if (made) parts.push(`${made} compte(s)-rendu prêt(s) : ${okLabels.join(", ")}`);
+      if (deferred.length) parts.push(`${deferred.length} au prochain passage`);
+      const summary = parts.join(" · ") || "aucun compte-rendu généré";
+      await finishRun("success", summary, { made: okLabels, deferred: deferred.length });
+      await reschedule();
+      if (made) await notifyOwner(`${made} compte(s)-rendu prêt(s)`, `${okLabels.join(", ")} — dans votre Bibliothèque.`);
+      return { status: "success", summary };
+    }
+
+    // ── 3a) RELANCE CLIENT (un email par fiche, borné par tick). ─────────────
+    if (action.type === "send_email") {
+      const withEmail = fresh.filter((m) => m.email && m.email.includes("@"));
+      const withoutEmail = fresh.filter((m) => !(m.email && m.email.includes("@")));
+      // Sans email : on relâche la réservation (relançable si l'email est ajouté).
+      for (const m of withoutEmail) await releaseFire(m, watcher);
+
+      const channels = await canSendOutbound(rule.tenant_id, rule.created_by);
+      if (!channels.ok) {
+        for (const m of withEmail) await releaseFire(m, watcher);
+        const reason = "aucun canal d'envoi : connectez votre Gmail ou configurez l'envoi Biltia";
+        await finishRun("blocked", `Relances suspendues : ${reason}.`);
+        await reschedule(reason);
+        await notifyOwner("Agent bloqué", `« ${rule.title} » : ${reason}.`);
+        return { status: "blocked", summary: reason };
+      }
+
+      const CAP = 6; // borne par passage : le reste repart au prochain scan
+      const batch = withEmail.slice(0, CAP);
+      const deferred = withEmail.slice(CAP);
+      for (const m of deferred) await releaseFire(m, watcher);
+
+      // Levier 3 : une relance est un email court et cadré → Haiku suffit (÷5 sur
+      // le coût vs Sonnet), sur le poste le plus fréquent. Les comptes-rendus
+      // (plus riches, plus rares) restent, eux, sur execModel (Sonnet).
+      const relanceModel = TIER_SIMPLE;
+
+      let sent = 0;
+      let inTok = 0;
+      let outTok = 0;
+      const okLabels: string[] = [];
+      for (const m of batch) {
+        const composed = await composeRelance({
+          model: relanceModel,
+          companyName,
+          watcher,
+          match: m,
+          instruction: action.contentInstruction,
+        });
+        if (!composed) {
+          await releaseFire(m, watcher);
+          continue;
+        }
+        inTok += composed.usage.inputTokens;
+        outTok += composed.usage.outputTokens;
+        const res = await sendOutboundEmail({
+          tenantId: rule.tenant_id,
+          userId: rule.created_by,
+          fromEmail: creatorEmail,
+          to: [m.email as string],
+          subject: composed.subject,
+          body: composed.body,
+        });
+        if (!res.ok) {
+          await releaseFire(m, watcher);
+          continue;
+        }
+        sent++;
+        okLabels.push(m.label);
+        await logActivity(admin, {
+          tenantId: rule.tenant_id,
+          userId: rule.created_by ?? undefined,
+          action: "send",
+          entityType: "agent",
+          description: `Agent « ${rule.title} » — relance envoyée : ${m.label}`,
+        });
+      }
+
+      // Débit au coût réel des rédactions (fondateur exempté).
+      let creditsUsed = 0;
+      if (rule.created_by && inTok + outTok > 0) {
+        try {
+          const tracked = await trackAiUsage({
+            supabase: admin,
+            userId: rule.created_by,
+            tenantId: rule.tenant_id,
+            action: "agent_run",
+            model: relanceModel,
+            inputTokens: inTok,
+            outputTokens: outTok,
+          });
+          if (!founder) {
+            const { data: debited } = await admin.rpc("deduct_credits_for_user", {
+              p_user_id: rule.created_by,
+              p_amount: tracked,
+            });
+            if (debited) {
+              creditsUsed = tracked;
+            } else {
+              await admin.from("agent_runs").update({ credits_used: 0 }).eq("id", run.id);
+              const reason = "crédits épuisés — rechargez puis relancez l'agent";
+              await finishRun("blocked", `${sent} relance(s) envoyée(s) ; ${reason} — agent en pause.`, { sent: okLabels });
+              await reschedule(reason);
+              await notifyOwner("Agent en pause : crédits épuisés", `« ${rule.title} » : ${reason}. Passez à un plan supérieur pour qu'il reprenne aussitôt.`, "/tarifs");
+              return { status: "blocked", summary: `${sent} envoyé(s), crédits épuisés` };
+            }
+          }
+        } catch {
+          // le metering ne casse jamais un envoi déjà réussi
+        }
+      }
+      await admin.from("agent_runs").update({ credits_used: creditsUsed }).eq("id", run.id);
+
+      const parts: string[] = [];
+      if (sent) parts.push(`${sent} relance(s) : ${okLabels.join(", ")}`);
+      if (withoutEmail.length) parts.push(`${withoutEmail.length} sans email (à compléter)`);
+      if (deferred.length) parts.push(`${deferred.length} au prochain passage`);
+      const summary = parts.join(" · ") || "aucune relance envoyée";
+      await finishRun("success", summary, {
+        sent: okLabels,
+        no_email: withoutEmail.map((m) => m.label),
+        deferred: deferred.length,
+      });
+      await reschedule();
+      if (sent) await notifyOwner(`${watcher.label} : ${sent} relance(s) envoyée(s)`, summary);
+      return { status: "success", summary };
+    }
+
+    // ── 3b) ALERTE AU PATRON (digest par gabarit → 0 crédit IA). ─────────────
+    const shown = fresh.slice(0, 20);
+    const lines = shown.map((m) => `• ${m.label} — ${m.detail}`).join("\n");
+    const more = fresh.length > shown.length ? `\n… +${fresh.length - shown.length} autres` : "";
+    const subject = `${watcher.label} : ${fresh.length} à traiter`;
+    const body = `${fresh.length > 1 ? `${fresh.length} fiches nécessitent` : "1 fiche nécessite"} votre attention.\n\n${lines}${more}`;
+    await admin.from("agent_runs").update({ credits_used: 0 }).eq("id", run.id);
+    await finishRun("success", `${subject}.`, { subject, body, matches: shown.map((m) => m.label) });
+    await reschedule();
+    await notifyOwner(subject, body.slice(0, 240));
+    await logActivity(admin, {
+      tenantId: rule.tenant_id,
+      userId: rule.created_by ?? undefined,
+      action: "document",
+      entityType: "agent",
+      description: `Agent « ${rule.title} » — ${subject}`,
+    });
+    return { status: "success", summary: subject };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "erreur inconnue";
+    await finishRun("failed", "Scan en erreur — nouvelle tentative au prochain passage.", {}, msg.slice(0, 500));
+    await reschedule();
+    return { status: "failed", summary: msg };
+  }
+}
+
 // ── Exécution d'une règle ────────────────────────────────────────────────────
 
 /**
@@ -203,6 +988,12 @@ export async function executeRule(
   rule: AgentRuleRow,
   runKey: string
 ): Promise<RunOutcome> {
+  // Agents-ÉVÉNEMENT : chemin dédié (surveille une condition, agit par fiche,
+  // idempotence à la granularité de la fiche). Les agents PLANIFIÉS continuent ci-dessous.
+  if (rule.trigger_type === "event") {
+    return executeEventRule(admin, rule, runKey);
+  }
+
   // ── VERROU IDEMPOTENT : l'insert échoue si le créneau est déjà consommé. ──
   const { data: run, error: lockErr } = await admin
     .from("agent_runs")
@@ -240,9 +1031,9 @@ export async function executeRule(
       .eq("id", rule.id);
   };
 
-  const notifyOwner = async (title: string, body: string) => {
+  const notifyOwner = async (title: string, body: string, url = "/agents") => {
     if (rule.created_by) {
-      await sendPushToUser(rule.created_by, { title, body, url: "/agents", tag: `agent-${rule.id}` });
+      await sendPushToUser(rule.created_by, { title, body, url, tag: `agent-${rule.id}` });
     }
   };
 
@@ -262,10 +1053,95 @@ export async function executeRule(
     }
     const founder = isFounderEmail(creatorEmail);
 
+    // ── PLAN : « le Free goûte, le Pro exécute ». Un agent planifié qui AGIT
+    //    (planning équipe, relance, rapport) est réservé à Pro ; l'alerte planifiée
+    //    (notify) reste gratuite. Fondateur exempté. Filet anti-rétrogradation. ────
+    if (!founder && action.type !== "notify") {
+      const ent = await getEntitlementsForTenant(admin, rule.tenant_id);
+      if (ent.plan !== "pro") {
+        const reason = "action réservée au plan Pro — repassez à Pro pour réactiver cet agent";
+        await finishRun("blocked", "Agent Pro requis : passage suspendu.");
+        await reschedule(reason);
+        await notifyOwner(
+          "Agent en pause : réservé au plan Pro",
+          `« ${rule.title} » agit à votre place — réservé au plan Pro. Repassez à Pro pour le réactiver.`,
+          "/tarifs"
+        );
+        return { status: "blocked", summary: reason };
+      }
+    }
+
+    // ── PLANNING AUX ÉQUIPES : récupérer le planning existant (agenda Google du
+    //    patron, sinon workspace) et le TRANSMETTRE à l'équipe. Biltia relaie,
+    //    n'invente pas. Gabarit → 0 crédit IA. ─────────────────────────────────
+    if (action.type === "team_planning") {
+      const teamEmails = (action.recipients ?? [])
+        .map((r) => r.email)
+        .filter((e) => e && e.includes("@")) as string[];
+      if (teamEmails.length === 0) {
+        const reason = "aucun employé avec email pour recevoir le planning";
+        await finishRun("blocked", `Planning non transmis : ${reason}.`);
+        await reschedule(reason);
+        await notifyOwner("Agent bloqué", `« ${rule.title} » : ${reason}.`);
+        return { status: "blocked", summary: reason };
+      }
+      const channels = await canSendOutbound(rule.tenant_id, rule.created_by);
+      if (!channels.ok) {
+        const reason = "aucun canal d'envoi : connectez votre Gmail ou configurez l'envoi Biltia";
+        await finishRun("blocked", `Planning non transmis : ${reason}.`);
+        await reschedule(reason);
+        await notifyOwner("Agent bloqué", `« ${rule.title} » : ${reason}.`);
+        return { status: "blocked", summary: reason };
+      }
+      const { data: tRow } = await admin.from("tenants").select("name").eq("id", rule.tenant_id).single();
+      const companyName = tRow?.name ?? "l'entreprise";
+      const planning = await buildTeamPlanning(admin, rule.tenant_id, rule.created_by, 7);
+      if (!planning.text.trim()) {
+        // Rien à transmettre : on prévient le patron, jamais un mail vide à l'équipe.
+        await admin.from("agent_runs").update({ credits_used: 0 }).eq("id", run.id);
+        await finishRun("success", "Rien de planifié sur la période — aucun planning envoyé.");
+        await reschedule();
+        await notifyOwner("Planning : rien à transmettre", "Aucun événement à venir à envoyer à l'équipe cette fois.");
+        return { status: "success", summary: "rien à transmettre" };
+      }
+      const subject = `Votre planning des prochains jours — ${companyName}`;
+      const body = `Bonjour,\n\nVoici le planning des prochains jours. Bon courage à toutes et tous.\n\n${planning.text}\n\n— ${companyName} (message automatique)`;
+      const sent = await sendOutboundEmail({
+        tenantId: rule.tenant_id,
+        userId: rule.created_by,
+        fromEmail: creatorEmail,
+        to: teamEmails,
+        subject,
+        body,
+      });
+      if (!sent.ok) {
+        await finishRun("blocked", `Envoi refusé : ${sent.reason}.`);
+        await reschedule(sent.reason);
+        await notifyOwner("Agent bloqué", `« ${rule.title} » : ${sent.reason}.`);
+        return { status: "blocked", summary: sent.reason };
+      }
+      await admin.from("agent_runs").update({ credits_used: 0 }).eq("id", run.id);
+      const src = planning.source === "agenda" ? "agenda Google" : "workspace";
+      const summary = `Planning (${src}) transmis à ${teamEmails.length} membre(s) de l'équipe.`;
+      await finishRun("success", summary, { subject, to: teamEmails, source: planning.source });
+      await reschedule();
+      await notifyOwner("Planning transmis à l'équipe", summary);
+      await logActivity(admin, {
+        tenantId: rule.tenant_id,
+        userId: rule.created_by ?? undefined,
+        action: "send",
+        entityType: "agent",
+        description: `Agent « ${rule.title} » — ${summary}`,
+      });
+      return { status: "success", summary };
+    }
+
     // Envoi sortant : vérifier les MOYENS avant de rédiger (échec précoce et clair).
+    // Un canal suffit : le Gmail connecté de l'utilisateur OU l'envoi Biltia (Resend).
     if (action.type === "send_email") {
-      if (!hasMailerKey()) {
-        const reason = "envoi d'email non configuré (RESEND_API_KEY)";
+      const channels = await canSendOutbound(rule.tenant_id, rule.created_by);
+      if (!channels.ok) {
+        const reason = "aucun canal d'envoi : connectez votre Gmail ou configurez l'envoi Biltia";
         await finishRun("blocked", `Passage suspendu : ${reason}.`);
         await reschedule(reason);
         await notifyOwner("Agent bloqué", `« ${rule.title} » : ${reason}.`);
@@ -300,6 +1176,12 @@ export async function executeRule(
       db: admin,
       tenantId: rule.tenant_id,
       userId: rule.created_by,
+      fromEmail: creatorEmail,
+      // Envois en cours de route : uniquement pour les passages SANS email de
+      // livraison (report/notify), sinon on doublonnerait l'envoi final. SMS
+      // seulement si un fournisseur est configuré (sinon l'outil serait inutile).
+      allowEmail: action.type !== "send_email",
+      allowSms: action.type !== "send_email" && canSendSms(),
       agentTitle: rule.title,
     });
     if (!composed) {
@@ -339,7 +1221,7 @@ export async function executeRule(
             await admin.from("agent_runs").update({ credits_used: 0 }).eq("id", run.id);
             await finishRun("blocked", summary, { subject: composed.subject });
             await reschedule(reason);
-            await notifyOwner("Agent en pause : crédits épuisés", `« ${rule.title} » : ${reason}.`);
+            await notifyOwner("Agent en pause : crédits épuisés", `« ${rule.title} » : ${reason}. Passez à un plan supérieur pour qu'il reprenne aussitôt.`, "/tarifs");
             return { status: "blocked", summary };
           }
         }
@@ -352,16 +1234,16 @@ export async function executeRule(
 
     // ── Livraison. ───────────────────────────────────────────────────────────
     if (action.type === "send_email") {
-      // REPLY-TO = l'email de l'artisan : l'envoi part du domaine Biltia
-      // (Resend), mais la RÉPONSE du client atterrit dans SA boîte — sans ça,
-      // les réponses aux relances se perdraient chez Biltia.
-      const replyTo = creatorEmail && creatorEmail.includes("@") ? creatorEmail : undefined;
-
-      const sent = await sendEmail({
+      // CANAL AUTO : Gmail connecté de l'artisan si dispo (l'email part de SA
+      // boîte, les réponses lui reviennent naturellement), sinon envoi Biltia
+      // (Resend) avec reply-to = son email pour ne pas perdre les réponses.
+      const sent = await sendOutboundEmail({
+        tenantId: rule.tenant_id,
+        userId: rule.created_by,
+        fromEmail: creatorEmail,
         to: action.recipients.map((r) => r.email),
         subject: composed.subject,
-        text: composed.body,
-        replyTo,
+        body: composed.body,
       });
       if (!sent.ok) {
         await finishRun("blocked", `Envoi refusé : ${sent.reason}.`, { subject: composed.subject });
@@ -370,13 +1252,15 @@ export async function executeRule(
         return { status: "blocked", summary: sent.reason };
       }
       const who = action.recipients.map((r) => r.name).join(", ");
+      const channel = sent.via === "gmail" ? "depuis votre Gmail" : "via Biltia";
       const extra = composed.traces.length ? ` ${composed.traces.length} action(s) workspace.` : "";
-      const summary = `Email « ${composed.subject} » envoyé à ${who}.${extra}`;
+      const summary = `Email « ${composed.subject} » envoyé à ${who} ${channel}.${extra}`;
       await finishRun("success", summary, {
         subject: composed.subject,
         body: composed.body,
         to: action.recipients.map((r) => r.email),
-        resend_id: sent.id,
+        email_id: sent.id,
+        via: sent.via,
         workspace_actions: composed.traces,
       });
       await reschedule();
@@ -431,7 +1315,7 @@ export async function runDueRules(
 ): Promise<{ scanned: number; results: { ruleId: string; title: string; outcome: RunOutcome }[] }> {
   const { data } = await admin
     .from("agent_rules")
-    .select("id, tenant_id, created_by, title, instruction, schedule, action, status, next_run_at")
+    .select("id, tenant_id, created_by, title, instruction, schedule, action, status, next_run_at, trigger_type, trigger, monthly_credit_budget, daily_credit_budget")
     .eq("status", "active")
     .lte("next_run_at", new Date().toISOString())
     .order("next_run_at", { ascending: true })

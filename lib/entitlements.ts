@@ -28,7 +28,8 @@ import { getPlan, type PlanId, type PlanLimits } from "./plans";
 type QueryableClient = { from: (table: string) => any };
 
 // ── Cartographie des statuts Stripe ──────────────────────────────────────────
-const ACTIVE_STATUSES = new Set(["active", "trialing"]);
+// « active » / « trialing » = plein accès (branche writable par défaut ci-dessous) ;
+// seuls les statuts de grâce et de gel ont besoin d'un traitement explicite.
 /** Grâce : paiement échoué, accès maintenu ~5 j (config dunning Stripe). */
 const GRACE_STATUSES = new Set(["past_due"]);
 /** Gel : abonnement terminé → lecture seule. */
@@ -166,6 +167,27 @@ export async function getEntitlements(
 export function canDeployLive(ent: Entitlements): boolean {
   return ent.limits.liveDeploy;
 }
+
+/** Envoi automatique d'emails / SMS (apps + agents) — réservé aux plans payants. */
+export function canSendMessages(ent: Entitlements): boolean {
+  return ent.limits.autoMessaging;
+}
+
+/** Agents qui AGISSENT (relance, compte-rendu, rapport, planning). Les alertes
+ *  (notify) restent ouvertes à tous ; ceci ne gate QUE les actions payantes. */
+export function canUseAgentActions(ent: Entitlements): boolean {
+  return ent.limits.agentActions;
+}
+
+/** Inviter des collaborateurs (sièges / workspace partagé) — plans payants. */
+export function canInviteTeam(ent: Entitlements): boolean {
+  return ent.limits.sharedWorkspace;
+}
+
+/** Message standard quand une fonctionnalité nécessite un plan payant (réponse 403,
+ *  accompagnée de `upgrade: true` pour que le client propose le passage à Pro). */
+export const UPGRADE_MESSAGE =
+  "Cette fonctionnalité fait partie du plan Pro. Passez à un plan payant depuis Paramètres → Facturation pour l'activer.";
 
 /** Message standard renvoyé quand une écriture est refusée pour cause de gel. */
 export const FROZEN_MESSAGE =

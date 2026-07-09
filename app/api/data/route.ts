@@ -13,6 +13,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase-server";
 import { ENTITIES, ALLOWED_ENTITIES } from "@/lib/data-entities";
+import { coerceStoredScope, scopeReadFilter, type StoredScope } from "@/lib/data-scope";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
 import { can } from "@/lib/permissions";
 import { getEntitlementsForTenant, FROZEN_MESSAGE } from "@/lib/entitlements";
@@ -108,6 +109,7 @@ async function handleAppStore(
   collection: string,
   action: string,
   body: { id?: string; values?: unknown; rows?: unknown; ids?: unknown; match?: Record<string, unknown>; ascending?: boolean; limit?: number },
+  readFilter?: { since?: string; ids?: string[] } | null,
 ) {
   const T = "app_records";
   const flat = (r: Record<string, unknown>) => ({
@@ -120,6 +122,9 @@ async function handleAppStore(
   if (action === "list") {
     let q = from(T).select("*").eq("tenant_id", tenantId).eq("collection", collection);
     if (body.match && typeof body.match === "object") q = q.contains("data", body.match);
+    // Portée « vierge / import » : n'afficher que les enregistrements créés depuis
+    // le démarrage de l'app (les collections libres n'ont pas d'ids « choisis »).
+    if (readFilter?.since) q = q.gte("created_at", readFilter.since);
     q = q.order("created_at", { ascending: body.ascending === true }).limit(Math.min(Number(body.limit) || 200, 500));
     const { data, error } = await q;
     if (error) throw error;
@@ -200,6 +205,10 @@ export async function POST(req: Request) {
     order?: string;
     ascending?: boolean;
     limit?: number;
+    // Portée des données de l'app appelante : soit l'id du module (on lit la
+    // portée stockée), soit une portée inline (aperçu du générateur, avant save).
+    moduleId?: string;
+    dataScope?: unknown;
   };
   try {
     body = await req.json();
@@ -244,6 +253,26 @@ export async function POST(req: Request) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const from = (t: string) => (supabase.from as any)(t);
 
+  // ── PORTÉE DES DONNÉES (data_scope) ── uniquement en LECTURE (`list`). La portée
+  // vient du module appelant (id → on lit modules.data_scope) ou est fournie inline
+  // (aperçu du générateur avant enregistrement). Les écritures ignorent la portée :
+  // tout va au workspace (source unique). Absente/null = tout le workspace.
+  let readFilter: { since?: string; ids?: string[] } | null = null;
+  if (action === "list") {
+    let stored: StoredScope | null = null;
+    if (typeof body.moduleId === "string" && body.moduleId) {
+      const { data: mod } = await from("modules")
+        .select("data_scope")
+        .eq("id", body.moduleId)
+        .eq("tenant_id", tenantId)
+        .maybeSingle();
+      if (mod) stored = coerceStoredScope(mod.data_scope);
+    } else if (body.dataScope != null) {
+      stored = coerceStoredScope(body.dataScope);
+    }
+    readFilter = scopeReadFilter(stored, entity);
+  }
+
   // Entité NON reconnue comme entité workspace → MAGASIN CLOUD GÉNÉRIQUE : l'app
   // persiste dans app_records (jsonb), isolé par tenant + collection. C'est ce qui
   // permet à N'IMPORTE QUELLE app de sauvegarder dans le cloud, sans schéma prédéfini.
@@ -252,7 +281,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Collection invalide." }, { status: 400 });
     }
     try {
-      return await handleAppStore(from, tenantId, user.id, entity, action, body);
+      return await handleAppStore(from, tenantId, user.id, entity, action, body, readFilter);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Erreur base de données.";
       return NextResponse.json({ error: msg }, { status: 400 });
@@ -282,6 +311,10 @@ export async function POST(req: Request) {
         .select(typeof body.columns === "string" ? body.columns : "*")
         .eq("tenant_id", tenantId);
       if (body.match && typeof body.match === "object") q = q.match(body.match);
+      // Portée des données : « vierge / import » = créés depuis le démarrage de
+      // l'app ; « choisir » = uniquement les ids sélectionnés pour cette entité.
+      if (readFilter?.since) q = q.gte("created_at", readFilter.since);
+      if (readFilter?.ids) q = q.in("id", readFilter.ids);
       if (typeof body.order === "string") {
         q = q.order(body.order, { ascending: body.ascending !== false });
       }

@@ -63,10 +63,11 @@ RÈGLE D'OR : on ne réécrit JAMAIS l'application pour une demande qui ne la co
     : "";
   return `Tu es l'AIGUILLEUR de Biltia, l'OS opérationnel du BTP. On te donne la demande d'un artisan/chef de chantier, dictée au micro ou tapée, en langage courant. Tu identifies la NATURE exacte du besoin et tu choisis le FORMAT DE SORTIE le plus efficace pour le résoudre. Tu ne résous rien toi-même : tu aiguilles.
 
-LES 8 FORMATS :
+LES 9 FORMATS :
 - "answer" — l'utilisateur pose une QUESTION et attend une RÉPONSE en texte, tout de suite : réglementation (« quel taux de TVA pour une rénovation ? »), norme, délai, garantie, conseil métier, ou une question sur SES données (« j'ai combien de clients ? », « où en est le chantier Morel ? »). Il ne demande RIEN à produire.
 - "calendar" — l'utilisateur veut CONSULTER son agenda (« qu'est-ce que j'ai lundi ? », « ma semaine ? », « mes rendez-vous ? ») OU AJOUTER un rendez-vous (« ajoute un RDV client mardi à 14h », « planifie une visite chantier jeudi 9h », « note un rendez-vous demain 10h »). Dans les deux cas, c'est son agenda Google connecté — ni une question de savoir métier ("answer") ni une écriture dans tes données workspace ("data").
 - "email" — l'utilisateur veut ENVOYER un message/email à quelqu'un, MAINTENANT, une fois : « envoie un email à jean@x.fr pour lui dire que… », « écris à ce client qu'on passe lundi », « relance ce fournisseur par mail ». C'est le VERBE D'ENVOI (« envoie/écris/relance… par mail/email ») qui décide — même si le message PARLE de factures, de fichiers ou de chantiers : ça, c'est le CONTENU du mail, PAS un traitement de fichiers. Quand kind="email", remplis email_to (l'adresse ou le nom du destinataire), email_subject (objet court) et email_body (le corps complet, professionnel, prêt à envoyer).
+- "task" — l'utilisateur veut ENVOYER un message MAINTENANT à un GROUPE de son workspace (pas à UNE personne précise : ça, c'est "email") : « envoie un message à TOUS MES CLIENTS pour le portes ouvertes vendredi », « préviens MON ÉQUIPE qu'on commence à 7h demain », « écris à MES FOURNISSEURS ». Biltia résout la liste dans le workspace, montre un APERÇU, et envoie seulement après validation. Remplis task_audience (all_clients / team / all_suppliers), email_subject (objet court) et email_body (le message complet, professionnel, prêt à envoyer). Ce qui décide : un VERBE D'ENVOI + une CIBLE COLLECTIVE. Un destinataire unique nommé → "email". Une récurrence (« …chaque lundi ») → "rule".
 - "document" — l'utilisateur veut UN livrable officiel unique, à imprimer/envoyer/signer : avenant, PV de réception, mise en demeure, devis, facture, attestation (TVA…), courrier/relance, ordre de service, bon de commande, levée de réserves. Indices : « sors-moi l'avenant », « rédige une mise en demeure », « fais-lui signer », « attestation TVA », « un devis pour… » (un seul, pas un outil de gestion de devis).
 - "action" — l'utilisateur a DES DONNÉES/FICHIERS EXISTANTS à traiter par lot, UNE fois, maintenant : vérifier, comparer, rapprocher, contrôler. Indices : « glisse tes 30 bons de livraison, je vérifie les prix vs devis », « compare ces factures », « détecte les erreurs ». Ce n'est JAMAIS « envoyer un email » (ça, c'est "email").
 - "module" — l'utilisateur veut un OUTIL/APPLICATION pour capturer ou suivre de la donnée dans la durée : suivi de chantiers, pointage des heures, inventaire, CRM, planning, carnet d'entretien. Indices : « je veux un tableau/outil pour gérer/suivre… », « application de pointage ».
@@ -77,8 +78,11 @@ RÈGLE DE DÉPARTAGE :
 - Une question qui attend un SAVOIR ou un CHIFFRE → "answer". Une demande qui attend une PRODUCTION (document, outil, traitement) → un des trois formats de production. Une demande de DÉLÉGUER une tâche répétitive → "rule".
 - Un livrable UNIQUE à signer/envoyer → "document". Un OUTIL qui gère plusieurs entrées dans le temps → "module". La MÊME intention assortie d'une récurrence/délégation → "rule" (« relance-le » = document ; « relance-le chaque semaine » = rule).
 - « un devis » (le document) = document ; « un outil de création de devis » = module ; « comment je fais un devis ? » = answer.
+- « envoie un mail à Jean » = email (UNE personne) ; « envoie un mail à tous mes clients / à mon équipe » = task (un GROUPE résolu dans le workspace).
 - En cas de doute réel entre document et module, choisis "module". En cas de doute entre answer et une production, choisis la production. "rule" UNIQUEMENT sur signal explicite de récurrence/déclencheur/délégation — jamais par défaut.
-- « ajoute un client Jean » = data (une fiche) ; « ajoute un outil de gestion de clients » = module (un outil) ; « j'ai combien de clients ? » = answer (lecture). « Enregistre ce devis comme accepté » = data ; « fais-moi un devis » = document.${modContext}
+- « ajoute un client Jean » = data (une fiche) ; « ajoute un outil de gestion de clients » = module (un outil) ; « j'ai combien de clients ? » = answer (lecture). « Enregistre ce devis comme accepté » = data ; « fais-moi un devis » = document.
+
+TON DES MESSAGES (email_body et le corps d'un task) : reste TOUJOURS professionnel, courtois et — si nécessaire — ferme, mais JAMAIS insultant, menaçant ni accusatoire. Même si l'utilisateur réclame un ton « agressif », « cash », ou de dire au client qu'il est « malhonnête » / « de mauvaise foi », tu REFORMULES en fermeté correcte : rappel factuel (montant, échéance dépassée, nombre de relances), demande claire de régularisation sous un délai, et mention des suites légales possibles le cas échéant — sans jamais dénigrer la personne. La fermeté vient des faits et de l'échéance, jamais de l'insulte.${modContext}
 
 "doc_type" : uniquement si kind="document" — un de : ${DOC_TYPES.join(", ")} (ou un slug court si aucun ne colle). Vide sinon.
 "confidence" : 0 à 1.
@@ -95,8 +99,14 @@ const CLASSIFY_TOOL = {
     properties: {
       kind: {
         type: "string",
-        enum: ["answer", "document", "action", "module", "rule", "data", "email", "calendar"],
+        enum: ["answer", "document", "action", "module", "rule", "data", "email", "calendar", "task"],
         description: "Format de sortie chirurgical.",
+      },
+      task_audience: {
+        type: "string",
+        enum: ["all_clients", "team", "all_suppliers", ""],
+        description:
+          "Si kind=task : le GROUPE destinataire. all_clients = tous les clients ; team = l'équipe / tous les employés ; all_suppliers = tous les fournisseurs. Pour task, remplis aussi email_subject et email_body (le message). Vide sinon.",
       },
       doc_type: {
         type: "string",
@@ -124,7 +134,7 @@ const CLASSIFY_TOOL = {
         description: "Confiance de 0 à 1.",
       },
     },
-    required: ["kind", "doc_type", "email_to", "email_subject", "email_body", "targets_open_app", "confidence"],
+    required: ["kind", "doc_type", "email_to", "email_subject", "email_body", "task_audience", "targets_open_app", "confidence"],
     additionalProperties: false,
   },
 } as Anthropic.Tool;
@@ -158,6 +168,7 @@ async function classifyWithLLM(
     email_to?: string;
     email_subject?: string;
     email_body?: string;
+    task_audience?: string;
     targets_open_app?: boolean;
     confidence?: number;
   };
@@ -169,7 +180,8 @@ async function classifyWithLLM(
     input.kind !== "rule" &&
     input.kind !== "data" &&
     input.kind !== "email" &&
-    input.kind !== "calendar"
+    input.kind !== "calendar" &&
+    input.kind !== "task"
   ) {
     return null;
   }
@@ -183,10 +195,19 @@ async function classifyWithLLM(
           body: (input.email_body ?? "").trim(),
         }
       : undefined;
+  const task =
+    input.kind === "task"
+      ? {
+          audience: (input.task_audience ?? "").trim(),
+          subject: (input.email_subject ?? "").trim(),
+          body: (input.email_body ?? "").trim(),
+        }
+      : undefined;
   return {
     kind: input.kind,
     docType,
     email,
+    task,
     targetsOpenApp: typeof input.targets_open_app === "boolean" ? input.targets_open_app : undefined,
     method: "llm",
     confidence: typeof input.confidence === "number" ? input.confidence : 0.7,

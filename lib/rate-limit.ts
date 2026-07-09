@@ -107,4 +107,6 @@ export const LIMITS = {
   transcribe: { limit: 30, windowSec: 60 }, // dictée (clips courts)
   clarify: { limit: 40, windowSec: 60 }, // questions pré-création (léger)
   deploy: { limit: 10, windowSec: 60 }, // déploiement
+  app_email: { limit: 15, windowSec: 60 }, // envoi email depuis une app (anti-spam)
+  app_sms: { limit: 10, windowSec: 60 }, // envoi SMS depuis une app (anti-spam, coûteux)
 } as const;

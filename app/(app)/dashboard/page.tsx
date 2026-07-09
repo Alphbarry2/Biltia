@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase";
 import { getActiveMembership } from "@/lib/tenant";
 import { toPreviewHtml } from "@/lib/app-preview";
 import { InteractiveMesh, useTypewriter, TemplateGallery } from "@/components/site";
+import { AgentTemplateGallery } from "@/components/agent-templates";
 import { VoiceRecorder } from "@/components/voice-recorder";
 import { ConnectToolsBadge } from "@/components/connections";
 import {
@@ -226,6 +227,8 @@ export default function DashboardPage() {
   const [isListening, setIsListening] = useState(false);
   const [firstName, setFirstName] = useState("");
   const [tab, setTab] = useState<"ateliers" | "modeles">("ateliers");
+  // Sous-filtre de l'onglet Modèles : applications à générer vs agents à activer.
+  const [modelKind, setModelKind] = useState<"apps" | "agents">("apps");
   const [query, setQuery] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [plusOpen, setPlusOpen] = useState(false);
@@ -622,7 +625,13 @@ export default function DashboardPage() {
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder={tab === "ateliers" ? "Rechercher une application…" : "Rechercher un modèle…"}
+                placeholder={
+                  tab === "ateliers"
+                    ? "Rechercher une application…"
+                    : modelKind === "agents"
+                      ? "Rechercher un agent…"
+                      : "Rechercher un modèle…"
+                }
                 className="bg-transparent outline-none text-sm text-[#0A0A0A] w-full placeholder:text-[#9A9AA6]"
               />
             </div>
@@ -662,7 +671,40 @@ export default function DashboardPage() {
               </div>
             )
           ) : (
-            <TemplateGallery onUse={useTemplate} query={query} />
+            <>
+              {/* Sous-filtre : Applications (à générer) vs Agents IA (à activer). */}
+              <div className="inline-flex items-center gap-1 p-1 bg-[#F4F4F7] rounded-full mb-6">
+                {(
+                  [
+                    ["apps", "Applications"],
+                    ["agents", "Agents IA"],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    onClick={() => setModelKind(id)}
+                    className={`px-4 py-1.5 rounded-full text-[12.5px] font-semibold transition-colors ${
+                      modelKind === id
+                        ? "bg-white text-[#0A0A0A] shadow-[0_1px_3px_rgba(0,0,0,0.08)]"
+                        : "text-[#6E6E7A] hover:text-[#0A0A0A]"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {modelKind === "apps" ? (
+                <TemplateGallery onUse={useTemplate} query={query} />
+              ) : (
+                <>
+                  <p className="text-[13px] text-[#6E6E6C] mb-5">
+                    Activez, l&apos;agent travaille tout seul. Les alertes sont gratuites.
+                  </p>
+                  <AgentTemplateGallery query={query} />
+                </>
+              )}
+            </>
           )}
         </div>
       </section>

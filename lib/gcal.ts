@@ -86,6 +86,55 @@ export async function readAgenda(opts: {
   return { ok: true, summary: `Voici ton agenda des ${days} prochains jours :\n\n${blocks.join("\n\n")}` };
 }
 
+/**
+ * Variante « planning d'équipe » : même lecture, mais texte NEUTRE (pas « ton
+ * agenda ») destiné à être transmis aux employés. Renvoie le planning groupé par
+ * jour, ou { ok:false } si non lisible (pas connecté / scope / erreur / vide).
+ */
+export async function readTeamAgenda(opts: {
+  tenantId: string;
+  userId: string;
+  days?: number;
+}): Promise<{ ok: true; text: string } | { ok: false; reason: string }> {
+  const tok = await getValidGoogleToken(opts.tenantId, opts.userId);
+  if (!tok.ok) return { ok: false, reason: tok.reason ?? "not_connected" };
+  if (!tok.scopes.some((s) => CALENDAR_SCOPES.includes(s))) return { ok: false, reason: "missing_scope" };
+
+  const days = opts.days ?? 7;
+  const now = new Date();
+  const end = new Date(now.getTime() + days * 86_400_000);
+  const params = new URLSearchParams({
+    timeMin: now.toISOString(),
+    timeMax: end.toISOString(),
+    singleEvents: "true",
+    orderBy: "startTime",
+    maxResults: "80",
+  });
+  const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${tok.accessToken}` },
+  });
+  if (!res.ok) return { ok: false, reason: "read_failed" };
+  const json = (await res.json().catch(() => ({}))) as { items?: CalEvent[] };
+  const items = json.items ?? [];
+  if (items.length === 0) return { ok: false, reason: "empty" };
+
+  const byDay = new Map<string, string[]>();
+  for (const ev of items) {
+    const startIso = ev.start?.dateTime ?? ev.start?.date;
+    if (!startIso) continue;
+    const key = fmtDay(new Date(startIso));
+    const time = ev.start?.dateTime ? fmtTime(ev.start.dateTime) : "journée";
+    const line = `- ${time} · ${ev.summary ?? "(sans titre)"}${ev.location ? ` (${ev.location})` : ""}`;
+    const arr = byDay.get(key) ?? [];
+    arr.push(line);
+    byDay.set(key, arr);
+  }
+  const blocks = [...byDay.entries()].map(
+    ([day, lines]) => `${day.charAt(0).toUpperCase() + day.slice(1)}\n${lines.join("\n")}`
+  );
+  return { ok: true, text: blocks.join("\n\n") };
+}
+
 // ── CRÉATION D'ÉVÉNEMENT ──────────────────────────────────────────────────────
 // L'écriture exige un scope d'écriture (calendar.events ou calendar), pas
 // calendar.readonly. Les dates arrivent en heure locale « YYYY-MM-DDTHH:MM:SS »

@@ -21,6 +21,8 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase-server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
+import { getEntitlementsForTenant, canInviteTeam } from "@/lib/entitlements";
+import { isFounderEmail } from "@/lib/founder";
 import { logActivity } from "@/lib/activity";
 import { sendEmail } from "@/lib/mailer";
 
@@ -134,6 +136,22 @@ export async function POST(req: Request) {
       { error: "Seul le propriétaire ou un admin peut inviter des collaborateurs." },
       { status: 403 }
     );
+  }
+
+  // Plan : inviter une équipe (workspace partagé) est réservé à Pro. Le Free reste
+  // solo — c'est un plan découverte, pas un espace multi-utilisateurs. Fondateur exempté.
+  if (!isFounderEmail(user.email)) {
+    const ent = await getEntitlementsForTenant(supabase, membership.tenant_id);
+    if (!canInviteTeam(ent)) {
+      return NextResponse.json(
+        {
+          error:
+            "L'invitation de collaborateurs fait partie du plan Pro. Passez à un plan payant pour constituer votre équipe.",
+          upgrade: true,
+        },
+        { status: 403 }
+      );
+    }
   }
 
   let body: { email?: string; role?: string };

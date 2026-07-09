@@ -16,12 +16,6 @@ import { Check, X, Mic, Loader2 } from "lucide-react";
 
 const BAR_COUNT = 44;
 
-function fmt(total: number) {
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
-
 function pickMime(): string {
   if (typeof MediaRecorder === "undefined") return "";
   const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"];
@@ -49,7 +43,6 @@ export function VoiceRecorder({
   const base = initialText ? initialText.trimEnd() + " " : "";
 
   const [speechText, setSpeechText] = useState(""); // aperçu live navigateur
-  const [seconds, setSeconds] = useState(0);
   const [status, setStatus] = useState<"connecting" | "listening" | "finalizing" | "error">("connecting");
   const [errorMsg, setErrorMsg] = useState("");
   // Bump pour REDÉMARRER une dictée après une erreur (« Réessayer ») : relance
@@ -179,7 +172,6 @@ export function VoiceRecorder({
     speechFinalRef.current = "";
     speechInterimRef.current = "";
     setSpeechText("");
-    setSeconds(0);
     setErrorMsg("");
     setStatus("connecting");
 
@@ -305,8 +297,6 @@ export function VoiceRecorder({
 
     begin();
 
-    const timer = setInterval(() => setSeconds((s) => s + 1), 1000);
-
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") { e.preventDefault(); cancel(); }
       else if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); commit(); }
@@ -315,7 +305,6 @@ export function VoiceRecorder({
 
     return () => {
       cancelled = true;
-      clearInterval(timer);
       window.removeEventListener("keydown", onKey);
       cleanup();
     };
@@ -333,12 +322,11 @@ export function VoiceRecorder({
         className="pointer-events-none absolute inset-x-8 top-8 h-24 rounded-full bg-gradient-to-r from-indigo-400/20 via-violet-400/25 to-pink-400/20 blur-2xl animate-glow-pulse"
       />
 
-      {/* ligne du haut : point rec + minuteur + état + fermer */}
+      {/* ligne du haut : point rec + état + fermer */}
       <div className="relative flex items-center justify-between mb-2.5">
         <div className="flex items-center gap-2.5">
           <span className="flex items-center gap-1.5">
             <span className={`w-2 h-2 rounded-full ${isError ? "bg-[#9A9AA6]" : isFinalizing ? "bg-[#7C3AED]" : "bg-rose-500 animate-pulse"}`} />
-            <span className="text-[13px] font-semibold text-[#0A0A0A] tabular-nums">{fmt(seconds)}</span>
           </span>
           <span className="text-[12.5px] text-[#9A9AA6]">
             {isError

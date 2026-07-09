@@ -10,6 +10,8 @@ import { looksLikePureQuestion, classifyKindHeuristic } from "@/lib/kind-heurist
 import { playCompletionChime } from "@/lib/chime";
 import { VoiceRecorder } from "@/components/voice-recorder";
 import { ClarifyWidget, type ClarifyQuestion } from "@/components/clarify-widget";
+import DataStartModal from "@/components/data-start-modal";
+import { computeStoredScope } from "@/lib/data-scope";
 import { buildStaticClarifyQuestions } from "@/lib/clarify-questions";
 import { CreditsUpsell } from "@/components/credits-upsell";
 import {
@@ -279,6 +281,9 @@ export default function GeneratePage() {
   useEffect(() => { kindRef.current = kind; docTypeRef.current = docType; }, [kind, docType]);
   // Instruction de contrôle par lot énoncée AVANT de joindre les fichiers.
   const pendingActionRef = useRef<string>("");
+  // Envoi groupé en attente de validation (aperçu kind=task) : mémorisé jusqu'à
+  // ce que l'utilisateur confirme (« oui, envoie ») ou change d'avis.
+  const pendingTaskRef = useRef<{ audience: string; subject: string; body: string } | null>(null);
   // Pré-aiguillage instantané côté client : une pure question n'affiche JAMAIS
   // l'écran de construction (phases), juste la bulle « je vous réponds ».
   const [expectingBuild, setExpectingBuild] = useState(true);
@@ -286,6 +291,8 @@ export default function GeneratePage() {
   // d'app (façon Lovable) ; "document" = porte « contexte suffisant ? » (l'employé
   // demande les infos manquantes avant de rédiger le PDF).
   const [clarify, setClarify] = useState<{ questions: ClarifyQuestion[]; prompt: string; kind?: "module" | "document"; files?: { name: string; mediaType: string; data: string }[] } | null>(null);
+  // Chooser « comment démarrer les données ? » à l'usage d'un template (vierge / import / workspace).
+  const [tplChooser, setTplChooser] = useState<{ id: string; name: string; accent: string } | null>(null);
   const [loadingLabel, setLoadingLabel] = useState<string | null>(null);
   // Crédits insuffisants (pré-vérification client OU 402 serveur) → widget
   // d'upgrade affiché dans le fil, jamais un simple message sans issue.
@@ -295,6 +302,9 @@ export default function GeneratePage() {
   // Historique : id de la conversation en cours (créée au premier échange).
   const conversationIdRef = useRef<string | null>(null);
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Portée des données choisie au questionnaire (vierge/import/workspace) pour la
+  // CRÉATION en chat → persistée sur le module au 1er enregistrement (data_scope).
+  const dataScopeRef = useRef<unknown>(null);
 
   // Amorçage : modèle à ouvrir, ou prompt (avec génération directe).
   const [bootPrompt, setBootPrompt] = useState<string | null>(null);
@@ -402,29 +412,22 @@ export default function GeneratePage() {
       return;
     }
 
-    // 1) "Utiliser ce modèle" : on charge l'aperçu live, le chat modifie une copie perso.
+    // 1) "Utiliser ce modèle" → on demande d'abord COMMENT démarrer les données
+    //    (vierge / import / workspace), puis on instancie avec la portée choisie.
     if (tpl) {
       const meta = TEMPLATE_PREVIEWS.find((p) => p.id === tpl);
       const name = meta?.name ?? "Mon application";
+      const accent = meta?.accent ?? "#4F46E5";
       setAppName(name);
       setKind("module");
       kindRef.current = "module";
-      fetch(`/t/${encodeURIComponent(tpl)}`)
-        .then((r) => (r.ok ? r.text() : Promise.reject()))
-        .then((html) => {
-          setGeneratedHTML(injectErrorCapture(html));
-          setMessages([
-            {
-              role: "assistant",
-              content: `Voici le modèle **${name}**, prêt à l'emploi à droite. Dites-moi ce que vous voulez adapter (couleurs, colonnes, champs, textes…). Vos changements créent votre propre version : le modèle d'origine ne bouge pas.`,
-            },
-          ]);
-        })
-        .catch(() => {
-          setMessages([
-            { role: "assistant", content: "Impossible de charger ce modèle. Décrivez plutôt l'outil dont vous avez besoin." },
-          ]);
-        });
+      setMessages([
+        {
+          role: "assistant",
+          content: `**${name}** — choisissez comment démarrer : à partir de zéro, en important un fichier Excel/CSV, ou depuis votre workspace. Tout ce que vous saisirez restera synchronisé dans votre workspace.`,
+        },
+      ]);
+      setTplChooser({ id: tpl, name, accent });
       return;
     }
 
@@ -536,11 +539,12 @@ export default function GeneratePage() {
       setFounderAccount(isFounderEmail(user.email));
 
       const [{ data: creditsData }, membership] = await Promise.all([
-        supabase.from("user_credits").select("balance").eq("user_id", user.id).single(),
+        supabase.from("user_credits").select("balance, topup_balance").eq("user_id", user.id).single(),
         getActiveMembership(supabase, user.id),
       ]);
 
-      if (creditsData) setCredits(creditsData.balance);
+      // Solde total = abonnement (balance) + packs (topup_balance, non expirable).
+      if (creditsData) setCredits((creditsData.balance ?? 0) + (creditsData.topup_balance ?? 0));
       if (membership) setTenantId(membership.tenant_id);
     });
   }, []);
@@ -670,6 +674,26 @@ export default function GeneratePage() {
     return injectedScript + html;
   }, []);
 
+  // Repli quand on ferme le chooser ou qu'un modèle n'est pas instanciable :
+  // on charge la maquette dans l'atelier pour l'adapter au chat (le modèle
+  // d'origine ne bouge pas, l'utilisateur crée sa propre version).
+  const loadTemplatePreview = useCallback((tpl: string, name: string) => {
+    fetch(`/t/${encodeURIComponent(tpl)}`)
+      .then((r) => (r.ok ? r.text() : Promise.reject()))
+      .then((html) => {
+        setGeneratedHTML(injectErrorCapture(html));
+        setMessages([
+          {
+            role: "assistant",
+            content: `Voici le modèle **${name}**, prêt à l'emploi à droite. Dites-moi ce que vous voulez adapter (couleurs, colonnes, champs, textes…). Vos changements créent votre propre version : le modèle d'origine ne bouge pas.`,
+          },
+        ]);
+      })
+      .catch(() => {
+        setMessages([{ role: "assistant", content: "Impossible de charger ce modèle. Décrivez plutôt l'outil dont vous avez besoin." }]);
+      });
+  }, [injectErrorCapture]);
+
   // ── Auto-correction sur erreurs JS captées ────────────────────────────────
   const autoFix = useCallback(async (errors: string[], currentHTML: string, fixCount: number) => {
     if (autoFixInProgressRef.current || fixCount >= 3) return;
@@ -743,12 +767,20 @@ export default function GeneratePage() {
           const target = (event.source as Window | null) ?? iframeRef.current?.contentWindow ?? null;
           target?.postMessage({ type: 'BILTIA_API_RESPONSE', id, ...payload }, '*');
         };
-        const apiUrl = (body as { __endpoint?: string } | null)?.__endpoint === 'app-ai' ? '/api/app-ai' : '/api/data';
+        const ep = (body as { __endpoint?: string } | null)?.__endpoint;
+        const apiUrl =
+          ep === 'app-ai' ? '/api/app-ai' : ep === 'email' ? '/api/app-email' : ep === 'sms' ? '/api/app-sms' : '/api/data';
+        // Aperçu (app pas encore enregistrée) : on joint la portée choisie au
+        // questionnaire pour que « vierge » s'affiche VIDE dès l'aperçu (et une
+        // sélection reste filtrée). since=maintenant → masque l'existant.
+        const previewScope = !ep ? computeStoredScope(dataScopeRef.current, new Date().toISOString()) : null;
+        const outBody =
+          !ep && body && typeof body === 'object' ? { ...(body as Record<string, unknown>), dataScope: previewScope } : body;
         fetch(apiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'same-origin',
-          body: JSON.stringify(body),
+          body: JSON.stringify(outBody),
         })
           .then(async (res) => {
             const result = await res.json().catch(() => null);
@@ -1023,6 +1055,38 @@ export default function GeneratePage() {
     }
   };
 
+  // Exécute un envoi groupé validé (« oui, envoie ») : appelle /api/task/execute,
+  // qui ré-résout le groupe à frais et envoie. Rapport factuel dans le chat.
+  async function executePendingTask(pending: { audience: string; subject: string; body: string }) {
+    setIsGenerating(true);
+    setLoadingLabel("J'envoie…");
+    try {
+      const res = await fetch("/api/task/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(pending),
+      });
+      const data = await res.json().catch(() => ({}));
+      const msg =
+        typeof data?.message === "string" && data.message
+          ? data.message
+          : typeof data?.error === "string" && data.error
+            ? `⚠️ ${data.error}`
+            : res.ok
+              ? "Envoi effectué."
+              : "⚠️ Je n'ai pas pu envoyer. Réessaie dans un instant.";
+      setMessages((prev) => [...prev, { role: "assistant", content: msg }]);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "⚠️ Je n'ai pas pu envoyer (réseau). Réessaie dans un instant." },
+      ]);
+    } finally {
+      setLoadingLabel(null);
+      setIsGenerating(false);
+    }
+  }
+
   const handleGenerate = async (promptOverride?: string) => {
     const trimmed = (promptOverride ?? input).trim();
     if (isGenerating) return;
@@ -1070,6 +1134,29 @@ export default function GeneratePage() {
     }
 
     if (!trimmed) return;
+
+    // ── Envoi groupé en attente de validation : le message précédent était un
+    // APERÇU (kind=task). Une affirmation (« oui, envoie ») lance l'envoi réel ;
+    // toute autre réponse annule l'aperçu et repart sur une demande neuve.
+    if (pendingTaskRef.current) {
+      const pending = pendingTaskRef.current;
+      const startsAffirm =
+        /^\s*(oui|ouais|ok|okay|d'accord|daccord|c'est bon|cest bon|c bon|parfait|vas[- ]?y|envoie|envoies|envoyer|go|valide|valider|confirme|confirmer)\b/i.test(
+          trimmed
+        );
+      // Garde-fou : « oui MAIS change le sujet » ne doit PAS envoyer. Une réserve
+      // explicite annule l'affirmation → on repart sur une demande neuve.
+      const hasReservation = /(mais|plutot|plutôt|change|modifie|corrige|non|annule|attends|au lieu)/i.test(trimmed);
+      if (startsAffirm && !hasReservation) {
+        pendingTaskRef.current = null;
+        setMessages((prev) => [...prev, { role: "user", content: trimmed }]);
+        setInput("");
+        await executePendingTask(pending);
+        return;
+      }
+      // Pas une validation → on abandonne l'aperçu et on traite la demande normalement.
+      pendingTaskRef.current = null;
+    }
 
     // Miroir des holds serveur (app/api/generate) : 300 création / 60 modification /
     // 10 question, réconciliés au coût réel. Le serveur aiguille (une question ne
@@ -1233,6 +1320,9 @@ export default function GeneratePage() {
     setExpectingBuild(!looksLikePureQuestion(apiPrompt));
     setIsGenerating(true);
     const effectiveFormat = opts?.formatOverride ?? format;
+    // Mémorise le choix de portée pour le poser sur le module à sa 1re sauvegarde
+    // (uniquement en CRÉATION ; une modification garde la portée d'origine).
+    if (!isModification) dataScopeRef.current = opts?.dataScope ?? null;
 
     try {
       const res = await fetch("/api/generate", {
@@ -1377,6 +1467,21 @@ export default function GeneratePage() {
         setMessages((prev) => [...prev, { role: "assistant", content: data.message }]);
         if (typeof data.creditsUsed === "number" && data.creditsUsed > 0) {
           updateCreditsDisplay(data.creditsUsed);
+        }
+        return;
+      }
+
+      // Envoi groupé (« task ») : soit un APERÇU à valider, soit un message
+      // factuel (0 client, pas connecté, email manquant…). Sur l'aperçu, on
+      // mémorise la charge : l'utilisateur confirmera par « oui, envoie ».
+      if (data.kind === "task" && typeof data.message === "string" && data.message) {
+        setMessages((prev) => [...prev, { role: "assistant", content: data.message }]);
+        if (data.status === "preview" && data.task && typeof data.task.audience === "string") {
+          pendingTaskRef.current = {
+            audience: data.task.audience,
+            subject: typeof data.task.subject === "string" ? data.task.subject : "",
+            body: typeof data.task.body === "string" ? data.task.body : "",
+          };
         }
         return;
       }
@@ -1542,12 +1647,18 @@ export default function GeneratePage() {
           slug: newSlug,
           is_public: false,
         })
-        .select("id, slug")
+        .select("id, slug, created_at")
         .single();
       if (error || !row) return false;
       savedIdRef.current = row.id;
       setSavedId(row.id);
       setSlug(row.slug);
+      // Portée des données choisie au questionnaire (vierge/import/workspace).
+      const stored = computeStoredScope(dataScopeRef.current, String(row.created_at));
+      if (stored) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (supabase.from("modules") as any).update({ data_scope: stored }).eq("id", row.id);
+      }
       return true;
     } catch {
       return false;
@@ -1603,12 +1714,17 @@ export default function GeneratePage() {
           slug: newSlug,
           is_public: false,
         })
-        .select("id, slug")
+        .select("id, slug, created_at")
         .single();
       if (data) {
         setSavedId(data.id);
         savedIdRef.current = data.id;
         setSlug(data.slug);
+        const stored = computeStoredScope(dataScopeRef.current, String(data.created_at));
+        if (stored) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await (supabase.from("modules") as any).update({ data_scope: stored }).eq("id", data.id);
+        }
       } else {
         saveFailed(error?.message);
       }
@@ -2273,9 +2389,6 @@ export default function GeneratePage() {
                   <span className="text-[11px] font-bold text-[#7C3AED] tabular-nums">
                     {Math.min(96, Math.round(100 * (1 - Math.exp(-buildSeconds / 28))))}%
                   </span>
-                  <span className="text-[11px] text-[#9A9AA6] tabular-nums">
-                    {buildSeconds < 60 ? `${buildSeconds} s` : `${Math.floor(buildSeconds / 60)} min ${String(buildSeconds % 60).padStart(2, "0")}`}
-                  </span>
                 </div>
                 <div className="h-1.5 bg-[#E7E7E4] rounded-full overflow-hidden">
                   <div
@@ -2373,6 +2486,25 @@ export default function GeneratePage() {
           </div>
         </div>
       </div>
+      )}
+
+      {tplChooser && (
+        <DataStartModal
+          templateId={tplChooser.id}
+          templateName={tplChooser.name}
+          accent={tplChooser.accent}
+          onCreated={(appId) => window.location.assign(`/apps/${appId}`)}
+          onFallback={() => {
+            const t = tplChooser;
+            setTplChooser(null);
+            loadTemplatePreview(t.id, t.name);
+          }}
+          onClose={() => {
+            const t = tplChooser;
+            setTplChooser(null);
+            loadTemplatePreview(t.id, t.name);
+          }}
+        />
       )}
     </div>
   );

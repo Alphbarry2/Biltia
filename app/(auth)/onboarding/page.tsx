@@ -16,7 +16,7 @@ import { createClient } from "@/lib/supabase";
 import { getActiveMembership } from "@/lib/tenant";
 import { enablePushNotifications } from "@/lib/push-client";
 import type { Json } from "@/lib/database.types";
-import { CATEGORIES } from "@/lib/btp-catalog";
+import { CATEGORIES, ACTIVITY_TYPES } from "@/lib/btp-catalog";
 import { COUNTRIES } from "@/lib/countries";
 import { EASE } from "@/components/site";
 import { Dropdown } from "@/components/dropdown";
@@ -55,6 +55,8 @@ export default function OnboardingPage() {
   const [country, setCountry] = useState<string | null>(null);
   const [headcount, setHeadcount] = useState<string | null>(null);
   const [sector, setSector] = useState<string | null>(null);
+  const [sectorDetail, setSectorDetail] = useState("");
+  const [activityType, setActivityType] = useState<string | null>(null);
   const [goals, setGoals] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
@@ -65,10 +67,9 @@ export default function OnboardingPage() {
     });
   }, [router]);
 
-  const pickSector = (id: string) => {
-    setSector(id);
-    setTimeout(() => setStep(2), 220);
-  };
+  // On NE saute plus à l'étape suivante : après le métier, on révèle la précision
+  // libre + le type de travail (aussi importants que la famille pour l'adaptation).
+  const pickSector = (id: string) => setSector(id);
 
   const toggleGoal = (id: string) =>
     setGoals((g) => (g.includes(id) ? g.filter((x) => x !== id) : [...g, id]));
@@ -82,10 +83,14 @@ export default function OnboardingPage() {
       const { data: prof } = await supabase
         .from("profiles").select("preferences").eq("user_id", user.id).maybeSingle();
       const prefs = (prof?.preferences ?? {}) as Record<string, Json>;
+      const detail = sectorDetail.trim();
       const patch: { preferences: Json; sector?: string } = {
         preferences: {
           ...prefs, goals, onboarded: true, onboarding_skipped: skipped,
           country: country ?? "FR", headcount: headcount ?? null,
+          // Contexte métier consommé par la génération (buildKnowledgeBlock).
+          activity_type: activityType ?? null,
+          sector_detail: detail || null,
         },
       };
       if (sector) patch.sector = sector;
@@ -105,6 +110,8 @@ export default function OnboardingPage() {
           if (country) company_info.country = country;
           if (sector) company_info.sector = sector;
           if (headcount) company_info.headcount = headcount;
+          if (activityType) company_info.activity_type = activityType;
+          if (detail) company_info.sector_detail = detail;
           // tenants.name = le nom d'entreprise (repris dans l'en-tête des apps,
           // les devis/factures, le sélecteur de workspace). company_info garde
           // la copie « raison sociale ».
@@ -263,8 +270,64 @@ export default function OnboardingPage() {
                 </button>
               ))}
             </div>
+
+            <AnimatePresence initial={false}>
+              {sector && (
+                <motion.div
+                  key="metier-affine"
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.28, ease: EASE }}
+                  className="overflow-hidden"
+                >
+                  <div className="mt-5 space-y-5 border-t border-[#F0EFF4] pt-5">
+                    <div>
+                      <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-[#8B8B96]">
+                        Précisez votre spécialité <span className="font-medium normal-case text-[#B9B9B6]">(optionnel)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={sectorDetail}
+                        onChange={(e) => setSectorDetail(e.target.value)}
+                        placeholder="Ex. électricien spécialisé bornes de recharge"
+                        className="w-full rounded-xl border border-[#E7E7E4] bg-white px-4 py-3 text-[14px] text-[#0A0A0A] placeholder:text-[#B9B9B6] outline-none transition-all focus:border-[#7C3AED] focus:shadow-[0_0_0_3px_rgba(124,58,246,0.14)]"
+                      />
+                      <p className="mt-1.5 text-[12px] text-[#9A9AA6]">Biltia parlera précisément votre langage métier.</p>
+                    </div>
+
+                    <div>
+                      <label className="mb-2 block text-[11px] font-semibold uppercase tracking-wide text-[#8B8B96]">
+                        Vous travaillez plutôt sur… <span className="font-medium normal-case text-[#B9B9B6]">(optionnel)</span>
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {ACTIVITY_TYPES.map((a) => (
+                          <button
+                            key={a.id}
+                            type="button"
+                            onClick={() => setActivityType((cur) => (cur === a.id ? null : a.id))}
+                            className={chip(activityType === a.id)}
+                          >
+                            <span className="min-w-0 truncate">{a.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <button
+              type="button"
+              onClick={() => setStep(2)}
+              disabled={!sector}
+              className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 py-3 font-semibold text-white shadow-[0_8px_24px_rgba(139,92,246,0.4)] transition-all hover:shadow-[0_10px_30px_rgba(139,92,246,0.55)] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Continuer <ArrowRight className="h-4 w-4" />
+            </button>
             <button type="button" onClick={() => finish(true)} disabled={saving}
-              className="mt-6 text-[13px] font-medium text-[#9A9AA6] transition-colors hover:text-[#0A0A0A]">
+              className="mt-3 w-full text-center text-[13px] font-medium text-[#9A9AA6] transition-colors hover:text-[#0A0A0A]">
               Passer pour l&apos;instant
             </button>
           </motion.div>
