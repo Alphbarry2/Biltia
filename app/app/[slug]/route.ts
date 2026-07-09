@@ -29,7 +29,7 @@ export async function GET(
     });
   }
 
-  return new Response(data.html_content, {
+  return new Response(injectPoweredBy(data.html_content), {
     status: 200,
     headers: {
       "content-type": "text/html; charset=utf-8",
@@ -37,6 +37,30 @@ export async function GET(
       "cache-control": "private, no-store",
     },
   });
+}
+
+// « Powered by Biltia » — injecté CÔTÉ SERVEUR sur le lien public (mise en ligne),
+// donc NON RETIRABLE par l'utilisateur (jamais dans le HTML qu'il édite). Badge fixe
+// aux couleurs Biltia (chip sombre + « B » en dégradé indigo→violet→rose de la
+// landing), cliquable vers la landing. Styles inline (CSP-safe, zéro dépendance).
+const BILTIA_LANDING = "https://www.biltia.com/?ref=powered";
+function injectPoweredBy(html: string): string {
+  const badge =
+    "\n<style>" +
+    "#__biltia_pb{position:fixed!important;z-index:2147483647!important;right:14px;bottom:14px;display:inline-flex!important;" +
+    "align-items:center;gap:7px;padding:7px 13px 7px 8px;background:#0B1020;color:#fff;border-radius:9999px;" +
+    "box-shadow:0 6px 22px rgba(0,0,0,.28);font-family:'Inter',system-ui,-apple-system,sans-serif;font-size:12px;" +
+    "line-height:1;text-decoration:none;-webkit-font-smoothing:antialiased}" +
+    "#__biltia_pb .pb-b{width:20px;height:20px;border-radius:6px;background:linear-gradient(135deg,#6366F1,#A855F7 55%,#EC4899);" +
+    "display:inline-flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:12px}" +
+    "#__biltia_pb .pb-m{opacity:.7;font-weight:500}#__biltia_pb .pb-n{font-weight:700}" +
+    // Mobile : au-dessus d'une éventuelle barre d'onglets, à gauche (libère le FAB à droite).
+    "@media(max-width:600px){#__biltia_pb{right:auto;left:12px;bottom:70px}}" +
+    "</style>" +
+    '<a id="__biltia_pb" href="' + BILTIA_LANDING + '" target="_blank" rel="noopener noreferrer" aria-label="Propulsé par Biltia">' +
+    '<span class="pb-b">B</span><span class="pb-m">Powered by</span><span class="pb-n">Biltia</span></a>\n';
+  if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, badge + "</body>");
+  return html + badge;
 }
 
 function notFoundPage(slug: string): string {

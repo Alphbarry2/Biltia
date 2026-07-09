@@ -22,9 +22,25 @@ import { EASE } from "@/components/site";
 import { Dropdown } from "@/components/dropdown";
 import { ArrowRight, ChevronLeft, Check } from "lucide-react";
 
+// Icônes retouchées pour l'onboarding : plus lisibles et sans doublon
+// (le 🧱 est réservé au Gros œuvre ; charpente/toiture → bois).
+const METIER_ICON: Record<string, string> = {
+  structure_bois_toiture: "🪵",
+  isolation_cloisons: "🧊",
+};
 const METIERS = [
-  ...CATEGORIES.map((c) => ({ id: c.id, label: c.label, emoji: c.emoji })),
-  { id: "autre", label: "Autre / Multi-services", emoji: "🧰" },
+  ...CATEGORIES.map((c) => ({
+    id: c.id,
+    label: c.label,
+    emoji: METIER_ICON[c.id] ?? c.emoji,
+    // Exemples concrets tirés des sous-métiers du catalogue → chacun comprend
+    // ce que couvre la famille, sans jargon ni deviner.
+    examples: c.subTrades
+      .slice(0, 3)
+      .map((s) => s.label.split(" / ")[0])
+      .join(" · "),
+  })),
+  { id: "autre", label: "Autre / Multi-services", emoji: "🧰", examples: "Vous exercez plusieurs métiers" },
 ];
 
 const GOALS = [
@@ -262,13 +278,30 @@ export default function OnboardingPage() {
               Quel est votre métier ?
             </h1>
             <p className="mb-6 text-sm text-[#6E6E6C]">Biltia adapte ses réponses et ses documents à votre métier.</p>
-            <div className="grid grid-cols-2 gap-2.5">
-              {METIERS.map((m) => (
-                <button key={m.id} type="button" onClick={() => pickSector(m.id)} className={chip(sector === m.id)}>
-                  <span className="text-[17px] leading-none">{m.emoji}</span>
-                  <span className="min-w-0 truncate">{m.label}</span>
-                </button>
-              ))}
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+              {METIERS.map((m) => {
+                const active = sector === m.id;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => pickSector(m.id)}
+                    className={`flex items-start gap-3 rounded-2xl border px-4 py-3 text-left transition-all duration-200 active:scale-[0.98] ${
+                      active
+                        ? "border-[#7C3AED] bg-[#F3EFFC] shadow-[0_8px_22px_rgba(124,58,190,0.16)]"
+                        : "border-[#E7E7E4] bg-white hover:border-[#C9BEF0] hover:shadow-[0_8px_22px_rgba(124,58,190,0.1)]"
+                    }`}
+                  >
+                    <span className="mt-0.5 shrink-0 text-[20px] leading-none">{m.emoji}</span>
+                    <span className="min-w-0">
+                      <span className="block text-[14px] font-semibold leading-tight text-[#0A0A0A]">{m.label}</span>
+                      {m.examples && (
+                        <span className="mt-0.5 block text-[11.5px] font-medium leading-snug text-[#9A9AA6]">{m.examples}</span>
+                      )}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
             <AnimatePresence initial={false}>
