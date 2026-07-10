@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Check, ChevronDown, ArrowRight, CalendarDays, MessageCircle, Camera, FileText, LayoutGrid, Bot } from "lucide-react";
+import { Check, ChevronDown, ArrowRight, CalendarDays, MessageCircle, Camera, FileText, LayoutGrid, Bot, Gift } from "lucide-react";
 import {
-  getPlan, getTier, formatEur, ENTERPRISE, EQUIPE,
+  getPlan, getTier, formatEur, ENTERPRISE, EQUIPE, SIGNUP_FREE_CREDITS,
   tierDisplayMonthlyEur, annualTotalEur,
   type CreditTier, type BillingCycle,
 } from "@/lib/plans";
@@ -69,6 +69,34 @@ function TierSelect({ tiers, value, onChange }: { tiers: CreditTier[]; value: nu
 }
 
 // ── Carte d'un forfait payant (Pro ou Équipe) ─────────────────────────────────
+// Bandeau « Crédits offerts » repliable (natif <details>, aucun JS d'état). Montre
+// le bonus de 300 crédits accordé À LA CRÉATION DU COMPTE, EN PLUS du forfait
+// (mode "welcome" du webhook : solde = crédits du palier + 300). Sur chaque plan
+// SAUF Entreprise (sur devis). monthlyCredits = crédits mensuels du palier (0 = Free).
+function GiftCredits({ monthlyCredits }: { monthlyCredits: number }) {
+  const total = monthlyCredits + SIGNUP_FREE_CREDITS;
+  return (
+    <details className="group mb-4 rounded-xl border border-[#EDE9FB] bg-[#F8F6FF] px-3.5 py-2.5">
+      <summary className="flex cursor-pointer list-none items-center gap-2 text-[13px] font-semibold text-[#5B3FBF] [&::-webkit-details-marker]:hidden">
+        <Gift className="h-4 w-4 flex-shrink-0" strokeWidth={2.2} />
+        <span className="flex-1">Crédits offerts</span>
+        <ChevronDown className="h-4 w-4 text-[#9A8FD0] transition-transform duration-200 group-open:rotate-180" />
+      </summary>
+      <div className="mt-2.5 pl-6 text-[12.5px] leading-relaxed">
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-[17px] font-black tabular-nums text-[#5B3FBF]">+{SIGNUP_FREE_CREDITS.toLocaleString("fr-FR")}</span>
+          <span className="font-semibold text-[#4A4A56]">crédits offerts à la création du compte</span>
+        </div>
+        <p className="mt-1 text-[#9A9AA6]">
+          {monthlyCredits > 0
+            ? `Soit ${total.toLocaleString("fr-FR")} crédits pour démarrer, en plus de vos crédits renouvelés chaque mois.`
+            : "De quoi créer votre première application et un vrai devis, sans carte bancaire."}
+        </p>
+      </div>
+    </details>
+  );
+}
+
 function PaidCard({ name, includedLine, features, tiers, checkoutPlan, cycle, badge, recommended }: {
   name: string;
   includedLine: string;
@@ -114,6 +142,7 @@ function PaidCard({ name, includedLine, features, tiers, checkoutPlan, cycle, ba
           <li key={f} className="flex items-start gap-2.5 text-[13px]"><Check className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-[#7C3AED]" strokeWidth={2.5} /><span className="text-[#4A4A56]">{f}</span></li>
         ))}
       </ul>
+      <GiftCredits monthlyCredits={credits} />
       {/* Pro ET Équipe sont self-serve (Stripe câblé : STRIPE_PRICE_PRO_* et
           STRIPE_PRICE_EQUIPE_*). Le signup/onboarding fait voyager le plan choisi
           jusqu'au checkout. L'offre Entreprise (sur devis) est une carte à part. */}
@@ -263,6 +292,7 @@ export default function TarifsPage() {
                   <li key={f} className="flex items-start gap-2.5 text-[13px]"><Check className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-[#7C3AED]" strokeWidth={2.5} /><span className="text-[#4A4A56]">{f}</span></li>
                 ))}
               </ul>
+              <GiftCredits monthlyCredits={0} />
               <a href="/signup" className="mt-auto flex items-center justify-center gap-2 py-3 rounded-full text-[14px] font-semibold transition-all border border-[#E7E2D7] text-[#0A0A0A] hover:bg-[#F6F6F9]">
                 Commencer <ArrowRight className="w-3.5 h-3.5" />
               </a>
