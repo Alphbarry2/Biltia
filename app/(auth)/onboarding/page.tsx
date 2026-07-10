@@ -70,7 +70,7 @@ export default function OnboardingPage() {
   const [companyName, setCompanyName] = useState("");
   const [country, setCountry] = useState<string | null>(null);
   const [headcount, setHeadcount] = useState<string | null>(null);
-  const [sector, setSector] = useState<string | null>(null);
+  const [sectors, setSectors] = useState<string[]>([]);
   const [sectorDetail, setSectorDetail] = useState("");
   const [activityType, setActivityType] = useState<string | null>(null);
   const [goals, setGoals] = useState<string[]>([]);
@@ -85,7 +85,9 @@ export default function OnboardingPage() {
 
   // On NE saute plus à l'étape suivante : après le métier, on révèle la précision
   // libre + le type de travail (aussi importants que la famille pour l'adaptation).
-  const pickSector = (id: string) => setSector(id);
+  // Sélection MULTIPLE : un artisan qui fait plomberie ET électricité coche les deux.
+  const pickSector = (id: string) =>
+    setSectors((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
 
   const toggleGoal = (id: string) =>
     setGoals((g) => (g.includes(id) ? g.filter((x) => x !== id) : [...g, id]));
@@ -100,6 +102,7 @@ export default function OnboardingPage() {
         .from("profiles").select("preferences").eq("user_id", user.id).maybeSingle();
       const prefs = (prof?.preferences ?? {}) as Record<string, Json>;
       const detail = sectorDetail.trim();
+      const primarySector = sectors[0] ?? null;
       const patch: { preferences: Json; sector?: string } = {
         preferences: {
           ...prefs, goals, onboarded: true, onboarding_skipped: skipped,
@@ -107,11 +110,13 @@ export default function OnboardingPage() {
           // Contexte métier consommé par la génération (buildKnowledgeBlock).
           activity_type: activityType ?? null,
           sector_detail: detail || null,
+          // Métiers déclarés (un ou PLUSIEURS) — chacun colore la génération.
+          sectors,
         },
       };
-      if (sector) patch.sector = sector;
+      if (primarySector) patch.sector = primarySector;
       await supabase.from("profiles").update(patch).eq("user_id", user.id);
-      if (sector) await supabase.auth.updateUser({ data: { sector } });
+      if (primarySector) await supabase.auth.updateUser({ data: { sector: primarySector } });
       // Profil entreprise du tenant (adapte TVA/SIRET partout + tracking admin).
       // On FUSIONNE avec l'existant pour ne jamais écraser SIRET/adresse déjà saisis.
       try {
@@ -124,7 +129,8 @@ export default function OnboardingPage() {
           const trimmedCompany = companyName.trim();
           if (trimmedCompany) company_info.company_name = trimmedCompany;
           if (country) company_info.country = country;
-          if (sector) company_info.sector = sector;
+          if (primarySector) company_info.sector = primarySector;
+          company_info.sectors = sectors;
           if (headcount) company_info.headcount = headcount;
           if (activityType) company_info.activity_type = activityType;
           if (detail) company_info.sector_detail = detail;
@@ -277,26 +283,40 @@ export default function OnboardingPage() {
             <h1 className="mb-1.5 text-[26px] font-black leading-tight tracking-[-0.03em] text-[#0A0A0A]">
               Quel est votre métier ?
             </h1>
-            <p className="mb-6 text-sm text-[#6E6E6C]">Biltia adapte ses réponses et ses documents à votre métier.</p>
-            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+            <p className="mb-1 text-sm text-[#6E6E6C]">Biltia adapte ses réponses et ses documents à votre métier.</p>
+            <p className="mb-5 text-[13px] font-medium text-[#7C3AED]">Vous pouvez en sélectionner plusieurs.</p>
+            <div className="grid grid-cols-1 gap-2.5">
               {METIERS.map((m) => {
-                const active = sector === m.id;
+                const active = sectors.includes(m.id);
                 return (
                   <button
                     key={m.id}
                     type="button"
+                    aria-pressed={active}
                     onClick={() => pickSector(m.id)}
-                    className={`flex items-start gap-3 rounded-2xl border px-4 py-3 text-left transition-all duration-200 active:scale-[0.98] ${
+                    className={`flex items-center gap-3.5 rounded-2xl border p-3.5 text-left transition-all duration-200 active:scale-[0.99] ${
                       active
-                        ? "border-[#7C3AED] bg-[#F3EFFC] shadow-[0_8px_22px_rgba(124,58,190,0.16)]"
-                        : "border-[#E7E7E4] bg-white hover:border-[#C9BEF0] hover:shadow-[0_8px_22px_rgba(124,58,190,0.1)]"
+                        ? "border-[#7C3AED] bg-[#F6F3FD] shadow-[0_6px_20px_rgba(124,58,190,0.12)]"
+                        : "border-[#EAEAF0] bg-white hover:border-[#C9BEF0] hover:bg-[#FCFBFE]"
                     }`}
                   >
-                    <span className="mt-0.5 shrink-0 text-[20px] leading-none">{m.emoji}</span>
-                    <span className="min-w-0">
-                      <span className="block text-[14px] font-semibold leading-tight text-[#0A0A0A]">{m.label}</span>
+                    {/* Case à cocher — TOUJOURS à gauche (multi-sélection) */}
+                    <span
+                      className={`flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md border-2 transition-all ${
+                        active ? "border-[#7C3AED] bg-[#7C3AED]" : "border-[#D4D4DE] bg-white"
+                      }`}
+                    >
+                      {active && <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />}
+                    </span>
+                    {/* Icône métier */}
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#F5F4F9] text-[19px] leading-none">
+                      {m.emoji}
+                    </span>
+                    {/* Libellé + exemples */}
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[14.5px] font-semibold leading-tight text-[#0A0A0A]">{m.label}</span>
                       {m.examples && (
-                        <span className="mt-0.5 block text-[11.5px] font-medium leading-snug text-[#9A9AA6]">{m.examples}</span>
+                        <span className="mt-0.5 block text-[12px] font-medium leading-snug text-[#8A8A96]">{m.examples}</span>
                       )}
                     </span>
                   </button>
@@ -305,7 +325,7 @@ export default function OnboardingPage() {
             </div>
 
             <AnimatePresence initial={false}>
-              {sector && (
+              {sectors.length > 0 && (
                 <motion.div
                   key="metier-affine"
                   initial={{ opacity: 0, height: 0 }}
@@ -354,7 +374,7 @@ export default function OnboardingPage() {
             <button
               type="button"
               onClick={() => setStep(2)}
-              disabled={!sector}
+              disabled={sectors.length === 0}
               className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 py-3 font-semibold text-white shadow-[0_8px_24px_rgba(139,92,246,0.4)] transition-all hover:shadow-[0_10px_30px_rgba(139,92,246,0.55)] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40"
             >
               Continuer <ArrowRight className="h-4 w-4" />

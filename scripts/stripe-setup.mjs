@@ -19,17 +19,14 @@ import path from "node:path";
 import Stripe from "stripe";
 
 // [credits, prixMensuelEUR] — miroir EXACT de PRO_TIERS (lib/plans.ts).
-// Grille resserrée 2026-07-09 : 6 paliers (2 cartes Solo/TPE + Business).
-// Les ANCIENS paliers (4000, 8000, …) ne sont PAS recréés ici : leurs Prices
-// restent en place tant qu'un abonné y est (grandfathering, cf. LEGACY_PRO_TIERS
-// + findTierByPriceId). Ne PAS les supprimer côté Stripe.
+// Grille FINALE 2026-07-10 (calibrée en LIVE le 2026-07-10) : 3 paliers Pro.
+// Les ANCIENS paliers ne sont PAS recréés ici : leurs Prices ont été ARCHIVÉS
+// côté Stripe (0 abonné au moment du nettoyage). Cf. LEGACY_PRO_TIERS
+// + findTierByPriceId pour la reconnaissance d'éventuels abonnements historiques.
 const TIERS = [
-  [1000, 49],
-  [2000, 89],
-  [3000, 129],
-  [10000, 399],
-  [15000, 579],
-  [25000, 949],
+  [2000, 49],
+  [3000, 89],
+  [5000, 129],
 ];
 const ANNUAL_MONTHS_BILLED = 10; // 2 mois offerts
 
@@ -127,9 +124,10 @@ for (const [credits, monthlyEur] of TIERS) {
 // ── Packs de crédits (one-time) ───────────────────────────────────────────────
 // Miroir EXACT de CREDIT_PACKS (lib/plans.ts). Prix « payment » (pas d'abonnement).
 const PACKS = [
-  [1000, 59],
-  [3000, 149],
-  [10000, 449],
+  [1000, 29],
+  [3000, 99],
+  [10000, 499],
+  [25000, 1099],
 ];
 const lkPack = (credits) => `biltia_pack_${credits}`;
 

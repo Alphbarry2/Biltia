@@ -84,6 +84,15 @@ RÈGLE DE DÉPARTAGE :
 
 TON DES MESSAGES (email_body et le corps d'un task) : reste TOUJOURS professionnel, courtois et — si nécessaire — ferme, mais JAMAIS insultant, menaçant ni accusatoire. Même si l'utilisateur réclame un ton « agressif », « cash », ou de dire au client qu'il est « malhonnête » / « de mauvaise foi », tu REFORMULES en fermeté correcte : rappel factuel (montant, échéance dépassée, nombre de relances), demande claire de régularisation sous un délai, et mention des suites légales possibles le cas échéant — sans jamais dénigrer la personne. La fermeté vient des faits et de l'échéance, jamais de l'insulte.${modContext}
 
+CAPACITÉS RÉELLES vs HORS PÉRIMÈTRE (champ "out_of_scope") :
+Biltia sait faire ÉNORMÉMENT : créer des applications de gestion, produire des documents (devis, factures, PV, courriers…), envoyer des emails/SMS, lire/écrire l'agenda, gérer les données du workspace (clients, chantiers, devis, factures, stock, pointages…), et déléguer des missions à des agents de veille. Mets out_of_scope=true UNIQUEMENT si la demande exige quelque chose que Biltia ne PEUT PAS faire par nature :
+- une action PHYSIQUE dans le monde réel (poser des câbles, conduire, être présent sur un chantier) ;
+- du TEMPS RÉEL VOCAL / téléphonie (passer des appels ou répondre au téléphone à la place de l'artisan, tenir un standard vocal) ;
+- de l'INGÉNIERIE SPÉCIALISÉE (calcul de structure, dimensionnement, DAO/BIM, calcul thermique certifié) ;
+- du MATÉRIEL / capteurs / IoT / GPS que Biltia ne possède pas.
+En cas de DOUTE, out_of_scope=false — ne refuse JAMAIS par excès de prudence une demande que Biltia sait faire.
+"oos_alternative" : UNIQUEMENT si out_of_scope=true — une phrase courte proposant ce que Biltia SAIT réellement faire et qui se rapproche du besoin (ex : au lieu de répondre au téléphone → « envoyer un SMS ou un email de rappel automatique à chaque appel manqué » ; au lieu de dessiner un plan → « stocker et annoter la photo du plan sur le chantier »). Laisse "" s'il n'y a honnêtement aucune alternative.
+
 "doc_type" : uniquement si kind="document" — un de : ${DOC_TYPES.join(", ")} (ou un slug court si aucun ne colle). Vide sinon.
 "confidence" : 0 à 1.
 
@@ -129,12 +138,22 @@ const CLASSIFY_TOOL = {
         description:
           "UNIQUEMENT quand une application est déjà ouverte : true si la demande veut MODIFIER/compléter cette application ouverte, false si elle n'a rien à voir avec elle (question, autre tâche, hors-sujet — on répond alors en chat sans toucher à l'app). Aucune application ouverte → false.",
       },
+      out_of_scope: {
+        type: "boolean",
+        description:
+          "true UNIQUEMENT si la demande sort des capacités réelles de Biltia (action physique, téléphonie/vocal en temps réel, ingénierie/calcul spécialisé, matériel/IoT). En cas de doute : false.",
+      },
+      oos_alternative: {
+        type: "string",
+        description:
+          "Si out_of_scope=true : phrase courte proposant ce que Biltia SAIT réellement faire, proche du besoin. Vide s'il n'y a aucune alternative, ou si out_of_scope=false.",
+      },
       confidence: {
         type: "number",
         description: "Confiance de 0 à 1.",
       },
     },
-    required: ["kind", "doc_type", "email_to", "email_subject", "email_body", "task_audience", "targets_open_app", "confidence"],
+    required: ["kind", "doc_type", "email_to", "email_subject", "email_body", "task_audience", "targets_open_app", "out_of_scope", "oos_alternative", "confidence"],
     additionalProperties: false,
   },
 } as Anthropic.Tool;
@@ -170,6 +189,8 @@ async function classifyWithLLM(
     email_body?: string;
     task_audience?: string;
     targets_open_app?: boolean;
+    out_of_scope?: boolean;
+    oos_alternative?: string;
     confidence?: number;
   };
   if (
@@ -209,6 +230,8 @@ async function classifyWithLLM(
     email,
     task,
     targetsOpenApp: typeof input.targets_open_app === "boolean" ? input.targets_open_app : undefined,
+    outOfScope: input.out_of_scope === true,
+    oosAlternative: typeof input.oos_alternative === "string" ? input.oos_alternative.trim() : "",
     method: "llm",
     confidence: typeof input.confidence === "number" ? input.confidence : 0.7,
     reasoning: "classification Haiku",

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Check, ChevronDown, ArrowRight, CalendarDays, MessageCircle, Camera, FileText, LayoutGrid, Bot } from "lucide-react";
 import {
-  getPlan, getTier, formatEur, groupTiers, ENTERPRISE,
+  getPlan, getTier, formatEur, ENTERPRISE, EQUIPE,
   tierDisplayMonthlyEur, annualTotalEur,
   type CreditTier, type BillingCycle,
 } from "@/lib/plans";
@@ -11,13 +11,12 @@ import { Reveal, Spot, InteractiveMesh, SiteNav, SiteFooter } from "@/components
 import { ReserveDemoButton } from "@/components/demo-booking";
 
 const FAQ: { q: string; a: string }[] = [
-  { q: "Comment je commence ?", a: "Vous créez un compte et vous utilisez Biltia gratuitement, tout de suite. Vous avez 300 crédits offerts pour découvrir l'outil et créer votre première application. Quand ils sont épuisés, vous choisissez votre forfait selon la capacité IA dont vous avez besoin." },
-  { q: "Qu'est-ce qu'un crédit ?", a: "Un crédit reflète le travail réel de l'IA sur votre demande, pas un jeton technique. Une question simple coûte un à quelques crédits ; créer une application complète ou faire travailler un agent tous les jours en coûte davantage. Pour les grosses créations et au recrutement d'un agent, l'estimation s'affiche avant de lancer." },
-  { q: "Les fonctionnalités changent-elles selon le prix ?", a: "Non, jamais. Tous les forfaits donnent accès à tout l'outil, sans fonctionnalité bridée : applications, agents, connecteurs, équipe. Ce qui varie, ce n'est pas ce que vous pouvez faire, c'est votre capacité IA mensuelle : vous créez autant d'apps et d'agents que vos crédits le permettent. Seules les briques grand compte (marque blanche, URL personnalisée, multi-métiers, SSO, DPA) passent par l'offre Entreprise, sur devis." },
-  { q: "Combien coûte un agent ?", a: "Recruter un agent est gratuit : vous dictez la mission, c'est tout. Ensuite, chaque passage est débité selon la complexité : environ 10 crédits pour un message ou un rappel, 25 pour un contrôle de vos données, 50 pour une analyse complète. Un agent quotidien simple utilise donc environ 300 crédits par mois, inclus dans votre forfait. Le coût réel de chaque passage est visible dans son journal, et si vos crédits s'épuisent l'agent se met en pause : jamais de facture surprise." },
-  { q: "Mensuel ou annuel ?", a: "Comme vous voulez. L'engagement annuel vous fait économiser 2 mois (environ 17 %) sur le même volume de crédits. Vous pouvez basculer depuis vos paramètres à tout moment." },
-  { q: "Que se passe-t-il si je dépasse mes crédits ?", a: "Vous passez au palier supérieur, ou vous attendez le renouvellement du mois. Vos agents se mettent en pause en attendant, et rien n'est facturé sans votre accord. Vous payez d'avance, vous ne devez jamais rien." },
-  { q: "Mes données sont-elles en sécurité ?", a: "Oui. Vos données sont hébergées en France, isolées par entreprise, et jamais utilisées pour entraîner des modèles d'IA." },
+  { q: "Comment je commence ?", a: "Vous créez un compte et vous utilisez Biltia gratuitement, tout de suite, avec 300 crédits offerts. Quand ils sont épuisés, vous choisissez votre forfait." },
+  { q: "Qu'est-ce qu'un crédit ?", a: "Un crédit reflète le travail réel de l'IA. Une question coûte quelques crédits ; créer une application en coûte plus. Manipuler vos apps à la main est toujours gratuit." },
+  { q: "Pro ou Équipe ?", a: "Pro, c'est Biltia pour vous : apps, devis, documents, agents personnels. Équipe ajoute tout ce qui fait entrer d'autres personnes : salariés, clients, sous-traitants, rôles et portails. Si Biltia travaille juste pour vous, c'est Pro ; s'il fait travailler d'autres personnes, c'est Équipe (Pro + 50 €/mois)." },
+  { q: "Et si je dépasse mes crédits ?", a: "Deux options : rechargez à la carte quand vous voulez (+1 000 crédits pour 29 €, +3 000 pour 99 €, +10 000 pour 499 €), ou passez au palier supérieur. En attendant, vos agents se mettent en pause et rien n'est facturé sans votre accord." },
+  { q: "Puis-je revenir de Équipe à Pro ?", a: "Oui, à tout moment. Vos apps, données, historique et paramètres restent intacts. Seuls les accès équipe se suspendent : comptes collaborateurs, portails client et sous-traitant, rôles avancés, agents collaboratifs. Tout se réactive si vous repassez sur Équipe." },
+  { q: "Mes données sont-elles en sécurité ?", a: "Oui. Hébergées en France, isolées par entreprise, jamais utilisées pour entraîner des modèles d'IA." },
 ];
 
 // ── Bascule Mensuel / Annuel ──────────────────────────────────────────────────
@@ -41,34 +40,26 @@ function CycleToggle({ cycle, setCycle }: { cycle: BillingCycle; setCycle: (c: B
   );
 }
 
-// ── Sélecteur de capacité (3 paliers d'un profil, ouverts) ────────────────────
-// Les 3 options d'un profil sont visibles d'un coup (pas de menu qui se referme) :
-// sur une page tarifs on veut voir l'échelle de capacité tout de suite.
-function TierSelect({ tiers, value, basePerCredit, onChange }: { tiers: CreditTier[]; value: number; basePerCredit: number; onChange: (n: number) => void }) {
-  // Économie calculée par rapport au tarif d'ENTRÉE de toute la gamme (le palier
-  // le moins cher au crédit = 1 000 à 49 €), pas au premier palier du groupe :
-  // sinon Business afficherait un misérable -3 % au lieu de -19 % réel.
-  const base = basePerCredit;
+// ── Sélecteur de capacité (paliers du forfait, ouverts) ───────────────────────
+function TierSelect({ tiers, value, onChange }: { tiers: CreditTier[]; value: number; onChange: (n: number) => void }) {
   return (
     <div className="mt-4 mb-5">
       <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-[#8B8B96]">Capacité IA / mois</label>
-      <div className="grid grid-cols-3 gap-1.5 rounded-2xl border border-[#E6E1F0] bg-[#F6F4FB] p-1.5">
+      <div
+        className="grid gap-1.5 rounded-2xl border border-[#E6E1F0] bg-[#F6F4FB] p-1.5"
+        style={{ gridTemplateColumns: `repeat(${tiers.length}, minmax(0,1fr))` }}
+      >
         {tiers.map((t) => {
           const active = t.credits === value;
-          const perCredit = t.priceEur / t.credits;
-          const save = base > 0 ? Math.round((1 - perCredit / base) * 100) : 0;
           return (
             <button
               key={t.credits}
               type="button"
               aria-pressed={active}
               onClick={() => onChange(t.credits)}
-              className={`flex flex-col items-center gap-0.5 rounded-xl py-2.5 transition-all ${active ? "bg-white shadow-[0_6px_18px_rgba(124,58,190,0.16)] ring-1 ring-[#7C3AED]/25" : "text-[#5B5B66] hover:bg-white/60"}`}
+              className={`flex items-center justify-center rounded-xl py-3.5 transition-all ${active ? "bg-white shadow-[0_6px_18px_rgba(124,58,190,0.16)] ring-1 ring-[#7C3AED]/25" : "text-[#5B5B66] hover:bg-white/60"}`}
             >
               <span className={`text-[15px] font-bold tabular-nums ${active ? "text-[#0A0A0A]" : "text-[#3A3A46]"}`}>{t.credits.toLocaleString("fr-FR")}</span>
-              <span className={`text-[10px] font-semibold tabular-nums ${save > 0 ? "text-[#17915E]" : active ? "text-[#7C3AED]" : "text-[#9A9AA6]"}`}>
-                {save > 0 ? `-${save} %` : "crédits"}
-              </span>
             </button>
           );
         })}
@@ -77,34 +68,25 @@ function TierSelect({ tiers, value, basePerCredit, onChange }: { tiers: CreditTi
   );
 }
 
-// ── Carte d'un profil payant (Solo/TPE ou Business), sélecteur intégré ─────────
-function ProCard({ group, cycle, basePerCredit, badge, recommended }: { group: { label: string; tiers: CreditTier[] }; cycle: BillingCycle; basePerCredit: number; badge: string; recommended?: boolean }) {
-  const [credits, setCredits] = useState<number>(group.tiers[0].credits);
-  const tier = group.tiers.find((t) => t.credits === credits) ?? group.tiers[0];
+// ── Carte d'un forfait payant (Pro ou Équipe) ─────────────────────────────────
+function PaidCard({ name, includedLine, features, tiers, checkoutPlan, cycle, badge, recommended }: {
+  name: string;
+  includedLine: string;
+  features: readonly string[];
+  tiers: CreditTier[];
+  checkoutPlan: string;
+  cycle: BillingCycle;
+  badge: string;
+  recommended?: boolean;
+}) {
+  const [credits, setCredits] = useState<number>(tiers[0].credits);
+  const tier = tiers.find((t) => t.credits === credits) ?? tiers[0];
   const monthly = formatEur(tierDisplayMonthlyEur(tier, cycle));
-  const isBusiness = group.label === "Business";
-  const audience = isBusiness ? "PME, équipe" : "Artisan solo, TPE";
-  const tagline = isBusiness
-    ? "Pour les entreprises qui font tourner plusieurs process avec Biltia."
-    : "Pour créer vos premiers outils, générer vos devis et tester vos premiers agents.";
-  const features = isBusiness
-    ? [
-        "Tout Solo / TPE, en plus grande capacité",
-        "Plusieurs apps, agents et documents en parallèle",
-        "Usage en équipe, workspace partagé",
-        "Support prioritaire",
-      ]
-    : [
-        "Apps, devis, questions et agents selon vos crédits IA",
-        "Workspace partagé, équipe incluse",
-        "Crédits renouvelés chaque mois",
-        "Sans engagement",
-      ];
 
   const inner = (
     <>
-      <div className="flex items-center justify-between gap-2 mb-1">
-        <p className="font-bold text-lg tracking-[-0.01em] text-[#0A0A0A]">{group.label}</p>
+      <div className="flex items-center justify-between gap-2 mb-4">
+        <p className="font-bold text-lg tracking-[-0.01em] text-[#0A0A0A]">{name}</p>
         <span
           className={`flex-shrink-0 px-2.5 py-1 rounded-full text-[10.5px] font-bold uppercase tracking-wide ${recommended
             ? "text-white bg-gradient-to-r from-indigo-500 to-pink-500 shadow-[0_4px_14px_rgba(139,92,246,0.35)]"
@@ -113,33 +95,38 @@ function ProCard({ group, cycle, basePerCredit, badge, recommended }: { group: {
           {badge}
         </span>
       </div>
-      <p className="inline-flex w-fit items-center rounded-full bg-[#F4F1FB] px-2.5 py-1 text-[12px] font-semibold text-[#6D4AE0] mb-4">{audience}</p>
-      <p className="text-[13px] text-[#8B8B96] mb-2 leading-snug">{tagline}</p>
       <div className="flex items-baseline gap-1 mb-1">
+        <span className="text-[13px] text-[#9A9AA6]">dès</span>
         <span className="text-5xl font-black tabular-nums tracking-[-0.03em] text-[#0A0A0A]">{monthly}</span>
         <span className="text-[13px] text-[#9A9AA6]">/mois</span>
       </div>
       <p className="text-[12px] text-[#9A9AA6] min-h-[18px]">
         {cycle === "annual"
-          ? <>Soit {formatEur(annualTotalEur(tier.priceEur))} par an, 2 mois offerts.</>
+          ? <>Soit {formatEur(annualTotalEur(tier.priceEur))} par an.</>
           : <>{tier.credits.toLocaleString("fr-FR")} crédits chaque mois.</>}
       </p>
-      <TierSelect tiers={group.tiers} value={credits} basePerCredit={basePerCredit} onChange={setCredits} />
-      <div className="mb-6 flex items-center gap-2 text-[13px] font-semibold text-[#0A0A0A]">
-        <Check className="h-3.5 w-3.5 flex-shrink-0 text-[#7C3AED]" strokeWidth={3} /> Toutes les fonctionnalités incluses
+      <TierSelect tiers={tiers} value={credits} onChange={setCredits} />
+      <div className="mb-5 flex items-center gap-2 text-[13px] font-semibold text-[#0A0A0A]">
+        <Check className="h-3.5 w-3.5 flex-shrink-0 text-[#7C3AED]" strokeWidth={3} /> {includedLine}
       </div>
-      <ul className="space-y-3 mb-8">
+      <ul className="space-y-2.5 mb-8">
         {features.map((f) => (
           <li key={f} className="flex items-start gap-2.5 text-[13px]"><Check className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-[#7C3AED]" strokeWidth={2.5} /><span className="text-[#4A4A56]">{f}</span></li>
         ))}
       </ul>
+      {/* Seul le plan Pro est self-serve (Stripe câblé). L'offre Équipe se souscrit
+          au contact tant que l'add-on collaboration n'a pas sa source de droit
+          Stripe : on ne renvoie JAMAIS vers /signup?plan=equipe (silencieusement
+          ramené à Free) — on ouvre un contact honnête. */}
       <a
-        href={`/signup?plan=pro&credits=${credits}&cycle=${cycle}`}
+        href={checkoutPlan === "pro"
+          ? `/signup?plan=${checkoutPlan}&credits=${credits}&cycle=${cycle}`
+          : `mailto:contact@biltia.com?subject=${encodeURIComponent(`Souscription ${name} — ${credits.toLocaleString("fr-FR")} crédits`)}`}
         className={`mt-auto flex items-center justify-center gap-2 py-3 rounded-full text-[14px] font-semibold transition-all ${recommended
           ? "bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 text-white shadow-[0_8px_24px_rgba(139,92,246,0.4)] hover:shadow-[0_10px_30px_rgba(139,92,246,0.55)]"
           : "border border-[#E7E2D7] text-[#0A0A0A] hover:bg-[#F6F6F9]"}`}
       >
-        Choisir ce forfait <ArrowRight className="w-3.5 h-3.5" />
+        {checkoutPlan === "pro" ? `Choisir ${name}` : "Nous contacter"} <ArrowRight className="w-3.5 h-3.5" />
       </a>
     </>
   );
@@ -160,24 +147,19 @@ function ProCard({ group, cycle, basePerCredit, badge, recommended }: { group: {
 }
 
 // ── « Projetez-vous » : ticket d'un mois type, volume au choix ────────────────
-// PANIER CUMULATIF (les lignes s'ADDITIONNENT, la somme fait PILE le volume).
-// Coûts unitaires pris au BAS des fourchettes (le but est de vendre, pas de faire
-// peur) : question rapide 3 · devis/doc standard 30 · app 250 · agent quotidien
-// 300/mois. Chaque exemple montre donc des compteurs généreux ET honnêtes.
-// Volumes = vrais paliers (le prix affiché vient de lib/plans).
+// Panier cumulatif (les lignes s'ADDITIONNENT, la somme fait PILE le volume).
+// Coûts unitaires au bas des fourchettes : question 3 · devis 30 · app 250 ·
+// agent quotidien 300/mois. Volumes = vrais paliers Pro (prix depuis lib/plans).
 const MONTH_MIX: { vol: number; agents: number; apps: number; docs: number; questions: number }[] = [
-  { vol: 1000, agents: 1, apps: 1, docs: 10, questions: 50 },        // 300+250+300+150
-  { vol: 3000, agents: 2, apps: 3, docs: 30, questions: 250 },       // 600+750+900+750
-  { vol: 10000, agents: 6, apps: 10, docs: 130, questions: 600 },    // 1800+2500+3900+1800
-  { vol: 25000, agents: 12, apps: 25, docs: 300, questions: 2050 },  // 3600+6250+9000+6150
+  { vol: 2000, agents: 1, apps: 2, docs: 30, questions: 100 },  // 300+500+900+300
+  { vol: 3000, agents: 2, apps: 3, docs: 30, questions: 250 },  // 600+750+900+750
+  { vol: 5000, agents: 3, apps: 5, docs: 45, questions: 500 },  // 900+1250+1350+1500
 ];
 
 function MonthTicket() {
-  const [vol, setVol] = useState(1000);
+  const [vol, setVol] = useState(2000);
   const mix = MONTH_MIX.find((m) => m.vol === vol) ?? MONTH_MIX[0];
   const tier = getTier("pro", vol);
-  // Au-delà de 10 000 crédits, l'usage réel est surtout création + ajustements :
-  // personne ne crée 25 apps neuves par mois, on en crée et on en modifie.
   const bigPlan = vol >= 10000;
   const lines = [
     { n: mix.agents, label: mix.agents > 1 ? "agents autonomes actifs chaque jour" : "agent autonome actif chaque jour", c: mix.agents * 300 },
@@ -218,7 +200,7 @@ function MonthTicket() {
           <span className="text-[17px] font-black tabular-nums">{vol.toLocaleString("fr-FR")} cr</span>
         </div>
         <p className="mt-1.5 text-[12.5px] text-white/55">
-          {tier ? <>Soit le forfait à {formatEur(tier.priceEur)}/mois. </> : null}Exemple de répartition : vous utilisez vos crédits comme vous voulez, selon vos besoins.
+          {tier ? <>Soit le forfait Pro à {formatEur(tier.priceEur)}/mois. </> : null}Vous utilisez vos crédits comme vous voulez.
         </p>
       </div>
     </div>
@@ -227,11 +209,7 @@ function MonthTicket() {
 
 
 export default function TarifsPage() {
-  const free = getPlan("free");
   const pro = getPlan("pro");
-  const groups = groupTiers(pro.tiers); // [Solo / TPE, Business]
-  // Tarif d'entrée au crédit (1 000 à 49 € = 0,049 €/cr) : référence des badges d'économie.
-  const basePerCredit = pro.tiers[0].priceEur / pro.tiers[0].credits;
   const [cycle, setCycle] = useState<BillingCycle>("monthly");
   const [openIdx, setOpenIdx] = useState<number | null>(0);
 
@@ -248,7 +226,7 @@ export default function TarifsPage() {
             Tarifs
           </span>
           <h1 className="text-[48px] sm:text-[72px] font-black tracking-[-0.045em] leading-[0.92] text-[#0A0A0A]">Un prix <span className="text-gradient">clair.</span></h1>
-          <p className="text-[17px] sm:text-[19px] text-[#5B5B66] max-w-[580px] mx-auto leading-[1.55] mt-6">Toutes les fonctionnalités sont incluses. Vous choisissez seulement la capacité IA dont votre entreprise a besoin. Commencez gratuitement, sans carte bancaire.</p>
+          <p className="text-[17px] sm:text-[19px] text-[#5B5B66] max-w-[520px] mx-auto leading-[1.55] mt-6">Tout est inclus. Vous choisissez votre capacité IA, et la collaboration si vous êtes plusieurs. Gratuit pour commencer.</p>
           <div className="mt-8">
             <a href="/signup" className="inline-flex items-center gap-2 rounded-full bg-[#0A0A0A] px-6 py-3.5 text-[15px] font-semibold text-white transition-transform hover:scale-[1.02] active:scale-[0.98]">
               Commencer gratuitement <ArrowRight className="h-4 w-4" />
@@ -264,39 +242,67 @@ export default function TarifsPage() {
         </Reveal>
 
         <div className="max-w-6xl mx-auto grid gap-5 md:grid-cols-2 lg:grid-cols-4 items-stretch">
-          {/* Free */}
+          {/* Découverte (Free) */}
           <Reveal className="relative">
             <div className="relative flex h-full flex-col rounded-[26px] p-7 border border-[#ECECF2] bg-white shadow-[0_4px_16px_rgba(60,40,120,0.06)]">
-              <p className="font-bold text-lg tracking-[-0.01em] text-[#0A0A0A] mb-1">{free.name}</p>
-              <p className="inline-flex w-fit items-center rounded-full bg-[#F4F1FB] px-2.5 py-1 text-[12px] font-semibold text-[#6D4AE0] mb-4">Pour tester</p>
-              <p className="text-[13px] text-[#8B8B96] mb-2 leading-snug">Le tour du propriétaire, sans engagement.</p>
+              <div className="flex items-center justify-between gap-2 mb-4">
+                <p className="font-bold text-lg tracking-[-0.01em] text-[#0A0A0A]">Découverte</p>
+                <span className="flex-shrink-0 px-2.5 py-1 rounded-full text-[10.5px] font-bold uppercase tracking-wide text-[#6D4AE0] bg-[#F1ECFB]">Gratuit</span>
+              </div>
               <div className="flex items-baseline gap-1 mb-1">
                 <span className="text-5xl font-black tabular-nums tracking-[-0.03em] text-[#0A0A0A]">0 €</span>
                 <span className="text-[13px] text-[#9A9AA6]">/mois</span>
               </div>
               <p className="text-[12px] text-[#9A9AA6] min-h-[18px]">300 crédits offerts, sans carte bancaire.</p>
-              <div className="mb-6 mt-[26px] flex items-center gap-2 text-[13px] font-semibold text-[#0A0A0A]">
-                <Check className="h-3.5 w-3.5 flex-shrink-0 text-[#7C3AED]" strokeWidth={3} /> Toutes les fonctionnalités incluses
+              <div className="mb-5 mt-[26px] flex items-center gap-2 text-[13px] font-semibold text-[#0A0A0A]">
+                <Check className="h-3.5 w-3.5 flex-shrink-0 text-[#7C3AED]" strokeWidth={3} /> Tout pour tester Biltia
               </div>
-              <ul className="space-y-3 mb-8">
+              <ul className="space-y-2.5 mb-8">
                 {[
-                  "Créez votre première application",
-                  "Générez un vrai devis ou document",
-                  "Testez un agent, posez vos questions",
-                  "300 crédits non renouvelables",
+                  "Créez une première application",
+                  "Générez un vrai devis",
+                  "Vos apps et données restent accessibles",
                 ].map((f) => (
                   <li key={f} className="flex items-start gap-2.5 text-[13px]"><Check className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-[#7C3AED]" strokeWidth={2.5} /><span className="text-[#4A4A56]">{f}</span></li>
                 ))}
               </ul>
               <a href="/signup" className="mt-auto flex items-center justify-center gap-2 py-3 rounded-full text-[14px] font-semibold transition-all border border-[#E7E2D7] text-[#0A0A0A] hover:bg-[#F6F6F9]">
-                Commencer gratuitement <ArrowRight className="w-3.5 h-3.5" />
+                Commencer <ArrowRight className="w-3.5 h-3.5" />
               </a>
             </div>
           </Reveal>
 
-          {/* Solo / TPE (mis en avant) + Business */}
-          <ProCard group={groups[0]} cycle={cycle} basePerCredit={basePerCredit} badge="Idéal pour démarrer" recommended />
-          {groups[1] && <ProCard group={groups[1]} cycle={cycle} basePerCredit={basePerCredit} badge="Pour les équipes" />}
+          {/* Pro (mis en avant) */}
+          <PaidCard
+            name={pro.name}
+            includedLine="Tout Biltia, pour travailler seul"
+            features={[
+              "Tous les templates BTP inclus",
+              "Apps, devis, documents et agents IA selon crédits",
+              "Email et SMS automatiques",
+              "Crédits renouvelés chaque mois",
+            ]}
+            tiers={pro.tiers}
+            checkoutPlan="pro"
+            cycle={cycle}
+            badge="Recommandé"
+            recommended
+          />
+
+          {/* Équipe */}
+          <PaidCard
+            name={EQUIPE.name}
+            includedLine="Tout Pro + la collaboration"
+            features={[
+              "Tout Pro, avec plusieurs utilisateurs",
+              "Salariés, clients et sous-traitants",
+              "Rôles, portail et partage sécurisé",
+            ]}
+            tiers={[...EQUIPE.tiers]}
+            checkoutPlan="equipe"
+            cycle={cycle}
+            badge="Pour les équipes"
+          />
 
           {/* Entreprise */}
           <Reveal delay={0.08} className="relative">
@@ -304,18 +310,21 @@ export default function TarifsPage() {
               <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full blur-[90px]" style={{ background: "radial-gradient(circle, rgba(236,72,153,0.4), transparent 70%)" }} />
               <div className="pointer-events-none absolute -left-12 bottom-[-20%] h-56 w-56 rounded-full blur-[90px]" style={{ background: "radial-gradient(circle, rgba(99,102,241,0.45), transparent 70%)" }} />
               <div className="relative flex h-full flex-col">
-                <div className="flex items-center justify-between gap-2 mb-1">
+                <div className="flex items-center justify-between gap-2 mb-4">
                   <p className="font-bold text-lg tracking-[-0.01em]">{ENTERPRISE.name}</p>
                   <span className="flex-shrink-0 rounded-full bg-white/15 px-2.5 py-1 text-[10.5px] font-bold uppercase tracking-wide backdrop-blur-sm">{ENTERPRISE.tagline}</span>
                 </div>
-                <p className="inline-flex w-fit items-center rounded-full bg-white/10 px-2.5 py-1 text-[12px] font-semibold text-white/80 mb-4">{ENTERPRISE.audience}</p>
-                <p className="text-[13px] text-white/60 mb-2 leading-snug">Volume et contrat négociés selon vos besoins.</p>
                 <div className="flex items-baseline gap-1 mb-1">
                   <span className="text-5xl font-black tracking-[-0.03em]">Sur devis</span>
                 </div>
-                <p className="text-[12px] text-white/50 min-h-[18px] mb-[26px]">À partir de 50 000 crédits / mois.</p>
-                <ul className="space-y-3 mb-8">
-                  {ENTERPRISE.features.map((f) => (
+                <p className="text-[12px] text-white/50 min-h-[18px] mb-[26px]">Volume de crédits sur mesure.</p>
+                <ul className="space-y-2.5 mb-8">
+                  {[
+                    "URL personnalisée",
+                    "SSO et gestion des comptes",
+                    "DPA, hébergement et SLA dédiés",
+                    "Support et onboarding dédiés",
+                  ].map((f) => (
                     <li key={f} className="flex items-start gap-2.5 text-[13px]"><Check className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-pink-300" strokeWidth={2.5} /><span className="text-white/90">{f}</span></li>
                   ))}
                 </ul>
@@ -327,7 +336,7 @@ export default function TarifsPage() {
           </Reveal>
         </div>
 
-        <Reveal delay={0.16}><p className="text-center text-[12px] text-[#9A9AA6] mt-6">Sans engagement sur le mensuel. Paiement sécurisé via Stripe. Résiliation à tout moment.</p></Reveal>
+        <Reveal delay={0.16}><p className="text-center text-[12px] text-[#9A9AA6] mt-6">Équipe = Pro + 50 €/mois. Rechargez vos crédits à tout moment dans l&apos;application. Sans engagement sur le mensuel.</p></Reveal>
       </section>
 
       {/* Comment fonctionnent les crédits */}
@@ -335,30 +344,27 @@ export default function TarifsPage() {
         <div className="max-w-6xl mx-auto">
           <Reveal className="max-w-2xl mb-12">
             <h2 className="text-[34px] sm:text-[44px] font-black text-[#0A0A0A] tracking-[-0.03em]">Comment marchent les <span className="text-gradient">crédits.</span></h2>
-            <p className="text-[16px] text-[#5B5B66] leading-[1.6] mt-4">Un crédit paie du travail fait. Parler à Biltia coûte presque rien ; construire ou modifier un système coûte plus. C&apos;est tout.</p>
+            <p className="text-[16px] text-[#5B5B66] leading-[1.6] mt-4">Parler à Biltia coûte presque rien. Construire ou modifier un système coûte plus. C&apos;est tout.</p>
           </Reveal>
 
           <div className="grid gap-5 lg:grid-cols-2 items-stretch max-w-5xl">
-            {/* Le tarif de chaque tâche (menu) */}
+            {/* Le tarif de chaque tâche */}
             <Reveal>
               <div className="glass rounded-[26px] p-6 sm:p-7 h-full">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-[#7C3AED] mb-4">Ce que ça coûte</p>
                 <div className="divide-y divide-black/[0.05]">
                   {[
-                    { Icon: MessageCircle, grad: "from-indigo-500 to-violet-500", label: "Une question", sub: "« Quel taux de TVA ? », un client ajouté à la voix", c: "1 à 10" },
-                    { Icon: Camera, grad: "from-sky-500 to-cyan-500", label: "Analyser une photo, un document", sub: "extraire et compléter à votre place", c: "5 à 15" },
-                    { Icon: FileText, grad: "from-violet-500 to-fuchsia-500", label: "Un devis, un document", sub: "prêt à imprimer et à signer", c: "30 à 60" },
-                    { Icon: LayoutGrid, grad: "from-fuchsia-500 to-pink-500", label: "Une application", sub: "générée sur mesure, en ligne", c: "150 à 300" },
-                    { Icon: Bot, grad: "from-cyan-500 to-indigo-500", label: "Un passage d'agent", sub: "le recrutement, lui, est gratuit", c: "10 à 50" },
+                    { Icon: MessageCircle, grad: "from-indigo-500 to-violet-500", label: "Une question", c: "1 à 10" },
+                    { Icon: Camera, grad: "from-sky-500 to-cyan-500", label: "Analyser une photo, un document", c: "5 à 15" },
+                    { Icon: FileText, grad: "from-violet-500 to-fuchsia-500", label: "Un devis, un document", c: "30 à 60" },
+                    { Icon: LayoutGrid, grad: "from-fuchsia-500 to-pink-500", label: "Une application", c: "150 à 300" },
+                    { Icon: Bot, grad: "from-cyan-500 to-indigo-500", label: "Un passage d'agent", c: "10 à 50" },
                   ].map((r) => (
                     <div key={r.label} className="flex items-center gap-3.5 py-4 first:pt-0 last:pb-0">
                       <span className={`grid h-10 w-10 flex-shrink-0 place-items-center rounded-xl bg-gradient-to-br ${r.grad} text-white shadow-[0_6px_16px_rgba(139,92,246,0.28)]`}>
                         <r.Icon className="h-[18px] w-[18px]" />
                       </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[14.5px] font-bold text-[#0A0A0A] leading-tight">{r.label}</p>
-                        <p className="text-[12px] text-[#8B8B96] leading-snug">{r.sub}</p>
-                      </div>
+                      <p className="min-w-0 flex-1 text-[14.5px] font-bold text-[#0A0A0A] leading-tight">{r.label}</p>
                       <span className="flex-shrink-0 rounded-full bg-[#F1ECFB] px-3 py-1.5 text-[13px] font-bold tabular-nums text-[#6D4AE0]">{r.c} cr</span>
                     </div>
                   ))}
@@ -366,19 +372,19 @@ export default function TarifsPage() {
               </div>
             </Reveal>
 
-            {/* Un mois type, façon devis, volume au choix */}
+            {/* Un mois type, volume au choix */}
             <Reveal delay={0.08}>
               <MonthTicket />
             </Reveal>
           </div>
 
-          {/* Trois garanties, une ligne */}
+          {/* Garanties */}
           <Reveal delay={0.12}>
             <div className="mt-6 flex flex-wrap gap-2.5 max-w-5xl">
               {[
                 "Estimation affichée avant les grosses créations",
-                "Crédits épuisés : les agents se mettent en pause, jamais de surprise",
-                "Saisie manuelle, imports et exports : toujours gratuits",
+                "Crédits épuisés : les agents se mettent en pause",
+                "Saisie manuelle et exports : toujours gratuits",
               ].map((t) => (
                 <span key={t} className="inline-flex items-center gap-2 rounded-full border border-[#E6E1F0] bg-white/70 px-3.5 py-2 text-[12.5px] font-medium text-[#4A4A56]">
                   <Check className="h-3.5 w-3.5 flex-shrink-0 text-[#7C3AED]" strokeWidth={2.5} /> {t}

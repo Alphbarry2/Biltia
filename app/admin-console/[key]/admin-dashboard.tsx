@@ -51,6 +51,11 @@ type Stats = {
     byRequestType: Count[]; byKind: Count[]; byAppType: Count[]; byDocType: Count[];
     byAgent: Count[]; bySector: Count[]; byQuestionTopic: Count[];
   };
+  unmetRequests: {
+    total: number;
+    byDetail: Count[];
+    recent: { kind: string; detail: string; prompt: string; createdAt: string | null }[];
+  };
   recentQuestions: { topic: string; question: string; agent: string | null; createdAt: string | null }[];
   signupsByDay: { day: string; count: number }[];
   plans: { key: string; count: number }[];
@@ -84,6 +89,10 @@ const HEADCOUNT_LABELS: Record<string, string> = {
 const headcountLabel = (k: string) => HEADCOUNT_LABELS[k] ?? k;
 
 const toRows = (rows: Count[], fmt: (k: string) => string): BarRow[] => rows.map((r) => ({ label: fmt(r.key), value: r.count }));
+
+// Demandes non satisfaites : "capability" = hors périmètre produit ; "integration:x" = service tiers réclamé.
+const unmetLabel = (k: string) =>
+  k === "capability" ? "Hors capacités (téléphonie, physique…)" : `Intégration : ${prettySlug(k.slice("integration:".length))}`;
 
 // ── Sections ──────────────────────────────────────────────────────────────────
 type SectionId = "overview" | "revenue" | "usage" | "clients" | "demand";
@@ -275,6 +284,32 @@ function Demand({ d }: { d: Stats }) {
         <Card className="p-5"><BlockTitle icon={<Wrench className="h-4 w-4" />}>Par métier</BlockTitle><BarList rows={toRows(d.demand.byAgent, agentLabel)} format={nfmt} empty="Aucun métier." /></Card>
         <Card className="p-5"><BlockTitle icon={<Briefcase className="h-4 w-4" />}>Par secteur client</BlockTitle><BarList rows={toRows(d.demand.bySector, sectorLabel)} format={nfmt} empty="Aucun secteur." /></Card>
       </div>
+      <Card className="p-5">
+        <BlockTitle icon={<AlertTriangle className="h-4 w-4" />}>Demandes non satisfaites</BlockTitle>
+        <p className="mb-3 text-[12px] text-[#9A9AA6]">
+          Ce que les clients ont demandé et que Biltia a refusé — capacité hors périmètre ou intégration absente. La liste de courses de la roadmap.
+        </p>
+        {d.unmetRequests.total === 0 ? (
+          <p className="py-4 text-sm text-[#9A9AA6]">Aucune demande refusée pour l&apos;instant. 👌</p>
+        ) : (
+          <div className="grid gap-5 lg:grid-cols-2">
+            <BarList rows={toRows(d.unmetRequests.byDetail, unmetLabel)} format={(n) => nf.format(n)} />
+            <div className="divide-y divide-[#F0F0F4]">
+              {d.unmetRequests.recent.slice(0, 8).map((u, i) => (
+                <div key={i} className="flex items-start gap-3 py-2.5">
+                  <span className={`mt-0.5 flex-shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${u.kind === "integration" ? "bg-[#EFF6FF] text-[#2563EB]" : "bg-[#FEF2F2] text-[#DC2626]"}`}>
+                    {u.kind === "integration" ? prettySlug(u.detail || "intégration") : "capacité"}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm text-[#0A0A0A]">« {u.prompt} »</p>
+                    <p className="text-[11px] text-[#9A9AA6]">{u.createdAt ? new Date(u.createdAt).toLocaleString("fr-FR") : ""}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </Card>
       <Card className="p-5">
         <BlockTitle icon={<MessageSquare className="h-4 w-4" />}>Questions récentes</BlockTitle>
         {d.recentQuestions.length === 0 ? (

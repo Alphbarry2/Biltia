@@ -5,7 +5,10 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase";
 import { ShareMenu } from "@/components/share-menu";
-import { ChevronLeft, Pencil, Loader2, AlertCircle, ExternalLink, Maximize2, Globe, Copy, CheckCircle } from "lucide-react";
+import { type ShareLink } from "@/lib/share";
+import { ChevronLeft, Pencil, Loader2, AlertCircle, ExternalLink, Maximize2, Globe, Copy, CheckCircle, Share2, Trash2, X, Eye, HardHat } from "lucide-react";
+
+type SharedLink = ShareLink & { url: string };
 
 type App = {
   id: string;
@@ -27,6 +30,106 @@ export default function AppViewerPage() {
   const [deploymentUrl, setDeploymentUrl] = useState<string | null>(null);
   const [deployCopied, setDeployCopied] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  // ── Partage : lien de consultation (lecture seule, révocable) ──────────────
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareLinks, setShareLinks] = useState<SharedLink[]>([]);
+  const [shareLoaded, setShareLoaded] = useState(false);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareCopiedId, setShareCopiedId] = useState<string | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [chantiers, setChantiers] = useState<{ id: string; nom?: string; ville?: string }[]>([]);
+  const [selectedChantier, setSelectedChantier] = useState("");
+  const [clientBusy, setClientBusy] = useState(false);
+
+  const loadShares = async () => {
+    try {
+      const res = await fetch(`/api/share?appId=${id}`);
+      const data = await res.json();
+      if (Array.isArray(data.links)) setShareLinks(data.links);
+    } finally {
+      setShareLoaded(true);
+    }
+  };
+
+  // Chantiers du workspace → cible d'un lien « client » (portail scopé).
+  const loadChantiers = async () => {
+    try {
+      const res = await fetch("/api/data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entity: "chantiers", action: "list" }),
+      });
+      const data = await res.json();
+      if (Array.isArray(data.data)) setChantiers(data.data);
+    } catch {
+      /* pas de chantiers → la section client ne s'affiche pas */
+    }
+  };
+
+  const openShare = () => {
+    const next = !shareOpen;
+    setShareOpen(next);
+    if (next && !shareLoaded) {
+      loadShares();
+      loadChantiers();
+    }
+  };
+
+  const createClientShare = async () => {
+    if (clientBusy || !selectedChantier) return;
+    setClientBusy(true);
+    try {
+      const res = await fetch("/api/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          appId: id,
+          kind: "client",
+          scope: { entity: "chantiers", record_id: selectedChantier },
+        }),
+      });
+      const data = await res.json();
+      if (data.link) {
+        setShareLinks((prev) => [data.link, ...prev]);
+        setSelectedChantier("");
+      } else alert(data.error ?? "Impossible de créer le lien client.");
+    } finally {
+      setClientBusy(false);
+    }
+  };
+
+  const createShare = async () => {
+    if (shareBusy) return;
+    setShareBusy(true);
+    try {
+      const res = await fetch("/api/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ appId: id }),
+      });
+      const data = await res.json();
+      if (data.link) setShareLinks((prev) => [data.link, ...prev]);
+      else alert(data.error ?? "Impossible de créer le lien.");
+    } finally {
+      setShareBusy(false);
+    }
+  };
+
+  const revokeShare = async (linkId: string) => {
+    setShareLinks((prev) => prev.filter((l) => l.id !== linkId));
+    await fetch("/api/share", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ linkId }),
+    }).catch(() => {});
+  };
+
+  const copyShare = (link: SharedLink) => {
+    navigator.clipboard.writeText(link.url);
+    setShareCopiedId(link.id);
+    setTimeout(() => setShareCopiedId((cur) => (cur === link.id ? null : cur)), 2000);
+  };
 
   const handleDeploy = async () => {
     if (isDeploying) return;
@@ -190,21 +293,14 @@ export default function AppViewerPage() {
             <Maximize2 className="w-4 h-4" />
           </button>
           <button
-            onClick={handleDeploy}
-            disabled={isDeploying}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#7C3AED] text-white text-xs font-semibold rounded-lg hover:bg-[#6D28D9] transition-all disabled:opacity-60"
-            title="Déployer sur Vercel"
+            onClick={openShare}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+              shareOpen ? "bg-[#6D28D9] text-white" : "bg-[#7C3AED] text-white hover:bg-[#6D28D9]"
+            }`}
+            title="Partager cette application"
           >
-            {isDeploying ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : deploymentUrl ? (
-              <CheckCircle className="w-3.5 h-3.5" />
-            ) : (
-              <Globe className="w-3.5 h-3.5" />
-            )}
-            <span className="hidden sm:inline">
-              {isDeploying ? "Déploiement…" : deploymentUrl ? "Redéployer" : "Publier"}
-            </span>
+            <Share2 className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Partager</span>
           </button>
           <Link
             href={`/generate?edit=${id}`}
@@ -216,29 +312,163 @@ export default function AppViewerPage() {
         </div>
       </div>
 
-      {/* Deployment URL bar */}
-      {deploymentUrl && (
-        <div className="flex items-center gap-2 px-5 py-2.5 bg-[#F3EFFC] border-b border-[#E2D9F8] flex-shrink-0">
-          <Globe className="w-3.5 h-3.5 text-[#7C3AED] flex-shrink-0" />
-          <span className="text-xs text-[#7C3AED] font-medium flex-shrink-0 hidden sm:inline">Déployé :</span>
-          <code className="text-xs text-[#0A0A0A] bg-white border border-[#E2D9F8] rounded-md px-2 py-1 truncate flex-1 min-w-0">
-            {deploymentUrl}
-          </code>
-          <button
-            onClick={() => { navigator.clipboard.writeText(deploymentUrl); setDeployCopied(true); setTimeout(() => setDeployCopied(false), 2000); }}
-            className="flex items-center gap-1.5 px-2.5 py-1 bg-[#7C3AED] text-white text-xs font-semibold rounded-md hover:bg-[#6D28D9] transition-all flex-shrink-0"
-          >
-            {deployCopied ? <CheckCircle className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-            <span className="hidden sm:inline">{deployCopied ? "Copié" : "Copier"}</span>
-          </button>
-          <a
-            href={deploymentUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="p-1.5 text-[#7C3AED] hover:text-[#0A0A0A] rounded-md hover:bg-white transition-colors flex-shrink-0"
-          >
-            <ExternalLink className="w-3.5 h-3.5" />
-          </a>
+      {/* Panneau Partager */}
+      {shareOpen && (
+        <div className="border-b border-[#ECECF2] bg-[#FBFAFF] flex-shrink-0">
+          <div className="px-5 py-4 max-w-[820px]">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="text-sm font-bold text-[#0A0A0A]">Partager cette application</h2>
+                <p className="text-xs text-[#6E6E6C] mt-0.5 leading-relaxed">
+                  Créez un lien de consultation en <strong>lecture seule</strong>. Toute personne ayant le lien voit
+                  l&apos;application, jamais vos autres données. Le lien est révocable à tout moment.
+                </p>
+              </div>
+              <button
+                onClick={() => setShareOpen(false)}
+                className="p-1 text-[#9A9AA5] hover:text-[#0A0A0A] rounded-md hover:bg-[#F0EEF8] flex-shrink-0"
+                title="Fermer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Liste des liens existants */}
+            {shareLoaded && shareLinks.length > 0 && (
+              <div className="mt-3 space-y-2">
+                {shareLinks.map((link) => (
+                  <div
+                    key={link.id}
+                    className="flex items-center gap-2 bg-white border border-[#ECECF2] rounded-lg px-2.5 py-2"
+                  >
+                    {link.kind === "client" ? (
+                      <HardHat className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                    ) : (
+                      <Eye className="w-3.5 h-3.5 text-[#7C3AED] flex-shrink-0" />
+                    )}
+                    <code className="text-xs text-[#0A0A0A] truncate flex-1 min-w-0">{link.url}</code>
+                    <button
+                      onClick={() => copyShare(link)}
+                      className="flex items-center gap-1.5 px-2.5 py-1 bg-[#7C3AED] text-white text-xs font-semibold rounded-md hover:bg-[#6D28D9] transition-all flex-shrink-0"
+                    >
+                      {shareCopiedId === link.id ? <CheckCircle className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                      <span className="hidden sm:inline">{shareCopiedId === link.id ? "Copié" : "Copier"}</span>
+                    </button>
+                    <a
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-1.5 text-[#6E6E6C] hover:text-[#7C3AED] rounded-md hover:bg-[#F6F6F9] transition-colors flex-shrink-0"
+                      title="Ouvrir le lien"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                    <button
+                      onClick={() => revokeShare(link.id)}
+                      className="p-1.5 text-[#6E6E6C] hover:text-rose-600 rounded-md hover:bg-rose-50 transition-colors flex-shrink-0"
+                      title="Révoquer le lien"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Créer un lien */}
+            <button
+              onClick={createShare}
+              disabled={shareBusy}
+              className="mt-3 flex items-center gap-1.5 px-3 py-1.5 bg-[#7C3AED] text-white text-xs font-semibold rounded-lg hover:bg-[#6D28D9] transition-all disabled:opacity-60"
+            >
+              {shareBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Share2 className="w-3.5 h-3.5" />}
+              {shareLinks.length > 0 ? "Nouveau lien" : "Créer un lien de consultation"}
+            </button>
+            {!shareLoaded && (
+              <p className="mt-2 text-xs text-[#9A9AA5] flex items-center gap-1.5">
+                <Loader2 className="w-3 h-3 animate-spin" /> Chargement des liens…
+              </p>
+            )}
+
+            {/* Partager avec un client : lien scopé à UN chantier (lecture seule) */}
+            {chantiers.length > 0 && (
+              <div className="mt-4 pt-3 border-t border-[#ECECF2]">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <HardHat className="w-3.5 h-3.5 text-emerald-600" />
+                  <h3 className="text-xs font-semibold text-[#0A0A0A]">Partager avec un client</h3>
+                </div>
+                <p className="text-xs text-[#6E6E6C] leading-relaxed mb-2">
+                  Un lien qui montre <strong>uniquement le chantier choisi</strong> (avec ses interventions,
+                  documents et tâches), en lecture seule. Le client ne voit rien d&apos;autre de votre espace.
+                </p>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={selectedChantier}
+                    onChange={(e) => setSelectedChantier(e.target.value)}
+                    className="flex-1 min-w-0 text-xs bg-white border border-[#ECECF2] rounded-lg px-2.5 py-1.5 text-[#0A0A0A]"
+                  >
+                    <option value="">Choisir un chantier…</option>
+                    {chantiers.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.nom || "Chantier"}
+                        {c.ville ? ` — ${c.ville}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={createClientShare}
+                    disabled={clientBusy || !selectedChantier}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700 transition-all disabled:opacity-50 flex-shrink-0"
+                  >
+                    {clientBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <HardHat className="w-3.5 h-3.5" />}
+                    Créer le lien
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Avancé : déploiement autonome (Vercel) — replié, non prioritaire */}
+            <div className="mt-4 pt-3 border-t border-[#ECECF2]">
+              <button
+                onClick={() => setShowAdvanced((v) => !v)}
+                className="text-xs text-[#9A9AA5] hover:text-[#6E6E6C]"
+              >
+                {showAdvanced ? "− " : "+ "}Déploiement autonome (avancé)
+              </button>
+              {showAdvanced && (
+                <div className="mt-2">
+                  <p className="text-xs text-[#9A9AA5] leading-relaxed mb-2">
+                    Héberge une copie détachée de l&apos;app sur un domaine séparé (non connectée à votre espace).
+                    Pour un simple partage, utilisez le lien de consultation ci-dessus.
+                  </p>
+                  <button
+                    onClick={handleDeploy}
+                    disabled={isDeploying}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#F6F6F9] border border-[#ECECF2] text-[#0A0A0A] text-xs font-medium rounded-lg hover:bg-[#F3EFFC] transition-colors disabled:opacity-60"
+                  >
+                    {isDeploying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Globe className="w-3.5 h-3.5" />}
+                    {isDeploying ? "Déploiement…" : deploymentUrl ? "Redéployer" : "Déployer sur un domaine autonome"}
+                  </button>
+                  {deploymentUrl && (
+                    <div className="mt-2 flex items-center gap-2 bg-white border border-[#ECECF2] rounded-lg px-2.5 py-2">
+                      <Globe className="w-3.5 h-3.5 text-[#7C3AED] flex-shrink-0" />
+                      <code className="text-xs text-[#0A0A0A] truncate flex-1 min-w-0">{deploymentUrl}</code>
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(deploymentUrl); setDeployCopied(true); setTimeout(() => setDeployCopied(false), 2000); }}
+                        className="flex items-center gap-1.5 px-2.5 py-1 bg-[#7C3AED] text-white text-xs font-semibold rounded-md hover:bg-[#6D28D9] transition-all flex-shrink-0"
+                      >
+                        {deployCopied ? <CheckCircle className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                        <span className="hidden sm:inline">{deployCopied ? "Copié" : "Copier"}</span>
+                      </button>
+                      <a href={deploymentUrl} target="_blank" rel="noopener noreferrer" className="p-1.5 text-[#6E6E6C] hover:text-[#7C3AED] rounded-md hover:bg-[#F6F6F9] transition-colors flex-shrink-0">
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

@@ -53,12 +53,25 @@ export const DEMO_BILTIA_SCRIPT = `<script>
       {id:"ch6",nom:"Immeuble de bureaux Atrium",client_id:"cl5",ville:"Paris",adresse:"22 bd Haussmann",statut:"en_cours",avancement:82,budget:3200000,budget_engage:2580000,chef_chantier_id:"em4",date_debut:"2025-06-01",date_fin_prevue:"2026-08-30"}
     ],
     materials: [
+      // Parc matériel / engins (utilisé par l'app Suivi de chantiers).
       {id:"ma1",nom:"Grue à tour Liebherr 110",reference:"GR-001",categorie:"Engin",quantite:1,unite:"u",statut:"affecte",chantier_id:"ch1"},
       {id:"ma2",nom:"Pelleteuse CAT 320",reference:"PEL-003",categorie:"Engin",quantite:1,unite:"u",statut:"affecte",chantier_id:"ch3"},
-      {id:"ma3",nom:"Bétonnière Altrad B180",reference:"BET-012",categorie:"Outil",quantite:3,unite:"u",statut:"disponible"},
-      {id:"ma4",nom:"Échafaudage 60m²",reference:"ECH-008",categorie:"Outil",quantite:5,unite:"u",statut:"affecte",chantier_id:"ch6"},
+      {id:"ma3",nom:"Bétonnière Altrad B180",reference:"BET-012",categorie:"Outillage",quantite:3,unite:"u",statut:"disponible"},
+      {id:"ma4",nom:"Échafaudage 60m²",reference:"ECH-008",categorie:"Outillage",quantite:5,unite:"u",statut:"affecte",chantier_id:"ch6"},
       {id:"ma5",nom:"Nacelle élévatrice 12m",reference:"NAC-001",categorie:"Engin",quantite:1,unite:"u",statut:"maintenance"},
-      {id:"ma6",nom:"Compresseur 50L",reference:"COMP-004",categorie:"Outil",quantite:2,unite:"u",statut:"disponible"}
+      {id:"ma6",nom:"Compresseur 50L",reference:"COMP-004",categorie:"Outillage",quantite:2,unite:"u",statut:"disponible"},
+      // Stock de matériaux consommables (utilisé par l'app Stock & achats) : seuils + prix + fournisseur.
+      {id:"ma7",nom:"Sac ciment CEM II 35 kg",reference:"CIM-35",categorie:"Gros œuvre",quantite:8,unite:"sac",seuil_alerte:20,prix_achat_ht:6.9,fournisseur_id:"sp5",statut:"disponible"},
+      {id:"ma8",nom:"Parpaing creux 20",reference:"PAR-20",categorie:"Gros œuvre",quantite:340,unite:"u",seuil_alerte:100,prix_achat_ht:1.15,fournisseur_id:"sp5",statut:"disponible"},
+      {id:"ma9",nom:"Big bag sable 0/4",reference:"SAB-04",categorie:"Gros œuvre",quantite:0,unite:"u",seuil_alerte:5,prix_achat_ht:48,fournisseur_id:"sp5",statut:"disponible"},
+      {id:"ma10",nom:"Plaque placo BA13",reference:"BA13",categorie:"Placo",quantite:45,unite:"u",seuil_alerte:30,prix_achat_ht:5.6,fournisseur_id:"sp5",statut:"disponible"},
+      {id:"ma11",nom:"Rouleau laine de verre 100mm",reference:"LDV-100",categorie:"Isolation",quantite:6,unite:"rlx",seuil_alerte:12,prix_achat_ht:32,fournisseur_id:"sp5",statut:"disponible"},
+      {id:"ma12",nom:"Couronne câble 3G2.5",reference:"C-3G25",categorie:"Électricité",quantite:3,unite:"rlx",seuil_alerte:5,prix_achat_ht:68,fournisseur_id:"sp6",statut:"disponible"},
+      {id:"ma13",nom:"Disjoncteur 16A",reference:"DJ-16",categorie:"Électricité",quantite:24,unite:"u",seuil_alerte:20,prix_achat_ht:8.4,fournisseur_id:"sp6",statut:"disponible"},
+      {id:"ma14",nom:"Couronne gaine ICTA 20",reference:"ICTA-20",categorie:"Électricité",quantite:0,unite:"rlx",seuil_alerte:4,prix_achat_ht:22,fournisseur_id:"sp6",statut:"disponible"},
+      {id:"ma15",nom:"Couronne tube PER 16",reference:"PER-16",categorie:"Plomberie",quantite:9,unite:"rlx",seuil_alerte:6,prix_achat_ht:34,statut:"disponible"},
+      {id:"ma16",nom:"Peinture acrylique blanc 15L",reference:"PEIN-15",categorie:"Peinture",quantite:2,unite:"u",seuil_alerte:6,prix_achat_ht:58,statut:"disponible"},
+      {id:"ma17",nom:"Boîte vis TF 4x40 (200)",reference:"VIS-440",categorie:"Quincaillerie",quantite:14,unite:"boîte",seuil_alerte:10,prix_achat_ht:7.2,fournisseur_id:"sp5",statut:"disponible"}
     ],
     tasks: [
       {id:"tk1",title:"Couler la dalle du R+2",chantier_id:"ch1",assignee_id:"em3",priority:"high",status:"todo",due_date:"2026-07-12"},
@@ -160,6 +173,42 @@ export const DEMO_BILTIA_SCRIPT = `<script>
     ];
     db.opportunites=[]; var oid=1;
     op.forEach(function(x){ db.opportunites.push({id:"op"+(oid++),client_id:x.c,titre:x.t,montant:x.m,etape:x.e,source:x.s,prochaine_action:x.pa,date_action:isoOff(x.d)}); });
+    // Parc installé chez les clients (chaudières, PAC, VMC…), échéances d'entretien relatives à aujourd'hui.
+    db.parc_installe=[
+      {id:"pk1",client_id:"cl1",type:"chaudiere",marque:"Saunier Duval",modele:"ThemaPlus Condens",numero_serie:"SD-88213-A",localisation:"Chaufferie sous-sol",date_pose:"2023-03-14",date_garantie:isoOff(-40),dernier_entretien:isoOff(-350),prochain_entretien:isoOff(20)},
+      {id:"pk2",client_id:"cl4",type:"pompe_chaleur",marque:"Daikin",modele:"Altherma 3",numero_serie:"DK-4521-B",localisation:"Local technique",date_pose:"2025-06-02",date_garantie:isoOff(420),dernier_entretien:isoOff(-120),prochain_entretien:isoOff(120)},
+      {id:"pk3",client_id:"cl2",type:"vmc",marque:"Aldes",modele:"InspirAIR",numero_serie:"AL-7788",localisation:"Combles",date_pose:"2022-09-20",dernier_entretien:isoOff(-200),prochain_entretien:isoOff(-10)},
+      {id:"pk4",client_id:"cl5",type:"climatisation",marque:"Mitsubishi",modele:"MSZ-AP",numero_serie:"MB-3320",localisation:"Bureaux 3e étage",date_pose:"2024-05-11",date_garantie:isoOff(180),dernier_entretien:isoOff(-160),prochain_entretien:isoOff(200)},
+      {id:"pk5",client_id:"cl4",type:"chauffe_eau",marque:"Atlantic",modele:"Chaufféo 200L",numero_serie:"AT-1188",localisation:"Buanderie",date_pose:"2021-11-08",dernier_entretien:isoOff(-360),prochain_entretien:isoOff(9)},
+      {id:"pk6",client_id:"cl3",type:"tableau_electrique",marque:"Schneider",modele:"Resi9",numero_serie:"SC-9021",localisation:"Entrée entrepôt",date_pose:"2023-01-30",prochain_entretien:isoOff(310)}
+    ];
+    // Contrats d'entretien récurrents.
+    var ctr=[
+      {c:"cl1",p:"pk1",r:"CTR-2026-014",t:"entretien",m:189,pe:"annuel",e:20,st:"actif"},
+      {c:"cl4",p:"pk2",r:"CTR-2026-021",t:"maintenance",m:320,pe:"annuel",e:120,st:"actif"},
+      {c:"cl2",p:"pk3",r:"CTR-2025-088",t:"entretien",m:45,pe:"trimestriel",e:-10,st:"actif"},
+      {c:"cl5",p:"pk4",r:"CTR-2026-030",t:"maintenance",m:90,pe:"semestriel",e:200,st:"actif"},
+      {c:"cl4",p:"pk5",r:"CTR-2026-007",t:"entretien",m:25,pe:"mensuel",e:9,st:"actif"},
+      {c:"cl3",p:null,r:"CTR-2024-055",t:"garantie",m:150,pe:"annuel",e:-60,st:"expire"}
+    ];
+    db.contrats=[]; var cid=1;
+    ctr.forEach(function(x){ db.contrats.push({id:"ct"+(cid++),client_id:x.c,parc_id:x.p,reference:x.r,type:x.t,montant:x.m,periodicite:x.pe,date_debut:isoOff(-330),prochaine_echeance:isoOff(x.e),statut:x.st}); });
+    // Interventions (file de tickets) : mix de statuts + dates relatives à aujourd'hui.
+    var itv=[
+      {c:"cl2",e:"em5",ty:"Dépannage VMC",st:"planifie",dp:-2,du:null,de:null,ds:"VMC bruyante à l'étage, moteur à contrôler."},
+      {c:"cl1",e:"em2",ty:"Entretien chaudière",st:"planifie",dp:0,du:null,de:null,ds:"Entretien annuel obligatoire — contrat CTR-2026-014."},
+      {c:"cl4",e:"em1",ty:"Mise en service PAC",st:"en_cours",dp:-1,du:null,de:null,ds:"Mise en service pompe à chaleur Daikin Altherma 3."},
+      {c:"cl5",e:"em2",ty:"Visite de contrôle",st:"planifie",dp:3,du:null,de:null,ds:"Contrôle clim bureaux avant l'été."},
+      {c:"cl3",e:"em5",ty:"SAV sous garantie",st:"planifie",dp:6,du:null,de:null,ds:"Disjoncteur qui saute — tableau Resi9."},
+      {c:"cl1",e:"em3",ty:"Dépannage fuite",st:"termine",dp:-9,du:2,de:-9,ds:"Fuite sous chaudière.",rp:"Remplacement du joint de bouclage et purge du circuit. RAS."},
+      {c:"cl2",e:"em2",ty:"Entretien annuel",st:"termine",dp:-16,du:1.5,de:-16,ds:"Entretien VMC + filtres.",rp:"Nettoyage caisson, remplacement des filtres G4. Débit conforme."},
+      {c:"cl4",e:"em1",ty:"Dépannage chauffe-eau",st:"termine",dp:-23,du:1,de:-23,ds:"Plus d'eau chaude.",rp:"Résistance entartrée remplacée. Anode vérifiée."},
+      {c:"cl5",e:"em2",ty:"Entretien clim",st:"termine",dp:-30,du:2,de:-30,ds:"Entretien split bureaux.",rp:"Nettoyage échangeurs, recharge gaz d'appoint. OK."},
+      {c:"cl3",e:"em5",ty:"Diagnostic tableau",st:"annule",dp:-5,du:null,de:null,ds:"RDV annulé par le client."},
+      {c:"cl1",e:null,ty:"Réglage brûleur",st:"planifie",dp:null,du:null,de:null,ds:"À planifier avec le gardien."}
+    ];
+    db.interventions=[]; var iid=1;
+    itv.forEach(function(x){ db.interventions.push({id:"in"+(iid++),client_id:x.c,employee_id:x.e,type:x.ty,statut:x.st,date_prevue:x.dp==null?null:isoOff(x.dp),date_reelle:x.de==null?null:isoOff(x.de),duree_heures:x.du,description:x.ds,rapport:x.rp||null}); });
   })();
   function clone(x){ return JSON.parse(JSON.stringify(x)); }
   function coll(e){ if(!db[e]) db[e]=[]; return db[e]; }

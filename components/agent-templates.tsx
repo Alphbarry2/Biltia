@@ -21,6 +21,7 @@ import {
   CalendarDays,
   Sunrise,
   BarChart3,
+  PackageOpen,
   Bot,
   Check,
   Loader2,
@@ -37,6 +38,7 @@ const ICONS: Record<string, typeof Bot> = {
   CalendarDays,
   Sunrise,
   BarChart3,
+  PackageOpen,
   Bot,
 };
 

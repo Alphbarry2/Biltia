@@ -18,6 +18,8 @@ import { APP_PLANNING_HTML } from "@/data/app-planning";
 import { APP_POINTAGE_HTML } from "@/data/app-pointage";
 import { APP_SOUSTRAITANCE_HTML } from "@/data/app-soustraitance";
 import { APP_CRM_HTML } from "@/data/app-crm";
+import { APP_SAV_HTML } from "@/data/app-sav";
+import { APP_STOCK_HTML } from "@/data/app-stock";
 import { DEMO_BILTIA_SCRIPT } from "@/lib/demo-biltia";
 
 export type FlagshipApp = {
@@ -106,6 +108,24 @@ export const FLAGSHIP_APPS: Record<string, FlagshipApp> = {
     ready: true,
     html: APP_CRM_HTML,
   },
+  sav_maintenance: {
+    id: "sav_maintenance",
+    name: "SAV & maintenance",
+    description:
+      "Pilotez vos dépannages et contrats d'entretien : file d'interventions (en retard / aujourd'hui / à venir), courbe interactive des interventions clôturées, revenu récurrent des contrats, prochaines visites et parc installé chez vos clients (chaudières, PAC, VMC…).",
+    format: "desktop",
+    ready: true,
+    html: APP_SAV_HTML,
+  },
+  stock_achats: {
+    id: "stock_achats",
+    name: "Stock & achats",
+    description:
+      "Pilotez votre stock de matériaux : cockpit de la valeur du stock, graphique interactif par catégorie, cartes d'inventaire avec seuil d'alerte et ajustement en un geste (−/+), alertes de rupture, et réapprovisionnement regroupé par fournisseur (commande par email).",
+    format: "desktop",
+    ready: true,
+    html: APP_STOCK_HTML,
+  },
 };
 
 export const FLAGSHIP_IDS = Object.keys(FLAGSHIP_APPS);
@@ -121,6 +141,8 @@ export const IMPORT_TARGETS: Record<string, string> = {
   pointage_equipes: "employees",
   sous_traitants: "suppliers",
   crm_clients: "clients",
+  sav_maintenance: "parc_installe",
+  stock_achats: "materials",
 };
 
 export function getImportTarget(id: string): string | undefined {

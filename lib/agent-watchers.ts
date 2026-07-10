@@ -25,7 +25,8 @@ export type WatcherKey =
   | "devis_non_signe"
   | "facture_impayee"
   | "echeance_proche"
-  | "visite_terminee";
+  | "visite_terminee"
+  | "stock_bas";
 export const WATCHER_KEYS: WatcherKey[] = [
   "chantier_en_retard",
   "chantier_hors_budget",
@@ -36,6 +37,7 @@ export const WATCHER_KEYS: WatcherKey[] = [
   "facture_impayee",
   "echeance_proche",
   "visite_terminee",
+  "stock_bas",
 ];
 
 /** Une fiche qui remplit la condition surveillée. */
@@ -495,6 +497,38 @@ async function runDemandeUrgente(db: SupabaseClient, tenantId: string, minAgeDay
   return out;
 }
 
+/**
+ * Matériaux dont la quantité en stock est tombée à son seuil d'alerte (ou en
+ * dessous). Seuls les matériaux AVEC un seuil renseigné (> 0) sont surveillés :
+ * sans seuil, il n'y a rien à comparer. Le paramètre `days` n'a pas de sens ici.
+ * Re-signalé chaque semaine tant que le stock reste bas (refireDays).
+ */
+async function runStockBas(db: SupabaseClient, tenantId: string): Promise<WatcherMatch[]> {
+  const { data } = await db
+    .from("materials")
+    .select("id, nom, reference, quantite, unite, seuil_alerte")
+    .eq("tenant_id", tenantId)
+    .not("seuil_alerte", "is", null)
+    .limit(SCAN_LIMIT);
+  const out: WatcherMatch[] = [];
+  for (const m of (data ?? []) as {
+    id: string; nom: string | null; reference: string | null;
+    quantite: number | null; unite: string | null; seuil_alerte: number | null;
+  }[]) {
+    const seuil = Number(m.seuil_alerte);
+    if (!Number.isFinite(seuil) || seuil <= 0) continue; // pas de seuil → rien à comparer
+    const qte = Number(m.quantite) || 0;
+    if (qte > seuil) continue;
+    const nom = m.nom ?? m.reference ?? "matériau";
+    out.push({
+      ficheId: m.id,
+      label: `Stock bas — ${nom}`,
+      detail: `${qte} ${m.unite ?? ""}`.trim() + ` en stock (seuil ${seuil})`,
+    });
+  }
+  return out;
+}
+
 // ── Le catalogue ─────────────────────────────────────────────────────────────
 
 export const WATCHERS: Record<WatcherKey, WatcherDef> = {
@@ -591,6 +625,16 @@ export const WATCHERS: Record<WatcherKey, WatcherDef> = {
     daysMeaning: "jours après la clôture (fenêtre de rattrapage)",
     refireDays: null,
     run: runVisiteTerminee,
+  },
+  stock_bas: {
+    key: "stock_bas",
+    label: "Stock bas",
+    watching: "les matériaux dont la quantité passe sous leur seuil d'alerte",
+    suggestedAction: "notify",
+    defaultDays: 0,
+    daysMeaning: null,
+    refireDays: 7,
+    run: runStockBas,
   },
 };
 

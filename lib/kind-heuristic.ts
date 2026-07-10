@@ -22,6 +22,13 @@ export type KindResult = {
    *  false si elle n'a rien à voir avec elle (question, autre tâche, hors-sujet).
    *  Absent (undefined) quand la décision vient de l'heuristique (pas de signal). */
   targetsOpenApp?: boolean;
+  /** true si la demande sort des CAPACITÉS réelles de Biltia (action physique,
+   *  temps réel vocal/téléphonie, ingénierie/calcul spécialisé, matériel/IoT
+   *  absent). Absent = l'heuristique n'en juge pas ; seul le LLM le renseigne. */
+  outOfScope?: boolean;
+  /** Quand outOfScope : une action que Biltia SAIT réellement faire, proche du
+   *  besoin (ou "" s'il n'y en a aucune). Base d'une alternative honnête. */
+  oosAlternative?: string;
   /** Comment la décision a été prise. */
   method: KindMethod;
   /** Confiance 0..1. */

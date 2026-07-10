@@ -301,6 +301,38 @@ export async function GET() {
     createdAt: e.created_at ?? null,
   }));
 
+  // 3) DEMANDES NON SATISFAITES : refus capturés par recordUnmetRequest()
+  // (generate/route.ts) — capacité hors périmètre (téléphonie, physique,
+  // ingénierie…) ou intégration tierce absente (Loom, Sage…). C'est la liste
+  // « ce que les clients réclament qu'on n'a pas » → priorisation roadmap.
+  const { data: unmetRows } = await db
+    .from("app_records")
+    .select("data, created_by, created_at")
+    .eq("collection", "__unmet_requests")
+    .order("created_at", { ascending: false })
+    .limit(500);
+  const unmet = ((unmetRows ?? []) as { data: Record<string, unknown> | null; created_by: string | null; created_at: string | null }[])
+    .filter((r) => !isFounder(r.created_by));
+  const unmetTally = new Map<string, number>();
+  for (const r of unmet) {
+    const kind = String(r.data?.kind ?? "capability");
+    const detail = String(r.data?.detail ?? "").trim();
+    const key = kind === "integration" ? `integration:${detail || "?"}` : "capability";
+    unmetTally.set(key, (unmetTally.get(key) ?? 0) + 1);
+  }
+  const unmetRequests = {
+    total: unmet.length,
+    byDetail: [...unmetTally.entries()]
+      .map(([key, count]) => ({ key, count }))
+      .sort((a, b) => b.count - a.count),
+    recent: unmet.slice(0, 15).map((r) => ({
+      kind: String(r.data?.kind ?? "capability"),
+      detail: String(r.data?.detail ?? ""),
+      prompt: String(r.data?.prompt ?? ""),
+      createdAt: r.created_at ?? null,
+    })),
+  };
+
   const demand = {
     byRequestType: [...reqTypeMap.entries()]
       .map(([key, count]) => ({ key, count }))
@@ -556,6 +588,7 @@ export async function GET() {
       .map(([day, count]) => ({ day, count }))
       .sort((a, b) => a.day.localeCompare(b.day)),
     demand,
+    unmetRequests,
     recentQuestions,
     plans: [...planMap.entries()].map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count),
     activity: (activity ?? []).map((a) => ({

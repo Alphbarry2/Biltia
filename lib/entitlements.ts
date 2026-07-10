@@ -63,6 +63,10 @@ export interface Entitlements {
   paymentIssue: boolean;
   /** Fin de période courante (ISO) — info + point d'ancrage du décompte de grâce. */
   periodEnd: string | null;
+  /** Fonctions de COLLABORATION débloquées (plan Équipe = Pro + 50 €). Un Pro solo
+   *  ne les a pas : invitations d'équipe, comptes collaborateurs, portail
+   *  client/sous-traitant, périmètre employé, agents collaboratifs. */
+  collaboration: boolean;
   limits: PlanLimits;
 }
 
@@ -73,6 +77,7 @@ const FREE_ENTITLEMENTS: Entitlements = {
   frozen: false,
   paymentIssue: false,
   periodEnd: null,
+  collaboration: false,
   limits: getPlan("free").limits,
 };
 
@@ -112,12 +117,21 @@ export async function getEntitlementsForTenant(
         frozen: true,
         paymentIssue: false,
         periodEnd,
+        collaboration: false,
         limits: getPlan("free").limits,
       };
     }
 
     // Plan effectif conservé tant que l'abonnement n'est pas gelé (grâce incluse).
-    const plan: PlanId = isPaidPlanId(data.plan) ? data.plan : "free";
+    // COLLABORATION : débloque les fonctions d'équipe (invitation, portail client,
+    // agents collaboratifs). Tant que l'add-on Équipe (+50 €) n'a pas sa source de
+    // droit branchée côté Stripe/checkout, TOUT plan payant (Pro) l'obtient — c'est
+    // le comportement d'avant (sharedWorkspace) : on ne dégrade pas les clients
+    // payants existants. Un futur plan "equipe" en base l'active aussi. Le Free ne
+    // l'a jamais. NE PAS restreindre au seul "equipe" avant que l'achat existe.
+    const rawPlan: string | null = data.plan ?? null;
+    const collaboration = isPaidPlanId(rawPlan) || rawPlan === "equipe";
+    const plan: PlanId = isPaidPlanId(rawPlan) || collaboration ? "pro" : "free";
     const paymentIssue = GRACE_STATUSES.has(status);
 
     return {
@@ -127,6 +141,7 @@ export async function getEntitlementsForTenant(
       frozen: false,
       paymentIssue,
       periodEnd,
+      collaboration,
       limits: getPlan(plan).limits,
     };
   } catch {
@@ -179,15 +194,26 @@ export function canUseAgentActions(ent: Entitlements): boolean {
   return ent.limits.agentActions;
 }
 
-/** Inviter des collaborateurs (sièges / workspace partagé) — plans payants. */
+/** Fonctions de COLLABORATION — réservées au plan Équipe (Pro + 50 €) : inviter des
+ *  collaborateurs, portail client/sous-traitant, périmètre employé, agents
+ *  collaboratifs. Un Pro solo ne les a pas. */
+export function canCollaborate(ent: Entitlements): boolean {
+  return ent.collaboration;
+}
+
+/** Inviter des collaborateurs — réservé au plan Équipe (collaboration). */
 export function canInviteTeam(ent: Entitlements): boolean {
-  return ent.limits.sharedWorkspace;
+  return ent.collaboration;
 }
 
 /** Message standard quand une fonctionnalité nécessite un plan payant (réponse 403,
  *  accompagnée de `upgrade: true` pour que le client propose le passage à Pro). */
 export const UPGRADE_MESSAGE =
   "Cette fonctionnalité fait partie du plan Pro. Passez à un plan payant depuis Paramètres → Facturation pour l'activer.";
+
+/** Message quand une fonction de COLLABORATION nécessite le plan Équipe (Pro + 50 €). */
+export const EQUIPE_UPGRADE_MESSAGE =
+  "Cette fonctionnalité fait partie du plan Équipe. Ajoutez la collaboration (+50 €/mois) depuis Paramètres → Facturation pour inviter votre équipe, ouvrir un portail à vos clients et sous-traitants, et activer les agents collaboratifs.";
 
 /** Message standard renvoyé quand une écriture est refusée pour cause de gel. */
 export const FROZEN_MESSAGE =

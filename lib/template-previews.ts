@@ -19,4 +19,6 @@ export const TEMPLATE_PREVIEWS: TemplatePreview[] = [
   { id: "pointage_equipes", name: "Pointage des heures", category: "RH", accent: "#DB2777", tagline: "Pointez le temps, validez d'une coche, zéro feuille perdue." },
   { id: "sous_traitants", name: "Sous-traitance & conformité", category: "Conformité", accent: "#334155", tagline: "Assurance décennale, échéances, relances. Alertes 30 jours avant." },
   { id: "crm_clients", name: "CRM — Pipeline commercial", category: "Commercial", accent: "#059669", tagline: "De la piste au chantier signé : suivez tout votre pipeline." },
+  { id: "sav_maintenance", name: "SAV & maintenance", category: "Maintenance", accent: "#0891B2", tagline: "Dépannages, contrats d'entretien, parc client : tout le récurrent." },
+  { id: "stock_achats", name: "Stock & achats", category: "Stock", accent: "#B45309", tagline: "Inventaire, seuils d'alerte et réappro par fournisseur en un clic." },
 ];

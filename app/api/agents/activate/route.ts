@@ -70,6 +70,19 @@ export async function POST(req: Request) {
     );
   }
 
+  // Plan ÉQUIPE : un template qui envoie le planning aux ÉQUIPES (collaboration)
+  // est réservé au plan Équipe. Les agents solo (relance, compte-rendu, tréso)
+  // restent au plan Pro. Fondateur exempté.
+  if (template.scheduleAction === "team_planning" && !ent.collaboration && !isFounderEmail(user.email)) {
+    return NextResponse.json(
+      {
+        error: `« ${template.name} » travaille avec votre équipe : c'est un agent du plan Équipe. Ajoutez la collaboration (+50 €/mois) dans Paramètres → Facturation pour l'activer.`,
+        upgrade: true,
+      },
+      { status: 403 }
+    );
+  }
+
   const result = await activateAgentTemplate({
     supabase,
     userId: user.id,

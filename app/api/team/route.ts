@@ -119,11 +119,69 @@ export async function GET() {
     })
   );
 
+  // Fiches employé du tenant + lien compte↔fiche (employees.user_id, migration 031)
+  // → permet de relier une personne invitée à sa fiche pour activer son périmètre.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const empClient = admin as unknown as { from: (t: string) => any };
+  const { data: empRows } = await empClient
+    .from("employees")
+    .select("id, nom, prenom, user_id")
+    .eq("tenant_id", membership.tenant_id)
+    .order("nom", { ascending: true });
+  const empList = (empRows ?? []) as { id: string; nom: string; prenom: string | null; user_id: string | null }[];
+  const employees = empList.map((e) => ({ id: e.id, nom: e.nom, prenom: e.prenom }));
+  const empByUser = new Map<string, string>();
+  empList.forEach((e) => { if (e.user_id) empByUser.set(e.user_id, e.id); });
+  const membersWithEmployee = members.map((m) => ({ ...m, employeeId: empByUser.get(m.user_id) ?? null }));
+
   return NextResponse.json({
-    members,
+    members: membersWithEmployee,
+    employees,
     myRole: membership.role,
     canManage: MANAGER_ROLES.includes(membership.role),
   });
+}
+
+// ── PATCH : relier (ou délier) un compte à une fiche employé ──────────────────
+// { memberUserId, employeeId | null }. Réservé owner/admin. Un compte est relié à
+// AU PLUS une fiche : on détache d'abord toute fiche déjà liée à ce compte, puis
+// on rattache la fiche choisie. Active le périmètre « ses chantiers » pour ce compte.
+export async function PATCH(req: Request) {
+  const ctx = await requireContext();
+  if ("error" in ctx) return ctx.error;
+  const { membership, admin } = ctx;
+
+  if (!MANAGER_ROLES.includes(membership.role)) {
+    return NextResponse.json({ error: "Seuls le propriétaire ou un administrateur peuvent gérer l'équipe." }, { status: 403 });
+  }
+
+  let body: { memberUserId?: string; employeeId?: string | null };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Corps de requête invalide." }, { status: 400 });
+  }
+  const memberUserId = body.memberUserId;
+  if (!memberUserId) return NextResponse.json({ error: "memberUserId manquant." }, { status: 400 });
+
+  const tenantId = membership.tenant_id;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const empClient = admin as unknown as { from: (t: string) => any };
+
+  // 1) Détache toute fiche actuellement liée à ce compte (unicité compte↔fiche).
+  await empClient.from("employees").update({ user_id: null }).eq("tenant_id", tenantId).eq("user_id", memberUserId);
+
+  // 2) Rattache la fiche choisie (si fournie), scellée au tenant actif.
+  if (body.employeeId) {
+    const { error } = await empClient
+      .from("employees")
+      .update({ user_id: memberUserId })
+      .eq("tenant_id", tenantId)
+      .eq("id", body.employeeId);
+    if (error) return NextResponse.json({ error: "Liaison impossible." }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true, employeeId: body.employeeId ?? null });
 }
 
 export async function POST(req: Request) {
@@ -138,15 +196,16 @@ export async function POST(req: Request) {
     );
   }
 
-  // Plan : inviter une équipe (workspace partagé) est réservé à Pro. Le Free reste
-  // solo — c'est un plan découverte, pas un espace multi-utilisateurs. Fondateur exempté.
+  // Plan : inviter une équipe (comptes collaborateurs, périmètre employé) est une
+  // fonction de COLLABORATION → réservée au plan Équipe (Pro + 50 €). Un Pro solo
+  // ne l'a pas ; le Free non plus. Fondateur exempté.
   if (!isFounderEmail(user.email)) {
     const ent = await getEntitlementsForTenant(supabase, membership.tenant_id);
     if (!canInviteTeam(ent)) {
       return NextResponse.json(
         {
           error:
-            "L'invitation de collaborateurs fait partie du plan Pro. Passez à un plan payant pour constituer votre équipe.",
+            "L'invitation de collaborateurs fait partie du plan Équipe. Ajoutez la collaboration (+50 €/mois) dans Paramètres → Facturation pour constituer votre équipe.",
           upgrade: true,
         },
         { status: 403 }

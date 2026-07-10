@@ -590,6 +590,9 @@ function renderDetail(d,lignes){
   if(cl&&(cl.email||cl.tel)) h+='<div class="det-row"><span class="k">Contact</span><span class="v">'+esc(cl.email||cl.tel)+'</span></div>';
   if(d.conditions) h+='<div class="det-row" style="flex-direction:column;align-items:stretch"><span class="k" style="margin-bottom:4px">Conditions</span><span class="v" style="text-align:left;font-weight:400;color:var(--ink)">'+esc(d.conditions)+'</span></div>';
   h+='</div>';
+  if(d.statut==="accepte"){
+    h+='<div class="det-sec"><div class="fl">Facturation</div><div class="hint" style="margin-bottom:10px">Créez la facture depuis ce devis, sans rien retaper.</div><div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn btn-primary" style="flex:1;min-width:120px" onclick="facturer(\\''+d.id+'\\',\\'acompte\\')">Acompte 30 %</button><button class="btn btn-ghost" style="flex:1;min-width:120px" onclick="facturer(\\''+d.id+'\\',\\'solde\\')">Facturer le solde</button></div></div>';
+  }
   h+='<div class="modal-actions"><button class="btn btn-primary" onclick="sendDevis(\\''+d.id+'\\')"><svg viewBox="0 0 24 24"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7Z"/></svg>Envoyer</button><button class="btn btn-ghost" onclick="openEditor(\\''+d.id+'\\')">Modifier</button><button class="btn btn-danger" style="flex:0 0 auto" onclick="delDevis(\\''+d.id+'\\')">Supprimer</button></div>';
   openModal(h);
 }
@@ -623,6 +626,16 @@ async function sendDevis(id){
     biltia.notify("Devis envoyé à "+cl.email);
     if(d.statut==="brouillon"){ try{ var up=await biltia.update("devis",id,{statut:"envoye"}); replaceDevis(up); }catch(e){} closeModal(); render(); }
   }catch(e){ biltia.notify("Envoi impossible pour le moment"); }
+}
+/* ── Devis accepté → facture (un clic, sans re-saisie) ── */
+async function facturer(id,mode){
+  var d=findDevis(id); if(!d)return;
+  biltia.notify(mode==="acompte"?"Création de l\\'acompte…":"Création de la facture…");
+  try{
+    var f=await biltia.invoiceFromDevis(id,{mode:mode});
+    if(f){ biltia.notify("Facture "+(f.numero||"")+" créée · "+money(f.montant_ttc)); closeModal(); }
+    else { biltia.notify("Facture non créée"); }
+  }catch(e){ /* le SDK a déjà affiché le motif */ }
 }
 
 /* ── Relecture des devis dictés ── */

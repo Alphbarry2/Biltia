@@ -1069,6 +1069,20 @@ export async function executeRule(
         );
         return { status: "blocked", summary: reason };
       }
+      // Planning aux ÉQUIPES = collaboration → réservé au plan Équipe. Backstop
+      // runtime (le recrutement le bloque déjà) : si le tenant n'est pas Équipe, on
+      // suspend le passage plutôt que d'envoyer à l'équipe.
+      if (action.type === "team_planning" && !ent.collaboration) {
+        const reason = "planning équipe réservé au plan Équipe (collaboration)";
+        await finishRun("blocked", "Plan Équipe requis : passage suspendu.");
+        await reschedule(reason);
+        await notifyOwner(
+          "Agent en pause : plan Équipe requis",
+          `« ${rule.title} » envoie le planning à votre équipe — réservé au plan Équipe. Ajoutez la collaboration (+50 €/mois) pour le réactiver.`,
+          "/tarifs"
+        );
+        return { status: "blocked", summary: reason };
+      }
     }
 
     // ── PLANNING AUX ÉQUIPES : récupérer le planning existant (agenda Google du

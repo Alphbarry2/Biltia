@@ -87,12 +87,14 @@ export const SIGNUP_FREE_CREDITS = 300;
 // ⚠️ Chaque palier a besoin de son Price Stripe (STRIPE_PRICE_PRO_<crédits>).
 //    Créer les prix AVANT de déployer (sinon checkout 503) : scripts/stripe-sync-prices.ts.
 const PRO_TIERS: CreditTier[] = [
-  { credits: 1000, priceEur: 49 }, //   0,049 €/cr
-  { credits: 2000, priceEur: 89 }, //   0,045 €/cr  (-9 %)
-  { credits: 3000, priceEur: 129 }, //  0,043 €/cr  (-12 %)
-  { credits: 10000, priceEur: 399 }, // 0,040 €/cr  (-19 %)
-  { credits: 15000, priceEur: 579 }, // 0,039 €/cr  (-21 %)
-  { credits: 25000, priceEur: 949 }, // 0,038 €/cr  (-22 %)
+  // Grille DÉCIDÉE par le user le 2026-07-10 (stratégie « généreux à l'entrée, marge
+  // sur l'expansion Équipe/Entreprise »). Marges ~85-88 % (COGS 0,003 €/cr, plancher
+  // ~70 % respecté). ⚠️ NON strictement dégressive : 3000/89 (0,0297 €/cr) est plus
+  // cher au crédit que 5000/129 (0,0258 €/cr) → il joue le rôle de LEURRE qui pousse
+  // vers le palier recommandé 5000. Au-delà de 5000 : recharge in-app ou Équipe.
+  { credits: 2000, priceEur: 49 }, //  0,0245 €/cr — entrée généreuse (~85 %)
+  { credits: 3000, priceEur: 89 }, //  0,0297 €/cr — leurre → pousse vers 5000 (~88 %)
+  { credits: 5000, priceEur: 129 }, // 0,0258 €/cr — RECOMMANDÉ (~86 %)
 ];
 
 // Anciens paliers RETIRÉS de la vente, conservés UNIQUEMENT pour reconnaître au
@@ -101,6 +103,11 @@ const PRO_TIERS: CreditTier[] = [
 // Price Stripe (STRIPE_PRICE_PRO_<crédits>) restent donc en place tant qu'un
 // abonné y est. Voir findTierByPriceId (lib/stripe.ts).
 export const LEGACY_PRO_TIERS: CreditTier[] = [
+  // Retirés de la vente : conservés pour créditer les abonnements en cours.
+  { credits: 1000, priceEur: 49 },
+  { credits: 2000, priceEur: 89 },
+  { credits: 15000, priceEur: 579 },
+  { credits: 25000, priceEur: 949 },
   { credits: 4000, priceEur: 199 },
   { credits: 8000, priceEur: 399 },
   { credits: 12000, priceEur: 579 },
@@ -153,7 +160,7 @@ export const PLANS: Record<PlanId, Plan> = {
     tagline: "L'outil complet, sans limite de features",
     audience: "Pour les indépendants, artisans et TPE",
     tiers: PRO_TIERS,
-    defaultCredits: 1000,
+    defaultCredits: 5000,
     features: [
       "Tout l'outil, aucune fonctionnalité bridée",
       "Apps, devis, questions et agents selon vos crédits IA",
@@ -201,6 +208,38 @@ export const ENTERPRISE = {
   ],
 } as const;
 
+// ── Offre Équipe (collaboration) ─────────────────────────────────────────────
+// PRÉSENTATION UNIQUEMENT pour l'instant : le branchement Stripe et le flag
+// d'entitlement `collaboration` (gates équipe/portail/périmètre + split agent)
+// viennent ensuite. Équipe = Pro + LA COLLABORATION : tout ce qui « fait entrer
+// quelqu'un d'autre dans Biltia » (inviter des salariés, comptes employés à
+// périmètre, portail client/sous-traitant, rôles, agents qui interagissent avec
+// l'externe). Le reste (créer/modifier, devis, questions, agents SOLO) est déjà
+// dans Pro. L'add-on collaboration = +50 € sur le plan Pro 5 000 (129 → 179). Les
+// paliers 10 000 et 25 000 n'ont pas d'équivalent Pro (Pro s'arrête à 5 000) : ils
+// sont propres à Équipe. Volumes ≥ 5 000 : collaborer suppose déjà un usage sérieux.
+export const COLLABORATION_ADDON_EUR = 50;
+
+export const EQUIPE = {
+  name: "Équipe",
+  tagline: "Pour faire travailler vos salariés, clients et sous-traitants dans Biltia.",
+  audience: "Artisans avec salariés, PME",
+  /** 5 000 = Pro 5 000 (129 €) + 50 €. 10 000/25 000 sont propres à Équipe. */
+  tiers: [
+    { credits: 5000, priceEur: 179 },
+    { credits: 10000, priceEur: 449 },
+    { credits: 25000, priceEur: 999 },
+  ] as CreditTier[],
+  features: [
+    "Tout le plan Pro, pour toute l'équipe",
+    "Invitez vos collaborateurs : rôles et permissions",
+    "Comptes employés : chacun ne voit que ses chantiers",
+    "Portail client et sous-traitant, partage sécurisé",
+    "Agents qui assignent, relancent et rendent compte",
+    "Support prioritaire",
+  ],
+} as const;
+
 // ── Packs de crédits (recharges one-time, NON expirables) ─────────────────────
 // Achetés à l'unité quand le solde est bas. Volontairement PLUS CHERS au crédit
 // que l'abonnement équivalent : recharger doit toujours coûter plus que monter
@@ -213,9 +252,10 @@ export interface CreditPack {
 }
 
 export const CREDIT_PACKS: CreditPack[] = [
-  { credits: 1000, priceEur: 59 }, //  0,059 €/cr  (vs Solo 1 000 à 49 €)
-  { credits: 3000, priceEur: 149 }, // 0,050 €/cr  (vs Pro 3 000 à 129 €)
-  { credits: 10000, priceEur: 449 }, // 0,045 €/cr (vs Business 10 000 à 399 €)
+  { credits: 1000, priceEur: 29 }, //   0,029 €/cr — dépannage ponctuel
+  { credits: 3000, priceEur: 99 }, //   0,033 €/cr
+  { credits: 10000, priceEur: 499 }, // 0,050 €/cr
+  { credits: 25000, priceEur: 1099 }, // 0,044 €/cr
 ];
 
 export function getPack(credits: number): CreditPack | undefined {

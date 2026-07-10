@@ -29,6 +29,12 @@ export type UserPreferences = {
    * Contexte MÉTIER : rattrape ce que la famille ne dit pas (surtout « Autre »).
    */
   sector_detail?: string | null;
+  /**
+   * Familles métier déclarées à l'onboarding (une ou PLUSIEURS : un artisan qui
+   * fait plomberie ET électricité). Chacune enrichit buildKnowledgeBlock + le RAG.
+   * `profiles.sector` reste la 1re (compat). Ids = CATEGORIES (btp-catalog).
+   */
+  sectors?: string[];
 };
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
@@ -52,6 +58,7 @@ export function normalizePreferences(raw: unknown): UserPreferences {
     tone: p.tone === "friendly" || p.tone === "concise" ? p.tone : "pro",
     activity_type: typeof p.activity_type === "string" && p.activity_type ? p.activity_type : null,
     sector_detail: typeof p.sector_detail === "string" && p.sector_detail.trim() ? p.sector_detail.trim() : null,
+    sectors: Array.isArray(p.sectors) ? p.sectors.filter((s): s is string => typeof s === "string" && !!s) : undefined,
   };
 }
 

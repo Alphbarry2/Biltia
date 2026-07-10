@@ -235,7 +235,7 @@ input.invalid,select.invalid{border-color:#E11D48;box-shadow:0 0 0 3px rgba(225,
 <div class="overlay" id="ovl" hidden><div class="modal" id="modal"></div></div>
 
 <script>
-var S={ view:"dashboard", factures:[], chantiers:[], clients:[], devis:[], entreprise:"__ENTREPRISE__", filter:"tous", search:"", edit:null };
+var S={ view:"dashboard", factures:[], chantiers:[], clients:[], devis:[], renta:{}, entreprise:"__ENTREPRISE__", filter:"tous", search:"", edit:null };
 var $=function(id){return document.getElementById(id);};
 function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
 function num(v){var n=parseFloat(String(v==null?"":v).replace(",",".").replace(/[^0-9.\\-]/g,""));return isFinite(n)?n:0;}
@@ -356,9 +356,11 @@ async function boot(){
       biltia.list("factures",{order:"date_facture",ascending:false,limit:800}).catch(function(){return[];}),
       biltia.list("chantiers",{order:"created_at",ascending:false,limit:600}).catch(function(){return[];}),
       biltia.list("clients",{order:"nom",ascending:true,limit:800}).catch(function(){return[];}),
-      biltia.list("devis",{order:"date_devis",ascending:false,limit:600}).catch(function(){return[];})
+      biltia.list("devis",{order:"date_devis",ascending:false,limit:600}).catch(function(){return[];}),
+      (biltia.chantierRentabilite?biltia.chantierRentabilite():Promise.resolve([])).catch(function(){return[];})
     ]);
     S.factures=r[0]||[]; S.chantiers=r[1]||[]; S.clients=r[2]||[]; S.devis=r[3]||[];
+    S.renta={}; (r[4]||[]).forEach(function(x){ if(x&&x.id)S.renta[x.id]=x; });
     renderNav(); render();
   }catch(e){ $("view").innerHTML='<div class="view-pad"><div class="empty"><div class="empty-ico">⚠️</div><div class="empty-title">Connexion au workspace impossible</div><div class="empty-sub">Vérifiez votre connexion puis rouvrez l\\'application.</div></div></div>'; }
 }
@@ -462,12 +464,39 @@ function renderFactures(){
 function budgetRows(){ return S.chantiers.filter(function(c){return num(c.budget)>0&&c.statut!=="annule";}).map(function(c){ var prevu=num(c.budget),engage=num(c.budget_engage); var facture=facturesActives().filter(function(f){return f.chantier_id===c.id;}).reduce(function(s,f){var v=num(f.montant_ht);return s+(f.type==="avoir"?-v:v);},0); var marge=prevu-engage,pct=prevu?Math.round(marge/prevu*100):0,use=prevu?Math.round(engage/prevu*100):0; return {c:c,prevu:prevu,engage:engage,facture:facture,marge:marge,pct:pct,use:use}; }).sort(function(a,b){return b.prevu-a.prevu;}); }
 function budRowHTML(r){ var col=r.use>100?"#E11D48":r.use>=85?"#D97706":"var(--vio)"; var w=Math.max(2,Math.min(100,r.use));
   return '<button class="bud-row" onclick="openBudget(\\''+r.c.id+'\\')"><div class="bud-top"><span class="bud-name">'+esc(r.c.nom||"Chantier")+'</span><span class="bud-marge" style="color:'+(r.marge<0?"#E11D48":"#059669")+'">'+moneyK(r.marge)+'</span></div><div class="bud-track"><div class="bud-fill" style="width:'+w+'%;background:'+col+'"></div></div><div class="bud-meta"><span>Engagé '+moneyK(r.engage)+' / '+moneyK(r.prevu)+'</span><span>'+(r.use>100?'<span style="color:#E11D48;font-weight:600">dépassé '+r.use+'%</span>':"marge "+r.pct+"%")+'</span></div></button>'; }
+/* Rentabilité RÉELLE (agrégat serveur : facturé − heures pointées×taux − achats). */
+function rentaRows(){
+  var m=S.renta||{}, arr=[];
+  S.chantiers.forEach(function(c){ if(c.statut==="annule")return; var r=m[c.id]; if(!r)return; if(!(num(r.facture)>0||num(r.cout_total)>0))return; arr.push(r); });
+  return arr.sort(function(a,b){return num(a.marge)-num(b.marge);}); // moins rentable d'abord
+}
+function rentaRowHTML(r){
+  var facture=num(r.facture)||0, cout=num(r.cout_total)||0, neg=num(r.marge)<0;
+  var use=facture>0?Math.round(cout/facture*100):(cout>0?120:0), col=use>100?"#E11D48":use>=85?"#D97706":"#059669", w=Math.max(2,Math.min(100,use));
+  return '<div class="bud-row"><div class="bud-top"><span class="bud-name">'+esc(r.nom||"Chantier")+'</span><span class="bud-marge" style="color:'+(neg?"#E11D48":"#059669")+'">'+moneyK(r.marge)+'</span></div>'
+    +'<div class="bud-track"><div class="bud-fill" style="width:'+w+'%;background:'+col+'"></div></div>'
+    +'<div class="bud-meta"><span>Coût réel '+moneyK(cout)+' / facturé '+moneyK(facture)+'</span><span>'+(r.marge_pct!=null?(neg?'<span style="color:#E11D48;font-weight:600">perte '+Math.abs(r.marge_pct)+'%</span>':"marge "+r.marge_pct+"%"):"—")+'</span></div>'
+    +'<div class="bud-meta" style="margin-top:4px;opacity:.8"><span>Main d\\'œuvre '+moneyK(r.cout_mo)+' · matériaux '+moneyK(r.cout_materiaux)+'</span>'+(num(r.reste_a_encaisser)>0?'<span>reste à encaisser '+moneyK(r.reste_a_encaisser)+'</span>':'')+'</div></div>';
+}
 function renderBudgets(){
-  var rows=budgetRows(), h='<div class="view-pad">';
-  if(!rows.length){ h+=emptyState("🏗️","Aucun budget renseigné","Ajoutez un chantier avec son budget prévu et son montant engagé pour suivre sa marge.","openBudget(null)","+ Nouveau chantier")+'</div>'; $("view").innerHTML=h; return; }
-  var prevu=rows.reduce(function(s,r){return s+r.prevu;},0),engage=rows.reduce(function(s,r){return s+r.engage;},0),marge=prevu-engage;
-  h+='<div class="strip"><div class="strip-cell"><div class="strip-k">Budget prévu</div><div class="strip-v">'+moneyK(prevu)+'</div><div class="strip-s">'+rows.length+' chantier'+(rows.length>1?"s":"")+'</div></div><div class="strip-cell"><div class="strip-k">Engagé</div><div class="strip-v">'+moneyK(engage)+'</div><div class="strip-s">'+(prevu?Math.round(engage/prevu*100):0)+'% du prévu</div></div><div class="strip-cell"><div class="strip-k">Marge prévue</div><div class="strip-v" style="color:'+(marge<0?"#E11D48":"#059669")+'">'+moneyK(marge)+'</div><div class="strip-s">'+(prevu?Math.round(marge/prevu*100):0)+'%</div></div></div>';
-  h+='<div class="section-h"><b>Rentabilité par chantier</b><button class="btn btn-ghost btn-sm" onclick="openBudget(null)">+ Chantier</button></div>'+rows.map(budRowHTML).join("")+'</div>';
+  var renta=rentaRows(), rows=budgetRows(), h='<div class="view-pad">';
+  if(!renta.length && !rows.length){ h+=emptyState("🏗️","Rien à analyser pour l\\'instant","Facturez un chantier et pointez des heures : la rentabilité réelle (facturé − coûts) s\\'affichera ici. Ou ajoutez un budget prévu à un chantier.","openBudget(null)","+ Nouveau chantier")+'</div>'; $("view").innerHTML=h; return; }
+  // ── Bloc 1 : rentabilité RÉELLE (le vrai chiffre) ──
+  if(renta.length){
+    var tFact=renta.reduce(function(s,r){return s+(num(r.facture)||0);},0), tCout=renta.reduce(function(s,r){return s+(num(r.cout_total)||0);},0), tMarge=tFact-tCout;
+    h+='<div class="strip"><div class="strip-cell"><div class="strip-k">Facturé</div><div class="strip-v">'+moneyK(tFact)+'</div><div class="strip-s">'+renta.length+' chantier'+(renta.length>1?"s":"")+'</div></div><div class="strip-cell"><div class="strip-k">Coûts réels</div><div class="strip-v">'+moneyK(tCout)+'</div><div class="strip-s">main d\\'œuvre + matériaux</div></div><div class="strip-cell"><div class="strip-k">Marge réelle</div><div class="strip-v" style="color:'+(tMarge<0?"#E11D48":"#059669")+'">'+moneyK(tMarge)+'</div><div class="strip-s">'+(tFact?Math.round(tMarge/tFact*100):0)+'%</div></div></div>';
+    h+='<div class="section-h"><b>Rentabilité réelle par chantier</b><span style="font-size:11px;color:var(--mut)">facturé − heures − achats</span></div>'+renta.map(rentaRowHTML).join("");
+  }
+  // ── Bloc 2 : budget PRÉVISIONNEL (saisi à la main, prévu vs engagé) ──
+  if(rows.length){
+    var prevu=rows.reduce(function(s,r){return s+r.prevu;},0),engage=rows.reduce(function(s,r){return s+r.engage;},0),marge=prevu-engage;
+    h+='<div class="section-h" style="margin-top:20px"><b>Budget prévisionnel</b><button class="btn btn-ghost btn-sm" onclick="openBudget(null)">+ Chantier</button></div>';
+    h+='<div class="strip"><div class="strip-cell"><div class="strip-k">Budget prévu</div><div class="strip-v">'+moneyK(prevu)+'</div><div class="strip-s">'+rows.length+' chantier'+(rows.length>1?"s":"")+'</div></div><div class="strip-cell"><div class="strip-k">Engagé</div><div class="strip-v">'+moneyK(engage)+'</div><div class="strip-s">'+(prevu?Math.round(engage/prevu*100):0)+'% du prévu</div></div><div class="strip-cell"><div class="strip-k">Marge prévue</div><div class="strip-v" style="color:'+(marge<0?"#E11D48":"#059669")+'">'+moneyK(marge)+'</div><div class="strip-s">'+(prevu?Math.round(marge/prevu*100):0)+'%</div></div></div>';
+    h+=rows.map(budRowHTML).join("");
+  } else {
+    h+='<div class="section-h" style="margin-top:20px"><b>Budget prévisionnel</b><button class="btn btn-ghost btn-sm" onclick="openBudget(null)">+ Chantier</button></div><div style="color:var(--mut);font-size:13px;padding:4px 2px 2px">Ajoutez un budget prévu à un chantier pour comparer le prévu au réel.</div>';
+  }
+  h+='</div>';
   $("view").innerHTML=h;
 }
 

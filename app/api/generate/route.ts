@@ -751,6 +751,34 @@ async function resolveScopeLabels(
   return lines.join("\n");
 }
 
+// Capture best-effort d'une demande que Biltia NE PEUT PAS satisfaire — intégration
+// tierce absente OU capacité hors périmètre → app_records/__unmet_requests. Signal
+// produit pour la roadmap (« qu'est-ce que les gens réclament qu'on n'a pas »).
+// Fire-and-forget : jamais bloquant, jamais fatal.
+async function recordUnmetRequest(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tenantId: string,
+  userId: string,
+  reqKind: "integration" | "capability",
+  detail: string,
+  prompt: string,
+): Promise<void> {
+  try {
+    // AWAIT indispensable : sur Vercel (serverless), la lambda est gelée dès la
+    // réponse renvoyée. Un insert fire-and-forget serait perdu — surtout sur le
+    // chemin "capability" qui retourne juste après. On attend (c'est rapide).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (supabase.from as any)("app_records").insert({
+      tenant_id: tenantId,
+      collection: "__unmet_requests",
+      data: { kind: reqKind, detail: (detail || "").slice(0, 120), prompt: (prompt || "").slice(0, 500) },
+      created_by: userId,
+    });
+  } catch {
+    /* signal best-effort — jamais bloquant */
+  }
+}
+
 export async function POST(req: Request) {
   try {
     if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY.startsWith("your_")) {
@@ -888,6 +916,8 @@ export async function POST(req: Request) {
     let kindMethod = "provided";
     let emailDraft: { to: string; subject: string; body: string } | undefined;
     let taskDraft: { audience: string; subject: string; body: string } | undefined;
+    let outOfScope = false;
+    let oosAlternative = "";
     if (isAutoFix) {
       // Auto-fix : on itère toujours sur le livrable existant, pas de reclasse.
       kind = providedKind ?? "module";
@@ -897,6 +927,8 @@ export async function POST(req: Request) {
       logAuxUsage(k.usage, "classify_kind");
       emailDraft = k.email;
       taskDraft = k.task;
+      outOfScope = k.outOfScope === true;
+      oosAlternative = k.oosAlternative ?? "";
       if (isModification) {
         // ── APP OUVERTE : deux issues seulement — MODIFIER l'app, ou RÉPONDRE
         // EN CHAT. Une demande qui ne VISE PAS l'app (« traduis ça », « écris un
@@ -943,6 +975,34 @@ export async function POST(req: Request) {
       }
     }
     const isAnswer = kind === "answer";
+
+    // ── PORTE DE CAPACITÉ : la demande sort des capacités RÉELLES de Biltia
+    // (action physique, téléphonie/vocal en temps réel, ingénierie spécialisée,
+    // matériel/IoT). On REFUSE avec tact AVANT toute génération — jamais fabriquer
+    // un faux outil — on propose une alternative réelle si elle existe, et on
+    // ENREGISTRE la demande (signal roadmap). Gratuit : aucune dépense de crédit.
+    if (outOfScope && !isAutoFix && !isModification) {
+      await recordUnmetRequest(supabase, tenantId, user.id, "capability", oosAlternative, prompt);
+      const alt = oosAlternative.trim();
+      const message = alt
+        ? `Ça, je ne peux pas le faire — ce n'est pas dans mes capacités.\n\nEn revanche, ${alt.charAt(0).toLowerCase() + alt.slice(1)}${/[.!?]$/.test(alt) ? "" : "."}\n\nTu veux que je m'en occupe ?`
+        : "Ça, je ne peux pas le faire — ce n'est pas dans mes capacités, en tout cas pas pour l'instant. J'ai noté ta demande : c'est peut-être pour bientôt.";
+      return Response.json({ kind: "answer", answer: message });
+    }
+
+    // ── SIGNAL PRODUIT : capte (silencieux, best-effort) une demande visant un
+    // service tiers que Biltia n'intègre PAS encore. Liste curée (Gmail/Agenda/
+    // Drive/Excel/CSV sont supportés → ABSENTS). Fire-and-forget, jamais bloquant.
+    {
+      const lower = prompt.toLowerCase();
+      const UNSUPPORTED = [
+        "loom", "sage", "ebp", "pennylane", "quickbooks", "odoo", "slack", "trello",
+        "notion", "zapier", "hubspot", "salesforce", "asana", "dropbox", "onedrive",
+        "batigest", "obat", "tolteck", "discord", "monday",
+      ];
+      const hit = UNSUPPORTED.find((n) => new RegExp(`\\b${n}\\b`, "i").test(lower));
+      if (hit) await recordUnmetRequest(supabase, tenantId, user.id, "integration", hit, prompt);
+    }
 
     // ── RBAC : un LECTEUR (viewer) est en lecture seule. Il peut poser des
     // questions (answer), pas créer une app/document/action ni envoyer un email
@@ -1378,22 +1438,30 @@ Si la demande vise PLUSIEURS fiches d'un coup en SUPPRESSION ou en ÉCRASEMENT d
     // routeur. À défaut (demande générique → generalist), on retombe sur le MÉTIER
     // DÉCLARÉ à l'onboarding, pour que la profession colore même un simple planning
     // (« un électricien qui demande un suivi de chantier doit parler électricien »).
-    const cat =
-      (route.agent !== "generalist" ? getCategory(route.agent) : undefined) ??
-      (sector ? getCategory(sector) : undefined);
+    // Métiers déclarés à l'onboarding : un OU PLUSIEURS (un plombier-électricien
+    // coche les deux). On combine la catégorie ROUTÉE (le focus de la demande) avec
+    // TOUTES les familles déclarées → le prompt connaît réellement chaque métier de
+    // l'artisan. Repli sur `sector` (compat comptes créés avant le multi-select).
+    const declaredSectors =
+      preferences.sectors && preferences.sectors.length
+        ? preferences.sectors
+        : sector
+          ? [sector]
+          : [];
+    const focusCatId = route.agent !== "generalist" ? getCategory(route.agent)?.id : undefined;
+    const catIds = [...new Set([...(focusCatId ? [focusCatId] : []), ...declaredSectors])].slice(0, 5);
+    const subTradeIds = [
+      ...new Set(catIds.flatMap((id) => getCategory(id)?.subTrades.map((s) => s.id) ?? [])),
+    ];
     const expertise =
-      cat || preferences.activity_type || preferences.sector_detail
-        ? buildKnowledgeBlock(
-            cat ? cat.subTrades.map((s) => s.id) : [],
-            preferences.activity_type,
-            preferences.sector_detail
-          )
+      subTradeIds.length || preferences.activity_type || preferences.sector_detail
+        ? buildKnowledgeBlock(subTradeIds, preferences.activity_type, preferences.sector_detail)
         : undefined;
 
     // ── RAG : récupération de sources VÉRIFIÉES (bibliothèque BTP globale +
     // documents privés du tenant). Client authentifié → RLS → le tenant ne voit
     // que le global + ses docs. Jamais bloquant : [] si Mistral/pgvector indispo.
-    const tradeIds = cat ? cat.subTrades.map((s) => s.id) : [];
+    const tradeIds = subTradeIds;
     const ragChunks = await retrieveContext({ supabase, tenantId, prompt, tradeIds }).catch(() => []);
     const sourcesBlock = buildSourcesBlock(ragChunks);
 
@@ -1408,18 +1476,32 @@ STRUCTURE (priorité n°1 — une réponse doit être LISIBLE d'un coup d'œil) 
 - Texte brut : pas de HTML, pas de markdown. Des tirets pour les listes, des sauts de ligne pour respirer.
 
 EXACTITUDE — NE JAMAIS INVENTER :
-- Ne fabrique JAMAIS une donnée, un chiffre ou une fonctionnalité. Si tu ne sais pas, dis-le en une ligne et propose l'action réelle.
+- Ne fabrique JAMAIS une donnée, un chiffre, un NOM (personne, client, contact, chantier) ni une fonctionnalité. Si tu ne sais pas, dis-le en une ligne et propose l'action réelle. Mieux vaut « je ne sais pas » qu'une réponse inventée.
 - Chiffres exacts. TVA France : 20 % neuf, 10 % rénovation, 5,5 % rénovation énergétique. TVA Belgique : 21 % neuf, 6 % rénovation (logement > 10 ans). France par défaut. Cas principal, puis la nuance en une ligne.
 - Question sur les données de l'entreprise (clients, chantiers, devis…) → utilise le CONTEXTE WORKSPACE ci-dessous et cite les vrais chiffres. Vide → dis-le simplement, ne devine jamais.
 - Si des SOURCES sont fournies, elles priment.
 
 TES OUTILS (ne te dévalorise JAMAIS) :
 - Biltia se connecte à Gmail (envoyer des emails), Google Agenda (lire/créer des rendez-vous) et Google Drive (fichiers).
-- Si la demande a besoin d'un de ces outils, considère qu'il peut être connecté : réponds « Ton [Gmail/agenda/Drive] n'est pas connecté — connecte-le dans les intégrations et je m'en occupe. » Ne dis JAMAIS « je ne peux pas » ni « ce n'est pas dans mes capacités » : c'est à une connexion près.`,
+- Si la demande a besoin d'un de ces outils, considère qu'il peut être connecté : réponds « Ton [Gmail/agenda/Drive] n'est pas connecté — connecte-le dans les intégrations et je m'en occupe. » Ne dis JAMAIS « je ne peux pas » ni « ce n'est pas dans mes capacités » : c'est à une connexion près.
+
+IDENTITÉ (règle stricte) — Biltia est une technologie MAISON conçue pour le BTP. Ne nomme JAMAIS un modèle, un fournisseur ou une techno sous-jacente (ni Anthropic, Claude, OpenAI, GPT, Gemini, Mistral, « LLM », « modèle de langage »…) et n'en confirme aucun. Si on te demande « quel LLM / quelle IA / c'est quoi derrière / t'es Claude ? » : réponds en une phrase que Biltia est une technologie maison développée spécialement pour les pros du BTP, sans détailler, puis recentre sur ce que tu peux faire pour lui.
+
+INTÉGRATION NON DISPONIBLE — Au-delà de Gmail, Google Agenda et Google Drive, si la demande réclame un service tiers que Biltia ne propose pas encore (ex : Loom, Sage, EBP, Pennylane, Slack, un logiciel de compta ou un CRM externe…) : ne prétends JAMAIS savoir le faire et n'invente pas de connexion. Dis clairement, sans t'excuser, que cette intégration n'est pas encore disponible dans Biltia — puis propose l'alternative la plus proche que tu SAIS réellement faire (ex : au lieu d'un envoi Slack → un email ou un SMS ; au lieu d'un export vers un logiciel de compta → un export PDF ou CSV). Reste utile, jamais un cul-de-sac.
+
+HORS CAPACITÉS (physique, téléphonie, ingénierie) — Si on te demande une action que Biltia ne peut PAS faire par nature (passer ou répondre à des appels en direct, agir physiquement sur un chantier, un calcul de structure ou thermique certifié, piloter du matériel) : dis simplement « Ça, je ne peux pas le faire, ce n'est pas dans mes capacités », propose une alternative RÉELLE si elle existe (sinon dis que c'est peut-être pour plus tard), et n'invente JAMAIS une capacité.`,
         expertise ? `\n# FOCUS MÉTIER\n${expertise}` : "",
         sourcesBlock ? `\n${sourcesBlock}` : "",
         workspaceBlock ? `\n${workspaceBlock}` : "",
       ].join("\n");
+
+      // Routage coût : une question GÉNÉRALE (sans ancrage workspace ni sources)
+      // ne risque pas l'invention → Haiku suffit et coûte ~3× moins. Dès qu'une
+      // réponse cite les données de l'entreprise ou des sources fournies, on
+      // GARDE Sonnet (décision « copilote anti-invention », compréhension avant
+      // vitesse : on ne bride que là où la qualité n'est pas en jeu).
+      const grounded = !!workspaceBlock || !!sourcesBlock;
+      const answerModel = grounded ? ANSWER_MODEL : TIER_SIMPLE;
 
       // ── STREAMING (SSE) : le premier mot arrive en < 1 s au lieu d'attendre
       // la réponse complète + la facturation. Métrologie et journal d'activité
@@ -1442,7 +1524,7 @@ TES OUTILS (ne te dévalorise JAMAIS) :
           let full = "";
           try {
             const llm = client.messages.stream({
-              model: ANSWER_MODEL,
+              model: answerModel,
               max_tokens: 800,
               system: answerSystem,
               messages: [{ role: "user", content: prompt }],
@@ -1469,7 +1551,7 @@ TES OUTILS (ne te dévalorise JAMAIS) :
                   userId: user.id,
                   tenantId,
                   action: "ask",
-                  model: ANSWER_MODEL,
+                  model: answerModel,
                   inputTokens: message.usage.input_tokens,
                   outputTokens: message.usage.output_tokens,
                   agent: route.agent,

@@ -15,6 +15,7 @@ import { createClient } from "@/lib/supabase-server";
 import { ENTITIES, ALLOWED_ENTITIES } from "@/lib/data-entities";
 import { coerceStoredScope, scopeReadFilter, type StoredScope } from "@/lib/data-scope";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
+import { memberChantierScope, isPerimeterEntity } from "@/lib/employee-perimeter";
 import { can } from "@/lib/permissions";
 import { getEntitlementsForTenant, FROZEN_MESSAGE } from "@/lib/entitlements";
 import { logActivity } from "@/lib/activity";
@@ -58,7 +59,7 @@ function captureLearningSignal(
 
 // Actions qui MODIFIENT les données : refusées si l'abonnement est gelé (lecture
 // seule). `list`/`get` restent toujours ouverts (consultation + export garantis).
-const WRITE_ACTIONS = new Set(["create", "bulk_create", "update", "delete", "bulk_delete"]);
+const WRITE_ACTIONS = new Set(["create", "bulk_create", "update", "delete", "bulk_delete", "invoice_from_devis"]);
 const DELETE_ACTIONS = new Set(["delete", "bulk_delete"]);
 
 function sameOrigin(req: Request): boolean {
@@ -209,6 +210,10 @@ export async function POST(req: Request) {
     // portée stockée), soit une portée inline (aperçu du générateur, avant save).
     moduleId?: string;
     dataScope?: unknown;
+    // Facturation depuis un devis accepté (action invoice_from_devis).
+    devisId?: string;
+    mode?: string;
+    pct?: number;
   };
   try {
     body = await req.json();
@@ -290,6 +295,20 @@ export async function POST(req: Request) {
 
   const def = ENTITIES[entity];
 
+  // ── PÉRIMÈTRE EMPLOYÉ ── un compte de rôle « member » relié à une fiche employé
+  // ne voit, en LECTURE, que SES chantiers (chef / intervention / tâche) et leurs
+  // enfants. Non relié → null → aucune restriction (l'existant ne casse pas). Les
+  // autres rôles ne sont jamais restreints.
+  let allowedChantierIds: string[] | null = null;
+  if (
+    (action === "list" || action === "get") &&
+    membership.role === "member" &&
+    isPerimeterEntity(entity)
+  ) {
+    allowedChantierIds = await memberChantierScope(from, tenantId, user.id);
+  }
+  const perimeterCol = entity === "chantiers" ? "id" : "chantier_id";
+
   // Nom lisible d'une ligne pour le journal d'activité.
   const rowName = (v: Record<string, unknown>): string => {
     const n = v.nom ?? v.designation ?? v.type ?? "";
@@ -310,6 +329,9 @@ export async function POST(req: Request) {
       let q = from(def.table)
         .select(typeof body.columns === "string" ? body.columns : "*")
         .eq("tenant_id", tenantId);
+      // Périmètre employé : borne aux chantiers autorisés (racine par id, enfants
+      // par chantier_id). null = pas de restriction ; [] = aucun chantier visible.
+      if (allowedChantierIds !== null) q = q.in(perimeterCol, allowedChantierIds);
       if (body.match && typeof body.match === "object") q = q.match(body.match);
       // Portée des données : « vierge / import » = créés depuis le démarrage de
       // l'app ; « choisir » = uniquement les ids sélectionnés pour cette entité.
@@ -326,6 +348,18 @@ export async function POST(req: Request) {
 
     if (action === "get") {
       if (!body.id) return NextResponse.json({ error: "id manquant." }, { status: 400 });
+      // Hors périmètre → comportement inchangé (.single()). Sous périmètre employé,
+      // on borne et on renvoie null si l'enregistrement n'est pas dans sa portée.
+      if (allowedChantierIds !== null) {
+        const { data, error } = await from(def.table)
+          .select("*")
+          .eq("tenant_id", tenantId)
+          .eq("id", body.id)
+          .in(perimeterCol, allowedChantierIds)
+          .maybeSingle();
+        if (error) throw error;
+        return NextResponse.json({ data: data ?? null });
+      }
       const { data, error } = await from(def.table)
         .select("*")
         .eq("tenant_id", tenantId)
@@ -333,6 +367,93 @@ export async function POST(req: Request) {
         .single();
       if (error) throw error;
       return NextResponse.json({ data });
+    }
+
+    // ── RENTABILITÉ RÉELLE PAR CHANTIER ── LA vue transversale du moteur : croise
+    // factures + pointages + employés + matériaux pour donner la VRAIE marge
+    // (facturé − heures pointées × taux horaire − achats matériaux), là où l'UI ne
+    // montrait qu'un « budget engagé » tapé à la main. Agrégat en LECTURE (jamais
+    // de crédit, jamais gelé), tenant-scopé, périmètre employé respecté. Trié du
+    // moins rentable au plus rentable (« quel chantier me rapporte le moins ? »).
+    // Réutilisable par l'app finance, le copilote et les agents.
+    if (action === "chantier_rentabilite" && entity === "chantiers") {
+      let scopeIds: string[] | null = null;
+      if (membership.role === "member") {
+        scopeIds = await memberChantierScope(from, tenantId, user.id);
+      }
+      let chQ = from("chantiers").select("id, nom, statut, budget").eq("tenant_id", tenantId);
+      if (scopeIds !== null) chQ = chQ.in("id", scopeIds);
+      if (body.match && typeof body.match === "object") chQ = chQ.match(body.match);
+      chQ = chQ.limit(500);
+      const { data: chs, error: chErr } = await chQ;
+      if (chErr) throw chErr;
+      const chantiers = (chs ?? []) as { id: string; nom: string | null; statut: string | null; budget: number | null }[];
+      if (chantiers.length === 0) return NextResponse.json({ data: [] });
+      const chIds = chantiers.map((c) => c.id);
+
+      const [factRes, ptRes, matRes, empRes] = await Promise.all([
+        from("factures").select("chantier_id, type, montant_ht, montant_paye").eq("tenant_id", tenantId).in("chantier_id", chIds),
+        from("pointages").select("chantier_id, employee_id, heures, type").eq("tenant_id", tenantId).in("chantier_id", chIds),
+        from("materials").select("chantier_id, prix_achat_ht, quantite").eq("tenant_id", tenantId).in("chantier_id", chIds),
+        from("employees").select("id, taux_horaire").eq("tenant_id", tenantId),
+      ]);
+
+      const tauxById = new Map<string, number>();
+      for (const e of (empRes.data ?? []) as { id: string; taux_horaire: number | null }[]) {
+        tauxById.set(String(e.id), Number(e.taux_horaire) || 0);
+      }
+
+      type Agg = { facture: number; encaisse: number; coutMo: number; coutMat: number };
+      const agg = new Map<string, Agg>();
+      const getA = (id: string): Agg => {
+        let a = agg.get(id);
+        if (!a) { a = { facture: 0, encaisse: 0, coutMo: 0, coutMat: 0 }; agg.set(id, a); }
+        return a;
+      };
+
+      for (const f of (factRes.data ?? []) as { chantier_id: string | null; type: string | null; montant_ht: number | null; montant_paye: number | null }[]) {
+        if (!f.chantier_id) continue;
+        const a = getA(String(f.chantier_id));
+        const ht = Number(f.montant_ht) || 0;
+        a.facture += f.type === "avoir" ? -ht : ht;
+        a.encaisse += Number(f.montant_paye) || 0;
+      }
+      for (const p of (ptRes.data ?? []) as { chantier_id: string | null; employee_id: string | null; heures: number | null; type: string | null }[]) {
+        if (!p.chantier_id || p.type === "absence") continue; // une absence n'est pas un coût de chantier
+        const a = getA(String(p.chantier_id));
+        a.coutMo += (Number(p.heures) || 0) * (p.employee_id ? tauxById.get(String(p.employee_id)) || 0 : 0);
+      }
+      for (const m of (matRes.data ?? []) as { chantier_id: string | null; prix_achat_ht: number | null; quantite: number | null }[]) {
+        if (!m.chantier_id) continue;
+        const a = getA(String(m.chantier_id));
+        a.coutMat += (Number(m.prix_achat_ht) || 0) * (Number(m.quantite) || 1);
+      }
+
+      const round2 = (n: number) => Math.round(n * 100) / 100;
+      const out = chantiers
+        .map((c) => {
+          const a = agg.get(c.id) ?? { facture: 0, encaisse: 0, coutMo: 0, coutMat: 0 };
+          const facture = round2(a.facture);
+          const coutTotal = round2(a.coutMo + a.coutMat);
+          const marge = round2(facture - coutTotal);
+          return {
+            id: c.id,
+            nom: c.nom,
+            statut: c.statut,
+            budget: Number(c.budget) || 0,
+            facture,
+            encaisse: round2(a.encaisse),
+            reste_a_encaisser: round2(facture - a.encaisse),
+            cout_mo: round2(a.coutMo),
+            cout_materiaux: round2(a.coutMat),
+            cout_total: coutTotal,
+            marge,
+            marge_pct: facture > 0 ? Math.round((marge / facture) * 100) : null,
+          };
+        })
+        .sort((x, y) => x.marge - y.marge);
+
+      return NextResponse.json({ data: out });
     }
 
     if (action === "create") {
@@ -403,6 +524,134 @@ export async function POST(req: Request) {
       if (error) throw error;
       await log("delete", `${def.label} — suppression de ${ids.length} élément(s)`);
       return NextResponse.json({ ok: true, deleted: ids.length });
+    }
+
+    // ── FACTURER UN DEVIS ── crée une facture À PARTIR d'un devis accepté, SANS
+    // re-saisie : reprend client, chantier et montants, génère un numéro légal
+    // (F-AAAA-NNN, unique par entreprise) côté serveur et relie devis_id. C'est le
+    // maillon devis→facture ; réutilisable par l'app, le copilote et les agents.
+    //   mode = "acompte" (pct %, défaut 30) · "situation" (pct %) · "solde" (reste
+    //   à facturer = total du devis − déjà facturé). Appelé avec entity="factures".
+    if (action === "invoice_from_devis") {
+      const devisId =
+        typeof body.devisId === "string" && body.devisId
+          ? body.devisId
+          : typeof body.id === "string"
+            ? body.id
+            : "";
+      if (!devisId) return NextResponse.json({ error: "Devis manquant." }, { status: 400 });
+
+      const { data: dv, error: dErr } = await from("devis")
+        .select("id, numero, client_id, chantier_id, montant_ht, montant_tva, montant_ttc, statut")
+        .eq("tenant_id", tenantId)
+        .eq("id", devisId)
+        .single();
+      if (dErr || !dv) return NextResponse.json({ error: "Devis introuvable." }, { status: 404 });
+
+      const round2 = (n: number) => Math.round(n * 100) / 100;
+      const totalHt = Number(dv.montant_ht) || 0;
+      const totalTva = Number(dv.montant_tva) || 0;
+      if (totalHt <= 0) {
+        return NextResponse.json({ error: "Ce devis n'a pas de montant à facturer." }, { status: 400 });
+      }
+
+      // Déjà facturé pour ce devis (les avoirs se déduisent) → base du solde.
+      const { data: prev } = await from("factures")
+        .select("montant_ht, type")
+        .eq("tenant_id", tenantId)
+        .eq("devis_id", devisId);
+      let invoicedHt = 0;
+      for (const p of (prev ?? []) as { montant_ht: number | null; type: string | null }[]) {
+        const v = Number(p.montant_ht) || 0;
+        invoicedHt += p.type === "avoir" ? -v : v;
+      }
+
+      const mode = body.mode === "acompte" || body.mode === "situation" ? body.mode : "solde";
+      let ht: number;
+      let factType: string;
+      if (mode === "acompte") {
+        factType = "acompte";
+        const pct = Math.min(100, Math.max(1, Number(body.pct) || 30));
+        ht = round2(totalHt * (pct / 100));
+      } else if (mode === "situation") {
+        factType = "situation";
+        const pct = Math.min(100, Math.max(1, Number(body.pct) || 0));
+        ht = round2(totalHt * (pct / 100));
+      } else {
+        factType = "facture";
+        ht = round2(totalHt - invoicedHt); // solde = total − déjà facturé
+      }
+      if (!(ht > 0)) {
+        return NextResponse.json(
+          { error: "Rien à facturer : le devis est déjà entièrement facturé." },
+          { status: 400 }
+        );
+      }
+
+      // TVA proportionnelle au HT du devis (conserve le taux moyen, multi-taux inclus).
+      const tvaRate = totalHt > 0 ? totalTva / totalHt : 0.2;
+      const tva = round2(ht * tvaRate);
+      const ttc = round2(ht + tva);
+
+      // Prochain numéro F-AAAA-NNN pour l'entreprise (base = max de l'année).
+      const year = new Date().getFullYear();
+      const pre = `F-${year}-`;
+      const { data: existing } = await from("factures")
+        .select("numero")
+        .eq("tenant_id", tenantId)
+        .ilike("numero", `${pre}%`);
+      let seq = 0;
+      for (const r of (existing ?? []) as { numero: string | null }[]) {
+        const n = String(r.numero || "");
+        if (!n.startsWith(pre)) continue;
+        const val = parseInt(n.slice(pre.length), 10);
+        if (Number.isFinite(val) && val > seq) seq = val;
+      }
+
+      const today = new Date();
+      const dateFacture = today.toISOString().slice(0, 10);
+      const dateEcheance = new Date(today.getTime() + 30 * 86_400_000).toISOString().slice(0, 10);
+
+      // Insertion anti-collision : l'index unique (tenant_id, numero) est la
+      // garantie légale. Sous course, on retente au rang suivant plutôt qu'échouer.
+      let facture: Record<string, unknown> | null = null;
+      let insErr: unknown = null;
+      for (let attempt = 1; attempt <= 6; attempt++) {
+        const numero = `${pre}${String(seq + attempt).padStart(3, "0")}`;
+        const { data: ins, error } = await from("factures")
+          .insert({
+            tenant_id: tenantId,
+            numero,
+            client_id: dv.client_id ?? null,
+            chantier_id: dv.chantier_id ?? null,
+            devis_id: devisId,
+            type: factType,
+            statut: "brouillon",
+            date_facture: dateFacture,
+            date_echeance: dateEcheance,
+            montant_ht: ht,
+            montant_tva: tva,
+            montant_ttc: ttc,
+            montant_paye: 0,
+          })
+          .select()
+          .single();
+        if (!error) {
+          facture = ins as Record<string, unknown>;
+          break;
+        }
+        insErr = error;
+        if ((error as { code?: string }).code !== "23505") break; // pas un conflit d'unicité → stop
+      }
+      if (!facture) throw insErr || new Error("Création de la facture impossible.");
+
+      const kindLabel = factType === "acompte" ? "acompte" : factType === "situation" ? "situation" : "facture";
+      await log(
+        "create",
+        `${def.label} ${facture.numero} — ${kindLabel} depuis le devis ${dv.numero ?? ""}`.trim(),
+        (facture.id as string) ?? null
+      );
+      return NextResponse.json({ data: facture });
     }
 
     return NextResponse.json({ error: `Action inconnue : ${action}` }, { status: 400 });

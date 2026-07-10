@@ -191,10 +191,13 @@ export default function SettingsPage() {
     role: string;
     accepted: boolean;
     isYou: boolean;
+    employeeId?: string | null;
   };
   const [team, setTeam] = useState<TeamMember[]>([]);
   const [teamLoading, setTeamLoading] = useState(false);
   const [canManageTeam, setCanManageTeam] = useState(false);
+  const [employeeOptions, setEmployeeOptions] = useState<{ id: string; nom: string; prenom: string | null }[]>([]);
+  const [linkingUser, setLinkingUser] = useState<string | null>(null);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("member");
   const [inviting, setInviting] = useState(false);
@@ -284,6 +287,7 @@ export default function SettingsPage() {
         if (Array.isArray(data.members)) {
           setTeam(data.members);
           setCanManageTeam(!!data.canManage);
+          if (Array.isArray(data.employees)) setEmployeeOptions(data.employees);
         }
       })
       .catch(() => {})
@@ -315,6 +319,24 @@ export default function SettingsPage() {
       setError(err instanceof Error ? err.message : "Invitation impossible.");
     }
     setInviting(false);
+  }
+
+  // Relie (ou délie) un compte à une fiche employé → active « ses chantiers ».
+  async function linkEmployee(memberUserId: string, employeeId: string) {
+    setLinkingUser(memberUserId);
+    try {
+      const res = await fetch("/api/team", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memberUserId, employeeId: employeeId || null }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Liaison impossible.");
+      setTeam((t) => t.map((m) => (m.user_id === memberUserId ? { ...m, employeeId: employeeId || null } : m)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Liaison impossible.");
+    }
+    setLinkingUser(null);
   }
 
   async function removeMember(memberId: string) {
@@ -928,6 +950,27 @@ export default function SettingsPage() {
                             {m.isYou && <span className="text-[#9A9A97]"> · vous</span>}
                           </p>
                           <p className="text-[12px] text-[#9A9A97] truncate">{m.email}</p>
+                          {/* Périmètre : relier l'employé à sa fiche → il ne voit que SES chantiers */}
+                          {canManageTeam && m.role === "member" && employeeOptions.length > 0 && (
+                            <div className="mt-1.5 flex items-center gap-1.5">
+                              <span className="text-[11px] text-[#9A9A97] flex-shrink-0">Fiche :</span>
+                              <select
+                                value={m.employeeId ?? ""}
+                                onChange={(e) => linkEmployee(m.user_id, e.target.value)}
+                                disabled={linkingUser === m.user_id}
+                                className="text-[12px] bg-white border border-[#EDEDF2] rounded-md px-1.5 py-0.5 text-[#0A0A0A] max-w-[220px] disabled:opacity-50"
+                                title="Relier ce compte à une fiche employé pour limiter sa vue à ses chantiers"
+                              >
+                                <option value="">— non reliée (voit tout) —</option>
+                                {employeeOptions.map((e) => (
+                                  <option key={e.id} value={e.id}>
+                                    {[e.prenom, e.nom].filter(Boolean).join(" ") || "Employé"}
+                                  </option>
+                                ))}
+                              </select>
+                              {linkingUser === m.user_id && <Loader2 className="w-3 h-3 animate-spin text-[#9A9A97] flex-shrink-0" />}
+                            </div>
+                          )}
                         </div>
                         <span className="flex-shrink-0 text-[11px] font-semibold text-violet-700 bg-violet-50 border border-violet-200 px-2.5 py-1 rounded-full">
                           {roleLabel[m.role] ?? m.role}

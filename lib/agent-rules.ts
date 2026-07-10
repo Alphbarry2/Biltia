@@ -278,7 +278,7 @@ const PARSE_TOOL: Anthropic.Tool = {
       },
       event_watcher: {
         type: "string",
-        enum: ["chantier_en_retard", "chantier_hors_budget", "chantier_sans_activite", "chantier_sans_devis", "demande_urgente", "devis_non_signe", "facture_impayee", "echeance_proche", "visite_terminee", ""],
+        enum: ["chantier_en_retard", "chantier_hors_budget", "chantier_sans_activite", "chantier_sans_devis", "demande_urgente", "devis_non_signe", "facture_impayee", "echeance_proche", "visite_terminee", "stock_bas", ""],
         description:
           "OBLIGATOIRE si trigger_type=event : le veilleur qui colle. chantier_en_retard = chantiers qui dépassent leur DATE de fin prévue. chantier_hors_budget = chantiers dont le BUDGET/coût engagé dépasse le budget prévu (marge, rentabilité, « dépasse son budget »). chantier_sans_activite = chantiers en cours qui N'AVANCENT PLUS / stagnent / pas bougé depuis X jours. chantier_sans_devis = chantiers démarrés SANS devis signé (accepté). demande_urgente = demandes/interventions clients URGENTES restées sans réponse (SAV, dépannage urgent, « alerte-moi si une demande urgente traîne » — l'IA lit la description pour juger l'urgence). devis_non_signe = devis envoyés sans réponse. facture_impayee = factures échues non payées / impayés / relances de paiement. echeance_proche = documents, attestations, assurances, contrats d'entretien ou entretiens qui arrivent à échéance / expirent. visite_terminee = une intervention/visite chantier vient d'être TERMINÉE (« génère un compte-rendu après chaque visite »). Vide si trigger_type=schedule.",
       },
@@ -314,6 +314,7 @@ DÉCLENCHEUR — HEURE FIXE ou ÉVÉNEMENT ? (décisif)
   • « relance les devis non signés », « suis les devis restés sans réponse », « occupe-toi des devis en attente » → devis_non_signe (event_days = délai d'attente avant relance si précisé, sinon 0).
   • « relance mes impayés », « occupe-toi des factures impayées », « quand une facture n'est pas payée à l'échéance » → facture_impayee.
   • « préviens-moi quand un document / une attestation / une assurance / un contrat va expirer », « alerte-moi avant une échéance d'entretien » → echeance_proche (event_days = combien de jours avant si précisé, sinon 0).
+  • « préviens-moi quand un matériau passe sous son seuil », « alerte-moi quand je suis bientôt en rupture », « surveille mon stock », « dis-moi quand je manque de placo / d'un matériau » → stock_bas.
   • « génère un compte-rendu après chaque visite chantier », « quand une intervention est terminée, fais le compte-rendu », « je veux mes comptes-rendus automatiquement après les visites » → visite_terminee (Biltia rédige le compte-rendu de CHAQUE intervention terminée et le range dans la bibliothèque). C'est un event, PAS un planning.
   Pour un event, time/days sont ignorés (mets time="09:00", days=[]).
 - action_type pour un event : « préviens-moi / alerte-moi / je veux savoir » → notify. « relance / relance les clients / envoie-leur » → send_email (Biltia écrira au client concerné de chaque fiche). Pour visite_terminee, laisse action_type=notify (Biltia sait qu'il doit générer le compte-rendu). content_missing reste false pour un event (le contenu se déduit de la fiche déclenchante).
@@ -663,9 +664,11 @@ export async function createAgentRule(opts: {
 
   // ── QUOTA FREE : 1 agent actif. Le mur des crédits fait le reste sur Pro. ──
   let isFreePlan = false;
+  let collaboration = false;
   try {
     const ent = await getEntitlementsForTenant(supabase, tenantId);
     isFreePlan = ent.plan === "free";
+    collaboration = ent.collaboration;
     if (isFreePlan) {
       const { count } = await supabase
         .from("agent_rules")
@@ -725,6 +728,20 @@ export async function createAgentRule(opts: {
         usage: parsed.usage,
       };
     }
+  }
+
+  // ── PLAN ÉQUIPE : le planning envoyé aux ÉQUIPES suppose des collaborateurs dans
+  //    Biltia → réservé au plan Équipe (collaboration). Les autres actions d'agent
+  //    (relance email, compte-rendu, rapport) restent au plan Pro solo. ───────────
+  if (parsed.actionType === "team_planning" && !collaboration && !isFounderEmail(userEmail)) {
+    return {
+      ok: false,
+      ruleId: null,
+      blocked: false,
+      message:
+        "Envoyer le **planning à votre équipe** fait partie du plan **Équipe**. Ajoutez la collaboration (+50 €/mois) dans **Paramètres → Facturation** pour activer les agents qui travaillent avec votre équipe.",
+      usage: parsed.usage,
+    };
   }
 
   // ── DÉCLENCHEUR ÉVÉNEMENTIEL : « dès qu'une fiche remplit la condition » ─────

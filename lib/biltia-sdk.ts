@@ -20,7 +20,7 @@
  *
  *  v3 : appels via postMessage → parent (localhost:3000) plutôt que fetch direct
  *  depuis l'iframe srcdoc (origin: null → CORS bloqué). */
-const SDK_MARKER = "__biltia_sdk_v9__";
+const SDK_MARKER = "__biltia_sdk_v11__";
 
 export const BILTIA_SDK_SCRIPT = `<script>
 /* ${SDK_MARKER} */
@@ -167,6 +167,29 @@ export const BILTIA_SDK_SCRIPT = `<script>
         to: to,
         body: String(opts.body || opts.message || opts.text || opts.corps || '') })
         .then(function(r){ return r || {}; });
+    },
+    /* DEVIS -> FACTURE : cree une facture A PARTIR d'un devis accepte, sans
+       re-saisie (client, chantier et montants repris ; numero legal genere cote
+       serveur ; devis_id relie). opts.mode : 'solde' (reste a facturer, defaut)
+       | 'acompte' (opts.pct %, defaut 30) | 'situation' (opts.pct %). Resout la
+       facture creee, ou rejette (toast) si le devis est deja entierement facture. */
+    invoiceFromDevis: function(devisId, opts){
+      opts = opts || {};
+      return call({ entity: 'factures', action: 'invoice_from_devis',
+        devisId: String(devisId || ''),
+        mode: opts.mode || 'solde',
+        pct: opts.pct != null ? opts.pct : null })
+        .then(function(r){ return (r && r.data) || null; });
+    },
+    /* PILOTAGE : rentabilite REELLE par chantier (facture - heures pointees x taux
+       horaire - achats materiaux). Agregat serveur cross-entites. Resout un tableau
+       [{ id, nom, statut, budget, facture, encaisse, reste_a_encaisser, cout_mo,
+       cout_materiaux, cout_total, marge, marge_pct }] trie du moins au plus
+       rentable. opts.match filtre les chantiers (ex : { statut:'en_cours' }). */
+    chantierRentabilite: function(opts){
+      opts = opts || {};
+      return call({ entity: 'chantiers', action: 'chantier_rentabilite', match: opts.match || null })
+        .then(function(r){ return (r && r.data) || []; });
     }
   };
 })();
@@ -199,6 +222,12 @@ export function injectBiltiaSDK(html: string): string {
   }
   if (html.includes("__biltia_sdk_v8__")) {
     return html.replace(/<script>\s*\/\* __biltia_sdk_v8__ \*\/[\s\S]*?<\/script>/, BILTIA_SDK_SCRIPT);
+  }
+  if (html.includes("__biltia_sdk_v9__")) {
+    return html.replace(/<script>\s*\/\* __biltia_sdk_v9__ \*\/[\s\S]*?<\/script>/, BILTIA_SDK_SCRIPT);
+  }
+  if (html.includes("__biltia_sdk_v10__")) {
+    return html.replace(/<script>\s*\/\* __biltia_sdk_v10__ \*\/[\s\S]*?<\/script>/, BILTIA_SDK_SCRIPT);
   }
   if (/<head[^>]*>/i.test(html)) {
     return html.replace(/<head[^>]*>/i, (m) => m + "\n" + BILTIA_SDK_SCRIPT);
