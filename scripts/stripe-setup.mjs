@@ -121,6 +121,58 @@ for (const [credits, monthlyEur] of TIERS) {
   }
 }
 
+// ── Plan Équipe (Pro + collaboration) ─────────────────────────────────────────
+// Miroir EXACT de EQUIPE_TIERS (lib/plans.ts). Produits + prix DISTINCTS (lookup
+// biltia_equipe_*), reconnus au webhook comme plan="equipe" (→ collaboration).
+const EQUIPE_TIERS = [
+  [5000, 179],
+  [10000, 449],
+  [25000, 999],
+];
+const lkEquipe = (credits, cycle) => `biltia_equipe_${credits}_${cycle}`;
+async function findOrCreateEquipeProduct(credits) {
+  for (const cycle of ["monthly", "annual"]) {
+    const found = await stripe.prices.list({ lookup_keys: [lkEquipe(credits, cycle)], limit: 1 });
+    if (found.data[0]) {
+      return typeof found.data[0].product === "string" ? found.data[0].product : found.data[0].product.id;
+    }
+  }
+  const product = await stripe.products.create({
+    name: `Biltia Équipe — ${credits.toLocaleString("fr-FR")} crédits / mois`,
+    metadata: { biltia_plan: "equipe", biltia_credits: String(credits) },
+  });
+  return product.id;
+}
+async function ensureEquipePrice(credits, monthlyEur, cycle) {
+  const lookupKey = lkEquipe(credits, cycle);
+  const unitAmount = cycle === "monthly" ? monthlyEur * 100 : monthlyEur * ANNUAL_MONTHS_BILLED * 100;
+  const existing = await stripe.prices.list({ lookup_keys: [lookupKey], limit: 1 });
+  const prev = existing.data[0];
+  if (prev && prev.unit_amount === unitAmount) return { id: prev.id, reused: true };
+  const productId = await findOrCreateEquipeProduct(credits);
+  const price = await stripe.prices.create({
+    product: productId,
+    currency: "eur",
+    unit_amount: unitAmount,
+    recurring: { interval: cycle === "monthly" ? "month" : "year" },
+    lookup_key: lookupKey,
+    transfer_lookup_key: Boolean(prev),
+    nickname: `Équipe ${credits} crédits (${cycle === "monthly" ? "mensuel" : "annuel"})`,
+    metadata: { biltia_plan: "equipe", biltia_credits: String(credits), biltia_cycle: cycle },
+  });
+  return { id: price.id, reused: false, retariffed: Boolean(prev) };
+}
+console.log(`\nPlan Équipe (${EQUIPE_TIERS.length} paliers × 2 cycles)…\n`);
+for (const [credits, monthlyEur] of EQUIPE_TIERS) {
+  for (const cycle of ["monthly", "annual"]) {
+    const { id, reused, retariffed } = await ensureEquipePrice(credits, monthlyEur, cycle);
+    const envName = `STRIPE_PRICE_EQUIPE_${credits}${cycle === "annual" ? "_ANNUAL" : ""}`;
+    envLines.push(`${envName}=${id}`);
+    const status = reused ? "(déjà présent)" : retariffed ? "✓ recréé (nouveau tarif)" : "✓ créé";
+    console.log(`  ${String(credits).padStart(6)} ${cycle.padEnd(7)} ${id} ${status}`);
+  }
+}
+
 // ── Packs de crédits (one-time) ───────────────────────────────────────────────
 // Miroir EXACT de CREDIT_PACKS (lib/plans.ts). Prix « payment » (pas d'abonnement).
 const PACKS = [

@@ -114,19 +114,16 @@ function PaidCard({ name, includedLine, features, tiers, checkoutPlan, cycle, ba
           <li key={f} className="flex items-start gap-2.5 text-[13px]"><Check className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-[#7C3AED]" strokeWidth={2.5} /><span className="text-[#4A4A56]">{f}</span></li>
         ))}
       </ul>
-      {/* Seul le plan Pro est self-serve (Stripe câblé). L'offre Équipe se souscrit
-          au contact tant que l'add-on collaboration n'a pas sa source de droit
-          Stripe : on ne renvoie JAMAIS vers /signup?plan=equipe (silencieusement
-          ramené à Free) — on ouvre un contact honnête. */}
+      {/* Pro ET Équipe sont self-serve (Stripe câblé : STRIPE_PRICE_PRO_* et
+          STRIPE_PRICE_EQUIPE_*). Le signup/onboarding fait voyager le plan choisi
+          jusqu'au checkout. L'offre Entreprise (sur devis) est une carte à part. */}
       <a
-        href={checkoutPlan === "pro"
-          ? `/signup?plan=${checkoutPlan}&credits=${credits}&cycle=${cycle}`
-          : `mailto:contact@biltia.com?subject=${encodeURIComponent(`Souscription ${name} — ${credits.toLocaleString("fr-FR")} crédits`)}`}
+        href={`/signup?plan=${checkoutPlan}&credits=${credits}&cycle=${cycle}`}
         className={`mt-auto flex items-center justify-center gap-2 py-3 rounded-full text-[14px] font-semibold transition-all ${recommended
           ? "bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 text-white shadow-[0_8px_24px_rgba(139,92,246,0.4)] hover:shadow-[0_10px_30px_rgba(139,92,246,0.55)]"
           : "border border-[#E7E2D7] text-[#0A0A0A] hover:bg-[#F6F6F9]"}`}
       >
-        {checkoutPlan === "pro" ? `Choisir ${name}` : "Nous contacter"} <ArrowRight className="w-3.5 h-3.5" />
+        Choisir {name} <ArrowRight className="w-3.5 h-3.5" />
       </a>
     </>
   );

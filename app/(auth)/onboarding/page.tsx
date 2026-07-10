@@ -153,26 +153,30 @@ export default function OnboardingPage() {
     try {
       // Plan payant : d'abord la query URL (lien de confirmation → survit à un
       // AUTRE appareil), sinon localStorage (même navigateur). L'URL fait foi.
+      let plan = "";
       let credits = 0;
       let cycle = "monthly";
       const sp = new URLSearchParams(window.location.search);
-      if (sp.get("plan") === "pro" && Number(sp.get("credits")) > 0) {
+      const urlPlan = sp.get("plan");
+      if ((urlPlan === "pro" || urlPlan === "equipe") && Number(sp.get("credits")) > 0) {
+        plan = urlPlan;
         credits = Number(sp.get("credits"));
         cycle = sp.get("cycle") === "annual" ? "annual" : "monthly";
       } else {
         const pending = localStorage.getItem("biltia_pending_plan");
         if (pending) {
-          const p = JSON.parse(pending) as { credits: number; cycle: string };
+          const p = JSON.parse(pending) as { plan?: string; credits: number; cycle: string };
+          plan = p.plan === "equipe" ? "equipe" : "pro"; // rétro-compat : ancien pending sans plan = pro
           credits = p.credits;
           cycle = p.cycle;
         }
       }
-      if (credits > 0) {
+      if (plan && credits > 0) {
         localStorage.removeItem("biltia_pending_plan");
         const res = await fetch("/api/billing/checkout", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ plan: "pro", credits, cycle }),
+          body: JSON.stringify({ plan, credits, cycle }),
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok && data?.url) {

@@ -9,7 +9,7 @@
 // Tarifs validés le 2026-07-02.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type PlanId = "free" | "pro";
+export type PlanId = "free" | "pro" | "equipe";
 
 /** Un palier de crédits mensuels pour un plan payant. */
 export interface CreditTier {
@@ -95,6 +95,16 @@ const PRO_TIERS: CreditTier[] = [
   { credits: 2000, priceEur: 49 }, //  0,0245 €/cr — entrée généreuse (~85 %)
   { credits: 3000, priceEur: 89 }, //  0,0297 €/cr — leurre → pousse vers 5000 (~88 %)
   { credits: 5000, priceEur: 129 }, // 0,0258 €/cr — RECOMMANDÉ (~86 %)
+];
+
+// Paliers ÉQUIPE (Pro + collaboration). Grille FINALE user 2026-07-10. 5000 = Pro
+// 5000 (129) + 50 € d'add-on collaboration = 179 ; 10000/25000 propres à Équipe.
+// Source unique partagée par PLANS.equipe (facturation) ET EQUIPE (page tarifs).
+// ⚠️ Chaque palier a son Price Stripe (STRIPE_PRICE_EQUIPE_<crédits>[_ANNUAL]).
+const EQUIPE_TIERS: CreditTier[] = [
+  { credits: 5000, priceEur: 179 },
+  { credits: 10000, priceEur: 449 },
+  { credits: 25000, priceEur: 999 },
 ];
 
 // Anciens paliers RETIRÉS de la vente, conservés UNIQUEMENT pour reconnaître au
@@ -184,10 +194,44 @@ export const PLANS: Record<PlanId, Plan> = {
       agentActions: true,
     },
   },
+
+  // ÉQUIPE = Pro + collaboration (invitation, portail client/sous-traitant, agents
+  // collaboratifs). Mêmes limites produit que Pro ; le déblocage collaboration se
+  // fait via l'entitlement (subscriptions.plan="equipe" → collaboration=true).
+  equipe: {
+    id: "equipe",
+    name: "Équipe",
+    tagline: "Pour faire travailler vos salariés, clients et sous-traitants dans Biltia.",
+    audience: "Artisans avec salariés, PME",
+    tiers: EQUIPE_TIERS,
+    defaultCredits: 5000,
+    features: [
+      "Tout le plan Pro, pour toute l'équipe",
+      "Invitez vos collaborateurs : rôles et permissions",
+      "Comptes employés : chacun ne voit que ses chantiers",
+      "Portail client et sous-traitant, partage sécurisé",
+      "Agents qui assignent, relancent et rendent compte",
+      "Support prioritaire",
+    ],
+    limits: {
+      maxApps: UNLIMITED,
+      maxUsers: UNLIMITED,
+      liveDeploy: true,
+      voice: true,
+      offlineFirst: true,
+      sharedWorkspace: true,
+      whiteLabel: false,
+      customUrl: false,
+      multiNiche: false,
+      accountingConnectors: true,
+      autoMessaging: true,
+      agentActions: true,
+    },
+  },
 };
 
 export const PLAN_LIST: Plan[] = [PLANS.free, PLANS.pro];
-export const PAID_PLAN_IDS: PlanId[] = ["pro"];
+export const PAID_PLAN_IDS: PlanId[] = ["pro", "equipe"];
 
 // ── Plan Entreprise (sur devis, non facturé en self-service) ──────────────────
 // Pas un PlanId : pas de Stripe Price, pas de paliers. Purement présentation +
@@ -224,12 +268,9 @@ export const EQUIPE = {
   name: "Équipe",
   tagline: "Pour faire travailler vos salariés, clients et sous-traitants dans Biltia.",
   audience: "Artisans avec salariés, PME",
-  /** 5 000 = Pro 5 000 (129 €) + 50 €. 10 000/25 000 sont propres à Équipe. */
-  tiers: [
-    { credits: 5000, priceEur: 179 },
-    { credits: 10000, priceEur: 449 },
-    { credits: 25000, priceEur: 999 },
-  ] as CreditTier[],
+  /** 5 000 = Pro 5 000 (129 €) + 50 €. 10 000/25 000 sont propres à Équipe.
+   *  Source partagée avec PLANS.equipe.tiers (pas de divergence de prix). */
+  tiers: EQUIPE_TIERS,
   features: [
     "Tout le plan Pro, pour toute l'équipe",
     "Invitez vos collaborateurs : rôles et permissions",
@@ -304,8 +345,8 @@ export function getPlan(id: PlanId): Plan {
   return PLANS[id];
 }
 
-export function isPaidPlan(id: PlanId): id is "pro" {
-  return id === "pro";
+export function isPaidPlan(id: PlanId): id is "pro" | "equipe" {
+  return id !== "free";
 }
 
 /** Retourne le palier {credits, priceEur} d'un plan payant, ou undefined. */

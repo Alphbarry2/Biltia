@@ -28,11 +28,12 @@ export default function SignupPage() {
   useEffect(() => {
     try {
       const p = new URLSearchParams(window.location.search);
-      if (p.get("plan") === "pro") {
+      const plan = p.get("plan");
+      if (plan === "pro" || plan === "equipe") {
         const credits = Number(p.get("credits"));
         const cycle = p.get("cycle") === "annual" ? "annual" : "monthly";
         if (Number.isFinite(credits) && credits > 0) {
-          localStorage.setItem("biltia_pending_plan", JSON.stringify({ credits, cycle }));
+          localStorage.setItem("biltia_pending_plan", JSON.stringify({ plan, credits, cycle }));
         }
       }
     } catch {
@@ -62,10 +63,11 @@ export default function SignupPage() {
     let nextPath = "/onboarding";
     try {
       const sp = new URLSearchParams(window.location.search);
-      if (sp.get("plan") === "pro") {
+      const pl = sp.get("plan");
+      if (pl === "pro" || pl === "equipe") {
         const c = Number(sp.get("credits"));
         const cyc = sp.get("cycle") === "annual" ? "annual" : "monthly";
-        if (Number.isFinite(c) && c > 0) nextPath = `/onboarding?plan=pro&credits=${c}&cycle=${cyc}`;
+        if (Number.isFinite(c) && c > 0) nextPath = `/onboarding?plan=${pl}&credits=${c}&cycle=${cyc}`;
       }
     } catch {
       /* pas de plan : onboarding standard */
