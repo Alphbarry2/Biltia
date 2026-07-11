@@ -65,7 +65,7 @@ RÈGLE D'OR : on ne réécrit JAMAIS l'application pour une demande qui ne la co
 
 LES 9 FORMATS :
 - "answer" — l'utilisateur pose une QUESTION et attend une RÉPONSE en texte, tout de suite : réglementation (« quel taux de TVA pour une rénovation ? »), norme, délai, garantie, conseil métier, ou une question sur SES données (« j'ai combien de clients ? », « où en est le chantier Morel ? »). Il ne demande RIEN à produire.
-- "calendar" — l'utilisateur veut CONSULTER son agenda (« qu'est-ce que j'ai lundi ? », « ma semaine ? », « mes rendez-vous ? ») OU AJOUTER un rendez-vous (« ajoute un RDV client mardi à 14h », « planifie une visite chantier jeudi 9h », « note un rendez-vous demain 10h »). Dans les deux cas, c'est son agenda Google connecté — ni une question de savoir métier ("answer") ni une écriture dans tes données workspace ("data").
+- "calendar" — l'utilisateur veut CONSULTER son agenda (« qu'est-ce que j'ai lundi ? », « ma semaine ? », « mes rendez-vous ? »), AJOUTER un rendez-vous (« ajoute un RDV client mardi à 14h », « planifie une visite chantier jeudi 9h », « note un rendez-vous demain 10h »), OU TROUVER UN CRÉNEAU LIBRE / une disponibilité (« trouve-moi un créneau libre jeudi », « quand suis-je dispo cette semaine pour 2h ? », « propose un créneau au client »). C'est son agenda / son planning — ni une question de savoir métier ("answer") ni une écriture dans tes données workspace ("data").
 - "email" — l'utilisateur veut ENVOYER un message/email à quelqu'un, MAINTENANT, une fois : « envoie un email à jean@x.fr pour lui dire que… », « écris à ce client qu'on passe lundi », « relance ce fournisseur par mail ». C'est le VERBE D'ENVOI (« envoie/écris/relance… par mail/email ») qui décide — même si le message PARLE de factures, de fichiers ou de chantiers : ça, c'est le CONTENU du mail, PAS un traitement de fichiers. Quand kind="email", remplis email_to (l'adresse ou le nom du destinataire), email_subject (objet court) et email_body (le corps complet, professionnel, prêt à envoyer).
 - "task" — l'utilisateur veut ENVOYER un message MAINTENANT à un GROUPE de son workspace (pas à UNE personne précise : ça, c'est "email") : « envoie un message à TOUS MES CLIENTS pour le portes ouvertes vendredi », « préviens MON ÉQUIPE qu'on commence à 7h demain », « écris à MES FOURNISSEURS ». Biltia résout la liste dans le workspace, montre un APERÇU, et envoie seulement après validation. Remplis task_audience (all_clients / team / all_suppliers), email_subject (objet court) et email_body (le message complet, professionnel, prêt à envoyer). Ce qui décide : un VERBE D'ENVOI + une CIBLE COLLECTIVE. Un destinataire unique nommé → "email". Une récurrence (« …chaque lundi ») → "rule".
 - "document" — l'utilisateur veut UN livrable officiel unique, à imprimer/envoyer/signer : avenant, PV de réception, mise en demeure, devis, facture, attestation (TVA…), courrier/relance, ordre de service, bon de commande, levée de réserves. Indices : « sors-moi l'avenant », « rédige une mise en demeure », « fais-lui signer », « attestation TVA », « un devis pour… » (un seul, pas un outil de gestion de devis).
@@ -295,14 +295,31 @@ export async function classifyKind(opts: {
 // fiable là où le classifieur généraliste (7 formats + champs email) déraillait.
 const CAL_TOOL = {
   name: "plan_calendar",
-  description: "Décide si la demande consulte l'agenda ou crée un événement, et extrait les détails.",
+  description: "Décide si la demande consulte l'agenda, crée un événement, ou cherche un créneau libre, et extrait les détails.",
   input_schema: {
     type: "object",
     properties: {
-      action: { type: "string", enum: ["read", "create"], description: "read = consulter l'agenda ; create = ajouter un rendez-vous." },
+      action: {
+        type: "string",
+        enum: ["read", "create", "find_slot"],
+        description:
+          "read = consulter l'agenda. create = ajouter un rendez-vous. find_slot = TROUVER un créneau LIBRE / proposer une disponibilité (« trouve-moi un créneau libre jeudi », « quand suis-je dispo cette semaine pour 2h ? », « propose un créneau au client »).",
+      },
       summary: { type: "string", description: "Titre court de l'événement (si create)." },
-      start: { type: "string", description: "Début en heure locale 'YYYY-MM-DDTHH:MM:SS' (si create)." },
-      end: { type: "string", description: "Fin en heure locale 'YYYY-MM-DDTHH:MM:SS', défaut +1h (si create)." },
+      start: {
+        type: "string",
+        description:
+          "Heure locale 'YYYY-MM-DDTHH:MM:SS'. Si create : début du RDV. Si find_slot : DÉBUT de la fenêtre de recherche (défaut = maintenant).",
+      },
+      end: {
+        type: "string",
+        description:
+          "Heure locale 'YYYY-MM-DDTHH:MM:SS'. Si create : fin du RDV (défaut +1h). Si find_slot : FIN de la fenêtre de recherche (défaut +14 jours).",
+      },
+      duration_min: {
+        type: "integer",
+        description: "Si find_slot : durée souhaitée du créneau en minutes (défaut 120). Ex : « 2h » → 120, « une demi-journée » → 240.",
+      },
     },
     required: ["action"],
     additionalProperties: false,
@@ -311,9 +328,10 @@ const CAL_TOOL = {
 
 export type CalendarIntent =
   | { action: "read" }
-  | { action: "create"; summary: string; start: string; end: string };
+  | { action: "create"; summary: string; start: string; end: string }
+  | { action: "find_slot"; durationMin: number; fromISO: string; toISO: string };
 
-/** Décide lecture/création + extrait un RDV. Repli sûr sur "read" en cas d'échec. */
+/** Décide lecture/création/recherche de créneau + extrait les détails. Repli sûr sur "read". */
 export async function extractCalendarEvent(prompt: string): Promise<CalendarIntent> {
   try {
     const client = new Anthropic();
@@ -333,6 +351,7 @@ export async function extractCalendarEvent(prompt: string): Promise<CalendarInte
 Date et heure actuelles (Europe/Paris) : ${now}.
 - Si la demande CONSULTE l'agenda (« qu'est-ce que j'ai… », « ma semaine ») → action="read".
 - Si elle AJOUTE un rendez-vous (« ajoute/planifie/note un RDV… ») → action="create", avec summary (titre court, ex : « RDV client Morel »), start et end en HEURE LOCALE « YYYY-MM-DDTHH:MM:SS » (durée 1 h par défaut). Résous les dates relatives (« mardi », « demain 9h », « la semaine prochaine ») à partir de la date actuelle ci-dessus.
+- Si elle cherche une DISPONIBILITÉ / un CRÉNEAU LIBRE (« trouve-moi un créneau », « quand suis-je dispo », « propose un créneau au client ») → action="find_slot", avec start/end délimitant la fenêtre de recherche (défaut : de maintenant à +14 jours) et duration_min (défaut 120).
 Réponds uniquement via l'outil plan_calendar.`,
       tools: [CAL_TOOL],
       tool_choice: { type: "tool", name: "plan_calendar" },
@@ -340,13 +359,22 @@ Réponds uniquement via l'outil plan_calendar.`,
     });
     const block = message.content.find((b) => b.type === "tool_use");
     if (!block || block.type !== "tool_use") return { action: "read" };
-    const i = block.input as { action?: string; summary?: string; start?: string; end?: string };
+    const i = block.input as { action?: string; summary?: string; start?: string; end?: string; duration_min?: number };
     if (i.action === "create") {
       return {
         action: "create",
         summary: (i.summary ?? "").trim(),
         start: (i.start ?? "").trim(),
         end: (i.end ?? "").trim(),
+      };
+    }
+    if (i.action === "find_slot") {
+      const dur = Number(i.duration_min);
+      return {
+        action: "find_slot",
+        durationMin: Number.isFinite(dur) && dur > 0 ? Math.floor(dur) : 120,
+        fromISO: (i.start ?? "").trim(),
+        toISO: (i.end ?? "").trim(),
       };
     }
     return { action: "read" };

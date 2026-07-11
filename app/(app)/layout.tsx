@@ -10,6 +10,8 @@ import { SubscriptionBanner } from "@/components/subscription-banner";
 import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 import { BiltiaLogo } from "@/components/brand";
 import { CreditPacksDialog } from "@/components/credit-packs";
+import { ReferralClaim } from "@/components/referral-claim";
+import { ReferralDialog } from "@/components/referral-dialog";
 import {
   Home,
   Boxes,
@@ -26,6 +28,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Sparkles,
+  Gift,
 } from "lucide-react";
 
 function Sidebar({
@@ -41,6 +44,7 @@ function Sidebar({
   const router = useRouter();
   const [credits, setCredits] = useState<number | null>(null);
   const [packsOpen, setPacksOpen] = useState(false);
+  const [refOpen, setRefOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [userName, setUserName] = useState("");
   const [isPaid, setIsPaid] = useState(false);
@@ -212,6 +216,29 @@ function Sidebar({
       </div>
       <CreditPacksDialog open={packsOpen} onClose={() => setPacksOpen(false)} />
 
+      {/* Parrainage : inviter son réseau BTP, gagner des crédits (façon Lovable) */}
+      <div className="px-2.5 pb-3">
+        {collapsed ? (
+          <button
+            type="button"
+            onClick={() => setRefOpen(true)}
+            title="Parrainage — gagner des crédits"
+            className="flex w-full items-center justify-center py-2.5 rounded-xl hover:bg-black/[0.04] transition-colors"
+          >
+            <Gift className="w-4 h-4 text-[#7C3AED]" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setRefOpen(true)}
+            className="flex w-full items-center gap-2 rounded-xl border border-[#E7E7E4] bg-white px-3 py-2.5 text-[13px] font-semibold text-[#0A0A0A] transition-colors hover:bg-[#F7F4FD]"
+          >
+            <Gift className="w-4 h-4 text-[#7C3AED]" /> Gagner des crédits
+          </button>
+        )}
+      </div>
+      <ReferralDialog open={refOpen} onClose={() => setRefOpen(false)} />
+
       {/* User */}
       <div className="px-2.5 pb-4 border-t border-[#EDEDE9] pt-3 flex-shrink-0">
         <div className={`flex items-center gap-3 py-1.5 ${collapsed ? "justify-center px-0" : "px-2"}`}>
@@ -322,6 +349,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
           )}
 
+          <ReferralClaim />
           <SubscriptionBanner />
           <main className="flex-1 overflow-auto">{children}</main>
         </div>

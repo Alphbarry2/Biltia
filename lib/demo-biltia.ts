@@ -9,11 +9,41 @@
 // À injecter dans le <head> AVANT le <script> de l'app.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { BILTIA_WORDMARK_SVG, BILTIA_ICON_SVG } from "@/lib/biltia-brand-svg";
+
 export const DEMO_BILTIA_SCRIPT = `<script>
 /* biltia — démo locale (aperçu) */
 (function(){
   if (window.biltia) return;
   window.__biltiaDemo = true;
+  // ── « Aujourd'hui » FIGÉ (aperçu) ─────────────────────────────────────────
+  // L'aperçu doit TOUJOURS montrer le même jeu de données, jamais vide : si le
+  // « jour » glissait avec l'horloge réelle, des vues centrées sur aujourd'hui
+  // (pointage, planning…) se retrouveraient à sec certains jours. On fige donc
+  // la date à un mercredi de référence — new Date() sans argument et Date.now()
+  // renvoient ce jour ; new Date(x) avec argument reste normal.
+  (function(){
+    var RealDate = Date;
+    var FIXED = new RealDate(2026, 6, 8, 9, 30, 0).getTime(); // mer. 8 juillet 2026, 09:30 (local)
+    function D(a,b,c,d,e,f,g){
+      if(!(this instanceof D)) return new RealDate(FIXED).toString();
+      switch(arguments.length){
+        case 0: return new RealDate(FIXED);
+        case 1: return new RealDate(a);
+        case 2: return new RealDate(a,b);
+        case 3: return new RealDate(a,b,c);
+        case 4: return new RealDate(a,b,c,d);
+        case 5: return new RealDate(a,b,c,d,e);
+        case 6: return new RealDate(a,b,c,d,e,f);
+        default: return new RealDate(a,b,c,d,e,f,g);
+      }
+    }
+    D.prototype = RealDate.prototype;
+    D.now = function(){ return FIXED; };
+    D.parse = RealDate.parse;
+    D.UTC = RealDate.UTC;
+    try { window.Date = D; } catch(e){}
+  })();
   function toast(msg, kind){
     try{
       var host=document.getElementById("__biltia_toasts");
@@ -230,5 +260,24 @@ export const DEMO_BILTIA_SCRIPT = `<script>
     sendEmail: function(){ toast("Aperçu : l'envoi d'email est actif dans l'app réelle."); return Promise.resolve({ok:true,via:"demo"}); },
     sendSms: function(){ toast("Aperçu : l'envoi de SMS est actif dans l'app réelle."); return Promise.resolve({ok:true,sent:1}); }
   };
+  // ── Marque Biltia sur l'aperçu ─────────────────────────────────────────────
+  // « Powered by Biltia » en haut à gauche de chaque modèle : le wordmark COMPLET
+  // PARTOUT — barre latérale (desktop) ET en-tête (tablette/mobile). Jamais l'icône
+  // réduite : le logo doit être le même que la landing à chaque taille (demande user).
+  // On remplace le bloc marque de l'app (qui, hors aperçu, porte le nom du client)
+  // APRÈS son initBrand() — d'où l'écoute sur « load ».
+  (function(){
+    var WORDMARK = ${JSON.stringify(BILTIA_WORDMARK_SVG)};
+    var ICON = ${JSON.stringify(BILTIA_ICON_SVG)};
+    function put(sel, svg){
+      var el = document.querySelector(sel);
+      if(!el || el.getAttribute("data-biltia-brand")) return;
+      el.setAttribute("data-biltia-brand","1");
+      el.innerHTML = '<span style="display:inline-flex;align-items:center;color:#0A0A0A">'+svg+'</span>';
+    }
+    function brand(){ try{ put(".side-brand", WORDMARK); put(".app-header .brand", WORDMARK); }catch(e){} }
+    if(window.addEventListener){ window.addEventListener("load", function(){ brand(); setTimeout(brand,250); }); }
+    else { setTimeout(brand,400); }
+  })();
 })();
 <\/script>`;

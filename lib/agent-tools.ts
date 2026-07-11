@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // AGENT TOOLS — le WORKSPACE ENTIER exposé comme outils IA (« accès à tout »).
 //
-// Les 16 entités du registre (lib/data-entities.ts) deviennent 5 outils Claude :
+// Toutes les entités du registre (lib/data-entities.ts) deviennent 5 outils Claude :
 // lister/chercher, lire, créer, modifier, supprimer. Utilisés par :
 //   • le CHAT (kind "data") — « ajoute un client Jean Dupont », « supprime le
 //     client Martin », « passe le devis D-12 en accepté » → exécuté, confirmé.
@@ -488,6 +488,12 @@ export async function runAgentLoop(opts: {
   allowEmail?: boolean;
   /** Expose l'outil send_sms (relances/confirmations). Opt-in : false par défaut. */
   allowSms?: boolean;
+  /**
+   * Autorise l'outil workspace_delete. Défaut = true (chat/agents planifiés).
+   * Un agent AUTONOME qui agit sans supervision (act événementiel) le met à
+   * false : il peut créer/mettre à jour, JAMAIS supprimer sans humain dans la boucle.
+   */
+  allowDelete?: boolean;
   maxIterations?: number;
   maxTokens?: number;
   /**
@@ -500,10 +506,13 @@ export async function runAgentLoop(opts: {
    */
   maxDestructiveWrites?: number;
 }): Promise<AgentLoopResult> {
-  const { model, system, userMessage, db, actor, finishTool, allowEmail = false, allowSms = false, maxIterations = 6, maxTokens = 1500, maxDestructiveWrites = Infinity } = opts;
+  const { model, system, userMessage, db, actor, finishTool, allowEmail = false, allowSms = false, allowDelete = true, maxIterations = 6, maxTokens = 1500, maxDestructiveWrites = Infinity } = opts;
 
   const client = new Anthropic();
-  const tools: Anthropic.Tool[] = [...WORKSPACE_TOOLS, ...APP_DATA_TOOLS];
+  const tools: Anthropic.Tool[] = [
+    ...(allowDelete ? WORKSPACE_TOOLS : WORKSPACE_TOOLS.filter((t) => t.name !== "workspace_delete")),
+    ...APP_DATA_TOOLS,
+  ];
   if (allowEmail) tools.push(SEND_EMAIL_TOOL);
   if (allowSms) tools.push(SEND_SMS_TOOL);
   if (finishTool) tools.push(finishTool);

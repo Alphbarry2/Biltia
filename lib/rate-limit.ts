@@ -111,4 +111,5 @@ export const LIMITS = {
   app_sms: { limit: 10, windowSec: 60 }, // envoi SMS depuis une app (anti-spam, coûteux)
   share: { limit: 20, windowSec: 60 }, // création de liens de partage (anti-abus)
   share_read: { limit: 120, windowSec: 60 }, // lecture d'un portail client tokenisé (par token)
+  form_submit: { limit: 8, windowSec: 60 }, // soumission de formulaire public (par token, anti-spam)
 } as const;

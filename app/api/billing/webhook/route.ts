@@ -214,6 +214,26 @@ async function applySubscription(
       { onConflict: "user_id" }
     );
   }
+
+  // ── Parrainage : à la 1ʳᵉ souscription payante (welcome) du filleul, on
+  // marque la CONVERSION. Les bonus (parrain +1500/+3000, filleul +1000/+2000)
+  // ne sont PAS versés ici : le cron release_referral_bonuses() les libère après
+  // 14 j sans remboursement. La RPC est idempotente (ne touche qu'un 'signed_up').
+  if (
+    creditMode === "welcome" &&
+    ownerUserId &&
+    (match?.plan === "pro" || match?.plan === "equipe")
+  ) {
+    try {
+      await db.rpc("mark_referral_converted", {
+        p_referred: ownerUserId,
+        p_plan: match.plan,
+        p_sub: sub.id,
+      });
+    } catch (e) {
+      console.error("[billing/webhook] mark_referral_converted", e);
+    }
+  }
 }
 
 export async function POST(req: Request) {
@@ -338,6 +358,16 @@ export async function POST(req: Request) {
             .eq("tenant_id", resolved.tenantId);
           // GEL : crédits du forfait à 0 + apps en ligne dépubliées.
           await freezeTenant(db, resolved.tenantId, resolved.ownerUserId);
+          // Parrainage : résiliation PENDANT la fenêtre d'attente (14 j) → on
+          // annule (les bonus n'étaient pas encore versés). Après libération,
+          // void_referral_on_refund ne touche plus à rien (statut 'released').
+          if (resolved.ownerUserId) {
+            try {
+              await db.rpc("void_referral_on_refund", { p_referred: resolved.ownerUserId });
+            } catch (e) {
+              console.error("[billing/webhook] void_referral_on_refund", e);
+            }
+          }
         }
         break;
       }

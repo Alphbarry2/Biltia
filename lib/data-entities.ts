@@ -29,6 +29,7 @@ export const ENTITIES: Record<string, EntityDef> = {
       "nom", "client_id", "adresse", "ville", "code_postal", "description",
       "budget", "budget_engage", "avancement", "statut",
       "date_debut", "date_fin_prevue", "date_fin_reelle", "chef_chantier_id",
+      "site_id", "demande_id",
     ],
     fields:
       "nom (texte, requis), client_id (uuid → clients), adresse, ville, code_postal, " +
@@ -39,9 +40,11 @@ export const ENTITIES: Record<string, EntityDef> = {
   clients: {
     table: "clients",
     label: "Clients",
-    writable: ["nom", "siret", "type", "email", "tel", "adresse", "ville", "code_postal", "notes"],
+    writable: ["nom", "siret", "type", "statut", "source", "email", "tel", "adresse", "ville", "code_postal", "notes"],
     fields:
       "nom (texte, requis), siret, type (particulier|entreprise|collectivite), " +
+      "statut (prospect|actif|inactif|archive, défaut actif), " +
+      "source (provenance : formulaire|bouche-à-oreille|recommandation|salon|…), " +
       "email, tel, adresse, ville, code_postal, notes",
   },
   employees: {
@@ -55,10 +58,10 @@ export const ENTITIES: Record<string, EntityDef> = {
   documents: {
     table: "documents",
     label: "Documents",
-    writable: ["nom", "type", "chantier_id", "employee_id", "client_id", "url", "expires_at", "statut", "notes"],
+    writable: ["nom", "type", "chantier_id", "employee_id", "client_id", "supplier_id", "url", "expires_at", "statut", "notes"],
     fields:
-      "nom (requis), type (requis: kbis|urssaf|rc_pro|qualibat|devis|facture|...), " +
-      "chantier_id/employee_id/client_id (uuid, rattachement optionnel), url, " +
+      "nom (requis), type (requis: kbis|urssaf|rc_pro|qualibat|photo|devis|facture|...), " +
+      "chantier_id/employee_id/client_id/supplier_id (uuid, rattachement optionnel ; supplier_id = attestation/pièce d'un sous-traitant), url, " +
       "expires_at (AAAA-MM-JJ, alerte J-30), statut (valide|expire|manquant|en_attente), notes",
   },
   materials: {
@@ -98,19 +101,19 @@ export const ENTITIES: Record<string, EntityDef> = {
   interventions: {
     table: "interventions",
     label: "Interventions",
-    writable: ["type", "description", "statut", "chantier_id", "client_id", "employee_id", "equipment_id", "date_prevue", "date_reelle", "duree_heures", "rapport"],
+    writable: ["type", "description", "statut", "chantier_id", "client_id", "employee_id", "supplier_id", "equipment_id", "site_id", "demande_id", "lot_id", "date_prevue", "date_reelle", "duree_heures", "rapport"],
     fields:
       "type (requis), description, statut (planifie|en_cours|termine|annule), " +
-      "chantier_id/client_id/employee_id/equipment_id (uuid), " +
+      "chantier_id/client_id/employee_id/equipment_id (uuid), supplier_id (uuid → suppliers, si réalisée par un sous-traitant), lot_id (uuid → lots, étape), " +
       "date_prevue/date_reelle (horodatage), duree_heures (nombre), rapport",
   },
   tasks: {
     table: "tasks",
     label: "Tâches",
-    writable: ["title", "description", "status", "priority", "chantier_id", "assignee_id", "due_date", "done_at"],
+    writable: ["title", "description", "status", "priority", "chantier_id", "assignee_id", "supplier_id", "lot_id", "due_date", "done_at"],
     fields:
       "title (requis), description, status (todo|doing|done), priority (low|normal|high), " +
-      "chantier_id (uuid), assignee_id (uuid → employees), due_date (AAAA-MM-JJ), done_at",
+      "chantier_id (uuid), assignee_id (uuid → employees), supplier_id (uuid → suppliers, si confiée à un sous-traitant), lot_id (uuid → lots, étape), due_date (AAAA-MM-JJ), done_at",
   },
 
   // ── COUCHE ARGENT (le cœur commercial) ─────────────────────────────────────
@@ -126,7 +129,7 @@ export const ENTITIES: Record<string, EntityDef> = {
   devis: {
     table: "devis",
     label: "Devis",
-    writable: ["numero", "client_id", "chantier_id", "statut", "date_devis", "date_validite", "montant_ht", "montant_tva", "montant_ttc", "conditions", "notes"],
+    writable: ["numero", "client_id", "chantier_id", "site_id", "demande_id", "statut", "date_devis", "date_validite", "montant_ht", "montant_tva", "montant_ttc", "conditions", "notes"],
     fields:
       "numero (texte, unique par entreprise), client_id (uuid → clients), chantier_id (uuid → chantiers), " +
       "statut (brouillon|envoye|accepte|refuse|expire), date_devis, date_validite (AAAA-MM-JJ), " +
@@ -136,7 +139,7 @@ export const ENTITIES: Record<string, EntityDef> = {
   factures: {
     table: "factures",
     label: "Factures",
-    writable: ["numero", "client_id", "chantier_id", "devis_id", "type", "statut", "date_facture", "date_echeance", "montant_ht", "montant_tva", "montant_ttc", "montant_paye", "notes"],
+    writable: ["numero", "client_id", "chantier_id", "devis_id", "site_id", "type", "statut", "date_facture", "date_echeance", "montant_ht", "montant_tva", "montant_ttc", "montant_paye", "notes"],
     fields:
       "numero (texte, unique par entreprise, numérotation légale sans trou), client_id (uuid → clients), " +
       "chantier_id (uuid → chantiers), devis_id (uuid → devis, optionnel), " +
@@ -167,7 +170,7 @@ export const ENTITIES: Record<string, EntityDef> = {
   contrats: {
     table: "contrats",
     label: "Contrats d'entretien",
-    writable: ["client_id", "parc_id", "reference", "type", "montant", "periodicite", "date_debut", "date_fin", "prochaine_echeance", "statut", "notes"],
+    writable: ["client_id", "parc_id", "site_id", "reference", "type", "montant", "periodicite", "date_debut", "date_fin", "prochaine_echeance", "statut", "notes"],
     fields:
       "client_id (uuid → clients), parc_id (uuid → parc_installe, l'équipement couvert), reference, " +
       "type (entretien|maintenance|garantie), montant (nombre), " +
@@ -177,13 +180,135 @@ export const ENTITIES: Record<string, EntityDef> = {
   parc_installe: {
     table: "parc_installe",
     label: "Parc installé (chez le client)",
-    writable: ["client_id", "chantier_id", "type", "marque", "modele", "numero_serie", "localisation", "date_pose", "date_garantie", "dernier_entretien", "prochain_entretien", "notes"],
+    writable: ["client_id", "chantier_id", "site_id", "type", "marque", "modele", "numero_serie", "localisation", "date_pose", "date_garantie", "dernier_entretien", "prochain_entretien", "notes"],
     fields:
       "Équipement POSÉ chez le client (≠ equipment qui est l'outillage de l'entreprise). " +
-      "client_id (uuid → clients), chantier_id (uuid → chantiers), " +
+      "client_id (uuid → clients), chantier_id (uuid → chantiers), site_id (uuid → sites), " +
       "type (chaudiere|climatisation|pompe_chaleur|chauffe_eau|tableau_electrique|vmc|autre), " +
       "marque, modele, numero_serie, localisation (chez le client), date_pose, date_garantie, " +
       "dernier_entretien, prochain_entretien (AAAA-MM-JJ, alerte échéance), notes",
+  },
+
+  // ── PHASE 1 — intake → argent → SAV (migration 037) ────────────────────────
+  sites: {
+    table: "sites",
+    label: "Sites / Adresses",
+    writable: ["client_id", "nom", "type", "adresse", "ville", "code_postal", "contact_nom", "contact_tel", "notes"],
+    fields:
+      "Adresse/site d'un client (un client peut en avoir plusieurs). " +
+      "client_id (uuid → clients), nom (requis, ex: « Villa Morel », « Siège »), " +
+      "type (facturation|chantier|intervention|siege|residence|immeuble|appartement|local), " +
+      "adresse, ville, code_postal, contact_nom, contact_tel, notes",
+  },
+  demandes: {
+    table: "demandes",
+    label: "Demandes / Opportunités",
+    writable: ["client_id", "site_id", "titre", "type", "canal", "statut", "priorite", "source", "description", "date_demande", "notes"],
+    fields:
+      "Demande entrante AVANT le devis (tous les prospects ne deviennent pas un devis). " +
+      "client_id (uuid → clients), site_id (uuid → sites), titre (requis), " +
+      "type (demande_prix|sav|appel|formulaire|whatsapp|email|prospect), " +
+      "canal (telephone|email|whatsapp|formulaire|site|salon), " +
+      "statut (nouveau|en_cours|converti|perdu), priorite (basse|normale|haute), " +
+      "source, description, date_demande (AAAA-MM-JJ), notes. " +
+      "Se convertit en devis/intervention/chantier (qui portent demande_id).",
+  },
+  commandes: {
+    table: "commandes",
+    label: "Commandes fournisseur",
+    writable: ["fournisseur_id", "chantier_id", "numero", "statut", "montant_ht", "montant_ttc", "date_commande", "date_livraison_prevue", "date_livraison_reelle", "notes"],
+    fields:
+      "Commande / achat passé à un fournisseur. " +
+      "fournisseur_id (uuid → suppliers), chantier_id (uuid → chantiers), numero, " +
+      "statut (brouillon|envoyee|confirmee|livree|annulee), montant_ht/montant_ttc (nombres), " +
+      "date_commande, date_livraison_prevue, date_livraison_reelle (AAAA-MM-JJ), notes",
+  },
+  depenses: {
+    table: "depenses",
+    label: "Dépenses / Factures fournisseur",
+    writable: ["fournisseur_id", "chantier_id", "commande_id", "numero", "categorie", "montant_ht", "montant_tva", "montant_ttc", "date_depense", "date_echeance", "statut", "notes"],
+    fields:
+      "Dépense / facture FOURNISSEUR (≠ facture client) — impacte la marge chantier. " +
+      "fournisseur_id (uuid → suppliers), chantier_id (uuid → chantiers), commande_id (uuid → commandes), " +
+      "numero (n° facture fournisseur), categorie (materiaux|sous_traitance|location|carburant|frais|autre), " +
+      "montant_ht/montant_tva/montant_ttc (nombres), date_depense, date_echeance (AAAA-MM-JJ), " +
+      "statut (a_payer|payee|en_retard), notes",
+  },
+  paiements: {
+    table: "paiements",
+    label: "Paiements / Encaissements",
+    writable: ["facture_id", "client_id", "chantier_id", "montant", "date_paiement", "methode", "reference", "statut", "notes"],
+    fields:
+      "Encaissement sur une facture client (gère les paiements partiels + la tréso). " +
+      "facture_id (uuid → factures), client_id (uuid → clients), chantier_id (uuid → chantiers), " +
+      "montant (nombre), date_paiement (AAAA-MM-JJ), methode (virement|cheque|especes|cb|prelevement), " +
+      "reference (n° chèque / réf virement), statut (recu|en_attente|rejete), notes",
+  },
+  reserves: {
+    table: "reserves",
+    label: "Réserves / Incidents",
+    writable: ["chantier_id", "client_id", "intervention_id", "assignee_id", "supplier_id", "lot_id", "titre", "type", "gravite", "statut", "description", "date_constat", "date_resolution", "notes"],
+    fields:
+      "Réserve / incident / malfaçon / litige sur un chantier. " +
+      "chantier_id (uuid → chantiers), client_id (uuid → clients), intervention_id (uuid → interventions), lot_id (uuid → lots, étape), " +
+      "assignee_id (uuid → employees), supplier_id (uuid → suppliers, sous-traitant responsable), titre (requis), " +
+      "type (reserve|malfacon|incident|litige|point_bloquant), gravite (mineure|normale|majeure|bloquante), " +
+      "statut (ouverte|en_cours|levee|annulee), description, date_constat, date_resolution (AAAA-MM-JJ), notes",
+  },
+  lots: {
+    table: "lots",
+    label: "Lots / Étapes",
+    writable: ["chantier_id", "nom", "type", "ordre", "statut", "assignee_id", "supplier_id", "date_debut_prevue", "date_fin_prevue", "date_debut_reelle", "date_fin_reelle", "avancement", "notes"],
+    fields:
+      "Étape / lot d'un chantier (préparation, plomberie, peinture, réception…). " +
+      "chantier_id (uuid → chantiers), nom (requis), type (preparation|demolition|gros_oeuvre|plomberie|electricite|platrerie|peinture|carrelage|menuiserie|finition|reception|sav|lot), " +
+      "ordre (nombre), statut (a_faire|en_cours|termine|bloque|receptionne), assignee_id (uuid → employees), supplier_id (uuid → suppliers, sous-traitant du lot), " +
+      "date_debut_prevue/date_fin_prevue/date_debut_reelle/date_fin_reelle (AAAA-MM-JJ), avancement (0..100), notes",
+  },
+  rappels: {
+    table: "rappels",
+    label: "Rappels / Échéances",
+    writable: ["client_id", "chantier_id", "devis_id", "facture_id", "intervention_id", "contrat_id", "document_id", "assignee_id", "titre", "type", "statut", "due_date", "notes"],
+    fields:
+      "Rappel / échéance rattachable à n'importe quel objet. " +
+      "client_id/chantier_id/devis_id/facture_id/intervention_id/contrat_id/document_id (uuid, rattachement), " +
+      "assignee_id (uuid → employees), titre (requis), " +
+      "type (rappel|relance|echeance|maintenance|rdv|expiration), statut (a_faire|fait|reporte|annule), " +
+      "due_date (AAAA-MM-JJ), notes",
+  },
+
+  // ── PHASE 2 — traces humaines : communication / notes / validations (039) ──
+  messages: {
+    table: "messages",
+    label: "Messages / Communication",
+    writable: ["client_id", "chantier_id", "intervention_id", "devis_id", "facture_id", "demande_id", "reserve_id", "task_id", "supplier_id", "employee_id", "canal", "direction", "statut", "objet", "corps", "destinataire", "expediteur", "date_message"],
+    fields:
+      "Trace d'un échange (email/SMS/WhatsApp/appel) ou d'un message interne — l'historique de communication. " +
+      "client_id/chantier_id/intervention_id/devis_id/facture_id/demande_id/reserve_id/task_id/supplier_id/employee_id (uuid, rattachement au hub concerné), " +
+      "canal (email|sms|whatsapp|interne|note_appel|autre), direction (entrant|sortant|interne), " +
+      "statut (brouillon|a_valider|envoye|recu|echec|archive — un message préparé par l'IA reste 'a_valider' jusqu'à accord humain), " +
+      "objet, corps (le texte), destinataire (email/n°), expediteur, date_message (horodatage)",
+  },
+  notes: {
+    table: "notes",
+    label: "Notes",
+    writable: ["client_id", "chantier_id", "intervention_id", "devis_id", "facture_id", "demande_id", "reserve_id", "task_id", "supplier_id", "lot_id", "auteur_id", "titre", "contenu", "source"],
+    fields:
+      "Note libre (terrain, vocale, client, interne) rattachable à n'importe quel objet — la mémoire du chantier. " +
+      "client_id/chantier_id/intervention_id/devis_id/facture_id/demande_id/reserve_id/task_id/supplier_id/lot_id (uuid, rattachement), " +
+      "auteur_id (uuid → employees), titre, contenu (requis, le texte de la note), source (manuel|vocal|ia|import|autre). " +
+      "Une note se transforme ensuite en tâche/réserve/devis/rappel.",
+  },
+  validations: {
+    table: "validations",
+    label: "Validations / Signatures",
+    writable: ["client_id", "chantier_id", "intervention_id", "devis_id", "facture_id", "document_id", "reserve_id", "demandeur_id", "type", "statut", "signataire_nom", "signataire_email", "signataire_tel", "date_signature", "motif_refus", "notes"],
+    fields:
+      "Demande de validation / signature (acceptation devis, signature PV/intervention, approbation document…). " +
+      "devis_id/facture_id/document_id/intervention_id/reserve_id/chantier_id/client_id (uuid, l'objet à valider), demandeur_id (uuid → employees), " +
+      "type (acceptation_devis|validation_facture|signature_pv|signature_intervention|approbation_document|validation_reserve|autre), " +
+      "statut (en_attente|approuve|refuse|signe|expire|annule), " +
+      "signataire_nom/signataire_email/signataire_tel, date_signature (horodatage), motif_refus, notes",
   },
 };
 
@@ -218,6 +343,17 @@ export const RELATION_DISPLAY: Record<string, string[]> = {
   interventions: ["type"],
   equipment: ["nom"],
   catalogue: ["designation"],
+  sites: ["nom"],
+  demandes: ["titre"],
+  commandes: ["numero"],
+  depenses: ["numero"],
+  paiements: ["reference"],
+  reserves: ["titre"],
+  rappels: ["titre"],
+  lots: ["nom"],
+  messages: ["objet"],
+  notes: ["titre"],
+  validations: ["type"],
 };
 
 // Colonnes-libellé de repli quand l'entité n'est pas dans RELATION_DISPLAY.
@@ -249,6 +385,8 @@ export const FORM_FIELDS: Record<string, FormField[]> = {
   clients: [
     { key: "nom", label: "Nom", type: "text", required: true, placeholder: "Jean Dupont / SCI Les Lilas" },
     { key: "type", label: "Type", type: "select", options: ["particulier", "entreprise", "collectivite"] },
+    { key: "statut", label: "Statut", type: "select", options: ["prospect", "actif", "inactif", "archive"] },
+    { key: "source", label: "Source", type: "text", placeholder: "Formulaire, bouche-à-oreille, recommandation…" },
     { key: "tel", label: "Téléphone", type: "tel", placeholder: "06 12 34 56 78" },
     { key: "email", label: "Email", type: "email", placeholder: "jean@exemple.fr" },
     { key: "adresse", label: "Adresse", type: "text" },
@@ -272,6 +410,8 @@ export const FORM_FIELDS: Record<string, FormField[]> = {
   chantiers: [
     { key: "nom", label: "Nom du chantier", type: "text", required: true, placeholder: "Rénovation SdB Morel" },
     { key: "client_id", label: "Client", type: "relation", relation: "clients" },
+    { key: "site_id", label: "Site / Adresse", type: "relation", relation: "sites" },
+    { key: "demande_id", label: "Demande d'origine", type: "relation", relation: "demandes" },
     { key: "adresse", label: "Adresse", type: "text" },
     { key: "ville", label: "Ville", type: "text" },
     { key: "code_postal", label: "Code postal", type: "text" },
@@ -337,6 +477,9 @@ export const FORM_FIELDS: Record<string, FormField[]> = {
     { key: "client_id", label: "Client", type: "relation", relation: "clients" },
     { key: "chantier_id", label: "Chantier", type: "relation", relation: "chantiers" },
     { key: "employee_id", label: "Intervenant", type: "relation", relation: "employees" },
+    { key: "equipment_id", label: "Équipement", type: "relation", relation: "equipment" },
+    { key: "site_id", label: "Site / Adresse", type: "relation", relation: "sites" },
+    { key: "demande_id", label: "Demande d'origine", type: "relation", relation: "demandes" },
     { key: "statut", label: "Statut", type: "select", options: ["planifie", "en_cours", "termine", "annule"] },
     { key: "date_prevue", label: "Date prévue", type: "date" },
     { key: "duree_heures", label: "Durée (h)", type: "number" },
@@ -366,6 +509,8 @@ export const FORM_FIELDS: Record<string, FormField[]> = {
     { key: "numero", label: "Numéro", type: "text", required: true, placeholder: "D-2026-001" },
     { key: "client_id", label: "Client", type: "relation", relation: "clients", required: true },
     { key: "chantier_id", label: "Chantier", type: "relation", relation: "chantiers" },
+    { key: "site_id", label: "Site / Adresse", type: "relation", relation: "sites" },
+    { key: "demande_id", label: "Demande d'origine", type: "relation", relation: "demandes" },
     { key: "statut", label: "Statut", type: "select", options: ["brouillon", "envoye", "accepte", "refuse", "expire"] },
     { key: "date_devis", label: "Date du devis", type: "date" },
     { key: "date_validite", label: "Valide jusqu'au", type: "date" },
@@ -379,6 +524,7 @@ export const FORM_FIELDS: Record<string, FormField[]> = {
     { key: "client_id", label: "Client", type: "relation", relation: "clients", required: true },
     { key: "chantier_id", label: "Chantier", type: "relation", relation: "chantiers" },
     { key: "devis_id", label: "Devis d'origine", type: "relation", relation: "devis" },
+    { key: "site_id", label: "Site / Adresse", type: "relation", relation: "sites" },
     { key: "type", label: "Type", type: "select", options: ["facture", "acompte", "situation", "avoir"] },
     { key: "statut", label: "Statut", type: "select", options: ["brouillon", "envoyee", "payee", "partiellement_payee", "en_retard", "annulee"] },
     { key: "date_facture", label: "Date de facture", type: "date" },
@@ -391,6 +537,7 @@ export const FORM_FIELDS: Record<string, FormField[]> = {
   lignes: [
     { key: "devis_id", label: "Devis", type: "relation", relation: "devis" },
     { key: "facture_id", label: "Facture", type: "relation", relation: "factures" },
+    { key: "catalogue_id", label: "Article du catalogue", type: "relation", relation: "catalogue" },
     { key: "designation", label: "Désignation", type: "text", required: true },
     { key: "quantite", label: "Quantité", type: "number" },
     { key: "unite", label: "Unité", type: "text" },
@@ -401,6 +548,7 @@ export const FORM_FIELDS: Record<string, FormField[]> = {
   pointages: [
     { key: "employee_id", label: "Employé", type: "relation", relation: "employees", required: true },
     { key: "chantier_id", label: "Chantier", type: "relation", relation: "chantiers" },
+    { key: "intervention_id", label: "Intervention", type: "relation", relation: "interventions" },
     { key: "date_pointage", label: "Date", type: "date", required: true },
     { key: "heures", label: "Heures", type: "number", required: true },
     { key: "type", label: "Type", type: "select", options: ["normal", "heure_sup", "trajet", "absence"] },
@@ -412,6 +560,7 @@ export const FORM_FIELDS: Record<string, FormField[]> = {
     { key: "reference", label: "Référence", type: "text" },
     { key: "type", label: "Type", type: "select", options: ["entretien", "maintenance", "garantie"] },
     { key: "parc_id", label: "Équipement couvert", type: "relation", relation: "parc_installe" },
+    { key: "site_id", label: "Site / Adresse", type: "relation", relation: "sites" },
     { key: "montant", label: "Montant (€)", type: "number" },
     { key: "periodicite", label: "Périodicité", type: "select", options: ["mensuel", "trimestriel", "semestriel", "annuel"] },
     { key: "date_debut", label: "Début", type: "date" },
@@ -428,9 +577,162 @@ export const FORM_FIELDS: Record<string, FormField[]> = {
     { key: "numero_serie", label: "N° de série", type: "text" },
     { key: "localisation", label: "Localisation chez le client", type: "text" },
     { key: "chantier_id", label: "Chantier d'origine", type: "relation", relation: "chantiers" },
+    { key: "site_id", label: "Site / Adresse", type: "relation", relation: "sites" },
     { key: "date_pose", label: "Date de pose", type: "date" },
     { key: "date_garantie", label: "Fin de garantie", type: "date" },
     { key: "prochain_entretien", label: "Prochain entretien", type: "date" },
+    { key: "notes", label: "Notes", type: "textarea" },
+  ],
+  sites: [
+    { key: "nom", label: "Nom du site", type: "text", required: true, placeholder: "Villa Morel / Siège / Lot 3" },
+    { key: "client_id", label: "Client", type: "relation", relation: "clients" },
+    { key: "type", label: "Type", type: "select", options: ["facturation", "chantier", "intervention", "siege", "residence", "immeuble", "appartement", "local"] },
+    { key: "adresse", label: "Adresse", type: "text" },
+    { key: "ville", label: "Ville", type: "text" },
+    { key: "code_postal", label: "Code postal", type: "text" },
+    { key: "contact_nom", label: "Contact sur place", type: "text" },
+    { key: "contact_tel", label: "Téléphone contact", type: "tel" },
+    { key: "notes", label: "Notes", type: "textarea" },
+  ],
+  demandes: [
+    { key: "titre", label: "Objet de la demande", type: "text", required: true, placeholder: "Devis rénovation SdB / SAV chaudière" },
+    { key: "client_id", label: "Client / Prospect", type: "relation", relation: "clients" },
+    { key: "site_id", label: "Site / Adresse", type: "relation", relation: "sites" },
+    { key: "type", label: "Type", type: "select", options: ["demande_prix", "sav", "appel", "formulaire", "whatsapp", "email", "prospect"] },
+    { key: "canal", label: "Canal", type: "select", options: ["telephone", "email", "whatsapp", "formulaire", "site", "salon"] },
+    { key: "statut", label: "Statut", type: "select", options: ["nouveau", "en_cours", "converti", "perdu"] },
+    { key: "priorite", label: "Priorité", type: "select", options: ["basse", "normale", "haute"] },
+    { key: "source", label: "Source", type: "text", placeholder: "Bouche-à-oreille, recommandation…" },
+    { key: "date_demande", label: "Reçue le", type: "date" },
+    { key: "description", label: "Description", type: "textarea" },
+  ],
+  commandes: [
+    { key: "numero", label: "Numéro", type: "text", placeholder: "CMD-2026-001" },
+    { key: "fournisseur_id", label: "Fournisseur", type: "relation", relation: "suppliers" },
+    { key: "chantier_id", label: "Chantier", type: "relation", relation: "chantiers" },
+    { key: "statut", label: "Statut", type: "select", options: ["brouillon", "envoyee", "confirmee", "livree", "annulee"] },
+    { key: "montant_ht", label: "Montant HT (€)", type: "number" },
+    { key: "montant_ttc", label: "Montant TTC (€)", type: "number" },
+    { key: "date_commande", label: "Date de commande", type: "date" },
+    { key: "date_livraison_prevue", label: "Livraison prévue", type: "date" },
+    { key: "date_livraison_reelle", label: "Livraison réelle", type: "date" },
+    { key: "notes", label: "Notes", type: "textarea" },
+  ],
+  depenses: [
+    { key: "numero", label: "N° facture fournisseur", type: "text" },
+    { key: "fournisseur_id", label: "Fournisseur", type: "relation", relation: "suppliers" },
+    { key: "chantier_id", label: "Chantier imputé", type: "relation", relation: "chantiers" },
+    { key: "commande_id", label: "Commande liée", type: "relation", relation: "commandes" },
+    { key: "categorie", label: "Catégorie", type: "select", options: ["materiaux", "sous_traitance", "location", "carburant", "frais", "autre"] },
+    { key: "montant_ht", label: "Montant HT (€)", type: "number" },
+    { key: "montant_tva", label: "TVA (€)", type: "number" },
+    { key: "montant_ttc", label: "Montant TTC (€)", type: "number" },
+    { key: "date_depense", label: "Date", type: "date" },
+    { key: "date_echeance", label: "Échéance", type: "date" },
+    { key: "statut", label: "Statut", type: "select", options: ["a_payer", "payee", "en_retard"] },
+    { key: "notes", label: "Notes", type: "textarea" },
+  ],
+  paiements: [
+    { key: "facture_id", label: "Facture réglée", type: "relation", relation: "factures", required: true },
+    { key: "client_id", label: "Client", type: "relation", relation: "clients" },
+    { key: "chantier_id", label: "Chantier", type: "relation", relation: "chantiers" },
+    { key: "montant", label: "Montant (€)", type: "number", required: true },
+    { key: "date_paiement", label: "Date d'encaissement", type: "date" },
+    { key: "methode", label: "Méthode", type: "select", options: ["virement", "cheque", "especes", "cb", "prelevement"] },
+    { key: "reference", label: "Référence (n° chèque, virement…)", type: "text" },
+    { key: "statut", label: "Statut", type: "select", options: ["recu", "en_attente", "rejete"] },
+    { key: "notes", label: "Notes", type: "textarea" },
+  ],
+  reserves: [
+    { key: "titre", label: "Objet de la réserve", type: "text", required: true, placeholder: "Fissure plafond salon" },
+    { key: "chantier_id", label: "Chantier", type: "relation", relation: "chantiers" },
+    { key: "client_id", label: "Client", type: "relation", relation: "clients" },
+    { key: "intervention_id", label: "Intervention", type: "relation", relation: "interventions" },
+    { key: "assignee_id", label: "Assignée à", type: "relation", relation: "employees" },
+    { key: "supplier_id", label: "Sous-traitant concerné", type: "relation", relation: "suppliers" },
+    { key: "type", label: "Type", type: "select", options: ["reserve", "malfacon", "incident", "litige", "point_bloquant"] },
+    { key: "gravite", label: "Gravité", type: "select", options: ["mineure", "normale", "majeure", "bloquante"] },
+    { key: "statut", label: "Statut", type: "select", options: ["ouverte", "en_cours", "levee", "annulee"] },
+    { key: "date_constat", label: "Constatée le", type: "date" },
+    { key: "date_resolution", label: "Résolue le", type: "date" },
+    { key: "description", label: "Description", type: "textarea" },
+  ],
+  rappels: [
+    { key: "titre", label: "Intitulé", type: "text", required: true, placeholder: "Relancer devis / Rappeler client" },
+    { key: "type", label: "Type", type: "select", options: ["rappel", "relance", "echeance", "maintenance", "rdv", "expiration"] },
+    { key: "due_date", label: "Échéance", type: "date" },
+    { key: "statut", label: "Statut", type: "select", options: ["a_faire", "fait", "reporte", "annule"] },
+    { key: "assignee_id", label: "Assigné à", type: "relation", relation: "employees" },
+    { key: "client_id", label: "Client", type: "relation", relation: "clients" },
+    { key: "chantier_id", label: "Chantier", type: "relation", relation: "chantiers" },
+    { key: "devis_id", label: "Devis", type: "relation", relation: "devis" },
+    { key: "facture_id", label: "Facture", type: "relation", relation: "factures" },
+    { key: "intervention_id", label: "Intervention", type: "relation", relation: "interventions" },
+    { key: "contrat_id", label: "Contrat", type: "relation", relation: "contrats" },
+    { key: "document_id", label: "Document", type: "relation", relation: "documents" },
+    { key: "notes", label: "Notes", type: "textarea" },
+  ],
+  lots: [
+    { key: "nom", label: "Nom de l'étape", type: "text", required: true, placeholder: "Plomberie / Peinture / Réception" },
+    { key: "chantier_id", label: "Chantier", type: "relation", relation: "chantiers" },
+    { key: "type", label: "Type", type: "select", options: ["preparation", "demolition", "gros_oeuvre", "plomberie", "electricite", "platrerie", "peinture", "carrelage", "menuiserie", "finition", "reception", "sav", "lot"] },
+    { key: "statut", label: "Statut", type: "select", options: ["a_faire", "en_cours", "termine", "bloque", "receptionne"] },
+    { key: "ordre", label: "Ordre", type: "number" },
+    { key: "avancement", label: "Avancement (%)", type: "number" },
+    { key: "assignee_id", label: "Responsable", type: "relation", relation: "employees" },
+    { key: "supplier_id", label: "Sous-traitant", type: "relation", relation: "suppliers" },
+    { key: "date_debut_prevue", label: "Début prévu", type: "date" },
+    { key: "date_fin_prevue", label: "Fin prévue", type: "date" },
+    { key: "date_debut_reelle", label: "Début réel", type: "date" },
+    { key: "date_fin_reelle", label: "Fin réelle", type: "date" },
+    { key: "notes", label: "Notes", type: "textarea" },
+  ],
+  messages: [
+    { key: "objet", label: "Objet", type: "text", placeholder: "Relance devis / Confirmation RDV" },
+    { key: "canal", label: "Canal", type: "select", options: ["email", "sms", "whatsapp", "interne", "note_appel", "autre"] },
+    { key: "direction", label: "Sens", type: "select", options: ["sortant", "entrant", "interne"] },
+    { key: "statut", label: "Statut", type: "select", options: ["brouillon", "a_valider", "envoye", "recu", "echec", "archive"] },
+    { key: "destinataire", label: "Destinataire (email / n°)", type: "text" },
+    { key: "corps", label: "Message", type: "textarea" },
+    { key: "client_id", label: "Client", type: "relation", relation: "clients" },
+    { key: "chantier_id", label: "Chantier", type: "relation", relation: "chantiers" },
+    { key: "intervention_id", label: "Intervention", type: "relation", relation: "interventions" },
+    { key: "devis_id", label: "Devis", type: "relation", relation: "devis" },
+    { key: "facture_id", label: "Facture", type: "relation", relation: "factures" },
+    { key: "demande_id", label: "Demande", type: "relation", relation: "demandes" },
+    { key: "supplier_id", label: "Fournisseur / Sous-traitant", type: "relation", relation: "suppliers" },
+    { key: "date_message", label: "Date", type: "date" },
+  ],
+  notes: [
+    { key: "titre", label: "Titre", type: "text", placeholder: "Observation chantier" },
+    { key: "contenu", label: "Note", type: "textarea", required: true },
+    { key: "source", label: "Source", type: "select", options: ["manuel", "vocal", "ia", "import", "autre"] },
+    { key: "auteur_id", label: "Auteur", type: "relation", relation: "employees" },
+    { key: "client_id", label: "Client", type: "relation", relation: "clients" },
+    { key: "chantier_id", label: "Chantier", type: "relation", relation: "chantiers" },
+    { key: "intervention_id", label: "Intervention", type: "relation", relation: "interventions" },
+    { key: "demande_id", label: "Demande", type: "relation", relation: "demandes" },
+    { key: "reserve_id", label: "Réserve", type: "relation", relation: "reserves" },
+    { key: "task_id", label: "Tâche", type: "relation", relation: "tasks" },
+    { key: "devis_id", label: "Devis", type: "relation", relation: "devis" },
+    { key: "supplier_id", label: "Fournisseur / Sous-traitant", type: "relation", relation: "suppliers" },
+  ],
+  validations: [
+    { key: "type", label: "Type", type: "select", required: true, options: ["acceptation_devis", "validation_facture", "signature_pv", "signature_intervention", "approbation_document", "validation_reserve", "autre"] },
+    { key: "statut", label: "Statut", type: "select", options: ["en_attente", "approuve", "refuse", "signe", "expire", "annule"] },
+    { key: "signataire_nom", label: "Signataire", type: "text" },
+    { key: "signataire_email", label: "Email signataire", type: "email" },
+    { key: "signataire_tel", label: "Téléphone signataire", type: "tel" },
+    { key: "devis_id", label: "Devis", type: "relation", relation: "devis" },
+    { key: "facture_id", label: "Facture", type: "relation", relation: "factures" },
+    { key: "document_id", label: "Document", type: "relation", relation: "documents" },
+    { key: "intervention_id", label: "Intervention", type: "relation", relation: "interventions" },
+    { key: "reserve_id", label: "Réserve", type: "relation", relation: "reserves" },
+    { key: "chantier_id", label: "Chantier", type: "relation", relation: "chantiers" },
+    { key: "client_id", label: "Client", type: "relation", relation: "clients" },
+    { key: "demandeur_id", label: "Demandé par", type: "relation", relation: "employees" },
+    { key: "date_signature", label: "Signé le", type: "date" },
+    { key: "motif_refus", label: "Motif du refus", type: "textarea" },
     { key: "notes", label: "Notes", type: "textarea" },
   ],
 };
@@ -453,6 +755,17 @@ const ENTITY_KEYWORDS: Record<string, string[]> = {
   pointages: ["pointage", "pointer", "heures", "temps passé", "temps passe", "feuille d'heures", "feuille de temps", "main d'oeuvre", "main d'œuvre"],
   contrats: ["contrat", "contrats", "contrat d'entretien", "abonnement", "récurrent", "recurrent", "échéance", "echeance", "renouvellement"],
   parc_installe: ["parc installé", "parc installe", "parc client", "équipement client", "equipement client", "chaudière", "chaudiere", "climatisation", "clim", "pompe à chaleur", "pompe a chaleur", "pac", "vmc", "chauffe-eau", "chauffe eau", "matériel posé", "materiel pose"],
+  sites: ["site", "sites", "adresse", "adresses", "lieu", "chantier adresse", "site d'intervention", "résidence", "residence", "immeuble", "appartement", "local commercial", "point de livraison"],
+  demandes: ["demande", "demandes", "opportunité", "opportunite", "opportunités", "lead", "leads", "prospect", "demande de prix", "demande de devis", "appel entrant", "formulaire", "pipe", "pipeline"],
+  commandes: ["commande", "commandes", "bon de commande", "achat", "achats", "commande fournisseur", "approvisionnement", "appro"],
+  depenses: ["dépense", "depense", "dépenses", "depenses", "facture fournisseur", "factures fournisseur", "charge", "charges", "coût", "cout", "sortie d'argent", "note de frais"],
+  paiements: ["paiement", "paiements", "encaissement", "encaissements", "règlement", "reglement", "acompte reçu", "versement", "reçu", "recu", "solde", "virement reçu"],
+  reserves: ["réserve", "reserve", "réserves", "reserves", "incident", "incidents", "malfaçon", "malfacon", "litige", "litiges", "problème chantier", "probleme chantier", "point bloquant", "pv de réception", "levée de réserves"],
+  rappels: ["rappel", "rappels", "échéance", "echeance", "échéances", "echeances", "relance", "relances", "à relancer", "a relancer", "reminder", "alerte", "ne pas oublier", "suivi à faire"],
+  lots: ["lot", "lots", "étape", "etape", "étapes", "etapes", "phase", "phases", "tranche", "corps d'état", "corps d'etat", "poste", "sous-lot", "sous lot"],
+  messages: ["message", "messages", "communication", "communications", "échange", "echange", "historique client", "email envoyé", "sms envoyé", "whatsapp", "relance envoyée", "note d'appel", "conversation", "correspondance"],
+  notes: ["note", "notes", "observation", "observations", "remarque", "remarques", "compte rendu", "compte-rendu", "mémo", "memo", "note de terrain", "note vocale", "annotation", "commentaire"],
+  validations: ["validation", "validations", "signature", "signatures", "signer", "à signer", "a signer", "signé", "signe", "acceptation", "approbation", "approuver", "bon pour accord", "pv de réception signé", "devis signé", "faire valider"],
 };
 
 function normalize(s: string): string {
@@ -517,6 +830,17 @@ export function detectConnectedEntities(prompt: string, appType?: string | null)
   if (hits.has("parc_installe")) {
     hits.add("clients");
   }
+  // Un message / une note / une validation vivent sur le hub Client/Chantier.
+  if (hits.has("messages") || hits.has("notes")) {
+    hits.add("clients");
+    hits.add("chantiers");
+  }
+  // Une validation porte le plus souvent sur un devis/une facture, chez un client.
+  if (hits.has("validations")) {
+    hits.add("clients");
+    hits.add("devis");
+    hits.add("factures");
+  }
   return [...hits];
 }
 
@@ -539,6 +863,9 @@ const ENTITY_ALIASES: Record<string, string> = {
   contrats: "contrats d'entretien, abonnements, échéances récurrentes",
   parc_installe: "parc installé, équipement client posé (chaudière, PAC, VMC…)",
   lignes: "lignes de devis/facture (désignation, quantité, prix)",
+  messages: "messages, communications, échanges, historique client, emails/SMS/WhatsApp envoyés",
+  notes: "notes, observations, comptes rendus, mémos, notes de terrain/vocales",
+  validations: "validations, signatures, acceptations, approbations, « bon pour accord »",
 };
 
 /**

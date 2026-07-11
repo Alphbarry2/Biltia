@@ -74,3 +74,63 @@ export function buildWorkspaceBlock(ctx: WorkspaceContext | null): string {
 
   return lines.join("\n");
 }
+
+/**
+ * Snapshot PILOTAGE (trésorerie / commercial) pour l'ASSISTANT interactif : donne
+ * au copilote de quoi répondre AVEC DE VRAIS CHIFFRES à « quelles factures sont en
+ * retard ? », « combien je vais encaisser ? », « quels devis relancer ? » — ce que
+ * le résumé chantiers/clients (get_workspace_context) ne couvrait pas. Lecture RLS
+ * (client user), tenant-scopée, agrégée en JS sur volume borné. N'écrit RIEN et est
+ * ENTIÈREMENT tolérant : toute table absente ou erreur → "" (jamais bloquant).
+ */
+export async function buildPilotageSnapshot(supabase: SupabaseClient, tenantId: string): Promise<string> {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const eur = (n: number) => `${Math.round(n).toLocaleString("fr-FR")} €`;
+    type Money = { statut?: string | null; montant_ttc?: number | null; montant_paye?: number | null; date_echeance?: string | null };
+    const sum = (rows: Money[] | null, f: "montant_ttc" | "montant_paye") =>
+      (rows ?? []).reduce((t, r) => t + (Number(r[f]) || 0), 0);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const from = (t: string) => (supabase.from as any)(t);
+
+    const [{ data: devisAll }, { data: factAll }] = await Promise.all([
+      from("devis").select("statut, montant_ttc").eq("tenant_id", tenantId).limit(1000),
+      from("factures").select("statut, montant_ttc, montant_paye, date_echeance").eq("tenant_id", tenantId).limit(1000),
+    ]);
+    const dv = (devisAll ?? []) as Money[];
+    const fc = (factAll ?? []) as Money[];
+
+    const emises = fc.filter((f) => ["envoyee", "partiellement_payee", "payee", "en_retard"].includes(String(f.statut)));
+    const devisEnvoyes = dv.filter((d) => d.statut === "envoye");
+    const caSigne = sum(dv.filter((d) => d.statut === "accepte"), "montant_ttc");
+    const devisAttente = sum(devisEnvoyes, "montant_ttc");
+    const caFacture = sum(emises, "montant_ttc");
+    const caEncaisse = sum(emises, "montant_paye");
+    const resteAEncaisser = Math.max(0, caFacture - caEncaisse);
+    const echues = emises.filter((f) => f.statut !== "payee" && f.date_echeance && f.date_echeance < today);
+    const resteEchu = echues.reduce((t, f) => t + Math.max(0, (Number(f.montant_ttc) || 0) - (Number(f.montant_paye) || 0)), 0);
+
+    const lines: string[] = [];
+    if (devisEnvoyes.length) lines.push(`- Devis en attente de réponse : ${devisEnvoyes.length} (${eur(devisAttente)})`);
+    if (echues.length) lines.push(`- Factures échues impayées : ${echues.length} (${eur(resteEchu)} à recouvrer)`);
+    if (caSigne > 0) lines.push(`- CA signé (devis acceptés) : ${eur(caSigne)}`);
+    if (caFacture > 0) lines.push(`- CA facturé : ${eur(caFacture)} · encaissé ${eur(caEncaisse)} · reste à encaisser ${eur(resteAEncaisser)}`);
+
+    // Payables fournisseurs (table depenses, migration 037 — tolérée absente).
+    try {
+      const { data: depAll, error } = await from("depenses")
+        .select("statut, montant_ttc").eq("tenant_id", tenantId).in("statut", ["a_payer", "en_retard"]).limit(1000);
+      if (!error) {
+        const aPayer = sum((depAll ?? []) as Money[], "montant_ttc");
+        if (aPayer > 0) lines.push(`- À payer aux fournisseurs : ${eur(aPayer)}`);
+      }
+    } catch {
+      /* dépenses indisponibles → on ignore ce point */
+    }
+
+    if (!lines.length) return "";
+    return ["# PILOTAGE — TRÉSORERIE & COMMERCIAL (chiffres à date, cite-les tels quels)", ...lines].join("\n");
+  } catch {
+    return "";
+  }
+}

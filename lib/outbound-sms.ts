@@ -8,19 +8,41 @@
 // (sent.dm…) = réécrire ce seul fichier. Dégradation HONNÊTE : clés absentes →
 // { ok:false, reason } explicite, jamais d'exception propagée.
 //
-// Env : TWILIO_ACCOUNT_SID (AC…), TWILIO_AUTH_TOKEN, et un expéditeur —
-//   TWILIO_FROM (numéro E.164 : +33…) OU TWILIO_MESSAGING_SERVICE_SID (MG…).
+// Env : TWILIO_ACCOUNT_SID (AC…, sert au chemin d'URL) + un mode d'authentification
+//   PRÉFÉRÉ → TWILIO_API_KEY_SID (SK…) + TWILIO_API_KEY_SECRET  (clé révocable, ne
+//             compromet pas le compte entier si elle fuite)
+//   REPLI   → TWILIO_AUTH_TOKEN  (clé maîtresse du compte)
+//   et un expéditeur — TWILIO_FROM (numéro E.164 : +33…) OU TWILIO_MESSAGING_SERVICE_SID (MG…).
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type SmsResult =
   | { ok: true; sent: number; failed: number; ids: string[] }
   | { ok: false; reason: string };
 
-export function hasSmsProvider(): boolean {
-  const sid = process.env.TWILIO_ACCOUNT_SID ?? "";
+/**
+ * Résout les identifiants Basic Auth pour l'API REST Twilio. Priorité à la clé
+ * API dédiée (SK…:secret) — révocable, périmètre limité ; repli sur l'Auth Token
+ * (AC…:token) si la clé n'est pas configurée. Renvoie null si aucun mode valide.
+ * NB : quel que soit le mode, le CHEMIN d'URL utilise toujours l'Account SID (AC…).
+ */
+function twilioAuth(): { user: string; pass: string } | null {
+  const keySid = process.env.TWILIO_API_KEY_SID ?? "";
+  const keySecret = process.env.TWILIO_API_KEY_SECRET ?? "";
+  if (keySid.startsWith("SK") && keySecret.length > 20) {
+    return { user: keySid, pass: keySecret };
+  }
+  const accountSid = process.env.TWILIO_ACCOUNT_SID ?? "";
   const token = process.env.TWILIO_AUTH_TOKEN ?? "";
+  if (accountSid.startsWith("AC") && token.length > 20) {
+    return { user: accountSid, pass: token };
+  }
+  return null;
+}
+
+export function hasSmsProvider(): boolean {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID ?? "";
   const from = process.env.TWILIO_FROM ?? process.env.TWILIO_MESSAGING_SERVICE_SID ?? "";
-  return sid.startsWith("AC") && token.length > 20 && from.length > 3;
+  return accountSid.startsWith("AC") && twilioAuth() !== null && from.length > 3;
 }
 
 export function canSendSms(): boolean {
@@ -69,12 +91,15 @@ export async function sendSms(opts: {
     return { ok: false, reason: "aucun numéro valide (format attendu : +33612345678)" };
   }
 
-  const sid = process.env.TWILIO_ACCOUNT_SID as string;
-  const token = process.env.TWILIO_AUTH_TOKEN as string;
+  const accountSid = process.env.TWILIO_ACCOUNT_SID as string;
+  const creds = twilioAuth();
+  if (!creds) {
+    return { ok: false, reason: "SMS non configuré (identifiants Twilio manquants)." };
+  }
   const from = process.env.TWILIO_FROM ?? "";
   const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID ?? "";
-  const auth = Buffer.from(`${sid}:${token}`).toString("base64");
-  const url = `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`;
+  const auth = Buffer.from(`${creds.user}:${creds.pass}`).toString("base64");
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
 
   const ids: string[] = [];
   let failed = 0;

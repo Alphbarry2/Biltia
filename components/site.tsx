@@ -10,6 +10,7 @@ import {
 import {
   Menu, X, ChevronDown, ChevronLeft, ChevronRight, ArrowRight,
   FileText, LayoutGrid, Zap, ScanLine, MessageCircle, FolderKanban, Bot,
+  Monitor, Tablet, Smartphone,
 } from "lucide-react";
 import { PRODUCTS } from "@/lib/products";
 import { TEMPLATE_PREVIEWS, type TemplatePreview } from "@/lib/template-previews";
@@ -122,10 +123,10 @@ export function InteractiveMesh({ strong = false, grid = true }: { strong?: bool
     <div ref={ref} className="absolute inset-0 isolate overflow-hidden pointer-events-none">
       <div className="absolute inset-0 bg-[#FCFCFD]" />
       {/* Wash pastel multicolore (couleurs Biltia), volontairement doux pour laisser voir la grille */}
-      <div className="absolute -top-[16%] -left-[8%] w-[62vw] h-[62vw] max-w-[820px] rounded-full blur-[120px] animate-drift-a" style={{ background: `radial-gradient(circle, rgba(99,102,241,${0.26 * o}), transparent 68%)` }} />
-      <div className="absolute -top-[6%] right-[-10%] w-[56vw] h-[56vw] max-w-[740px] rounded-full blur-[130px] animate-drift-c" style={{ background: `radial-gradient(circle, rgba(168,85,247,${0.22 * o}), transparent 68%)` }} />
-      <div className="absolute bottom-[-22%] left-[6%] w-[60vw] h-[60vw] max-w-[800px] rounded-full blur-[130px] animate-drift-b" style={{ background: `radial-gradient(circle, rgba(236,72,153,${0.22 * o}), transparent 68%)` }} />
-      <div className="absolute bottom-[-16%] right-[2%] w-[50vw] h-[50vw] max-w-[660px] rounded-full blur-[130px] animate-drift-d" style={{ background: `radial-gradient(circle, rgba(251,146,60,${0.18 * o}), transparent 68%)` }} />
+      <div className="mesh-blob absolute -top-[16%] -left-[8%] w-[62vw] h-[62vw] max-w-[820px] rounded-full blur-[120px] animate-drift-a" style={{ background: `radial-gradient(circle, rgba(99,102,241,${0.26 * o}), transparent 68%)` }} />
+      <div className="mesh-blob absolute -top-[6%] right-[-10%] w-[56vw] h-[56vw] max-w-[740px] rounded-full blur-[130px] animate-drift-c" style={{ background: `radial-gradient(circle, rgba(168,85,247,${0.22 * o}), transparent 68%)` }} />
+      <div className="mesh-blob absolute bottom-[-22%] left-[6%] w-[60vw] h-[60vw] max-w-[800px] rounded-full blur-[130px] animate-drift-b" style={{ background: `radial-gradient(circle, rgba(236,72,153,${0.22 * o}), transparent 68%)` }} />
+      <div className="mesh-blob absolute bottom-[-16%] right-[2%] w-[50vw] h-[50vw] max-w-[660px] rounded-full blur-[130px] animate-drift-d" style={{ background: `radial-gradient(circle, rgba(251,146,60,${0.18 * o}), transparent 68%)` }} />
       {grid && (
         <>
           {/* Quadrillage très discret, teinté marque */}
@@ -145,8 +146,8 @@ export function Mesh() {
   return (
     <div className="absolute inset-0 -z-10 overflow-hidden pointer-events-none">
       <div className="absolute inset-0 bg-[#FCFCFD]" />
-      <div className="absolute -top-[20%] -left-[10%] w-[70vw] h-[70vw] rounded-full blur-[110px]" style={{ background: "radial-gradient(circle, rgba(99,102,241,0.5), transparent 66%)" }} />
-      <div className="absolute bottom-[-24%] right-[-8%] w-[66vw] h-[66vw] rounded-full blur-[120px]" style={{ background: "radial-gradient(circle, rgba(236,72,153,0.46), transparent 66%)" }} />
+      <div className="mesh-blob absolute -top-[20%] -left-[10%] w-[70vw] h-[70vw] rounded-full blur-[110px]" style={{ background: "radial-gradient(circle, rgba(99,102,241,0.5), transparent 66%)" }} />
+      <div className="mesh-blob absolute bottom-[-24%] right-[-8%] w-[66vw] h-[66vw] rounded-full blur-[120px]" style={{ background: "radial-gradient(circle, rgba(236,72,153,0.46), transparent 66%)" }} />
     </div>
   );
 }
@@ -333,22 +334,91 @@ function TemplateCard({ t, onActivate, ctaLabel }: { t: TemplatePreview; onActiv
   );
 }
 
-// Modale d'aperçu plein cadre (template interactif) + CTA.
+// Appareil réel du visiteur : mobile < 768px, tablette < 1024px, sinon bureau.
+// Détermine QUELS formats d'aperçu sont proposés (on ne propose jamais un format
+// plus large que l'écran réel : sur tablette pas de « bureau », sur mobile rien).
+type PreviewDevice = "desktop" | "tablet" | "mobile";
+function useVisitorDevice(): PreviewDevice {
+  const [device, setDevice] = useState<PreviewDevice>("desktop");
+  useEffect(() => {
+    const compute = () => {
+      const w = window.innerWidth;
+      setDevice(w < 768 ? "mobile" : w < 1024 ? "tablet" : "desktop");
+    };
+    compute();
+    window.addEventListener("resize", compute);
+    return () => window.removeEventListener("resize", compute);
+  }, []);
+  return device;
+}
+
+const DEVICE_META: Record<PreviewDevice, { label: string; Icon: typeof Monitor }> = {
+  desktop: { label: "Bureau", Icon: Monitor },
+  tablet: { label: "Tablette", Icon: Tablet },
+  mobile: { label: "Mobile", Icon: Smartphone },
+};
+
+// Modale d'aperçu plein cadre (template interactif) + sélecteur bureau/tablette/mobile + CTA.
 function TemplatePreviewModal({ t, onClose, onUse }: { t: TemplatePreview; onClose: () => void; onUse: (t: TemplatePreview) => void }) {
+  const visitor = useVisitorDevice();
+  // Formats proposés = tous ceux ≤ l'appareil du visiteur. Bureau → 3, tablette → 2, mobile → 1.
+  const options: PreviewDevice[] =
+    visitor === "desktop" ? ["desktop", "tablet", "mobile"]
+    : visitor === "tablet" ? ["tablet", "mobile"]
+    : ["mobile"];
+  const [device, setDevice] = useState<PreviewDevice>(visitor);
+  // Défaut = l'appareil du visiteur ; recale si un changement d'écran rend le format courant impossible.
+  useEffect(() => {
+    setDevice((d) => (options.includes(d) ? d : options[0]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visitor]);
+
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-6" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-[#0A0A0F]/55 backdrop-blur-sm" onClick={onClose} />
       <div className="relative w-full sm:w-[78vw] max-w-[1560px] h-[92vh] sm:h-[88vh] bg-white rounded-[24px] overflow-hidden shadow-[0_50px_130px_rgba(20,20,50,0.45)] flex flex-col">
-        <div className="flex items-center justify-between gap-3 px-5 h-14 border-b border-[#ECECF2] flex-shrink-0">
-          <div className="flex items-center gap-2.5 min-w-0">
+        <div className="flex items-center gap-3 px-5 h-14 border-b border-[#ECECF2] flex-shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
             <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: t.accent }} />
             <h3 className="font-bold text-[#0A0A0A] tracking-[-0.01em] truncate">{t.name}</h3>
             <span className="hidden sm:inline flex-shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ color: t.accent, background: `${t.accent}14`, border: `1px solid ${t.accent}2e` }}>{t.category}</span>
           </div>
-          <button onClick={onClose} aria-label="Fermer" className="w-9 h-9 rounded-full hover:bg-black/[0.05] flex items-center justify-center text-[#6E6E7A] flex-shrink-0"><X className="w-[18px] h-[18px]" /></button>
+          {/* Sélecteur de format (masqué sur mobile : mobile par défaut, rien à changer). */}
+          {options.length > 1 && (
+            <div className="flex items-center gap-0.5 bg-[#F6F6F9] rounded-full p-0.5 flex-shrink-0">
+              {options.map((d) => {
+                const { label, Icon } = DEVICE_META[d];
+                return (
+                  <button
+                    key={d}
+                    onClick={() => setDevice(d)}
+                    title={`Aperçu ${label.toLowerCase()}`}
+                    aria-label={`Aperçu ${label.toLowerCase()}`}
+                    aria-pressed={device === d}
+                    className={`grid h-7 w-7 place-items-center rounded-full transition-colors ${device === d ? "bg-white text-[#0A0A0A] shadow-[0_1px_3px_rgba(0,0,0,0.1)]" : "text-[#9A9AA6] hover:text-[#0A0A0A]"}`}
+                  >
+                    <Icon className="w-4 h-4" />
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <div className="flex items-center justify-end flex-1">
+            <button onClick={onClose} aria-label="Fermer" className="w-9 h-9 rounded-full hover:bg-black/[0.05] flex items-center justify-center text-[#6E6E7A] flex-shrink-0"><X className="w-[18px] h-[18px]" /></button>
+          </div>
         </div>
-        <div className="relative flex-1 bg-[#FBFBFD] min-h-0">
-          <iframe src={`/t/${t.id}`} title={t.name} sandbox="allow-scripts allow-same-origin" className="absolute inset-0 w-full h-full border-0" />
+        <div className={`relative flex-1 bg-[#FBFBFD] min-h-0 ${device === "desktop" ? "" : "flex items-center justify-center overflow-auto p-4 sm:p-6"}`}>
+          <div
+            className={
+              device === "desktop"
+                ? "absolute inset-0"
+                : device === "tablet"
+                  ? "w-[820px] max-w-full h-[1100px] max-h-full flex-shrink-0 overflow-hidden rounded-[1.5rem] bg-white shadow-[0_24px_70px_rgba(60,40,120,0.16)]"
+                  : "w-[390px] max-w-full h-[844px] max-h-full flex-shrink-0 overflow-hidden rounded-[1.5rem] bg-white shadow-[0_24px_70px_rgba(60,40,120,0.2)]"
+            }
+          >
+            <iframe src={`/t/${t.id}`} title={t.name} sandbox="allow-scripts allow-same-origin" className="w-full h-full border-0" />
+          </div>
         </div>
         <div className="flex items-center justify-between gap-3 px-5 py-4 border-t border-[#ECECF2] flex-shrink-0">
           <p className="hidden sm:block text-[13px] text-[#5B5B66] truncate">{t.tagline}</p>

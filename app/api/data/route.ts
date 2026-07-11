@@ -59,7 +59,11 @@ function captureLearningSignal(
 
 // Actions qui MODIFIENT les données : refusées si l'abonnement est gelé (lecture
 // seule). `list`/`get` restent toujours ouverts (consultation + export garantis).
-const WRITE_ACTIONS = new Set(["create", "bulk_create", "update", "delete", "bulk_delete", "invoice_from_devis"]);
+const WRITE_ACTIONS = new Set([
+  "create", "bulk_create", "update", "delete", "bulk_delete", "invoice_from_devis",
+  // Transformations atomiques (même famille que invoice_from_devis) — écritures.
+  "chantier_from_devis", "devis_from_demande", "task_from_note", "reserve_from_note",
+]);
 const DELETE_ACTIONS = new Set(["delete", "bulk_delete"]);
 
 function sameOrigin(req: Request): boolean {
@@ -214,6 +218,9 @@ export async function POST(req: Request) {
     devisId?: string;
     mode?: string;
     pct?: number;
+    // Transformations atomiques : id de la fiche SOURCE (fallback sur `id`).
+    demandeId?: string;
+    noteId?: string;
   };
   try {
     body = await req.json();
@@ -652,6 +659,189 @@ export async function POST(req: Request) {
         (facture.id as string) ?? null
       );
       return NextResponse.json({ data: facture });
+    }
+
+    // ── DEVIS ACCEPTÉ → CHANTIER ── ouvre le chantier d'exécution SANS re-saisie :
+    // reprend client/site/demande + l'adresse, budgète au montant HT du devis, et
+    // RELIE le devis au chantier créé (devis.chantier_id). Idempotent : si le devis
+    // pointe déjà un chantier, on le renvoie au lieu d'en créer un doublon.
+    // Appelé avec entity="chantiers", devisId (ou id) = le devis source.
+    if (action === "chantier_from_devis") {
+      const devisId = String(body.devisId || body.id || "");
+      if (!devisId) return NextResponse.json({ error: "Devis manquant." }, { status: 400 });
+      const { data: dv, error: dErr } = await from("devis")
+        .select("id, numero, client_id, chantier_id, site_id, demande_id, montant_ht")
+        .eq("tenant_id", tenantId)
+        .eq("id", devisId)
+        .single();
+      if (dErr || !dv) return NextResponse.json({ error: "Devis introuvable." }, { status: 404 });
+
+      // Déjà relié → renvoie le chantier existant (pas de doublon).
+      if (dv.chantier_id) {
+        const { data: existing } = await from("chantiers")
+          .select("*").eq("tenant_id", tenantId).eq("id", dv.chantier_id).maybeSingle();
+        if (existing) return NextResponse.json({ data: existing });
+      }
+
+      // Nom + adresse : depuis le site s'il existe, sinon le client.
+      let clientNom = "";
+      let addr: { adresse: string | null; ville: string | null; code_postal: string | null } = {
+        adresse: null, ville: null, code_postal: null,
+      };
+      if (dv.client_id) {
+        const { data: cl } = await from("clients")
+          .select("nom, adresse, ville, code_postal").eq("tenant_id", tenantId).eq("id", dv.client_id).maybeSingle();
+        if (cl) {
+          clientNom = String(cl.nom || "");
+          addr = { adresse: cl.adresse ?? null, ville: cl.ville ?? null, code_postal: cl.code_postal ?? null };
+        }
+      }
+      if (dv.site_id) {
+        const { data: st } = await from("sites")
+          .select("adresse, ville, code_postal").eq("tenant_id", tenantId).eq("id", dv.site_id).maybeSingle();
+        if (st) addr = { adresse: st.adresse ?? null, ville: st.ville ?? null, code_postal: st.code_postal ?? null };
+      }
+      const nom = clientNom ? `Chantier — ${clientNom}` : `Chantier ${dv.numero ?? ""}`.trim();
+
+      const { data: chantier, error: insErr } = await from("chantiers")
+        .insert({
+          tenant_id: tenantId,
+          nom,
+          client_id: dv.client_id ?? null,
+          site_id: dv.site_id ?? null,
+          demande_id: dv.demande_id ?? null,
+          adresse: addr.adresse,
+          ville: addr.ville,
+          code_postal: addr.code_postal,
+          budget: Number(dv.montant_ht) || 0,
+          avancement: 0,
+          statut: "en_attente",
+        })
+        .select()
+        .single();
+      if (insErr || !chantier) throw insErr || new Error("Création du chantier impossible.");
+
+      // Lien retour : le devis pointe désormais son chantier.
+      await from("devis").update({ chantier_id: chantier.id }).eq("tenant_id", tenantId).eq("id", devisId);
+      await log("create", `${ENTITIES.chantiers.label} « ${nom} » — ouvert depuis le devis ${dv.numero ?? ""}`.trim(), (chantier.id as string) ?? null);
+      return NextResponse.json({ data: chantier });
+    }
+
+    // ── DEMANDE → DEVIS ── amorce un devis brouillon depuis une demande entrante :
+    // reprend client/site + relie demande_id, numérote D-AAAA-NNN côté serveur.
+    // Idempotent : si un devis existe déjà pour cette demande, on le renvoie.
+    // Appelé avec entity="devis", demandeId (ou id) = la demande source.
+    if (action === "devis_from_demande") {
+      const demandeId = String(body.demandeId || body.id || "");
+      if (!demandeId) return NextResponse.json({ error: "Demande manquante." }, { status: 400 });
+      const { data: dm, error: dErr } = await from("demandes")
+        .select("id, titre, client_id, site_id, description")
+        .eq("tenant_id", tenantId)
+        .eq("id", demandeId)
+        .single();
+      if (dErr || !dm) return NextResponse.json({ error: "Demande introuvable." }, { status: 404 });
+
+      const { data: dejaDevis } = await from("devis")
+        .select("*").eq("tenant_id", tenantId).eq("demande_id", demandeId).limit(1);
+      if (Array.isArray(dejaDevis) && dejaDevis[0]) return NextResponse.json({ data: dejaDevis[0] });
+
+      // Numéro D-AAAA-NNN unique par entreprise (base = max de l'année).
+      const year = new Date().getFullYear();
+      const pre = `D-${year}-`;
+      const { data: nums } = await from("devis").select("numero").eq("tenant_id", tenantId).ilike("numero", `${pre}%`);
+      let seq = 0;
+      for (const r of (nums ?? []) as { numero: string | null }[]) {
+        const val = parseInt(String(r.numero || "").slice(pre.length), 10);
+        if (Number.isFinite(val) && val > seq) seq = val;
+      }
+      const today = new Date();
+      const dateDevis = today.toISOString().slice(0, 10);
+      const dateValidite = new Date(today.getTime() + 30 * 86_400_000).toISOString().slice(0, 10);
+
+      let devis: Record<string, unknown> | null = null;
+      let insErr: unknown = null;
+      for (let attempt = 1; attempt <= 6; attempt++) {
+        const numero = `${pre}${String(seq + attempt).padStart(3, "0")}`;
+        const { data: ins, error } = await from("devis")
+          .insert({
+            tenant_id: tenantId,
+            numero,
+            client_id: dm.client_id ?? null,
+            site_id: dm.site_id ?? null,
+            demande_id: demandeId,
+            statut: "brouillon",
+            date_devis: dateDevis,
+            date_validite: dateValidite,
+            montant_ht: 0,
+            montant_tva: 0,
+            montant_ttc: 0,
+            notes: dm.description || dm.titre || null,
+          })
+          .select()
+          .single();
+        if (!error) { devis = ins as Record<string, unknown>; break; }
+        insErr = error;
+        if ((error as { code?: string }).code !== "23505") break;
+      }
+      if (!devis) throw insErr || new Error("Création du devis impossible.");
+
+      // La demande passe « en cours » (best-effort, ne bloque pas la réponse).
+      await from("demandes").update({ statut: "en_cours" }).eq("tenant_id", tenantId).eq("id", demandeId);
+      await log("create", `${ENTITIES.devis.label} ${devis.numero} — ébauché depuis la demande « ${dm.titre ?? ""} »`.trim(), (devis.id as string) ?? null);
+      return NextResponse.json({ data: devis });
+    }
+
+    // ── NOTE → TÂCHE / RÉSERVE ── transforme une note terrain en action suivie,
+    // en reprenant ses rattachements (chantier, intervention, auteur). Appelé avec
+    // entity="tasks" (task_from_note) ou entity="reserves" (reserve_from_note),
+    // noteId (ou id) = la note source.
+    if (action === "task_from_note" || action === "reserve_from_note") {
+      const noteId = String(body.noteId || body.id || "");
+      if (!noteId) return NextResponse.json({ error: "Note manquante." }, { status: 400 });
+      const { data: nt, error: nErr } = await from("notes")
+        .select("id, titre, contenu, chantier_id, client_id, intervention_id, auteur_id")
+        .eq("tenant_id", tenantId)
+        .eq("id", noteId)
+        .single();
+      if (nErr || !nt) return NextResponse.json({ error: "Note introuvable." }, { status: 404 });
+
+      const titre = String(nt.titre || nt.contenu || "").trim().slice(0, 120) || "Note";
+      if (action === "task_from_note") {
+        const { data: task, error: insErr } = await from("tasks")
+          .insert({
+            tenant_id: tenantId,
+            title: titre,
+            description: nt.contenu || null,
+            status: "todo",
+            priority: "normal",
+            chantier_id: nt.chantier_id ?? null,
+            assignee_id: nt.auteur_id ?? null,
+          })
+          .select()
+          .single();
+        if (insErr || !task) throw insErr || new Error("Création de la tâche impossible.");
+        await log("create", `${ENTITIES.tasks.label} « ${titre} » — créée depuis une note`, (task.id as string) ?? null);
+        return NextResponse.json({ data: task });
+      }
+      const { data: reserve, error: insErr } = await from("reserves")
+        .insert({
+          tenant_id: tenantId,
+          titre,
+          description: nt.contenu || null,
+          type: "reserve",
+          gravite: "normale",
+          statut: "ouverte",
+          chantier_id: nt.chantier_id ?? null,
+          client_id: nt.client_id ?? null,
+          intervention_id: nt.intervention_id ?? null,
+          assignee_id: nt.auteur_id ?? null,
+          date_constat: new Date().toISOString().slice(0, 10),
+        })
+        .select()
+        .single();
+      if (insErr || !reserve) throw insErr || new Error("Création de la réserve impossible.");
+      await log("create", `${ENTITIES.reserves.label} « ${titre} » — créée depuis une note`, (reserve.id as string) ?? null);
+      return NextResponse.json({ data: reserve });
     }
 
     return NextResponse.json({ error: `Action inconnue : ${action}` }, { status: 400 });

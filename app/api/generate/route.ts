@@ -5,6 +5,7 @@ import { buildKnowledgeBlock } from "@/lib/btp-catalog";
 import { classifyKind, coerceKind, looksLikePureQuestion, extractCalendarEvent, type BiltiaKind } from "@/lib/kind-router";
 import { gmailStatus, sendGmail } from "@/lib/gmail";
 import { readAgenda, createEvent } from "@/lib/gcal";
+import { loadPlannedInterventions, findFreeSlots, formatSlotFr } from "@/lib/planning-slots";
 import { classifyQuestionTopic } from "@/lib/question-topics";
 import { buildDocumentSystemPrompt, injectDocumentRuntime } from "@/lib/document-generator";
 import { assessDocumentReadiness } from "@/lib/document-context";
@@ -18,7 +19,7 @@ import {
 } from "@/lib/user-preferences";
 import { injectBiltiaSDK } from "@/lib/biltia-sdk";
 import { injectChartEngine } from "@/lib/app-charts";
-import { getWorkspaceContext, buildWorkspaceBlock } from "@/lib/workspace-context";
+import { getWorkspaceContext, buildWorkspaceBlock, buildPilotageSnapshot } from "@/lib/workspace-context";
 import { createClient } from "@/lib/supabase-server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { trackAiUsage, reconcileCredits } from "@/lib/ai-usage";
@@ -30,6 +31,7 @@ import { isFounderEmail } from "@/lib/founder";
 import { logActivity } from "@/lib/activity";
 import { sendPushToUser } from "@/lib/push";
 import { createAgentRule } from "@/lib/agent-rules";
+import { connectorForCapability } from "@/lib/connectors";
 import { runAgentLoop, buildWorkspaceToolsSystem } from "@/lib/agent-tools";
 import { canSendOutbound } from "@/lib/outbound-email";
 import { resolveAudience, isTaskAudience, AUDIENCE_LABELS, SEND_CAP } from "@/lib/task-now";
@@ -208,6 +210,7 @@ Réfère-toi à Lovable / Linear / Stripe : clair, calme, évident, avec une IDE
 - Des cartes BLANCHES propres, beaucoup de blanc, un accent bien présent (boutons, onglet actif, reliefs). L'écran doit respirer ET avoir une couleur.
 - MOINS d'éléments, mieux espacés. Si un visuel ou une section n'est pas VRAIMENT utile, ENLÈVE-LE. Dans le doute, retire.
 - Un SEUL bandeau fort en tête est permis (\`.cockpit\` sombre \`var(--ink)\`, ou hero clair) — mais PAS d'aplats d'accent SATURÉ à répétition. JAMAIS de mise en page bancale (une carte seule à côté d'un grand vide, un KPI orphelin).
+- LARGEUR PLEINE : le bandeau de tête (\`.cockpit\`/\`.hero\`) et toute carte de premier niveau (graphique, liste, filtre) occupent TOUTE la largeur de la colonne de contenu, à CHAQUE breakpoint. N'AJOUTE JAMAIS de \`max-width\` sur un bandeau/carte pleine largeur : sur desktop ça le « coupe » et laisse un trou à droite. Le cockpit doit s'aligner exactement sur la largeur du graphique et de la liste en dessous — bords gauche ET droit alignés. Un \`max-width\` ne se met QUE sur le conteneur GLOBAL de la vue (déjà géré), jamais sur un bloc isolé.
 - La richesse est FONCTIONNELLE (boutons qui marchent, navigation réelle, vraies données, calculs), PAS visuelle. En regardant l'écran, l'artisan doit se dire en 2 secondes « c'est propre, c'est clair, je sais quoi faire ».
 Cette règle PRIME sur toute envie d'en mettre plus : dans le doute entre « plus riche » et « plus épuré », choisis TOUJOURS plus épuré.
 
@@ -248,13 +251,15 @@ body{background:var(--bg);font-family:'Inter',system-ui,sans-serif;color:var(--i
 .card{background:#fff;border:1px solid var(--line);border-radius:20px;padding:20px;overflow:hidden;box-shadow:var(--shadow)}
 .hero{position:relative;margin:16px;padding:24px 22px;border-radius:24px;color:var(--ink);background:#fff;border:1px solid var(--line);box-shadow:var(--shadow);overflow:hidden}
 .hero-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--vio)}
-.hero-value{font-size:34px;font-weight:800;letter-spacing:-.02em;line-height:1.15;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hero-value{font-size:clamp(24px,7vw,34px);font-weight:800;letter-spacing:-.02em;line-height:1.12;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .hero-sub{font-size:12.5px;color:var(--mut)}
 /* Bandeau COCKPIT (alternative au hero clair — fond sombre, chiffre fort ; JAMAIS de cercle décoratif) */
 .cockpit{position:relative;margin:16px;padding:22px;border-radius:24px;background:var(--ink);color:#fff;overflow:hidden;box-shadow:var(--shadow-lg)}
 .cockpit .c-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:rgba(255,255,255,.6)}
-.cockpit .c-value{font-size:34px;font-weight:800;letter-spacing:-.02em;line-height:1.15;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cockpit .c-value{font-size:clamp(24px,7vw,34px);font-weight:800;letter-spacing:-.02em;line-height:1.12;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .cockpit .c-sub{font-size:12.5px;color:rgba(255,255,255,.72)}
+/* Rangée d'indicateurs secondaires SOUS le gros chiffre (score, DSO, tendance) — jamais une 2ᵉ colonne qui écrase le chiffre */
+.c-meta,.hero-meta{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:14px}
 .kpi{background:#fff;border:1px solid var(--line);border-radius:18px;padding:16px 18px;display:flex;flex-direction:column;gap:5px;overflow:hidden;box-shadow:var(--shadow)}
 .kpi-label{font-size:10px;font-weight:700;color:var(--faint);text-transform:uppercase;letter-spacing:.1em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .kpi-value{font-size:25px;font-weight:800;color:var(--ink);line-height:1.1;letter-spacing:-.02em;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -325,10 +330,10 @@ tr:hover td{background:#FAFAFC}
 ::-webkit-scrollbar{width:4px;height:4px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:#E7E7E4;border-radius:2px}
-/* MOBILE — plancher 375px : tout s'adapte, zéro débordement horizontal */
+/* MOBILE — plancher 360px : tout s'adapte, zéro débordement horizontal, aucun chiffre qui casse */
 @media(max-width:520px){
-  .hero{margin:12px;padding:18px 16px;border-radius:20px}
-  .hero-value{font-size:26px;white-space:normal;overflow:visible;text-overflow:clip;line-height:1.2}
+  .hero,.cockpit{margin:12px;padding:18px 16px;border-radius:20px}
+  .hero-value,.cockpit .c-value{font-size:clamp(22px,8vw,30px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.15}
   .kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:0 12px 12px}
   .kpi{padding:13px 14px}
   .kpi-value{font-size:20px}
@@ -346,7 +351,7 @@ FIN_CSS
 Utilise toujours cette structure :
 - \`<header class="app-header">\` fixe : \`.app-eyebrow\` (la marque — le bloc « MARQUE DE L'EN-TÊTE » du prompt donne le nom exact ; à défaut « BILTIA ») + \`.app-title\`, et à droite UN bouton \`.btn btn-primary btn-sm\`.
 - \`<main class="app-main">\`.
-- L'ÉLÉMENT MARQUANT en premier : soit un \`<section class="hero">\` clair (\`.hero-label\`/\`.hero-value\`/\`.hero-sub\`), soit un \`<section class="cockpit">\` sombre (\`.c-label\`/\`.c-value\`/\`.c-sub\`, idéal finance/pilotage — le \`.c-value\` peut défiler via \`chartCountUp\`). \`.hero-value\`/\`.c-value\` = LE chiffre qui compte pour ce métier (CA du mois, chantiers en cours, heures de la semaine…). UN SEUL bandeau en tête (hero OU cockpit), jamais les deux — c'est lui qu'on remarque. AUCUN cercle/halo décoratif (pas de \`::after\` en rond).
+- L'ÉLÉMENT MARQUANT en premier : soit un \`<section class="hero">\` clair (\`.hero-label\`/\`.hero-value\`/\`.hero-sub\`), soit un \`<section class="cockpit">\` sombre (\`.c-label\`/\`.c-value\`/\`.c-sub\`, idéal finance/pilotage — le \`.c-value\` peut défiler via \`chartCountUp\`). \`.hero-value\`/\`.c-value\` = LE chiffre qui compte pour ce métier (CA du mois, chantiers en cours, heures de la semaine…). UN SEUL bandeau en tête (hero OU cockpit), jamais les deux — c'est lui qu'on remarque. AUCUN cercle/halo/anneau décoratif à côté du chiffre (pas de \`::after\` en rond, pas de « score » en cercle). Le GROS chiffre occupe TOUTE la largeur du bandeau, sur UNE seule ligne. Tout indicateur secondaire (score, DSO, tendance, sous-total) se met DANS \`.c-meta\`/\`.hero-meta\` (une rangée de chips SOUS le chiffre, \`flex-wrap\`), JAMAIS dans une 2ᵉ colonne à droite qui rétrécit le chiffre et le fait casser.
 - KPI dans \`<div class="kpi-grid">\` : EXACTEMENT 2 ou 4 (JAMAIS 1 ni 3). Avec 3, la grille laisse une carte seule à côté d'un grand vide — défaut visuel interdit. Si tu n'as que 3 idées de KPI, choisis les 2 plus utiles, ou ajoute un 4ᵉ pertinent.
 - Recherche/filtres dans \`.search-bar\`, données dans \`.table-wrap\` (desktop) ou en cartes \`.card\` empilées (mobile).
 - Modal dans \`<div class="overlay">\` avec \`<div class="modal">\` (titre + \`.modal-sub\`).
@@ -369,6 +374,8 @@ Utilise toujours cette structure :
 6. Modal : \`overflow-y:auto; max-height:88vh\` — ne déborde jamais hors écran.
 7. Sur mobile < 480px : .form-row passe à 1 colonne via @media.
 8. Desktop : le conteneur principal S'ÉTIRE (\`width:100%\`). Un \`max-width\` n'est toléré que ≥ 1600px. L'écran de l'utilisateur doit être REMPLI, pas une colonne centrée avec du vide autour.
+9. GROS CHIFFRE (hero/cockpit) : \`font-size\` FLUIDE via \`clamp(...)\` (déjà dans le CSS), \`white-space:nowrap\` — il RÉTRÉCIT pour tenir sur UNE ligne, il ne casse JAMAIS. Un montant « 381 400 € » ne doit jamais laisser le « € » tomber seul. Insécable entre le nombre et « € » (\`&nbsp;\`).
+10. CHAQUE CARD vérifiée mentalement à 360px (hero, cockpit, kpi, \`.card\`, card graphique, card alerte) : (a) padding interne homogène ; (b) le titre de la card n'est JAMAIS collé/écrasé par un bouton ou un badge à droite — s'il n'y a pas la place côte à côte, le badge/bouton passe SOUS le titre (\`flex-wrap\`) ; (c) hiérarchie nette : 1 titre fort, chiffres tabulaires, libellés uppercase discrets ; (d) rien qui déborde, rien de coincé. Une card mal agencée à 360px = défaut interdit, au même titre qu'un débordement.
 
 ### MOBILE & ANTI-CHEVAUCHEMENT — BUGS INTERDITS (ils reviennent trop souvent) :
 1. RIEN SOUS LES BARRES FIXES : tout le contenu vit dans \`.app-main\` (padding-top 68px, padding-bottom 78px déjà prévus). \`.app-header\` et \`.tab-bar\` ne recouvrent JAMAIS le contenu ni un bouton. UN SEUL \`.app-header\`, UNE SEULE \`.tab-bar\`, UN SEUL \`.fab\` dans toute l'app.
@@ -1042,7 +1049,10 @@ export async function POST(req: Request) {
         return Response.json({
           kind: "email",
           status: "not_connected",
-          message: `Votre messagerie Gmail n'est pas connectée, je ne peux pas l'envoyer à votre place. Connectez-la dans les intégrations, ou voici le message prêt à copier :\n\nÀ : ${to}\nObjet : ${subject}\n\n${bodyText}`,
+          // Carte de connexion inline (Bloc « étape par étape ») : l'utilisateur
+          // connecte Gmail juste ici, puis je renvoie la demande et j'envoie.
+          connectors: ["gmail"],
+          message: `Il me faut d'abord connecter votre **Gmail** pour l'envoyer à votre place — c'est juste ci-dessous.\n\nEn attendant, voici le message prêt à copier :\n\nÀ : ${to}\nObjet : ${subject}\n\n${bodyText}`,
         });
       }
 
@@ -1099,9 +1109,12 @@ export async function POST(req: Request) {
         return Response.json({
           kind: "task",
           status: "not_connected",
+          // Carte de connexion inline : connecte Gmail ci-dessous, puis je résous
+          // le groupe et je prépare l'aperçu.
+          connectors: ["gmail"],
           message:
-            `Pour écrire à tes ${label.plural}, connecte ta messagerie **Gmail** (Réglages → Connexions). ` +
-            `Voici le message prêt à copier :\n\nObjet : ${subject}\n\n${bodyText}`,
+            `Pour écrire à tes ${label.plural}, il me faut d'abord ta messagerie **Gmail** — connecte-la juste ci-dessous. ` +
+            `En attendant, voici le message prêt à copier :\n\nObjet : ${subject}\n\n${bodyText}`,
         });
       }
 
@@ -1146,8 +1159,43 @@ export async function POST(req: Request) {
     // connexion en lazy → lecture réelle des 7 prochains jours. Pas connecté →
     // on propose de connecter (jamais « je ne peux pas »).
     if (kind === "calendar" && !isModification && !isAutoFix) {
-      // Extraction dédiée : lecture vs création + détails du RDV (date résolue).
+      // Extraction dédiée : lecture / création / recherche de créneau.
       const calIntent = await extractCalendarEvent(prompt);
+
+      // RECHERCHE DE CRÉNEAU LIBRE (« trouve-moi un créneau jeudi », « quand suis-je dispo pour 2h »).
+      // Base : le planning Biltia (interventions planifiées) = créneaux occupés,
+      // heures ouvrées par défaut 8h-18h du lundi au vendredi.
+      if (calIntent.action === "find_slot") {
+        const now = Date.now();
+        const fromMs = Math.max(now, Date.parse(calIntent.fromISO) || now);
+        const toMs = Math.max(fromMs + 86_400_000, Date.parse(calIntent.toISO) || fromMs + 14 * 86_400_000);
+        const items = await loadPlannedInterventions(
+          supabase as unknown as Parameters<typeof loadPlannedInterventions>[0],
+          tenantId,
+          fromMs,
+          toMs
+        );
+        const busy = items.map((it) => ({ start: it.start, end: it.end }));
+        const slots = findFreeSlots({ busy, fromMs, toMs, durationMin: calIntent.durationMin, max: 3 });
+        if (slots.length === 0) {
+          return Response.json({
+            kind: "calendar",
+            status: "ok",
+            message:
+              "Je n'ai trouvé aucun créneau libre sur cette période d'après ton planning Biltia (heures ouvrées 8h-18h du lundi au vendredi). Élargis la fenêtre ou réduis la durée, et je regarde à nouveau.",
+          });
+        }
+        const durH = Math.round((calIntent.durationMin / 60) * 10) / 10;
+        const lines = slots.map((s, idx) => `${idx + 1}. ${formatSlotFr(s.start, s.end)}`).join("\n");
+        return Response.json({
+          kind: "calendar",
+          status: "ok",
+          message:
+            `Voici ${slots.length} créneau${slots.length > 1 ? "x" : ""} libre${slots.length > 1 ? "s" : ""} de ${durH} h d'après ton planning Biltia :\n\n${lines}\n\n` +
+            "Dis-moi lequel te va et je crée le rendez-vous (« ajoute un RDV … le 1 »).",
+        });
+      }
+
       // CRÉATION d'un rendez-vous (« ajoute un RDV client mardi 14h »).
       if (calIntent.action === "create") {
         if (!calIntent.start || !calIntent.summary) {
@@ -1172,13 +1220,19 @@ export async function POST(req: Request) {
             message: `✅ Rendez-vous ajouté à ton agenda : « ${created.summary} » le ${created.whenLabel}.`,
           });
         }
+        const needsCalendar = created.reason === "not_connected" || created.reason === "missing_scope";
         const why =
           created.reason === "not_connected"
-            ? "Ton agenda Google n'est pas connecté. Connecte-le dans les intégrations et je m'en occupe."
+            ? "Il me faut d'abord connecter ton **agenda Google** — c'est juste ci-dessous, puis j'ajoute le rendez-vous."
             : created.reason === "missing_scope"
-              ? "L'autorisation d'écriture de l'agenda n'est pas accordée — reconnecte ton compte Google avec l'accès Agenda."
+              ? "L'autorisation d'écriture de l'agenda manque : reconnecte ton **agenda Google** ci-dessous et j'ajoute le rendez-vous."
               : "Je n'ai pas pu créer l'événement pour le moment. Réessaie dans un instant.";
-        return Response.json({ kind: "calendar", status: created.reason, message: why });
+        return Response.json({
+          kind: "calendar",
+          status: created.reason,
+          message: why,
+          ...(needsCalendar ? { connectors: ["google-calendar"] } : {}),
+        });
       }
 
       // LECTURE de l'agenda (défaut).
@@ -1186,13 +1240,19 @@ export async function POST(req: Request) {
       if (cal.ok) {
         return Response.json({ kind: "calendar", status: "ok", message: cal.summary });
       }
+      const needsCalendar = cal.reason === "not_connected" || cal.reason === "missing_scope";
       const msg =
         cal.reason === "not_connected"
-          ? "Ton agenda Google n'est pas connecté. Connecte-le dans les intégrations et je te lis ta semaine."
+          ? "Il me faut d'abord connecter ton **agenda Google** — c'est juste ci-dessous, puis je te lis ta semaine."
           : cal.reason === "missing_scope"
-            ? "L'autorisation de lecture de l'agenda n'est pas accordée — reconnecte ton compte Google avec l'accès Agenda."
+            ? "L'autorisation de lecture de l'agenda manque : reconnecte ton **agenda Google** ci-dessous et je te lis ta semaine."
             : "Je n'ai pas pu lire ton agenda pour le moment. Réessaie dans un instant.";
-      return Response.json({ kind: "calendar", status: cal.reason, message: msg });
+      return Response.json({
+        kind: "calendar",
+        status: cal.reason,
+        message: msg,
+        ...(needsCalendar ? { connectors: ["google-calendar"] } : {}),
+      });
     }
 
     // ── ACTION sans fichiers : le moteur de lot existe (/api/automate) mais il
@@ -1228,12 +1288,31 @@ export async function POST(req: Request) {
           entityId: recruited.ruleId,
         });
       }
+      // Connexions à proposer inline : uniquement quand l'agent N'A PAS été créé
+      // (recruited.ok === false) à cause d'un manque OAuth bloquant. Une fois
+      // connecté, le client rejoue la demande → l'agent est créé UNE fois (pas de
+      // double recrutement, car il n'existe pas encore). Les gaps « warn » (agent
+      // déjà créé) ne déclenchent pas de reprise.
+      const ruleConnectors =
+        recruited.ok === false
+          ? [
+              ...new Set(
+                (recruited.gaps ?? [])
+                  .filter((g) => g.severity === "block")
+                  .map((g) => connectorForCapability(g.code))
+                  .filter((c): c is string => !!c)
+              ),
+            ]
+          : [];
       return Response.json({
         kind: "rule",
         ok: recruited.ok,
         blocked: recruited.blocked,
         ruleId: recruited.ruleId,
         message: recruited.message,
+        // Manques de capacité détectés au preflight (bloquants ou recommandations).
+        gaps: recruited.gaps ?? [],
+        ...(ruleConnectors.length ? { connectors: ruleConnectors } : {}),
       });
     }
     // ── DATA : opération immédiate sur le workspace (« ajoute un client Jean
@@ -1412,7 +1491,7 @@ Si la demande vise PLUSIEURS fiches d'un coup en SUPPRESSION ou en ÉCRASEMENT d
     // l'appel LLM de routage n'apportait rien à une question et coûtait ~1 s.
     // Le contexte workspace (vrais noms clients / chantiers / employés) reste
     // jamais bloquant : "" si le RPC/les tables sont absents.
-    const [route, workspaceBlock, brandName] = await Promise.all([
+    const [route, workspaceBlock, brandName, pilotageBlock] = await Promise.all([
       routeRequest({ prompt, sector, useLLM: !isAnswer }),
       getWorkspaceContext(supabase, tenantId)
         .then((ws) => buildWorkspaceBlock(ws))
@@ -1432,6 +1511,9 @@ Si la demande vise PLUSIEURS fiches d'un coup en SUPPRESSION ou en ÉCRASEMENT d
           },
           () => ""
         ),
+      // Pilotage tréso/commercial — SEULEMENT pour une question (assistant patron),
+      // en parallèle (aucune latence ajoutée), entièrement toléré (→ "" si erreur).
+      isAnswer ? buildPilotageSnapshot(supabase, tenantId).catch(() => "") : Promise.resolve(""),
     ]);
     logAuxUsage(route.usage, "route_agent");
     // Focus métier : connaissance des sous-corps de la catégorie retenue par le
@@ -1493,6 +1575,7 @@ HORS CAPACITÉS (physique, téléphonie, ingénierie) — Si on te demande une a
         expertise ? `\n# FOCUS MÉTIER\n${expertise}` : "",
         sourcesBlock ? `\n${sourcesBlock}` : "",
         workspaceBlock ? `\n${workspaceBlock}` : "",
+        pilotageBlock ? `\n${pilotageBlock}` : "",
       ].join("\n");
 
       // Routage coût : une question GÉNÉRALE (sans ancrage workspace ni sources)
@@ -1500,7 +1583,7 @@ HORS CAPACITÉS (physique, téléphonie, ingénierie) — Si on te demande une a
       // réponse cite les données de l'entreprise ou des sources fournies, on
       // GARDE Sonnet (décision « copilote anti-invention », compréhension avant
       // vitesse : on ne bride que là où la qualité n'est pas en jeu).
-      const grounded = !!workspaceBlock || !!sourcesBlock;
+      const grounded = !!workspaceBlock || !!sourcesBlock || !!pilotageBlock;
       const answerModel = grounded ? ANSWER_MODEL : TIER_SIMPLE;
 
       // ── STREAMING (SSE) : le premier mot arrive en < 1 s au lieu d'attendre

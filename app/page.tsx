@@ -142,7 +142,7 @@ function HeroSection() {
 function ProductsSection() {
   return (
     <section id="produits" className="relative px-5 sm:px-8 py-28 sm:py-36 overflow-hidden">
-      <div className="absolute top-0 right-[-8%] w-[42vw] h-[42vw] max-w-[560px] rounded-full blur-[130px] pointer-events-none animate-drift-c" style={{ background: "radial-gradient(circle, rgba(168,85,247,0.18), transparent 68%)" }} />
+      <div className="mesh-blob absolute top-0 right-[-8%] w-[42vw] h-[42vw] max-w-[560px] rounded-full blur-[130px] pointer-events-none animate-drift-c" style={{ background: "radial-gradient(circle, rgba(168,85,247,0.18), transparent 68%)" }} />
       <div className="relative max-w-6xl mx-auto">
         <Reveal className="mb-12 max-w-2xl">
           <h2 className="text-[38px] sm:text-[56px] font-black text-[#0A0A0A] tracking-[-0.03em] leading-[0.98]">Une barre. <span className="text-gradient">Tous vos outils.</span></h2>
@@ -392,7 +392,7 @@ function AgentsSection() {
   ];
   return (
     <section id="agents" className="relative px-5 sm:px-8 py-28 sm:py-36 overflow-hidden">
-      <div className="absolute top-[10%] right-[-6%] w-[40vw] h-[40vw] max-w-[520px] rounded-full blur-[130px] pointer-events-none animate-drift-b" style={{ background: "radial-gradient(circle, rgba(34,211,238,0.16), transparent 68%)" }} />
+      <div className="mesh-blob absolute top-[10%] right-[-6%] w-[40vw] h-[40vw] max-w-[520px] rounded-full blur-[130px] pointer-events-none animate-drift-b" style={{ background: "radial-gradient(circle, rgba(34,211,238,0.16), transparent 68%)" }} />
       <div className="relative max-w-6xl mx-auto grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
         <Reveal className="order-2 lg:order-1">
           <div className="glass rounded-[26px] p-6">
@@ -454,7 +454,7 @@ function WorkspaceSection() {
   ];
   return (
     <section className="relative px-5 sm:px-8 py-28 sm:py-36 overflow-hidden">
-      <div className="absolute bottom-0 left-[-6%] w-[40vw] h-[40vw] max-w-[520px] rounded-full blur-[130px] pointer-events-none animate-drift-a" style={{ background: "radial-gradient(circle, rgba(45,212,191,0.18), transparent 68%)" }} />
+      <div className="mesh-blob absolute bottom-0 left-[-6%] w-[40vw] h-[40vw] max-w-[520px] rounded-full blur-[130px] pointer-events-none animate-drift-a" style={{ background: "radial-gradient(circle, rgba(45,212,191,0.18), transparent 68%)" }} />
       <div className="relative max-w-6xl mx-auto grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
         <Reveal>
           <h2 className="text-[36px] sm:text-[52px] font-black text-[#0A0A0A] tracking-[-0.03em] leading-[0.98] mb-5">Une mémoire <span className="text-gradient">qui grandit.</span></h2>
@@ -511,7 +511,7 @@ function TemplatesSection() {
   };
   return (
     <section id="templates" className="relative py-28 sm:py-36 overflow-hidden">
-      <div className="absolute top-[8%] left-[-8%] w-[42vw] h-[42vw] max-w-[560px] rounded-full blur-[130px] pointer-events-none animate-drift-b" style={{ background: "radial-gradient(circle, rgba(99,102,241,0.16), transparent 68%)" }} />
+      <div className="mesh-blob absolute top-[8%] left-[-8%] w-[42vw] h-[42vw] max-w-[560px] rounded-full blur-[130px] pointer-events-none animate-drift-b" style={{ background: "radial-gradient(circle, rgba(99,102,241,0.16), transparent 68%)" }} />
       <div className="relative max-w-6xl mx-auto px-5 sm:px-8">
         <Reveal className="mb-12 max-w-2xl">
           <h2 className="text-[36px] sm:text-[56px] font-black text-[#0A0A0A] tracking-[-0.03em] leading-[0.98]">Prêts à l&apos;emploi. <span className="text-gradient">Ou sur mesure.</span></h2>

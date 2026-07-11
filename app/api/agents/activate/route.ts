@@ -108,8 +108,12 @@ export async function POST(req: Request) {
       ruleId: result.ruleId,
       alreadyActive: result.alreadyActive ?? false,
       blocked: result.blocked ?? false,
+      // Manques de capacité (preflight) : bloquants si !ok, sinon recommandations.
+      gaps: result.gaps ?? [],
       message: result.message,
     },
-    { status: result.ok ? 200 : 400 }
+    // Un manque de capacité n'est pas une erreur serveur : 200 avec ok:false, pour
+    // que l'UI ouvre la pop-up « il manque X » plutôt qu'un message d'échec.
+    { status: result.ok || (result.gaps && result.gaps.length) ? 200 : 400 }
   );
 }

@@ -218,7 +218,12 @@ export default function SettingsPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get("section") === "billing" || params.get("upgrade") === "1") setSection("billing");
+    const sec = params.get("section");
+    // Deep-link vers une section précise (ex : un agent renvoie ici « activer les
+    // notifications » → /settings?section=notifications).
+    const KNOWN: SectionKey[] = ["account", "company", "team", "billing", "ai", "notifications", "security", "data"];
+    if (sec && (KNOWN as string[]).includes(sec)) setSection(sec as SectionKey);
+    if (params.get("upgrade") === "1") setSection("billing");
     if (params.get("checkout") === "success") { setNotice("Paiement confirmé. Votre abonnement sera actif d'ici quelques secondes."); setSection("billing"); }
     if (params.get("checkout") === "cancel") { setNotice("Paiement annulé. Aucun changement n'a été effectué."); setSection("billing"); }
 

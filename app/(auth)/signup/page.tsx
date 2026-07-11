@@ -6,7 +6,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase";
 import { OAuthButtons, OrDivider, AUTH_INPUT, AUTH_LABEL } from "@/components/auth";
 import { Turnstile, turnstileEnabled, type TurnstileHandle } from "@/components/turnstile";
-import { Eye, EyeOff, ArrowRight, Check, MailCheck } from "lucide-react";
+import { Eye, EyeOff, ArrowRight, Check, MailCheck, Gift } from "lucide-react";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -20,6 +20,7 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [awaitingEmail, setAwaitingEmail] = useState(false);
+  const [invited, setInvited] = useState(false);
   const turnstileRef = useRef<TurnstileHandle>(null);
 
   // « Choisir Pro » depuis la page tarifs arrive avec ?plan=pro&credits=…&cycle=…
@@ -35,6 +36,14 @@ export default function SignupPage() {
         if (Number.isFinite(credits) && credits > 0) {
           localStorage.setItem("biltia_pending_plan", JSON.stringify({ plan, credits, cycle }));
         }
+      }
+      // Parrainage : un lien /signup?ref=CODE mémorise le code (survit à la
+      // confirmation email sur le même navigateur). Réclamé une fois connecté
+      // par <ReferralClaim /> (idempotent). +200 crédits au filleul.
+      const ref = p.get("ref");
+      if (ref) {
+        localStorage.setItem("biltia_ref", ref.trim().toUpperCase().slice(0, 16));
+        setInvited(true);
       }
     } catch {
       /* localStorage indisponible : on dégrade sans bloquer l'inscription. */
@@ -116,7 +125,7 @@ export default function SignupPage() {
         <h1 className="mb-2 text-[24px] font-black tracking-[-0.02em] text-[#0A0A0A]">Vérifiez vos emails.</h1>
         <p className="text-sm leading-relaxed text-[#6E6E6C]">
           Un lien de confirmation vient de partir vers <span className="font-semibold text-[#0A0A0A]">{email}</span>.
-          Cliquez dessus pour activer vos 300 crédits offerts.
+          Cliquez dessus pour activer vos 300 crédits offerts{invited ? " et vos 200 crédits bonus d'invitation" : ""}.
         </p>
       </div>
     );
@@ -124,6 +133,17 @@ export default function SignupPage() {
 
   return (
     <div className="animate-fade-in-up">
+      {invited && (
+        <div className="mb-5 flex items-center gap-3 rounded-2xl border border-violet-200/70 bg-gradient-to-r from-indigo-50 via-violet-50 to-pink-50 px-4 py-3">
+          <span className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-full bg-gradient-to-br from-indigo-500 to-pink-500 text-white">
+            <Gift className="h-4 w-4" />
+          </span>
+          <p className="text-[13px] leading-snug text-[#4A4A56]">
+            <b className="font-semibold text-[#0A0A0A]">Vous avez été invité sur Biltia.</b> Créez votre compte et recevez{" "}
+            <b className="font-semibold text-[#7C3AED]">200 crédits bonus</b>, en plus de vos 300 crédits offerts.
+          </p>
+        </div>
+      )}
       <h1 className="mb-1.5 text-[28px] font-black tracking-[-0.03em] text-[#0A0A0A]">Créez votre compte.</h1>
       <p className="mb-7 text-sm text-[#6E6E6C]">300 crédits offerts. Sans carte bancaire.</p>
 

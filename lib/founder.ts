@@ -10,7 +10,7 @@
 // il ne peut pas être usurpé sans posséder le compte. Fichier client-safe.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const FOUNDER_EMAILS = ["barryalpha9755@gmail.com"];
+const FOUNDER_EMAILS = ["contact@biltia.com", "barryalpha9755@gmail.com"];
 
 export function isFounderEmail(email: string | null | undefined): boolean {
   return !!email && FOUNDER_EMAILS.includes(email.trim().toLowerCase());

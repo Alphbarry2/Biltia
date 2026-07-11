@@ -24,8 +24,9 @@ import { TIER_SIMPLE, TIER_MEDIUM, TIER_COMPLEX } from "./models";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getEntitlementsForTenant } from "./entitlements";
 import { isFounderEmail } from "./founder";
-import { WATCHER_KEYS, getWatcher, type WatcherKey } from "./agent-watchers";
+import { WATCHER_KEYS, getWatcher, isSupplierRelanceWatcher, type WatcherKey } from "./agent-watchers";
 import type { AgentTemplate } from "./agent-templates";
+import { checkAgentReadiness, summarizeGaps, type CapabilityGap } from "./agent-readiness";
 
 // COMPRÉHENSION AVANT VITESSE (2026-07-07) : le recruteur d'agents lit la mission
 // avec Sonnet 5, pas Haiku. Comprendre la vraie intention (« relance mon ami tous
@@ -36,8 +37,8 @@ const PARIS_TZ = "Europe/Paris";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type AgentActionType = "send_email" | "notify" | "report" | "team_planning" | "compte_rendu";
-export type AgentRecipientKind = "client" | "employee" | "team" | "me";
+export type AgentActionType = "send_email" | "notify" | "report" | "team_planning" | "compte_rendu" | "act";
+export type AgentRecipientKind = "client" | "employee" | "team" | "me" | "supplier";
 export type AgentComplexity = "simple" | "medium" | "complex";
 
 // DÉCLENCHEUR (2 modes, prévus dès 020) : "schedule" = passage à heure fixe
@@ -102,6 +103,15 @@ export type AgentAction = {
   model: string;
   /** Estimation annoncée : crédits par passage (le débit réel fait foi). */
   estimatedCreditsPerRun: number;
+  /**
+   * Validation humaine des relances (send_email) :
+   *   • "always" = mode BROUILLON (#67) : CHAQUE relance est préparée puis mise en
+   *     attente ; rien ne part sans un clic. Posé quand l'artisan dit « prépare
+   *     sans envoyer / je valide ».
+   *   • "auto" (défaut) = envoi automatique, SAUF une relance devenue SENSIBLE
+   *     (ferme, niveau ≥ 3) qui est toujours retenue pour validation (#70).
+   */
+  approval?: "auto" | "always";
 };
 
 export type MissingInfo = {
@@ -235,14 +245,14 @@ const PARSE_TOOL: Anthropic.Tool = {
       title: { type: "string", description: "Libellé court de la mission (max 8 mots)." },
       action_type: {
         type: "string",
-        enum: ["send_email", "notify", "report", "team_planning"],
+        enum: ["send_email", "notify", "report", "team_planning", "act"],
         description:
-          "send_email = écrire à un client/employé. notify = rappel/alerte push à l'utilisateur lui-même. report = examiner les données du workspace et envoyer la synthèse à l'utilisateur. team_planning = récupérer le planning (agenda) et l'envoyer aux ÉQUIPES (« que mes équipes reçoivent leur planning », « envoie le planning de la semaine aux gars »).",
+          "send_email = écrire à un client/employé. notify = rappel/alerte push à l'utilisateur lui-même. report = examiner les données du workspace et envoyer la synthèse à l'utilisateur. team_planning = récupérer le planning (agenda) et l'envoyer aux ÉQUIPES. act = AGIR dans le workspace : CRÉER ou METTRE À JOUR une fiche à partir des données existantes (« crée un devis », « crée le chantier », « ajoute une tâche », « prépare une facture d'acompte », « passe le chantier en cours »). L'agent exécute l'opération sur les données réelles puis rend compte de ce qu'il a fait. Choisis act dès que la mission demande de FABRIQUER/MODIFIER quelque chose dans les données (verbe : crée, ajoute, génère, prépare, mets à jour, passe en, rattache), pas seulement d'avertir ou d'écrire un email.",
       },
       recipient_kind: {
         type: "string",
-        enum: ["client", "employee", "team", "me"],
-        description: "Destinataire. team = tous les employés. me = l'utilisateur.",
+        enum: ["client", "employee", "team", "me", "supplier"],
+        description: "Destinataire. client = un client. employee = un employé nommé. team = tous les employés. supplier = un SOUS-TRAITANT / FOURNISSEUR (nommé dans recipient_name). me = l'utilisateur.",
       },
       recipient_name: { type: "string", description: "Nom du client/employé visé. Vide sinon." },
       time: { type: "string", description: "Heure d'exécution « HH:MM » (Paris). Défaut 09:00. « midi » = 12:00." },
@@ -278,14 +288,14 @@ const PARSE_TOOL: Anthropic.Tool = {
       },
       event_watcher: {
         type: "string",
-        enum: ["chantier_en_retard", "chantier_hors_budget", "chantier_sans_activite", "chantier_sans_devis", "demande_urgente", "devis_non_signe", "facture_impayee", "echeance_proche", "visite_terminee", "stock_bas", ""],
+        enum: ["chantier_en_retard", "chantier_fin_proche", "chantier_hors_budget", "chantier_sans_activite", "chantier_sans_devis", "chantier_termine", "demande_urgente", "devis_non_signe", "devis_accepte", "devis_expire_bientot", "facture_echeance_proche", "facture_impayee", "facture_payee", "echeance_proche", "visite_terminee", "rdv_demain", "conflit_planning", "intervention_annulee", "tache_en_retard", "tache_terminee", "tache_sans_responsable", "chantier_sans_responsable", "equipe_surchargee", "stock_bas", "nouveau_lead", "nouveau_client", "nouveau_chantier", "pointage_manquant", "heures_a_valider", "heures_incoherentes", "chantier_trop_heures", "document_a_regulariser", "assurance_expiree", "clients_doublons", "client_mauvais_payeur", "sous_traitant_a_probleme", "sous_traitant_sans_assurance", "documents_a_classer", "chantier_sans_photo", "intervention_sans_responsable", "intervention_sans_date", "intervention_en_retard", "commande_en_retard", "achat_non_affecte", "facture_fournisseur_a_payer", "chantier_sans_budget", "client_inactif", ""],
         description:
-          "OBLIGATOIRE si trigger_type=event : le veilleur qui colle. chantier_en_retard = chantiers qui dépassent leur DATE de fin prévue. chantier_hors_budget = chantiers dont le BUDGET/coût engagé dépasse le budget prévu (marge, rentabilité, « dépasse son budget »). chantier_sans_activite = chantiers en cours qui N'AVANCENT PLUS / stagnent / pas bougé depuis X jours. chantier_sans_devis = chantiers démarrés SANS devis signé (accepté). demande_urgente = demandes/interventions clients URGENTES restées sans réponse (SAV, dépannage urgent, « alerte-moi si une demande urgente traîne » — l'IA lit la description pour juger l'urgence). devis_non_signe = devis envoyés sans réponse. facture_impayee = factures échues non payées / impayés / relances de paiement. echeance_proche = documents, attestations, assurances, contrats d'entretien ou entretiens qui arrivent à échéance / expirent. visite_terminee = une intervention/visite chantier vient d'être TERMINÉE (« génère un compte-rendu après chaque visite »). Vide si trigger_type=schedule.",
+          "OBLIGATOIRE si trigger_type=event : le veilleur qui colle. chantier_en_retard = chantiers qui dépassent leur DATE de fin prévue (déjà en retard, APRÈS la date). chantier_fin_proche = chantiers dont la date de fin prévue APPROCHE / va bientôt arriver (alerter AVANT l'échéance, « préviens-moi quand un chantier arrive bientôt à son terme ») — à distinguer de chantier_en_retard qui agit APRÈS. chantier_hors_budget = chantiers dont le BUDGET/coût engagé dépasse le budget prévu (marge, rentabilité, « dépasse son budget »). chantier_sans_activite = chantiers en cours qui N'AVANCENT PLUS / stagnent / pas bougé depuis X jours. chantier_sans_devis = chantiers démarrés SANS devis signé (accepté). chantier_termine = un chantier vient d'être TERMINÉ (demande d'avis au client, remerciement, solde à facturer). demande_urgente = demandes/interventions clients URGENTES restées sans réponse (SAV, dépannage urgent, « alerte-moi si une demande urgente traîne » — l'IA lit la description pour juger l'urgence). devis_non_signe = devis envoyés sans réponse. devis_accepte = un devis vient d'être ACCEPTÉ/signé par le client (confirmer/remercier + prochaines étapes, OU créer le chantier/la facture). devis_expire_bientot = un devis ENVOYÉ approche de sa DATE DE VALIDITÉ / va bientôt EXPIRER (relancer le client avant qu'il ne soit plus valable, ou prévenir l'artisan). facture_echeance_proche = une facture non soldée approche de sa DATE D'ÉCHÉANCE / va BIENTÔT être due (rappel de paiement AVANT le retard, ou alerte à l'artisan) — À DISTINGUER de facture_impayee qui agit APRÈS l'échéance. facture_impayee = factures ÉCHUES non payées / impayés / relances de paiement (l'échéance est DÉJÀ dépassée). facture_payee = une facture vient d'être RÉGLÉE (remercier le client). echeance_proche = documents, attestations, assurances, contrats d'entretien ou entretiens qui arrivent à échéance / expirent. visite_terminee = une intervention/visite chantier vient d'être TERMINÉE, y compris exprimé comme « un salarié/ouvrier/gars finit son travail / sa tâche / son intervention / son chantier » (= une intervention assignée passe en terminé ; « préviens-moi » → notify, « fais le compte-rendu » → compte_rendu). rdv_demain = un RDV/intervention client est prévu PROCHAINEMENT (rappeler le client avant le RDV, « rappelle au client son rendez-vous la veille »). conflit_planning = deux interventions d'un MÊME intervenant se CHEVAUCHENT / se superposent dans le planning (« préviens-moi s'il y a un conflit de planning », « si un gars est sur deux chantiers en même temps », « alerte-moi en cas de double réservation ») → notify le patron. intervention_annulee = un RDV/intervention vient d'être ANNULÉ (statut annulé) et il faut prévenir le client ou le patron (« quand un rendez-vous est annulé, préviens le client », « en cas d'annulation »). tache_en_retard = des TÂCHES dont l'échéance est DÉPASSÉE et pas terminées (« préviens-moi des tâches en retard », « alerte si une tâche traîne / n'est pas commencée à temps »). tache_terminee = une TÂCHE vient d'être TERMINÉE / cochée (« préviens-moi quand une tâche est finie »). tache_sans_responsable = des TÂCHES ouvertes SANS personne assignée (« signale les tâches que personne ne prend », « les tâches sans intervenant »). chantier_sans_responsable = des CHANTIERS actifs SANS chef de chantier désigné (« préviens-moi si un chantier n'a pas de responsable / de chef »). equipe_surchargee = un INTERVENANT a TROP de travail ouvert (tâches + interventions) au-delà d'un seuil (« préviens-moi si quelqu'un est surchargé », « détecte les gars débordés ») → notify le patron. nouveau_lead = une nouvelle demande arrive via un FORMULAIRE public (un lead/prospect à traiter). nouveau_client = une fiche CLIENT vient d'être créée (« à chaque nouveau client, crée… »). nouveau_chantier = une fiche CHANTIER vient d'être créée (« quand j'ajoute un chantier, crée les tâches / le devis »). client_inactif = un CLIENT n'a plus AUCUNE activité (devis, facture, intervention) depuis longtemps et serait à recontacter/relancer (« mes clients inactifs », « les clients qu'on n'a pas vus depuis 6 mois », « relance ceux qui dorment »). pointage_manquant = des EMPLOYÉS n'ont PAS POINTÉ récemment / il manque des heures / une journée sans pointage (« préviens-moi si un ouvrier n'a pas pointé », « alerte-moi des heures non remplies », « qui n'a pas fait ses heures »). heures_a_valider = des heures/pointages restent NON VALIDÉS et attendent une validation (« préviens-moi des heures à valider », « les pointages pas encore validés »). heures_incoherentes = des heures pointées sont ANORMALES / incohérentes / trop élevées sur une journée (« signale les pointages bizarres / aberrants », « si quelqu'un pointe plus de 12h dans la journée »). chantier_trop_heures = un CHANTIER consomme TROP d'heures de main-d'œuvre au-delà d'un seuil (« alerte-moi si un chantier dépasse X heures », « le chantier consomme trop d'heures »). document_a_regulariser = des DOCUMENTS/attestations sont MANQUANTS ou DÉJÀ EXPIRÉS et à régulariser (« préviens-moi des documents manquants », « mes attestations périmées / plus à jour », « papiers à régulariser ») — à distinguer de echeance_proche qui alerte AVANT l'expiration. assurance_expiree = l'assurance DÉCENNALE d'un fournisseur/sous-traitant est DÉJÀ EXPIRÉE (« alerte-moi si la décennale d'un sous-traitant est périmée / n'est plus valable ») — risque de conformité. clients_doublons = des fiches CLIENTS font DOUBLON / sont en double (même email ou téléphone) (« détecte les doublons clients », « préviens-moi si j'ai deux fois le même client »). client_mauvais_payeur = un CLIENT cumule plusieurs factures ÉCHUES IMPAYÉES / paie mal (« signale mes mauvais payeurs », « les clients qui paient mal / en retard tout le temps ») — À DISTINGUER de facture_impayee qui relance UNE facture ; ici on qualifie le CLIENT. sous_traitant_a_probleme = un SOUS-TRAITANT cumule des RÉSERVES/incidents/malfaçons ouverts (« signale les sous-traitants à problème », « quels sous-traitants posent souci »). sous_traitant_sans_assurance = un SOUS-TRAITANT n'a PAS d'assurance décennale renseignée (« préviens-moi des sous-traitants sans assurance / pas assurés / sans décennale ») — à distinguer de assurance_expiree (décennale DÉJÀ expirée). documents_a_classer = des DOCUMENTS/fichiers sont uploadés SANS rattachement (à ranger/classer) (« signale les documents à classer », « les fichiers non rangés / en vrac »). chantier_sans_photo = un CHANTIER TERMINÉ n'a AUCUNE photo au dossier (« préviens-moi des chantiers finis sans photo », « les chantiers livrés sans photo de fin »). intervention_sans_responsable = une INTERVENTION/SAV ouverte n'a PERSONNE d'assigné (« les SAV sans technicien / sans responsable », « interventions non affectées »). intervention_sans_date = une INTERVENTION/SAV ouverte n'a PAS de date prévue / n'est pas planifiée (« les SAV sans date », « interventions à planifier »). intervention_en_retard = une INTERVENTION/SAV a sa date prévue DÉPASSÉE et n'est pas terminée (« les SAV en retard / dépassés / non traités », « interventions qui traînent »). commande_en_retard = une COMMANDE fournisseur a sa LIVRAISON en retard / n'est pas arrivée (« relance le fournisseur si la commande tarde », « préviens-moi si une commande / livraison est en retard ou bloque un chantier »). achat_non_affecte = des DÉPENSES / ACHATS / FACTURES FOURNISSEUR ne sont RATTACHÉS À AUCUN CHANTIER (« signale les achats non affectés », « les factures fournisseurs non classées », « les dépenses sans chantier ») — fausse la marge. facture_fournisseur_a_payer = des FACTURES FOURNISSEUR / dépenses sont À PAYER et leur échéance est DÉPASSÉE (« ce que je dois aux fournisseurs », « les factures fournisseurs à régler / en retard de paiement », « préviens-moi de ce qu'il faut payer ») — À DISTINGUER de facture_impayee qui concerne l'argent que les CLIENTS nous doivent ; ici c'est ce que NOUS devons. chantier_sans_budget = des CHANTIERS actifs n'ont AUCUN budget renseigné (« les chantiers sans budget / sans marge renseignée », « détecte les chantiers dont je n'ai pas chiffré le budget ») — impossible de piloter la marge sans montant de référence, à distinguer de chantier_hors_budget qui compare un budget EXISTANT au coût engagé. Vide si trigger_type=schedule.",
       },
       event_days: {
         type: "integer",
         description:
-          "Paramètre en jours du veilleur si trigger_type=event (0 = défaut). devis_non_signe : jours d'attente avant de relancer (défaut 7). facture_impayee : jours de tolérance après l'échéance (défaut 0). echeance_proche : fenêtre d'alerte avant l'échéance (défaut 30). chantier_en_retard : jours de tolérance (défaut 0). chantier_sans_activite : jours sans activité avant l'alerte (défaut 3). chantier_sans_devis : jours de tolérance après le démarrage (défaut 0). chantier_hors_budget : EXCEPTION — ce nombre est un POURCENTAGE de dépassement toléré (ex : « au-delà de 10 % » → 10 ; défaut 0 = dès le premier euro). Mets 0 si l'utilisateur ne précise rien.",
+          "Paramètre en jours du veilleur si trigger_type=event (0 = défaut). devis_non_signe : jours d'attente avant de relancer (défaut 7). devis_expire_bientot : fenêtre d'alerte AVANT la date de validité (défaut 7). facture_echeance_proche : fenêtre d'alerte AVANT la date d'échéance (défaut 7). facture_impayee : jours de tolérance après l'échéance (défaut 0). echeance_proche : fenêtre d'alerte avant l'échéance (défaut 30). chantier_en_retard : jours de tolérance (défaut 0). chantier_fin_proche : fenêtre d'alerte AVANT la date de fin prévue (défaut 7). chantier_sans_activite : jours sans activité avant l'alerte (défaut 3). chantier_sans_devis : jours de tolérance après le démarrage (défaut 0). conflit_planning : horizon en jours du planning surveillé (défaut 14). intervention_annulee : jours de rattrapage après l'annulation (défaut 3). tache_en_retard : jours de tolérance après l'échéance (défaut 0). tache_terminee : jours de rattrapage après la clôture (défaut 3). equipe_surchargee : EXCEPTION — ce nombre est le SEUIL d'éléments ouverts par personne au-delà duquel alerter (défaut 8). tache_sans_responsable / chantier_sans_responsable : paramètre ignoré (défaut 0). client_inactif : jours sans activité avant de le signaler (défaut 90). pointage_manquant : jours récents examinés (fenêtre sans pointage, défaut 3). heures_a_valider : ancienneté minimale en jours avant de réclamer la validation (défaut 7). heures_incoherentes : EXCEPTION — ce nombre est le SEUIL d'heures/jour au-delà duquel c'est jugé incohérent (défaut 12). chantier_trop_heures : EXCEPTION — ce nombre est le SEUIL d'heures cumulées par chantier au-delà duquel alerter (défaut 200). document_a_regulariser / assurance_expiree / clients_doublons : paramètre ignoré (défaut 0). client_mauvais_payeur : EXCEPTION — ce nombre est le SEUIL de factures échues impayées au-delà duquel signaler le client (défaut 2). sous_traitant_a_probleme : EXCEPTION — ce nombre est le SEUIL de réserves ouvertes au-delà duquel signaler le sous-traitant (défaut 2). sous_traitant_sans_assurance / documents_a_classer / chantier_sans_photo / intervention_sans_responsable / intervention_sans_date : paramètre ignoré (défaut 0). intervention_en_retard : jours de tolérance après la date prévue (défaut 0). commande_en_retard : jours de tolérance après la date de livraison prévue (défaut 0). facture_fournisseur_a_payer : jours de tolérance après l'échéance de paiement (défaut 0). achat_non_affecte / chantier_sans_budget : paramètre ignoré (défaut 0). chantier_hors_budget : EXCEPTION — ce nombre est un POURCENTAGE de dépassement toléré (ex : « au-delà de 10 % » → 10 ; défaut 0 = dès le premier euro). Mets 0 si l'utilisateur ne précise rien.",
       },
     },
     required: ["title", "action_type", "recipient_kind", "recipient_name", "time", "days", "content_instruction", "content_missing", "data_focus", "complexity", "trigger_type", "event_watcher", "event_days"],
@@ -295,11 +305,19 @@ const PARSE_TOOL: Anthropic.Tool = {
 
 const PARSE_SYSTEM = `Tu es le RECRUTEUR d'agents de Biltia, l'OS opérationnel du BTP. L'utilisateur (artisan/chef d'entreprise) dicte une MISSION PERMANENTE en langage courant — une tâche que Biltia devra exécuter seul, à répétition, en temps et en heure. Tu la transformes en règle structurée. Tu ne résous rien : tu structures.
 
+COMPRENDS LE CONCEPT, PAS LE MOT (ESSENTIEL). L'artisan parle avec SES mots, jamais le vocabulaire du logiciel. Ne te fige JAMAIS sur la formulation exacte : traduis l'INTENTION vers ce qui EXISTE réellement dans Biltia (les entités et les veilleurs ci-dessous), en raisonnant par familles de sens.
+- Personnes : salarié = ouvrier = compagnon = collaborateur = « mon gars » / « les gars » = « mon équipe » → les EMPLOYÉS. « le client » = « le particulier » = « le proprio » = « le donneur d'ordre » → les CLIENTS.
+- Travail / objet : « son travail » = « sa tâche » = « son boulot » = « sa mission » = « ce qu'il fait » = « son intervention » → une INTERVENTION (ou une tâche) assignée. « affaire » = « projet » = « le chantier » → les CHANTIERS. « le devis » = « l'offre » = « la propale » = « le chiffrage » → les DEVIS. « la facture » = « la note » → les FACTURES. « le matériel » = « les fournitures » = « le stock » → les MATÉRIAUX.
+- États : « fini » = « bouclé » = « livré » = « clôturé » = « ça y est c'est fait » → TERMINÉ. « validé » = « signé » = « accepté » = « OK client » → ACCEPTÉ. « payé » = « réglé » = « encaissé » = « viré » → PAYÉE. « en retard » = « à la bourre » = « dépassé » → RETARD.
+RÈGLE D'OR : rapproche TOUJOURS l'intention du veilleur / de l'entité RÉEL le plus proche, même si aucun mot exact ne colle. Exemple type : « quand un salarié finit son travail / sa tâche sur un chantier, préviens-moi » = une INTERVENTION assignée à cet employé qui passe en TERMINÉ → event, event_watcher=visite_terminee, action_type=notify. Si l'intention ne correspond VRAIMENT à aucun veilleur, ne force pas un mauvais veilleur : prends le plus proche raisonnable et mets le reste de la mission dans content_instruction (elle guidera l'exécution).
+
 REPÈRES :
 - « relance/écris/envoie un mail à [client X] » → send_email, recipient_kind=client.
 - « rappelle-moi / préviens-moi / alerte-moi » → notify (notification à l'utilisateur), recipient_kind=me.
 - « vérifie / contrôle / surveille [mes données] » → report (examen du workspace + synthèse à l'utilisateur), recipient_kind=me.
+- « crée / ajoute / génère / prépare / mets à jour / passe en / rattache [une fiche] » → act (l'agent FABRIQUE ou MODIFIE la donnée dans le workspace, puis rend compte), recipient_kind=me. Ex : « crée un devis brouillon », « crée le chantier », « ajoute une tâche de rappel », « prépare la facture d'acompte », « passe le chantier en cours ». act n'est PAS un email et n'est PAS une simple alerte : c'est une VRAIE écriture dans les données.
 - « mes employés / l'équipe / les gars » → recipient_kind=team.
+- « mon sous-traitant / mon fournisseur / le ST / l'artisan à qui je sous-traite / mon plombier sous-traitant [Nom] » → recipient_kind=supplier (et recipient_name = son nom s'il est cité). Ex : « prépare un message pour le sous-traitant Dupont », « écris au fournisseur Point P ».
 - « à midi » = 12:00, « le matin » = 09:00, « le soir » = 18:00. Heure de Paris. Aucune heure dictée → 09:00.
 - « tous les jours » / rien de précisé → days VIDE. « chaque lundi » → [1]. « en semaine » → [1,2,3,4,5].
 
@@ -307,17 +325,31 @@ DÉCLENCHEUR — HEURE FIXE ou ÉVÉNEMENT ? (décisif)
 - trigger_type="schedule" quand la mission tourne à HEURE/JOUR FIXE : « tous les jours à midi », « chaque lundi matin », « le soir à 18h », « chaque fin de mois ». Remplis alors time/days ; laisse event_watcher vide et event_days=0.
 - trigger_type="event" quand la mission SURVEILLE une CONDITION et se déclenche DÈS QU'une fiche y correspond, sans horaire : choisis event_watcher :
   • « dès qu'un chantier prend du retard », « préviens-moi quand un chantier dépasse la date de fin », « quels chantiers sont en retard » → chantier_en_retard.
+  • « préviens-moi quand un chantier arrive bientôt à son terme », « alerte-moi avant la date de fin d'un chantier », « les chantiers qui doivent se terminer dans quelques jours » → chantier_fin_proche (AVANT l'échéance ; event_days = nb de jours avant, défaut 7).
   • « préviens-moi si un chantier dépasse son budget », « alerte-moi quand un chantier n'est plus rentable », « surveille la marge des chantiers » → chantier_hors_budget (event_days = % de dépassement toléré si précisé, ex « au-delà de 10 % » → 10, sinon 0).
   • « préviens-moi si un chantier n'avance pas depuis 3 jours », « quand un chantier stagne / est au point mort / ne bouge plus » → chantier_sans_activite (event_days = nb de jours sans activité, ex « 3 jours » → 3, sinon 0).
   • « préviens-moi si un chantier démarre sans devis signé », « alerte-moi quand un chantier commence sans devis accepté » → chantier_sans_devis.
+  • « demande un avis au client quand un chantier est terminé », « quand un chantier se termine, remercie le client et propose le solde », « envoie une demande de recommandation à la fin d'un chantier » → chantier_termine.
   • « alerte-moi si une demande client urgente reste sans réponse », « préviens-moi dès qu'un SAV / dépannage urgent traîne », « signale les interventions urgentes en attente » → demande_urgente (l'IA lira la description de chaque demande pour juger l'urgence).
   • « relance les devis non signés », « suis les devis restés sans réponse », « occupe-toi des devis en attente » → devis_non_signe (event_days = délai d'attente avant relance si précisé, sinon 0).
-  • « relance mes impayés », « occupe-toi des factures impayées », « quand une facture n'est pas payée à l'échéance » → facture_impayee.
+  • « confirme/remercie mes clients quand ils acceptent un devis », « envoie un mot dès qu'un devis est accepté / signé », « préviens le client des prochaines étapes après acceptation » → devis_accepte.
+  • « relance les devis qui vont bientôt expirer », « préviens-moi quand un devis approche de sa date de validité », « relance avant que le devis ne soit plus valable », « les devis proches de l'expiration » → devis_expire_bientot (event_days = nb de jours avant l'expiration, défaut 7).
+  • « préviens-moi quand une facture va bientôt être due », « rappelle au client de payer avant l'échéance », « les factures qui arrivent à échéance dans quelques jours » → facture_echeance_proche (AVANT l'échéance ; event_days = nb de jours avant, défaut 7).
+  • « relance mes impayés », « occupe-toi des factures impayées », « quand une facture n'est pas payée à l'échéance » → facture_impayee (APRÈS l'échéance).
+  • « remercie le client quand il a payé », « envoie un remerciement dès qu'une facture est réglée » → facture_payee.
   • « préviens-moi quand un document / une attestation / une assurance / un contrat va expirer », « alerte-moi avant une échéance d'entretien » → echeance_proche (event_days = combien de jours avant si précisé, sinon 0).
   • « préviens-moi quand un matériau passe sous son seuil », « alerte-moi quand je suis bientôt en rupture », « surveille mon stock », « dis-moi quand je manque de placo / d'un matériau » → stock_bas.
-  • « génère un compte-rendu après chaque visite chantier », « quand une intervention est terminée, fais le compte-rendu », « je veux mes comptes-rendus automatiquement après les visites » → visite_terminee (Biltia rédige le compte-rendu de CHAQUE intervention terminée et le range dans la bibliothèque). C'est un event, PAS un planning.
+  • « signale les achats / dépenses non affectés », « les factures fournisseurs non classées », « quelles dépenses ne sont rattachées à aucun chantier » → achat_non_affecte.
+  • « ce que je dois à mes fournisseurs », « les factures fournisseurs à régler / en retard de paiement », « préviens-moi de ce qu'il faut payer aux fournisseurs » → facture_fournisseur_a_payer (ce que NOUS devons ; distinct de facture_impayee = ce que les clients nous doivent).
+  • « les chantiers sans budget », « détecte les chantiers dont la marge n'est pas renseignée / pas chiffrés » → chantier_sans_budget (budget ABSENT ; distinct de chantier_hors_budget = budget existant dépassé).
+  • « préviens-moi quand un nouveau prospect remplit mon formulaire », « alerte-moi dès qu'un lead arrive », « quand quelqu'un envoie une demande de devis en ligne » → nouveau_lead.
+  • « à chaque nouveau client », « quand un client est créé / ajouté », « dès que j'enregistre un nouveau client » → nouveau_client.
+  • « à chaque nouveau chantier », « quand j'ajoute / je crée un chantier », « dès qu'un chantier est ouvert » → nouveau_chantier.
+  • « relance mes clients inactifs », « préviens-moi des clients qu'on n'a pas vus depuis X mois », « les clients qui dorment / qu'on a perdus de vue », « recontacte ceux qui n'ont rien commandé depuis longtemps » → client_inactif (event_days = jours sans activité, ex « 6 mois » → 180, défaut 90 ; « relance » → send_email au client, « préviens-moi » → notify).
+  • « génère un compte-rendu après chaque visite chantier », « quand une intervention est terminée, fais le compte-rendu », « je veux mes comptes-rendus automatiquement après les visites », ET AUSSI « quand un salarié / ouvrier finit son travail / sa tâche / son intervention sur un chantier », « quand un gars a bouclé son chantier / fini son boulot » → visite_terminee (= une intervention assignée passe en TERMINÉ). Avec « préviens-moi » → notify (digest des travaux finis) ; avec « fais le compte-rendu » → Biltia rédige le compte-rendu. C'est un event, PAS un planning.
+  • « rappelle au client son RDV la veille », « préviens le client avant chaque intervention », « envoie un rappel de rendez-vous automatiquement » → rdv_demain (event_days = nb de jours avant le RDV, 1 = la veille).
   Pour un event, time/days sont ignorés (mets time="09:00", days=[]).
-- action_type pour un event : « préviens-moi / alerte-moi / je veux savoir » → notify. « relance / relance les clients / envoie-leur » → send_email (Biltia écrira au client concerné de chaque fiche). Pour visite_terminee, laisse action_type=notify (Biltia sait qu'il doit générer le compte-rendu). content_missing reste false pour un event (le contenu se déduit de la fiche déclenchante).
+- action_type pour un event : « préviens-moi / alerte-moi / je veux savoir » → notify. « relance / relance les clients / envoie-leur » → send_email (Biltia écrira au client concerné de chaque fiche). « crée / ajoute / génère / prépare / mets à jour / passe en [une fiche] » → act (Biltia écrit dans le workspace pour CHAQUE fiche déclenchante — ex : « quand un devis est accepté, crée le chantier », « à chaque nouveau client, crée un devis brouillon », « quand un chantier est créé, ajoute les tâches de démarrage »). Pour visite_terminee, laisse action_type=notify (Biltia sait qu'il doit générer le compte-rendu). content_missing reste false pour un event (le contenu se déduit de la fiche déclenchante).
 
 PLANNING AUX ÉQUIPES (cas à part, PLANIFIÉ) : « je veux que mes équipes reçoivent leur planning sans que j'y pense », « tous les vendredis à 18h envoie le planning de la semaine aux gars », « transmets le planning à l'équipe chaque lundi » → trigger_type=schedule (c'est récurrent à heure fixe), action_type=team_planning, recipient_kind=team. Biltia RÉCUPÈRE le planning existant (agenda Google connecté et/ou interventions du workspace) et le TRANSMET à l'équipe — il ne l'invente pas. Remplis time/days selon la récurrence dictée (« vendredi 18h » → time="18:00", days=[5]).
 
@@ -348,12 +380,25 @@ export function parseInstructionHeuristic(instruction: string): ParsedRule {
   for (const [kw, n] of DAY_KWS) if (text.includes(kw)) days.push(n);
   if (text.includes("en semaine") || text.includes("jours ouvres")) days = [1, 2, 3, 4, 5];
 
-  // Action + destinataire.
+  // Action + destinataire. Un verbe de CRÉATION (« crée/ajoute/génère/prépare/
+  // mets à jour ») porte sur les DONNÉES → act, prioritaire sur notify.
+  const wantsAct =
+    /\b(cree|creer|creez|ajoute|ajouter|genere|generer|prepare|preparer|redige un devis|mets? a jour|met a jour|passe (le|la|les|en)|rattache|cree-moi|fais-moi (un|une|le|la))\b/.test(text);
   let actionType: AgentActionType = "notify";
   let recipientKind: AgentRecipientKind = "me";
-  if (/(relance|ecris a|envoie (un )?(mail|email|message) a)/.test(text)) {
+  // « prépare/rédige un message/mail pour X » = COMPOSER un message (send_email),
+  // PAS créer une fiche (act) — même si « prépare » est aussi un verbe de création.
+  const composeMessage = /(prepare|redige|ecris)\s+(moi\s+)?(un |une |le |la |mon |ma )?(message|mail|email|e-mail|courrier|mot|sms|relance|reponse)/.test(text);
+  if (composeMessage || /(relance|ecris a|ecris au|ecrire a|envoie (un )?(mail|email|message) a|contacte)/.test(text)) {
     actionType = "send_email";
-    recipientKind = /employe|equipe|salarie|ouvrier|chef de chantier|les gars/.test(text) ? "team" : "client";
+    recipientKind = /(sous.?traitant|soustraitant|fournisseur)/.test(text)
+      ? "supplier"
+      : /employe|equipe|salarie|ouvrier|compagnon|collaborateur|chef de chantier|les gars|mes gars/.test(text)
+        ? "team"
+        : "client";
+  } else if (wantsAct) {
+    actionType = "act";
+    recipientKind = "me";
   } else if (/(verifie|controle|surveille|examine)/.test(text)) {
     actionType = "report";
   }
@@ -363,47 +408,189 @@ export function parseInstructionHeuristic(instruction: string): ParsedRule {
     recipientKind = "team";
   }
 
-  const nameMatch = /client(?:e)?\s+([a-z][a-z' -]{1,40}?)(?=\s+(?:tous|chaque|a \d|le \d|du lundi|en semaine|$)|[,.!]|$)/.exec(text);
+  const nameMatch = /(?:client(?:e)?|fournisseur|sous.?traitant|employe(?:e)?)\s+([a-z][a-z' -]{1,40}?)(?=\s+(?:tous|chaque|a \d|le \d|du lundi|en semaine|$)|[,.!]|$)/.exec(text);
 
   // « envoie un message à X » sans dire QUOI → contenu manquant. Conservateur :
   // dès qu'un indice de contenu est présent (pour, dis-lui, relance, :…), false.
   const contentMissing =
     actionType !== "report" &&
+    actionType !== "act" &&
     /(envoi|ecris|message|mail|email)/.test(text) &&
     !/(pour |dis|dire|relance|que |:|disant|rappelle-moi de|previe|signal|demande)/.test(text);
 
   // ── ÉVÉNEMENT (déclencheur) : condition métier sans horaire ────────────────
   let triggerType: AgentTriggerType = "schedule";
   let eventWatcher: WatcherKey | null = null;
+  // « Nouveau X créé » AVANT le reste (« nouveau chantier » ne doit pas tomber
+  // dans la chaîne chantier_en_retard/sans_devis).
+  if (/(nouveau client|nouveaux clients|nouveau prospect enregistre)/.test(text) || (/client/.test(text) && /(cree|ajoute|enregistre|nouveau)/.test(text) && !/chantier/.test(text))) {
+    eventWatcher = "nouveau_client";
+  } else if (/(nouveau chantier|nouveaux chantiers)/.test(text) || (/chantier/.test(text) && /(cree|ajoute|ouvert|nouveau)/.test(text) && !/retard|budget|termine|fini|accepte/.test(text))) {
+    eventWatcher = "nouveau_chantier";
+  }
+  // Client inactif (« qu'on n'a pas vus depuis longtemps ») — mots-clés propres.
+  else if (/client/.test(text) && /(inactif|inactifs|inactive|inactivite|pas vu|plus vu|pas revu|dorment|qui dort|perdu de vue|perdus de vue|plus de nouvelles|pas eu de nouvelles|pas command)/.test(text)) {
+    eventWatcher = "client_inactif";
+  } else if (/client/.test(text) && /(doublon|dedoublonn|en double|duplicat|deux fois le meme|meme client (deux|plusieurs) fois)/.test(text)) {
+    eventWatcher = "clients_doublons";
+  } else if (
+    /(mauvais payeur|mauvais.?payeurs)/.test(text) ||
+    (/client/.test(text) && /(paie|paye|paient|payent).{0,12}(mal|lentement|en retard|jamais|tard)/.test(text))
+  ) {
+    eventWatcher = "client_mauvais_payeur";
+  }
+  // Conflit de planning / annulation AVANT les branches chantier (mots-clés propres).
+  else if (/(conflit de planning|conflit.{0,10}planning|chevauch|se superpos|double.?reserv|double.?book|(deux|2) (chantiers|rdv|rendez|interventions|endroits))/.test(text)) {
+    eventWatcher = "conflit_planning";
+  } else if (/(annul|décommand|decommand)/.test(text) && /(rdv|rendez|intervention|visite|chantier|client|planning)/.test(text)) {
+    eventWatcher = "intervention_annulee";
+  }
+  // Équipe & tâches : surcharge / tâche terminée / sans responsable / en retard,
+  // + chantier sans chef — AVANT les branches chantier génériques.
+  else if (
+    // « déborde » sert aussi au chantier (dépassement) → l'exiger avec un contexte PERSONNE.
+    /(surcharg|surmene|croule sous|trop charge|trop de (travail|taches|boulot))/.test(text) ||
+    (/(deborde|debord)/.test(text) && /(gars|personne|quelqu|employe|salarie|ouvrier|compagnon|equipe|intervenant|collaborateur|monde|charge)/.test(text))
+  ) {
+    eventWatcher = "equipe_surchargee";
+  } else if (/(tache|tâche)/.test(text) && /(termine|terminee|finie|bouclee|boucle|cochee|faite|achevee)/.test(text)) {
+    eventWatcher = "tache_terminee";
+  } else if (/(tache|tâche)/.test(text) && /(sans responsable|sans intervenant|non assignee|pas assignee|personne (ne|n'a)|sans personne|orpheline)/.test(text)) {
+    eventWatcher = "tache_sans_responsable";
+  } else if (/(tache|tâche)/.test(text) && /(retard|en retard|pas commencee|non commencee|traine|traîne|echue|depasse|pas faite|oubliee|en attente depuis)/.test(text)) {
+    eventWatcher = "tache_en_retard";
+  } else if (/chantier/.test(text) && /(sans responsable|sans chef|pas de chef|pas de responsable|aucun chef)/.test(text)) {
+    eventWatcher = "chantier_sans_responsable";
+  }
+  // Pointage & heures — CHAQUE branche exige un contexte pointage/heures pour ne
+  // JAMAIS capter une règle existante (« relance facture sous 48 heures »).
+  // chantier_trop_heures AVANT le cluster chantier (sinon « dépasse X heures » → retard).
+  else if (/chantier/.test(text) && /heure/.test(text) && /(trop|depasse|consomme|explose|au.?dessus|gourmand|excede|derape)/.test(text)) {
+    eventWatcher = "chantier_trop_heures";
+  } else if (
+    (/(pointage|pointe|pointer|pointent)/.test(text) && /(manqu|pas (encore )?pointe|non pointe|n'?a pas pointe|na pas pointe|oubli|sans pointage|pas fait ses heures)/.test(text)) ||
+    /heures? non rempli/.test(text) ||
+    /journee sans pointage/.test(text) ||
+    /(pas fait ses heures|pas fait leurs heures)/.test(text)
+  ) {
+    eventWatcher = "pointage_manquant";
+  } else if (/(heure|pointage)/.test(text) && /(a valider|non valide|pas valide|non validee|validation des heures|valider les heures)/.test(text)) {
+    eventWatcher = "heures_a_valider";
+  } else if (/(heure|pointage|pointe)/.test(text) && /(incoherent|anormal|aberrant|bizarre|suspect|faux pointage|erreur de (saisie|pointage)|plus de \d+ ?h)/.test(text)) {
+    eventWatcher = "heures_incoherentes";
+  }
   // Chantier : lever l'ambiguïté « dépasse le budget » vs « dépasse la date » —
-  // budget/marge et stagnation AVANT le retard générique.
-  if (/chantier/.test(text) && /(budget|marge|rentab|deficit)/.test(text)) {
+  // budget/marge et stagnation AVANT le retard générique. Budget ABSENT (« sans
+  // budget / non renseigné ») AVANT budget dépassé (les deux contiennent « budget »).
+  else if (
+    /chantier/.test(text) &&
+    (/(sans budget|pas de budget|budget manquant|budget vide|sans marge|pas chiffre|non chiffre|budget a renseigner)/.test(text) ||
+      (/(budget|marge)/.test(text) && /(non renseigne|pas renseigne|a renseigner|manquant|vide|non chiffre|pas chiffre)/.test(text)))
+  ) {
+    eventWatcher = "chantier_sans_budget";
+  } else if (/chantier/.test(text) && /(budget|marge|rentab|deficit)/.test(text)) {
     eventWatcher = "chantier_hors_budget";
   } else if (/chantier/.test(text) && /(avance pas|n'avance|navance|stagne|au point mort|pas bouge|ne bouge|sans activite|sans avancement|a l'arret|a l'arrêt|arrete)/.test(text)) {
     eventWatcher = "chantier_sans_activite";
   } else if (/chantier/.test(text) && /(sans devis|pas de devis|devis (signe|accepte)|demarre sans|commence sans)/.test(text)) {
     eventWatcher = "chantier_sans_devis";
+  } else if (
+    // Chantier dont la fin APPROCHE (avant l'échéance) → distinct du retard (après).
+    /chantier/.test(text) &&
+    /(bientot|avant.{0,15}(la )?(date de )?fin|approche.{0,12}(la )?fin|proche.{0,12}(fin|echeance|terme)|arrive.{0,12}(a|au) (son )?(terme|bout|echeance)|se termine bientot|dans quelques jours)/.test(text) &&
+    !/(retard|en retard|depasse|deborde|depuis)/.test(text)
+  ) {
+    eventWatcher = "chantier_fin_proche";
   } else if (/chantier/.test(text) && /(retard|en retard|depasse|deborde|date de fin|delai|deadline)/.test(text)) {
     eventWatcher = "chantier_en_retard";
   } else if (/(urgent|urgence|priorite|en catastrophe)/.test(text) && /(demande|intervention|client|sav|depannage|appel|ticket|message|dossier)/.test(text)) {
     eventWatcher = "demande_urgente";
+  }
+  // SAV / interventions & commandes — après demande_urgente (urgent = demande_urgente).
+  else if (/(intervention|sav|depannage)/.test(text) && /(sans responsable|sans intervenant|sans technicien|pas assigne|non assigne|non affecte|pas affecte)/.test(text)) {
+    eventWatcher = "intervention_sans_responsable";
+  } else if (/(intervention|sav|depannage)/.test(text) && /(sans date|pas de date|non planifie|pas planifie|a planifier|sans creneau|pas de creneau|date non prevue)/.test(text)) {
+    eventWatcher = "intervention_sans_date";
+  } else if (/(intervention|sav|depannage)/.test(text) && /(en retard|retard|depasse|non traite|pas traite|traine|en souffrance|oublie)/.test(text)) {
+    eventWatcher = "intervention_en_retard";
+  } else if (/(commande|livraison|approvisionnement|appro|bon de commande)/.test(text) && /(en retard|retard|pas livre|non livre|tarde|bloque|pas arrive|non arrive|en attente|attend)/.test(text)) {
+    eventWatcher = "commande_en_retard";
+  }
+  // Achats/dépenses FOURNISSEUR — AVANT le cluster facture (client) : chaque branche
+  // EXIGE le mot fournisseur/achat/dépense, absent des règles facture client → 0 régression.
+  else if (
+    /(achat|depense|facture.{0,12}fournisseur|facture d.?achat)/.test(text) &&
+    /(non affecte|pas affecte|sans chantier|aucun chantier|non rattache|pas rattache|non classe|pas classe|a classer|a affecter|a rattacher|non ventile|sans rattachement)/.test(text)
+  ) {
+    eventWatcher = "achat_non_affecte";
+  } else if (
+    (/(facture.{0,12}fournisseur|facture d.?achat|depense|achats? fournisseur)/.test(text) &&
+      /(a payer|a regler|regler|impaye|non paye|pas paye|en retard|echeance|paiement|dois payer|reste a payer|a solder)/.test(text)) ||
+    (/(payer|regler|solder|regl|dois|doit|redevable|du a|due a)/.test(text) && /(fournisseur|sous.?traitant)/.test(text))
+  ) {
+    eventWatcher = "facture_fournisseur_a_payer";
+  } else if (
+    // Facture dont l'échéance APPROCHE (avant le retard) → distinct de l'impayé.
+    /facture/.test(text) &&
+    /(bientot|avant.{0,15}echeance|proche.{0,12}echeance|approche.{0,12}echeance|a venir|va (bientot )?(etre )?(due|echue)|echeance proche|avant.{0,12}(la )?date)/.test(text) &&
+    !/(impaye|en retard|depasse|echue depuis|pas paye)/.test(text)
+  ) {
+    eventWatcher = "facture_echeance_proche";
   } else if (/(impaye|impayes|pas paye|non paye)/.test(text) || (/facture/.test(text) && /(echeance|relance|paiement|paye)/.test(text))) {
     eventWatcher = "facture_impayee";
+  } else if (/devis/.test(text) && /(expire|expiration|va expirer|validite|bientot|avant.{0,15}(expir|validite)|proche.{0,12}(expir|echeance|fin))/.test(text)) {
+    eventWatcher = "devis_expire_bientot";
   } else if (/devis/.test(text) && /(non signe|pas signe|sans reponse|non accepte|en attente|pas repondu|relance|signature)/.test(text)) {
     eventWatcher = "devis_non_signe";
   } else if (/(expire|expiration|va expirer|arrive a echeance|echeance)/.test(text) && !/facture/.test(text)) {
     eventWatcher = "echeance_proche";
+  }
+  // Sous-traitants — AVANT le cluster conformité (chaque branche exige le mot
+  // « sous-traitant » ; sinon « ST sans assurance » tomberait dans assurance_expiree
+  // qui, lui, ne lit que les décennales DÉJÀ expirées et ne verrait rien).
+  else if (/(sous.?traitant|soustraitant)/.test(text) && /(sans assurance|pas d.assurance|pas assure|non assure|sans decennale|assurance manqu|decennale manqu)/.test(text)) {
+    eventWatcher = "sous_traitant_sans_assurance";
+  } else if (/(sous.?traitant|soustraitant)/.test(text) && /(probleme|problematique|souci|incident|reserve|malfacon|litige|pas fiable|defaut|a eviter)/.test(text)) {
+    eventWatcher = "sous_traitant_a_probleme";
+  }
+  // Conformité DÉJÀ survenue — APRÈS echeance_proche (qui garde tout ce qui contient
+  // « expire »), mots-clés distincts (manquant/régulariser/périmé) → aucune régression.
+  else if (/(assurance|decennale|rc pro)/.test(text) && /(perime|caduc|plus valable|pas a jour|non valide|manqu|regularis|expiree)/.test(text)) {
+    eventWatcher = "assurance_expiree";
+  } else if (/(document|attestation|papier|piece|justificatif|kbis|urssaf|qualibat|conformite)/.test(text) && /(manqu|a regulariser|regularis|non conforme|pas a jour|non a jour|plus valable|perime|caduc)/.test(text)) {
+    eventWatcher = "document_a_regulariser";
+  } else if (/(document|fichier|piece|justificatif|papier)/.test(text) && /(class|ranger|range|rangement|non rattache|en vrac|trier|mettre de l.ordre)/.test(text)) {
+    eventWatcher = "documents_a_classer";
+  } else if (/chantier/.test(text) && /(sans photo|pas de photo|aucune photo|photo manqu|manque.{0,12}photo|photo.{0,6}final)/.test(text)) {
+    eventWatcher = "chantier_sans_photo";
   } else if (/(compte[- ]rendu|compte rendu)/.test(text) && /(visite|intervention|chantier|apres|terminee|termine|fini)/.test(text)) {
+    eventWatcher = "visite_terminee";
+  } else if (
+    // « un salarié/ouvrier/gars finit son travail/sa tâche » = intervention terminée.
+    /(salarie|ouvrier|employe|compagnon|collaborateur|gars|equipe|artisan|mon gars)/.test(text) &&
+    /(fini|finit|finis|termine|terminee|termin|boucle|acheve|clotur|livre)/.test(text) &&
+    /(travail|tache|boulot|mission|intervention|chantier|job|prestation)/.test(text)
+  ) {
     eventWatcher = "visite_terminee";
   }
   // team_planning est PLANIFIÉ (récurrent), jamais un event → ne bascule pas.
   if (eventWatcher && actionType !== "team_planning") {
     triggerType = "event";
-    // Action : le veilleur suggère, mais « préviens/alerte » force la notification.
+    // Action : un verbe de création (« crée/ajoute… ») → act ; une relance EXPLICITE
+    // vers un fournisseur/sous-traitant (veilleurs commande/ST) → send_email ; sinon
+    // le veilleur suggère, mais « préviens/alerte » force la notification (défaut sûr).
     const w = getWatcher(eventWatcher);
-    actionType = /(previens|previen|alerte|signale|rappelle|je veux savoir)/.test(text)
-      ? "notify"
-      : (w?.suggestedAction ?? "notify");
+    const writeToSupplier =
+      isSupplierRelanceWatcher(eventWatcher) &&
+      /(relance|ecris|ecrire|contacte|envoie|un mail|un message)/.test(text) &&
+      !/(previens[- ]?moi|previen[- ]?moi|alerte[- ]?moi|signale[- ]?moi|rappelle[- ]?moi|je veux savoir)/.test(text);
+    actionType = wantsAct
+      ? "act"
+      : writeToSupplier
+        ? "send_email"
+        : /(previens|previen|alerte|signale|rappelle|je veux savoir)/.test(text)
+          ? "notify"
+          : (w?.suggestedAction ?? "notify");
   } else {
     eventWatcher = null;
   }
@@ -418,8 +605,8 @@ export function parseInstructionHeuristic(instruction: string): ParsedRule {
     contentInstruction: instruction.slice(0, 500),
     contentMissing: triggerType === "event" ? false : contentMissing,
     dataFocus: actionType === "report" ? instruction.slice(0, 200) : "",
-    // Repli prudent : un contrôle de données = medium, un message = simple.
-    complexity: actionType === "report" ? "medium" : "simple",
+    // Repli prudent : un contrôle de données OU une écriture (act) = medium, un message = simple.
+    complexity: actionType === "report" || actionType === "act" ? "medium" : "simple",
     triggerType,
     eventWatcher,
     eventDays: 0,
@@ -450,11 +637,12 @@ export async function parseInstruction(instruction: string): Promise<ParsedRule>
       i.action_type === "send_email" ||
       i.action_type === "notify" ||
       i.action_type === "report" ||
-      i.action_type === "team_planning"
+      i.action_type === "team_planning" ||
+      i.action_type === "act"
         ? i.action_type
         : "notify";
     const recipientKind =
-      i.recipient_kind === "client" || i.recipient_kind === "employee" || i.recipient_kind === "team" || i.recipient_kind === "me"
+      i.recipient_kind === "client" || i.recipient_kind === "employee" || i.recipient_kind === "team" || i.recipient_kind === "me" || i.recipient_kind === "supplier"
         ? i.recipient_kind
         : "me";
     const time = typeof i.time === "string" && /^\d{1,2}:\d{2}$/.test(i.time) ? i.time : "09:00";
@@ -583,9 +771,9 @@ export async function resolveRecipients(
     };
   }
 
-  // client | employee — recherche par nom.
-  const table = kind === "client" ? "clients" : "employees";
-  const label = kind === "client" ? "client" : "employé";
+  // client | employee | supplier — recherche par nom.
+  const table = kind === "client" ? "clients" : kind === "supplier" ? "suppliers" : "employees";
+  const label = kind === "client" ? "client" : kind === "supplier" ? "sous-traitant / fournisseur" : "employé";
   if (!name.trim()) {
     return { ok: false, reason: `quel ${label} dois-je contacter ?`, missing: null };
   }
@@ -636,6 +824,21 @@ export function mentionsUnsupportedChannel(instruction: string): "WhatsApp" | "S
   return null;
 }
 
+/**
+ * L'artisan veut-il VALIDER les relances avant qu'elles ne partent (#67) ?
+ * « prépare-les sans les envoyer », « ne les envoie pas, je valide », « soumets-moi
+ * avant », « demande-moi avant d'envoyer » → mode brouillon (approval="always").
+ */
+export function mentionsApprovalIntent(instruction: string): boolean {
+  const t = instruction
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase();
+  if (/(sans (les )?envoyer|ne (les )?envoie pas|n'envoie pas|pas automatiquement|sans envoi auto)/.test(t)) return true;
+  if (/(je valide|que je valide|apres validation|avec (ma )?validation|soumets[- ]moi|propose[- ]moi|demande[- ]moi avant|mon accord|mon feu vert|prepare(-| )?(les|la|moi)? (relance|un mail|un message))/.test(t)) return true;
+  return false;
+}
+
 // ── Création (orchestration) ─────────────────────────────────────────────────
 
 export type CreateRuleResult = {
@@ -644,6 +847,8 @@ export type CreateRuleResult = {
   blocked: boolean;
   /** Message prêt pour le chat (« jamais muet »). */
   message: string;
+  /** Manques de capacité détectés au preflight (bloquants si !ok, sinon recommandations). */
+  gaps?: CapabilityGap[];
   usage?: ParsedRule["usage"];
 };
 
@@ -717,6 +922,7 @@ export async function createAgentRule(opts: {
       parsed.actionType === "report" ||
       parsed.actionType === "team_planning" ||
       parsed.actionType === "compte_rendu" ||
+      parsed.actionType === "act" ||
       parsed.eventWatcher === "visite_terminee";
     if (willAct) {
       return {
@@ -744,6 +950,66 @@ export async function createAgentRule(opts: {
     };
   }
 
+  // ── PREFLIGHT DE CAPACITÉ (demande user 2026-07-10) : comme un employé, l'agent
+  //    regarde s'il a de quoi accomplir sa mission AVANT de dire « c'est parti ».
+  //    Il ne devine pas le plan d'action final — on le déduit du parsing, à
+  //    l'identique de la construction ci-dessous. Un manque BLOQUANT (pas de canal
+  //    d'envoi, pas d'équipe joignable) refuse le recrutement avec la raison
+  //    précise ; les warnings (notifications non activées, agenda non branché,
+  //    aucun seuil de stock) laissent recruter mais sont signalés. ───────────────
+  let planAction: AgentActionType = parsed.actionType;
+  let planRecipient: AgentRecipientKind = parsed.recipientKind;
+  let planWatcher: WatcherKey | null = null;
+  if (parsed.triggerType === "event" && parsed.eventWatcher) {
+    planWatcher = parsed.eventWatcher;
+    const canRelanceClient =
+      parsed.eventWatcher === "devis_non_signe" ||
+      parsed.eventWatcher === "devis_expire_bientot" ||
+      parsed.eventWatcher === "facture_echeance_proche" ||
+      parsed.eventWatcher === "facture_impayee" ||
+      parsed.eventWatcher === "client_inactif";
+    if (parsed.actionType === "act") {
+      // act = écriture dans le workspace (aucun canal externe requis → jamais bloquant).
+      planAction = "act";
+      planRecipient = "me";
+    } else if (parsed.eventWatcher === "visite_terminee") {
+      planAction = "compte_rendu";
+      planRecipient = "me";
+    } else if (parsed.actionType === "send_email" && canRelanceClient) {
+      planAction = "send_email";
+      planRecipient = "client";
+    } else if (parsed.actionType === "send_email" && isSupplierRelanceWatcher(parsed.eventWatcher)) {
+      planAction = "send_email";
+      planRecipient = "supplier";
+    } else {
+      planAction = "notify";
+      planRecipient = "me";
+    }
+  } else if (parsed.actionType === "team_planning") {
+    planRecipient = "team";
+  }
+  const readiness = await checkAgentReadiness({
+    supabase,
+    tenantId,
+    userId,
+    userEmail,
+    plan: { actionType: planAction, recipientKind: planRecipient, watcher: planWatcher },
+  });
+  if (!readiness.ok) {
+    return {
+      ok: false,
+      ruleId: null,
+      blocked: false,
+      gaps: readiness.gaps,
+      message:
+        `Je peux mettre en place « ${parsed.title} », mais il me manque de quoi le faire tourner : ` +
+        `**${summarizeGaps(readiness.gaps.filter((g) => g.severity === "block"))}**. ` +
+        `Réglez cela (voir ci-dessous) puis redemandez-moi — je démarre aussitôt.`,
+      usage: parsed.usage,
+    };
+  }
+  const warnNote = readiness.gaps.length ? ` À finir pour un fonctionnement optimal : ${summarizeGaps(readiness.gaps)}.` : "";
+
   // ── DÉCLENCHEUR ÉVÉNEMENTIEL : « dès qu'une fiche remplit la condition » ─────
   // Chemin distinct du planning : AUCUNE résolution de destinataire au
   // recrutement — pour un envoi, le client est celui de CHAQUE fiche déclenchante ;
@@ -760,11 +1026,21 @@ export async function createAgentRule(opts: {
       // Une relance client n'a de sens que pour les veilleurs qui portent l'email
       // d'un client (devis, factures). Les veilleurs « chantier » (retard, budget,
       // stagnation, sans devis) alertent TOUJOURS le patron — jamais d'email vide.
-      const canRelanceClient = watcher.key === "devis_non_signe" || watcher.key === "facture_impayee";
+      const canRelanceClient =
+        watcher.key === "devis_non_signe" ||
+        watcher.key === "devis_expire_bientot" ||
+        watcher.key === "facture_echeance_proche" ||
+        watcher.key === "facture_impayee" ||
+        watcher.key === "client_inactif";
       // Veilleur « jugé par IA » : alerte patron, mais l'examen (lecture + jugement)
       // a un coût → notify PAYANT (pas gratuit comme un digest par gabarit).
       const isJudged = !!watcher.aiJudge;
-      if (watcher.key === "visite_terminee") {
+      if (parsed.actionType === "act") {
+        // AGIR : l'agent crée/met à jour une fiche par déclenchement, puis rend compte.
+        evType = "act";
+        complexity = "medium";
+        evRecipientKind = "me";
+      } else if (watcher.key === "visite_terminee") {
         evType = "compte_rendu";
         complexity = "medium";
         evRecipientKind = "me";
@@ -772,6 +1048,12 @@ export async function createAgentRule(opts: {
         evType = "send_email";
         complexity = "medium";
         evRecipientKind = "client";
+      } else if (parsed.actionType === "send_email" && isSupplierRelanceWatcher(watcher.key)) {
+        // Relance d'un FOURNISSEUR/SOUS-TRAITANT : l'email part vers le contact de
+        // la fiche déclenchante (match.email = email du fournisseur), ton neutre.
+        evType = "send_email";
+        complexity = "medium";
+        evRecipientKind = "supplier";
       } else {
         evType = "notify";
         complexity = "simple";
@@ -794,6 +1076,10 @@ export async function createAgentRule(opts: {
               ? COMPLEXITY_ESTIMATE.simple
               : 0
             : COMPLEXITY_ESTIMATE[complexity],
+        // Mode brouillon (#67) : « prépare sans envoyer, je valide » → chaque
+        // relance passe par l'outbox. Sinon envoi auto (les relances FERMES
+        // restent quand même retenues pour validation, cf. exécuteur).
+        approval: evType === "send_email" && mentionsApprovalIntent(instruction) ? "always" : "auto",
       };
       const trigger: AgentTrigger = { watcher: watcher.key, params: { days }, scanEveryMinutes: 60 };
       const title = parsed.title || `Surveillance : ${watcher.label}`;
@@ -828,13 +1114,17 @@ export async function createAgentRule(opts: {
 
       const daysNote = watcher.daysMeaning && days > 0 ? ` (${days} ${watcher.daysMeaning})` : "";
       const actLabel =
-        evType === "compte_rendu"
-          ? "je rédige le compte-rendu et vous le retrouvez dans la Bibliothèque"
-          : evType === "send_email"
-            ? "je relance le client concerné par email"
-            : isJudged
-              ? "je lis chaque nouvelle fiche pour juger, et je vous préviens seulement sur les vrais cas"
-              : "je vous préviens aussitôt";
+        evType === "act"
+          ? "je réalise l'action demandée sur la fiche concernée (à partir de ses données) et je vous rends compte"
+          : evType === "compte_rendu"
+            ? "je rédige le compte-rendu et vous le retrouvez dans la Bibliothèque"
+            : evType === "send_email"
+              ? action.approval === "always"
+                ? "je prépare chaque relance et vous la soumets pour validation avant envoi (rien ne part sans votre feu vert)"
+                : "je relance le client concerné par email (une relance devenue ferme vous est soumise pour validation avant envoi)"
+              : isJudged
+                ? "je lis chaque nouvelle fiche pour juger, et je vous préviens seulement sur les vrais cas"
+                : "je vous préviens aussitôt";
       // Transparence : un veilleur jugé par IA consomme un peu à chaque examen.
       const judgeNote = isJudged
         ? ` L'analyse coûte ~${COMPLEXITY_ESTIMATE.simple} crédits par lot de nouvelles fiches (le débit réel fait foi).`
@@ -842,8 +1132,8 @@ export async function createAgentRule(opts: {
       const message =
         `🤖 Agent recruté : **${title}**. Je surveille ${watcher.watching}${daysNote} en continu — ` +
         `dès qu'une fiche correspond, ${actLabel}. Chaque fiche n'est traitée qu'une fois (pas de spam).${judgeNote} ` +
-        `Retrouvez-le dans **Agents**.`;
-      return { ok: true, ruleId: insertedEvt.id, blocked: false, message, usage: parsed.usage };
+        `Retrouvez-le dans **Agents**.${warnNote}`;
+      return { ok: true, ruleId: insertedEvt.id, blocked: false, message, gaps: readiness.gaps, usage: parsed.usage };
     }
   }
 
@@ -952,7 +1242,7 @@ export async function createAgentRule(opts: {
     }. ${priceLine} Je m'en occupe.`;
   }
 
-  return { ok: true, ruleId: inserted.id, blocked, message, usage: parsed.usage };
+  return { ok: true, ruleId: inserted.id, blocked, message: message + warnNote, gaps: readiness.gaps, usage: parsed.usage };
 }
 
 // ── Activation d'un AGENT PRÊT À L'EMPLOI (template) ──────────────────────────
@@ -964,6 +1254,8 @@ export type ActivateTemplateResult = {
   alreadyActive?: boolean;
   /** true = créé mais en attente (ex : équipe sans email pour le planning). */
   blocked?: boolean;
+  /** Manques de capacité au preflight (bloquants si !ok, sinon recommandations). */
+  gaps?: CapabilityGap[];
   /** Message prêt pour l'UI (« jamais muet »). */
   message: string;
 };
@@ -1023,6 +1315,42 @@ export async function activateAgentTemplate(opts: {
     // Entitlements indisponibles → ne bloque pas l'activation (fail-open).
   }
 
+  // ── PREFLIGHT DE CAPACITÉ (demande user 2026-07-10) : on refuse d'afficher
+  //    « Activé » si l'agent n'a pas de quoi agir. Le plan d'action est déduit du
+  //    modèle, à l'identique de la règle écrite plus bas. Un manque BLOQUANT
+  //    empêche l'activation (l'UI ouvre une pop-up « il manque X ») ; les warnings
+  //    laissent activer mais sont remontés (notifications, agenda, seuils). ───────
+  let planAction: AgentActionType;
+  let planRecipient: AgentRecipientKind;
+  let planWatcher: WatcherKey | null = null;
+  if (template.kind === "event" && template.watcher) {
+    planWatcher = template.watcher;
+    planAction = template.eventAction ?? getWatcher(template.watcher)?.suggestedAction ?? "notify";
+    planRecipient = planAction === "send_email" ? "client" : "me";
+  } else {
+    planAction = template.scheduleAction ?? "report";
+    planRecipient = planAction === "team_planning" ? "team" : "me";
+  }
+  const readiness = await checkAgentReadiness({
+    supabase,
+    tenantId,
+    userId,
+    userEmail,
+    plan: { actionType: planAction, recipientKind: planRecipient, watcher: planWatcher },
+  });
+  if (!readiness.ok) {
+    return {
+      ok: false,
+      ruleId: null,
+      blocked: true,
+      gaps: readiness.gaps,
+      message: `« ${template.name} » ne peut pas encore être activé : il manque ${summarizeGaps(
+        readiness.gaps.filter((g) => g.severity === "block")
+      )}. Corrigez cela puis réactivez-le.`,
+    };
+  }
+  const warnNote = readiness.gaps.length ? ` À finir : ${summarizeGaps(readiness.gaps)}.` : "";
+
   const meta = { template_id: template.id } as unknown as Record<string, unknown>;
 
   // ── DÉCLENCHEUR ÉVÉNEMENTIEL (« dès qu'une fiche remplit la condition »). ──
@@ -1080,8 +1408,8 @@ export async function activateAgentTemplate(opts: {
           : "je vous préviens aussitôt";
     const message =
       `🤖 Agent activé : **${template.name}**. Je surveille ${watcher.watching} en continu — ` +
-      `dès qu'une fiche correspond, ${actLabel}. Retrouvez-le dans **Agents**.`;
-    return { ok: true, ruleId: inserted.id, message };
+      `dès qu'une fiche correspond, ${actLabel}. Retrouvez-le dans **Agents**.${warnNote}`;
+    return { ok: true, ruleId: inserted.id, message, gaps: readiness.gaps };
   }
 
   // ── DÉCLENCHEUR PLANIFIÉ (heure fixe). ────────────────────────────────────
@@ -1145,10 +1473,10 @@ export async function activateAgentTemplate(opts: {
   }
 
   const when = describeSchedule(schedule);
-  const message = blocked
+  const message = (blocked
     ? `🤖 Agent **${template.name}** créé (${when}), mais avant de démarrer : ${blockedReason}. Complétez dans **Agents** — je démarre dès que c'est bon.`
     : `🤖 Agent activé : **${template.name}** — ${when}. Premier passage : ${
         nextRun ? formatRunDate(nextRun) : "à planifier"
-      }. Retrouvez-le dans **Agents**.`;
-  return { ok: true, ruleId: inserted.id, blocked, message };
+      }. Retrouvez-le dans **Agents**.`) + warnNote;
+  return { ok: true, ruleId: inserted.id, blocked, message, gaps: readiness.gaps };
 }

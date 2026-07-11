@@ -64,6 +64,20 @@ type AgentRun = {
   created_at: string;
 };
 
+// Relance PRÉPARÉE en attente de validation (Étape 3 : #67 brouillon / #70 ferme).
+type PendingRelance = {
+  id: string;
+  rule_id: string | null;
+  fiche_label: string | null;
+  kind: string;
+  level: number | null;
+  to_email: string;
+  subject: string;
+  body: string;
+  status: string;
+  created_at: string;
+};
+
 const DAY_NAMES = ["", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"];
 
 function describeSchedule(s: AgentSchedule | null | undefined): string {
@@ -81,14 +95,52 @@ function describeSchedule(s: AgentSchedule | null | undefined): string {
 // Ce que surveille un agent-événement (miroir court de lib/agent-watchers.ts).
 const WATCHER_LABELS: Record<string, string> = {
   chantier_en_retard: "les chantiers en retard",
+  chantier_fin_proche: "les chantiers dont la date de fin approche",
   chantier_hors_budget: "les chantiers qui dépassent leur budget",
   chantier_sans_activite: "les chantiers qui n'avancent plus",
   chantier_sans_devis: "les chantiers démarrés sans devis signé",
+  chantier_termine: "les chantiers qui viennent d'être terminés",
   demande_urgente: "les demandes clients urgentes sans réponse (jugées par l'IA)",
   devis_non_signe: "les devis non signés",
+  devis_accepte: "les devis qui viennent d'être acceptés",
+  devis_expire_bientot: "les devis proches de leur date de validité",
+  facture_echeance_proche: "les factures dont l'échéance approche",
   facture_impayee: "les factures impayées",
+  facture_payee: "les factures qui viennent d'être payées",
   echeance_proche: "les échéances à venir (docs, assurances, contrats, entretiens)",
   visite_terminee: "les visites terminées (compte-rendu auto)",
+  rdv_demain: "les rendez-vous clients à venir",
+  conflit_planning: "les conflits de planning (interventions qui se chevauchent)",
+  intervention_annulee: "les rendez-vous / interventions annulés",
+  tache_en_retard: "les tâches en retard (échéance dépassée)",
+  tache_terminee: "les tâches qui viennent d'être terminées",
+  tache_sans_responsable: "les tâches ouvertes sans intervenant",
+  chantier_sans_responsable: "les chantiers actifs sans chef de chantier",
+  equipe_surchargee: "les intervenants surchargés (trop de travail ouvert)",
+  stock_bas: "les matériaux passés sous leur seuil",
+  nouveau_lead: "les nouveaux leads reçus par formulaire",
+  nouveau_client: "les nouveaux clients créés",
+  nouveau_chantier: "les nouveaux chantiers créés",
+  pointage_manquant: "les employés qui n'ont pas pointé récemment",
+  heures_a_valider: "les heures/pointages non validés qui traînent",
+  heures_incoherentes: "les journées d'heures anormalement élevées",
+  chantier_trop_heures: "les chantiers qui consomment trop d'heures",
+  document_a_regulariser: "les documents manquants ou déjà expirés",
+  assurance_expiree: "les assurances décennales déjà expirées (sous-traitants)",
+  clients_doublons: "les fiches clients en double (même email ou téléphone)",
+  client_mauvais_payeur: "les clients cumulant des factures échues impayées",
+  sous_traitant_a_probleme: "les sous-traitants cumulant des réserves/incidents ouverts",
+  sous_traitant_sans_assurance: "les sous-traitants sans assurance décennale renseignée",
+  documents_a_classer: "les documents uploadés sans rattachement (à ranger)",
+  chantier_sans_photo: "les chantiers terminés sans aucune photo au dossier",
+  intervention_sans_responsable: "les interventions/SAV ouverts sans intervenant assigné",
+  intervention_sans_date: "les interventions/SAV ouverts sans date prévue",
+  intervention_en_retard: "les interventions/SAV dont la date prévue est dépassée",
+  commande_en_retard: "les commandes fournisseur en retard de livraison",
+  achat_non_affecte: "les achats/dépenses fournisseur non rattachés à un chantier",
+  facture_fournisseur_a_payer: "les factures fournisseur à régler (échéance dépassée)",
+  chantier_sans_budget: "les chantiers actifs sans budget renseigné",
+  client_inactif: "les clients sans activité depuis longtemps",
 };
 
 /** Agent-événement → « surveille X » ; agent planifié → son planning. */
@@ -122,11 +174,13 @@ const ACTION_LABELS: Record<string, string> = {
   report: "Contrôle + synthèse",
   team_planning: "Planning équipe",
   compte_rendu: "Compte-rendu auto",
+  act: "Action automatique",
 };
 
 export default function AgentsPage() {
   const [rules, setRules] = useState<AgentRule[]>([]);
   const [runs, setRuns] = useState<AgentRun[]>([]);
+  const [pending, setPending] = useState<PendingRelance[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null); // rule id en cours d'action
   const [notice, setNotice] = useState<string | null>(null);
@@ -144,6 +198,7 @@ export default function AgentsPage() {
       if (res.ok) {
         setRules(data.rules ?? []);
         setRuns(data.runs ?? []);
+        setPending(data.pending ?? []);
         // Aucun agent encore : on met les modèles prêts à l'emploi en avant.
         if ((data.rules ?? []).length === 0) setTemplatesOpen(true);
       } else {
@@ -189,6 +244,28 @@ export default function AgentsPage() {
         } else {
           flash("✓ Fait.");
         }
+        await load();
+      }
+    } catch {
+      setError("Action impossible.");
+    }
+    setBusy(null);
+  }
+
+  // Valider (envoyer) ou ignorer une relance préparée (Étape 3).
+  async function decideRelance(id: string, decision: "send" | "discard") {
+    setBusy(id);
+    setError(null);
+    try {
+      const res = await fetch("/api/agents/outbox", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, decision }),
+      });
+      const data = await res.json();
+      if (!res.ok) setError(data.error ?? "Action impossible.");
+      else {
+        flash(decision === "send" ? "✓ Relance envoyée." : "Relance ignorée.");
         await load();
       }
     } catch {
@@ -258,6 +335,63 @@ export default function AgentsPage() {
         {error && (
           <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-[13px] text-rose-700">
             {error}
+          </div>
+        )}
+
+        {/* ── RELANCES À VALIDER : préparées par un agent, en attente de votre feu vert ── */}
+        {pending.length > 0 && (
+          <div className="mb-8 rounded-2xl border border-amber-200 bg-amber-50/60 overflow-hidden">
+            <div className="px-4 py-3 border-b border-amber-200 flex items-center gap-2">
+              <Mail className="w-4 h-4 text-amber-600 flex-shrink-0" />
+              <span className="text-[13.5px] font-bold text-amber-900">
+                {pending.length} relance{pending.length > 1 ? "s" : ""} à valider
+              </span>
+              <span className="text-[12px] text-amber-700">avant envoi</span>
+            </div>
+            <div className="divide-y divide-amber-100">
+              {pending.map((p) => (
+                <div key={p.id} className="px-4 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[13px] font-semibold text-[#0A0A0A] truncate">{p.subject}</span>
+                        {p.level != null && p.level >= 3 && (
+                          <span className="rounded-full bg-rose-100 border border-rose-200 px-2 py-0.5 text-[10.5px] font-semibold text-rose-700">
+                            ferme (niv.&nbsp;{p.level})
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[12px] text-[#6E6E6C] mt-0.5 truncate">
+                        Pour {p.to_email}
+                        {p.fiche_label ? ` · ${p.fiche_label}` : ""}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <button
+                        disabled={busy === p.id}
+                        onClick={() => decideRelance(p.id, "send")}
+                        className="inline-flex items-center gap-1 rounded-full bg-[#0A0A0A] px-3 py-1.5 text-[12px] font-semibold text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
+                      >
+                        {busy === p.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />} Envoyer
+                      </button>
+                      <button
+                        disabled={busy === p.id}
+                        onClick={() => decideRelance(p.id, "discard")}
+                        className="inline-flex items-center rounded-full border border-[#E7E7E4] bg-white px-3 py-1.5 text-[12px] font-semibold text-[#6E6E6C] hover:bg-[#FBFBFD] disabled:opacity-50 transition-colors"
+                      >
+                        Ignorer
+                      </button>
+                    </div>
+                  </div>
+                  <details className="mt-2">
+                    <summary className="text-[11.5px] text-violet-700 cursor-pointer select-none">Voir le message</summary>
+                    <pre className="mt-1.5 whitespace-pre-wrap break-words text-[12px] leading-relaxed text-[#3A3A46] bg-white border border-amber-100 rounded-lg p-2.5 font-sans">
+{p.body}
+                    </pre>
+                  </details>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

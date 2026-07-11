@@ -95,10 +95,10 @@ export function AuthScene() {
     <div className="relative flex h-full flex-col items-center justify-center overflow-hidden rounded-[30px]">
       {/* Mesh Biltia, version vive (le wow reste à droite, le calme à gauche) */}
       <div className="absolute inset-0" style={{ background: "linear-gradient(165deg, #EDEFFF 0%, #F5EDFF 38%, #FFECF6 72%, #FFF3EA 100%)" }} />
-      <div className="absolute -top-[18%] -left-[12%] h-[58%] w-[58%] rounded-full blur-[110px] animate-drift-a" style={{ background: "radial-gradient(circle, rgba(99,102,241,0.55), transparent 66%)" }} />
-      <div className="absolute top-[2%] right-[-14%] h-[54%] w-[54%] rounded-full blur-[120px] animate-drift-c" style={{ background: "radial-gradient(circle, rgba(168,85,247,0.5), transparent 66%)" }} />
-      <div className="absolute bottom-[-16%] left-[6%] h-[56%] w-[56%] rounded-full blur-[120px] animate-drift-b" style={{ background: "radial-gradient(circle, rgba(236,72,153,0.48), transparent 66%)" }} />
-      <div className="absolute bottom-[-10%] right-[0%] h-[46%] w-[46%] rounded-full blur-[110px] animate-drift-d" style={{ background: "radial-gradient(circle, rgba(251,146,60,0.4), transparent 66%)" }} />
+      <div className="mesh-blob absolute -top-[18%] -left-[12%] h-[58%] w-[58%] rounded-full blur-[110px] animate-drift-a" style={{ background: "radial-gradient(circle, rgba(99,102,241,0.55), transparent 66%)" }} />
+      <div className="mesh-blob absolute top-[2%] right-[-14%] h-[54%] w-[54%] rounded-full blur-[120px] animate-drift-c" style={{ background: "radial-gradient(circle, rgba(168,85,247,0.5), transparent 66%)" }} />
+      <div className="mesh-blob absolute bottom-[-16%] left-[6%] h-[56%] w-[56%] rounded-full blur-[120px] animate-drift-b" style={{ background: "radial-gradient(circle, rgba(236,72,153,0.48), transparent 66%)" }} />
+      <div className="mesh-blob absolute bottom-[-10%] right-[0%] h-[46%] w-[46%] rounded-full blur-[110px] animate-drift-d" style={{ background: "radial-gradient(circle, rgba(251,146,60,0.4), transparent 66%)" }} />
       <div className="bg-grain pointer-events-none absolute inset-0 opacity-[0.045]" />
 
       {/* Pastilles flottantes (réparties dans les 4 coins, dégagées du centre) */}

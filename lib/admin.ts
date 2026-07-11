@@ -16,8 +16,10 @@
 // ADMIN_EMAILS n'est pas préfixée NEXT_PUBLIC et ne doit pas fuiter au navigateur).
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Emails admin en dur (repli si pas de variable d'env). VIDE = personne. */
-const ADMIN_EMAILS_FALLBACK: string[] = [];
+/** Emails admin en dur (repli si pas de variable d'env). VIDE = personne.
+ *  Le compte tout-droits y est en dur pour garantir l'accès console admin même
+ *  sans variable d'env (il a déjà tous les droits produit via lib/founder.ts). */
+const ADMIN_EMAILS_FALLBACK: string[] = ["contact@biltia.com"];
 
 /** Clé de chemin par défaut si ADMIN_ACCESS_KEY n'est pas définie. Obscure mais
  *  présente dans le repo : mets une vraie valeur secrète en env pour la prod. */

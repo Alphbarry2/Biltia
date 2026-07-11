@@ -6,12 +6,32 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { getValidGoogleToken } from "./gmail";
+import { createAdminClient } from "./supabase-admin";
 
 const CALENDAR_SCOPES = [
   "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/calendar",
 ];
+
+/**
+ * L'agenda Google est-il connecté avec un scope calendrier ? Vérification LÉGÈRE
+ * (lecture des scopes en base, sans appel réseau) — pour le preflight d'un agent
+ * qui transmet le planning. Motif gmailStatus (lib/gmail.ts). Ne throw jamais.
+ */
+export async function calendarConnected(tenantId: string, userId: string): Promise<boolean> {
+  const admin = createAdminClient();
+  if (!admin) return false;
+  const { data } = await admin
+    .from("user_connections")
+    .select("scopes")
+    .eq("tenant_id", tenantId)
+    .eq("user_id", userId)
+    .eq("provider", "google")
+    .maybeSingle();
+  const scopes = (data as { scopes?: string[] } | null)?.scopes ?? [];
+  return scopes.some((s) => CALENDAR_SCOPES.includes(s));
+}
 
 export type CalReadResult =
   | { ok: true; summary: string }

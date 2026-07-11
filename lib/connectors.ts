@@ -135,6 +135,21 @@ export function getConnector(id: string): Connector | undefined {
   return CONNECTORS.find((c) => c.id === id);
 }
 
+// ── Capacité d'agent (lib/agent-capabilities) → connecteur à proposer ────────
+// Quand un manque de capacité se règle par une CONNEXION, on sait quelle carte
+// afficher inline. Les manques non-OAuth (notifications, équipe vide, seuil de
+// stock) n'ont pas d'entrée ici → pas de bouton « Connecter » (ils gardent leur
+// lien « aller régler »). Clé = CapabilityId, valeur = id de connecteur.
+const CONNECTOR_FOR_CAPABILITY: Record<string, string> = {
+  email_send: "gmail",
+  calendar_read: "google-calendar",
+};
+
+/** Le connecteur à proposer pour un code de manque, ou undefined si non-OAuth. */
+export function connectorForCapability(code: string): string | undefined {
+  return CONNECTOR_FOR_CAPABILITY[code];
+}
+
 // ── Statut d'un connecteur à partir des connexions de l'utilisateur ─────────
 
 /** Vue publique d'une connexion (ce que l'API expose — jamais les jetons). */

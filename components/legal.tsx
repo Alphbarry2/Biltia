@@ -25,8 +25,8 @@ export function LegalPage({
       {/* Hero */}
       <header className="relative overflow-hidden border-b border-[#EDEDEB]">
         <div aria-hidden className="absolute inset-0 pointer-events-none">
-          <div className="absolute -top-[42%] left-[-8%] w-[55vw] h-[55vw] max-w-[680px] rounded-full blur-[120px]" style={{ background: "radial-gradient(circle, rgba(99,102,241,0.16), transparent 66%)" }} />
-          <div className="absolute -top-[30%] right-[-8%] w-[48vw] h-[48vw] max-w-[600px] rounded-full blur-[120px]" style={{ background: "radial-gradient(circle, rgba(236,72,153,0.12), transparent 66%)" }} />
+          <div className="mesh-blob absolute -top-[42%] left-[-8%] w-[55vw] h-[55vw] max-w-[680px] rounded-full blur-[120px]" style={{ background: "radial-gradient(circle, rgba(99,102,241,0.16), transparent 66%)" }} />
+          <div className="mesh-blob absolute -top-[30%] right-[-8%] w-[48vw] h-[48vw] max-w-[600px] rounded-full blur-[120px]" style={{ background: "radial-gradient(circle, rgba(236,72,153,0.12), transparent 66%)" }} />
           <div className="absolute inset-0" style={{ backgroundImage: "linear-gradient(rgba(99,102,241,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(99,102,241,0.05) 1px, transparent 1px)", backgroundSize: "40px 40px", WebkitMaskImage: "linear-gradient(to bottom, #000, transparent 88%)", maskImage: "linear-gradient(to bottom, #000, transparent 88%)" }} />
         </div>
         <div className="relative max-w-5xl mx-auto px-5 sm:px-8 pt-28 sm:pt-36 pb-16">

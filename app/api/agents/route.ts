@@ -52,7 +52,12 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: "Authentification requise." }, { status: 401 });
   if (!membership) return NextResponse.json({ error: "Aucun espace de travail." }, { status: 403 });
 
-  const [{ data: rules }, { data: runs }] = await Promise.all([
+  // agent_outbox est une table récente (035) : cast souple le temps que les
+  // types générés la connaissent (même convention que les autres tables neuves).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const loose = supabase as unknown as { from: (t: string) => any };
+
+  const [{ data: rules }, { data: runs }, { data: pending }] = await Promise.all([
     supabase
       .from("agent_rules")
       .select("id, title, instruction, trigger_type, trigger, schedule, action, status, blocked_reason, missing, next_run_at, last_run_at, meta, created_at")
@@ -65,9 +70,16 @@ export async function GET() {
       .eq("tenant_id", membership.tenant_id)
       .order("created_at", { ascending: false })
       .limit(50),
+    loose
+      .from("agent_outbox")
+      .select("id, rule_id, fiche_label, kind, level, to_email, subject, body, status, created_at")
+      .eq("tenant_id", membership.tenant_id)
+      .eq("status", "pending")
+      .order("created_at", { ascending: false })
+      .limit(50),
   ]);
 
-  return NextResponse.json({ rules: rules ?? [], runs: runs ?? [] });
+  return NextResponse.json({ rules: rules ?? [], runs: runs ?? [], pending: pending ?? [] });
 }
 
 // ── POST : recruter ──────────────────────────────────────────────────────────

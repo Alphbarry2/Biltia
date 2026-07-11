@@ -40,6 +40,13 @@ import {
   Gauge,
   Plus,
   Pencil,
+  Inbox,
+  ShoppingCart,
+  Wallet,
+  Banknote,
+  Bell,
+  StickyNote,
+  PenLine,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { ENTITIES, FORM_FIELDS, RELATION_DISPLAY, type FormField } from "@/lib/data-entities";
@@ -213,16 +220,117 @@ const ENTITY_META: Record<string, EntityMeta> = {
     search: (r) => joinTruthy(r.marque, r.modele, r.numero_serie, r.type, r.localisation),
     detailFields: ["type", "marque", "modele", "numero_serie", "localisation", "date_pose", "date_garantie", "dernier_entretien", "prochain_entretien", "notes"],
   },
+  sites: {
+    label: "Sites / Adresses",
+    icon: MapPin,
+    accent: "text-teal-600 bg-teal-50",
+    title: (r) => r.nom ?? "Site",
+    subtitle: (r) => joinTruthy(r.type, r.ville),
+    search: (r) => joinTruthy(r.nom, r.adresse, r.ville, r.code_postal, r.contact_nom),
+    detailFields: ["type", "adresse", "ville", "code_postal", "contact_nom", "contact_tel", "notes"],
+  },
+  demandes: {
+    label: "Demandes",
+    icon: Inbox,
+    accent: "text-violet-600 bg-violet-50",
+    title: (r) => r.titre ?? "Demande",
+    subtitle: (r) => joinTruthy(r.type, r.statut),
+    search: (r) => joinTruthy(r.titre, r.type, r.canal, r.source, r.description),
+    detailFields: ["type", "canal", "statut", "priorite", "source", "date_demande", "description"],
+  },
+  commandes: {
+    label: "Commandes",
+    icon: ShoppingCart,
+    accent: "text-orange-600 bg-orange-50",
+    title: (r) => r.numero ?? "Commande",
+    subtitle: (r) => joinTruthy(r.statut, r.montant_ttc != null ? `${r.montant_ttc} € TTC` : null),
+    search: (r) => joinTruthy(r.numero, r.statut, r.notes),
+    detailFields: ["numero", "statut", "montant_ht", "montant_ttc", "date_commande", "date_livraison_prevue", "date_livraison_reelle", "notes"],
+  },
+  depenses: {
+    label: "Dépenses",
+    icon: Wallet,
+    accent: "text-rose-600 bg-rose-50",
+    title: (r) => (r.numero ? `Facture ${r.numero}` : "Dépense"),
+    subtitle: (r) => joinTruthy(r.categorie, r.montant_ttc != null ? `${r.montant_ttc} € TTC` : null, r.statut),
+    search: (r) => joinTruthy(r.numero, r.categorie, r.statut, r.notes),
+    detailFields: ["numero", "categorie", "montant_ht", "montant_tva", "montant_ttc", "date_depense", "date_echeance", "statut", "notes"],
+  },
+  paiements: {
+    label: "Paiements",
+    icon: Banknote,
+    accent: "text-green-600 bg-green-50",
+    title: (r) => (r.montant != null ? `${r.montant} €` : "Paiement"),
+    subtitle: (r) => joinTruthy(r.methode, r.date_paiement, r.statut),
+    search: (r) => joinTruthy(r.reference, r.methode, r.statut, r.notes),
+    detailFields: ["montant", "date_paiement", "methode", "reference", "statut", "notes"],
+  },
+  reserves: {
+    label: "Réserves",
+    icon: AlertTriangle,
+    accent: "text-amber-600 bg-amber-50",
+    title: (r) => r.titre ?? "Réserve",
+    subtitle: (r) => joinTruthy(r.type, r.gravite, r.statut),
+    search: (r) => joinTruthy(r.titre, r.type, r.description, r.notes),
+    detailFields: ["type", "gravite", "statut", "date_constat", "date_resolution", "description", "notes"],
+  },
+  rappels: {
+    label: "Rappels",
+    icon: Bell,
+    accent: "text-fuchsia-600 bg-fuchsia-50",
+    title: (r) => r.titre ?? "Rappel",
+    subtitle: (r) => joinTruthy(r.type, r.due_date, r.statut),
+    search: (r) => joinTruthy(r.titre, r.type, r.notes),
+    detailFields: ["type", "due_date", "statut", "notes"],
+  },
+  messages: {
+    label: "Messages",
+    icon: MessageSquare,
+    accent: "text-sky-600 bg-sky-50",
+    title: (r) => r.objet || joinTruthy(r.canal, r.direction) || "Message",
+    subtitle: (r) => joinTruthy(r.canal, r.statut, r.date_message),
+    search: (r) => joinTruthy(r.objet, r.corps, r.canal, r.destinataire),
+    detailFields: ["canal", "direction", "statut", "destinataire", "expediteur", "objet", "corps", "date_message"],
+  },
+  notes: {
+    label: "Notes",
+    icon: StickyNote,
+    accent: "text-yellow-700 bg-yellow-50",
+    title: (r) => r.titre || (typeof r.contenu === "string" ? r.contenu.slice(0, 48) : "") || "Note",
+    subtitle: (r) => joinTruthy(r.source, r.created_at),
+    search: (r) => joinTruthy(r.titre, r.contenu, r.source),
+    detailFields: ["source", "contenu"],
+  },
+  validations: {
+    label: "Validations",
+    icon: PenLine,
+    accent: "text-indigo-600 bg-indigo-50",
+    title: (r) => VALIDATION_TYPE_LABEL[String(r.type)] ?? r.type ?? "Validation",
+    subtitle: (r) => joinTruthy(r.statut, r.signataire_nom, r.date_signature),
+    search: (r) => joinTruthy(r.type, r.statut, r.signataire_nom, r.signataire_email, r.notes),
+    detailFields: ["type", "statut", "signataire_nom", "signataire_email", "signataire_tel", "date_signature", "motif_refus", "notes"],
+  },
+};
+
+// Libellés lisibles des types de validation (l'enum brut est peu parlant).
+const VALIDATION_TYPE_LABEL: Record<string, string> = {
+  acceptation_devis: "Acceptation de devis",
+  validation_facture: "Validation de facture",
+  signature_pv: "Signature de PV",
+  signature_intervention: "Signature d'intervention",
+  approbation_document: "Approbation de document",
+  validation_reserve: "Levée de réserve",
+  autre: "Validation",
 };
 
 // Les entités groupées par thème — pour une vue d'ensemble LISIBLE (sections)
 // plutôt qu'un mur de tuiles à plat. ENTITY_ORDER en découle (chargement + recherche).
 const ENTITY_GROUPS: { title: string; entities: string[] }[] = [
-  { title: "Acteurs & chantiers", entities: ["chantiers", "clients", "employees"] },
-  { title: "Argent", entities: ["devis", "factures", "catalogue"] },
-  { title: "Service & récurrent", entities: ["interventions", "contrats", "parc_installe", "pointages"] },
-  { title: "Logistique", entities: ["materials", "equipment", "suppliers"] },
-  { title: "Suivi & documents", entities: ["documents", "tasks"] },
+  { title: "Acteurs & sites", entities: ["clients", "sites", "chantiers", "employees"] },
+  { title: "Commercial", entities: ["demandes", "devis", "factures", "paiements", "catalogue"] },
+  { title: "Achats & dépenses", entities: ["commandes", "depenses", "materials", "suppliers", "equipment"] },
+  { title: "Service & SAV", entities: ["interventions", "contrats", "parc_installe", "reserves", "pointages"] },
+  { title: "Suivi & documents", entities: ["tasks", "rappels", "documents", "notes", "messages", "validations"] },
 ];
 const ENTITY_ORDER = ENTITY_GROUPS.flatMap((g) => g.entities);
 
@@ -248,6 +356,11 @@ const FIELD_LABELS: Record<string, string> = {
   dernier_entretien: "Dernier entretien", prochain_entretien: "Prochain entretien",
   seuil_alerte: "Seuil d'alerte", specialite: "Spécialité",
   assurance_decennale: "Assurance décennale", assurance_expire: "Assurance expire le",
+  // Phase 2 — messages / notes / validations
+  canal: "Canal", direction: "Sens", destinataire: "Destinataire", expediteur: "Expéditeur",
+  objet: "Objet", corps: "Message", date_message: "Date", contenu: "Note", source: "Source",
+  signataire_nom: "Signataire", signataire_email: "Email signataire", signataire_tel: "Tél. signataire",
+  date_signature: "Signé le", motif_refus: "Motif du refus",
 };
 
 const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -384,6 +497,9 @@ function DetailDrawer({
   // Relevé GPS (interventions) : position du téléphone → rapport.
   const [gpsBusy, setGpsBusy] = useState(false);
   const [gpsMsg, setGpsMsg] = useState<string | null>(null);
+  // Transformations 1-clic (devis→chantier, demande→devis, note→tâche/réserve).
+  const [txBusy, setTxBusy] = useState(false);
+  const [txMsg, setTxMsg] = useState<string | null>(null);
 
   const related = useMemo(() => {
     if (!row) return null;
@@ -406,6 +522,14 @@ function DetailDrawer({
           { label: "Équipement", entity: "equipment", rows: linkedTo("equipment", "chantier_id") },
           { label: "Pointage", entity: "pointages", rows: linkedTo("pointages", "chantier_id") },
           { label: "Tâches", entity: "tasks", rows: linkedTo("tasks", "chantier_id") },
+          { label: "Réserves", entity: "reserves", rows: linkedTo("reserves", "chantier_id") },
+          { label: "Commandes", entity: "commandes", rows: linkedTo("commandes", "chantier_id") },
+          { label: "Dépenses", entity: "depenses", rows: linkedTo("depenses", "chantier_id") },
+          { label: "Paiements", entity: "paiements", rows: linkedTo("paiements", "chantier_id") },
+          { label: "Rappels", entity: "rappels", rows: linkedTo("rappels", "chantier_id") },
+          { label: "Notes", entity: "notes", rows: linkedTo("notes", "chantier_id") },
+          { label: "Messages", entity: "messages", rows: linkedTo("messages", "chantier_id") },
+          { label: "Validations", entity: "validations", rows: linkedTo("validations", "chantier_id") },
         ],
       };
     }
@@ -413,13 +537,21 @@ function DetailDrawer({
       return {
         actors: [] as { entity: string; row: Row }[],
         groups: [
+          { label: "Sites / Adresses", entity: "sites", rows: linkedTo("sites", "client_id") },
+          { label: "Demandes", entity: "demandes", rows: linkedTo("demandes", "client_id") },
           { label: "Chantiers", entity: "chantiers", rows: linkedTo("chantiers", "client_id") },
           { label: "Devis", entity: "devis", rows: linkedTo("devis", "client_id") },
           { label: "Factures", entity: "factures", rows: linkedTo("factures", "client_id") },
+          { label: "Paiements", entity: "paiements", rows: linkedTo("paiements", "client_id") },
           { label: "Contrats", entity: "contrats", rows: linkedTo("contrats", "client_id") },
           { label: "Parc installé", entity: "parc_installe", rows: linkedTo("parc_installe", "client_id") },
           { label: "Interventions", entity: "interventions", rows: linkedTo("interventions", "client_id") },
+          { label: "Réserves", entity: "reserves", rows: linkedTo("reserves", "client_id") },
           { label: "Documents", entity: "documents", rows: linkedTo("documents", "client_id") },
+          { label: "Rappels", entity: "rappels", rows: linkedTo("rappels", "client_id") },
+          { label: "Messages", entity: "messages", rows: linkedTo("messages", "client_id") },
+          { label: "Notes", entity: "notes", rows: linkedTo("notes", "client_id") },
+          { label: "Validations", entity: "validations", rows: linkedTo("validations", "client_id") },
         ],
       };
     }
@@ -433,7 +565,92 @@ function DetailDrawer({
         ],
       };
     }
+    // Autres entités-pivot : liens DESCENDANTS (les fiches qui pointent vers celle-ci).
+    // Les liens ASCENDANTS sont dérivés génériquement plus bas (ascendingLinks).
+    const only = (groups: { label: string; entity: string; rows: Row[] }[]) => ({
+      actors: [] as { entity: string; row: Row }[],
+      groups,
+    });
+    if (entity === "sites") return only([
+      { label: "Chantiers", entity: "chantiers", rows: linkedTo("chantiers", "site_id") },
+      { label: "Interventions", entity: "interventions", rows: linkedTo("interventions", "site_id") },
+      { label: "Devis", entity: "devis", rows: linkedTo("devis", "site_id") },
+      { label: "Factures", entity: "factures", rows: linkedTo("factures", "site_id") },
+      { label: "Parc installé", entity: "parc_installe", rows: linkedTo("parc_installe", "site_id") },
+      { label: "Contrats", entity: "contrats", rows: linkedTo("contrats", "site_id") },
+    ]);
+    if (entity === "demandes") return only([
+      { label: "Devis", entity: "devis", rows: linkedTo("devis", "demande_id") },
+      { label: "Interventions", entity: "interventions", rows: linkedTo("interventions", "demande_id") },
+      { label: "Chantiers", entity: "chantiers", rows: linkedTo("chantiers", "demande_id") },
+      { label: "Messages", entity: "messages", rows: linkedTo("messages", "demande_id") },
+      { label: "Notes", entity: "notes", rows: linkedTo("notes", "demande_id") },
+    ]);
+    if (entity === "devis") return only([
+      { label: "Factures", entity: "factures", rows: linkedTo("factures", "devis_id") },
+      { label: "Rappels", entity: "rappels", rows: linkedTo("rappels", "devis_id") },
+      { label: "Validations", entity: "validations", rows: linkedTo("validations", "devis_id") },
+      { label: "Messages", entity: "messages", rows: linkedTo("messages", "devis_id") },
+    ]);
+    if (entity === "factures") return only([
+      { label: "Paiements", entity: "paiements", rows: linkedTo("paiements", "facture_id") },
+      { label: "Rappels", entity: "rappels", rows: linkedTo("rappels", "facture_id") },
+      { label: "Validations", entity: "validations", rows: linkedTo("validations", "facture_id") },
+      { label: "Messages", entity: "messages", rows: linkedTo("messages", "facture_id") },
+    ]);
+    if (entity === "parc_installe") return only([
+      { label: "Contrats", entity: "contrats", rows: linkedTo("contrats", "parc_id") },
+    ]);
+    if (entity === "interventions") return only([
+      { label: "Pointages", entity: "pointages", rows: linkedTo("pointages", "intervention_id") },
+      { label: "Réserves", entity: "reserves", rows: linkedTo("reserves", "intervention_id") },
+      { label: "Rappels", entity: "rappels", rows: linkedTo("rappels", "intervention_id") },
+      { label: "Notes", entity: "notes", rows: linkedTo("notes", "intervention_id") },
+      { label: "Messages", entity: "messages", rows: linkedTo("messages", "intervention_id") },
+      { label: "Validations", entity: "validations", rows: linkedTo("validations", "intervention_id") },
+    ]);
+    if (entity === "reserves") return only([
+      { label: "Notes", entity: "notes", rows: linkedTo("notes", "reserve_id") },
+      { label: "Messages", entity: "messages", rows: linkedTo("messages", "reserve_id") },
+      { label: "Validations", entity: "validations", rows: linkedTo("validations", "reserve_id") },
+    ]);
+    if (entity === "commandes") return only([
+      { label: "Dépenses", entity: "depenses", rows: linkedTo("depenses", "commande_id") },
+    ]);
+    if (entity === "equipment") return only([
+      { label: "Interventions", entity: "interventions", rows: linkedTo("interventions", "equipment_id") },
+    ]);
+    if (entity === "suppliers") return only([
+      { label: "Commandes", entity: "commandes", rows: linkedTo("commandes", "fournisseur_id") },
+      { label: "Dépenses", entity: "depenses", rows: linkedTo("depenses", "fournisseur_id") },
+      { label: "Matériaux", entity: "materials", rows: linkedTo("materials", "fournisseur_id") },
+      { label: "Réserves", entity: "reserves", rows: linkedTo("reserves", "supplier_id") },
+      { label: "Messages", entity: "messages", rows: linkedTo("messages", "supplier_id") },
+    ]);
+    if (entity === "contrats") return only([
+      { label: "Rappels", entity: "rappels", rows: linkedTo("rappels", "contrat_id") },
+    ]);
+    if (entity === "documents") return only([
+      { label: "Rappels", entity: "rappels", rows: linkedTo("rappels", "document_id") },
+      { label: "Validations", entity: "validations", rows: linkedTo("validations", "document_id") },
+    ]);
     return null;
+  }, [entity, row, data]);
+
+  // Liens ASCENDANTS génériques : chaque champ-relation renseigné de CETTE fiche
+  // (client_id, chantier_id, devis_id, intervention_id, equipment_id…) → sa cible.
+  // Source unique = FORM_FIELDS, donc « tout ce qui peut être rattaché » l'est.
+  const ascendingLinks = useMemo(() => {
+    if (!row) return [] as { entity: string; row: Row; label: string }[];
+    const out: { entity: string; row: Row; label: string }[] = [];
+    for (const f of FORM_FIELDS[entity] ?? []) {
+      if (f.type !== "relation" || !f.relation) continue;
+      const val = row[f.key];
+      if (val === null || val === undefined || val === "") continue;
+      const ref = (data[f.relation] ?? []).find((r) => r.id === val);
+      if (ref) out.push({ entity: f.relation, row: ref, label: f.label });
+    }
+    return out;
   }, [entity, row, data]);
 
   // ── SYNTHÈSE FINANCIÈRE D'UN CHANTIER (la « vérité » du chantier) ───────────
@@ -516,7 +733,6 @@ function DetailDrawer({
   // Rattachements ascendants (pour toute entité qui pointe vers un chantier/client/employé)
   const parentChantier = row.chantier_id ? (data.chantiers ?? []).find((c) => c.id === row.chantier_id) : null;
   const parentClient = row.client_id ? (data.clients ?? []).find((c) => c.id === row.client_id) : null;
-  const parentEmployee = row.employee_id ? (data.employees ?? []).find((e) => e.id === row.employee_id) : null;
 
   // « Ajouter au calendrier » : interventions datées et tâches à échéance.
   let calendarEvent: CalendarEvent | null = null;
@@ -547,6 +763,41 @@ function DetailDrawer({
       };
     }
   }
+
+  // ── TRANSFORMATIONS 1-CLIC ── proposées selon la fiche (mêmes actions serveur
+  // que le SDK/les agents : /api/data, rattachements repris, idempotentes).
+  const transforms: { label: string; action: string; target: string; icon: LucideIcon }[] = [];
+  if (entity === "devis" && !row.chantier_id) {
+    transforms.push({ label: "Ouvrir le chantier", action: "chantier_from_devis", target: "chantiers", icon: HardHat });
+  }
+  if (entity === "demandes" && row.statut !== "converti" && row.statut !== "perdu") {
+    transforms.push({ label: "Créer le devis", action: "devis_from_demande", target: "devis", icon: FileSignature });
+  }
+  if (entity === "notes") {
+    transforms.push({ label: "→ Tâche", action: "task_from_note", target: "tasks", icon: ListChecks });
+    transforms.push({ label: "→ Réserve", action: "reserve_from_note", target: "reserves", icon: AlertTriangle });
+  }
+
+  const runTransform = async (action: string, target: string) => {
+    if (txBusy) return;
+    setTxBusy(true);
+    setTxMsg(null);
+    try {
+      const res = await fetch("/api/data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entity: target, action, id: row.id }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Action impossible.");
+      onRefresh?.();
+      if (json?.data?.id) onOpen(target, json.data.id as string);
+    } catch (e) {
+      setTxMsg(e instanceof Error ? e.message : "Action impossible.");
+    } finally {
+      setTxBusy(false);
+    }
+  };
 
   // Relevé GPS : ajoute la position du téléphone au rapport d'intervention.
   const recordPosition = async () => {
@@ -613,10 +864,26 @@ function DetailDrawer({
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
-          {/* Actions rapides : agenda de l'artisan + relevé GPS terrain */}
-          {(calendarEvent || entity === "interventions") && (
+          {/* Actions rapides : transformations 1-clic + agenda + relevé GPS terrain */}
+          {(calendarEvent || entity === "interventions" || transforms.length > 0) && (
             <div>
               <div className="flex flex-wrap items-center gap-2">
+                {transforms.map((t) => {
+                  const TIcon = t.icon;
+                  return (
+                    <button
+                      key={t.action}
+                      type="button"
+                      onClick={() => runTransform(t.action, t.target)}
+                      disabled={txBusy}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-[#0A0A0A] text-white text-xs font-semibold rounded-lg hover:opacity-90 transition-all disabled:opacity-60"
+                      title={`Créer ${t.label.toLowerCase()} à partir de cette fiche`}
+                    >
+                      {txBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <TIcon className="h-3.5 w-3.5" />}
+                      {t.label}
+                    </button>
+                  );
+                })}
                 {calendarEvent && <AddToCalendar event={calendarEvent} />}
                 {entity === "interventions" && (
                   <button
@@ -631,6 +898,7 @@ function DetailDrawer({
                   </button>
                 )}
               </div>
+              {txMsg && <p className="mt-2 text-[11px] leading-snug text-rose-600">{txMsg}</p>}
               {gpsMsg && <p className="mt-2 text-[11px] leading-snug text-[#7C3AED]">{gpsMsg}</p>}
             </div>
           )}
@@ -705,13 +973,14 @@ function DetailDrawer({
             </div>
           )}
 
-          {/* Rattachements ascendants */}
-          {(parentChantier || parentClient || parentEmployee) && (
+          {/* Rattachements ascendants — TOUT ce à quoi cette fiche est reliée.
+              Masqué quand un bloc « Acteurs » dédié couvre déjà ces liens (chantiers). */}
+          {(!related || related.actors.length === 0) && ascendingLinks.length > 0 && (
             <div className="space-y-0.5">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9A9A97] px-3 mb-1">Rattaché à</p>
-              {parentChantier && <RelatedItem entity="chantiers" row={parentChantier} onOpen={onOpen} />}
-              {parentClient && <RelatedItem entity="clients" row={parentClient} onOpen={onOpen} />}
-              {parentEmployee && <RelatedItem entity="employees" row={parentEmployee} onOpen={onOpen} />}
+              {ascendingLinks.map((a) => (
+                <RelatedItem key={`${a.entity}-${a.row.id}`} entity={a.entity} row={a.row} onOpen={onOpen} />
+              ))}
             </div>
           )}
 
@@ -765,6 +1034,16 @@ const ENTITY_GRAD: Record<string, [string, string]> = {
   suppliers: ["#FB8098", "#F43F5E"],
   documents: ["#8E9BF8", "#6366F1"],
   tasks: ["#ED8BF9", "#D946EF"],
+  sites: ["#2FD9C5", "#14B8A6"],
+  demandes: ["#8B7CF6", "#6D4AFF"],
+  commandes: ["#FBA55A", "#EA580C"],
+  depenses: ["#FB8098", "#F43F5E"],
+  paiements: ["#34D07A", "#16A34A"],
+  reserves: ["#FBBF5A", "#F59E0B"],
+  rappels: ["#ED8BF9", "#D946EF"],
+  messages: ["#5AB8FB", "#0EA5E9"],
+  notes: ["#FBD34D", "#EAB308"],
+  validations: ["#8B9BF8", "#6366F1"],
 };
 const entityGrad = (e: string): [string, string] => ENTITY_GRAD[e] ?? ["#8B7CF6", "#6D4AFF"];
 const gradStyle = (e: string) => {
@@ -1568,6 +1847,37 @@ function RecordFormModal({
 
   const set = (key: string, v: string | boolean) => setValues((prev) => ({ ...prev, [key]: v }));
 
+  // Cible de relation « créable à la volée » : sa SEULE contrainte requise est un
+  // champ texte (nom / désignation…). On peut alors la créer sans quitter le form.
+  const quickCreateField = (rel: string): { key: string; label: string } | null => {
+    const req = (FORM_FIELDS[rel] ?? []).filter((ff) => ff.required);
+    if (req.length === 1 && req[0].type === "text") return { key: req[0].key, label: req[0].label };
+    return null;
+  };
+  // Crée la fiche liée (prompt du seul champ requis), l'ajoute aux options et la
+  // sélectionne — on reste dans le formulaire courant.
+  const createRelated = async (rel: string, fieldKey: string) => {
+    const spec = quickCreateField(rel);
+    if (!spec) { set(fieldKey, ""); return; }
+    const name = window.prompt(`${spec.label} :`, "");
+    if (!name || !name.trim()) { set(fieldKey, ""); return; }
+    try {
+      const res = await fetch("/api/data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entity: rel, action: "create", values: { [spec.key]: name.trim() } }),
+      });
+      const j = await res.json();
+      if (!res.ok || !j?.data?.id) { set(fieldKey, ""); return; }
+      const cols = RELATION_DISPLAY[rel] ?? ["nom"];
+      const label = cols.map((c) => j.data[c]).filter(Boolean).join(" ") || name.trim();
+      setRelOptions((prev) => ({ ...prev, [rel]: [{ id: String(j.data.id), label }, ...(prev[rel] ?? [])] }));
+      set(fieldKey, String(j.data.id));
+    } catch {
+      set(fieldKey, "");
+    }
+  };
+
   const submit = async () => {
     // Champs requis d'abord — message clair plutôt qu'une erreur SQL.
     for (const f of fields) {
@@ -1646,11 +1956,16 @@ function RecordFormModal({
                   ))}
                 </select>
               ) : f.type === "relation" ? (
-                <select value={String(values[f.key] ?? "")} onChange={(e) => set(f.key, e.target.value)} className={inputCls}>
+                <select
+                  value={String(values[f.key] ?? "")}
+                  onChange={(e) => { const v = e.target.value; if (v === "__new") createRelated(f.relation ?? "", f.key); else set(f.key, v); }}
+                  className={inputCls}
+                >
                   <option value="">—</option>
                   {(relOptions[f.relation ?? ""] ?? []).map((o) => (
                     <option key={o.id} value={o.id}>{o.label}</option>
                   ))}
+                  {quickCreateField(f.relation ?? "") && <option value="__new">+ Créer…</option>}
                 </select>
               ) : f.type === "textarea" ? (
                 <textarea rows={2} value={String(values[f.key] ?? "")} onChange={(e) => set(f.key, e.target.value)} placeholder={f.placeholder} className={inputCls} />

@@ -15,6 +15,7 @@ import { createAdminClient } from "@/lib/supabase-admin";
 import { injectPoweredBy, publicNotFoundPage } from "@/lib/powered-by";
 import { injectShareBridge } from "@/lib/share-bridge";
 import { isShareToken, isLinkLive } from "@/lib/share";
+import { renderPublicForm } from "@/lib/public-form";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type LooseClient = { from: (table: string) => any };
@@ -36,11 +37,24 @@ export async function GET(_req: Request, { params }: { params: Promise<{ token: 
   // 1) Résout le lien par son token, vérifie qu'il est vivant.
   const { data: link } = await (admin as unknown as LooseClient)
     .from("app_share_links")
-    .select("module_id, kind, expires_at, revoked_at, tenant_id")
+    .select("module_id, kind, scope, expires_at, revoked_at, tenant_id")
     .eq("token", token)
     .maybeSingle();
 
   if (!link || !isLinkLive(link, Date.now())) return notFound();
+
+  // Lien 'form' : sert un FORMULAIRE public autonome (aucun module à charger).
+  // La soumission poste vers /api/share/submit avec le token (zero-trust serveur).
+  if (link.kind === "form") {
+    return new Response(renderPublicForm(token, link.scope), {
+      status: 200,
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "x-robots-tag": "noindex",
+        "cache-control": "private, no-store",
+      },
+    });
+  }
 
   // 2) Charge le HTML du module partagé (service_role → pas de RLS ; l'accès est
   //    déjà autorisé par la possession du token). On refuse une app archivée.

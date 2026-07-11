@@ -20,7 +20,7 @@
  *
  *  v3 : appels via postMessage → parent (localhost:3000) plutôt que fetch direct
  *  depuis l'iframe srcdoc (origin: null → CORS bloqué). */
-const SDK_MARKER = "__biltia_sdk_v11__";
+const SDK_MARKER = "__biltia_sdk_v12__";
 
 export const BILTIA_SDK_SCRIPT = `<script>
 /* ${SDK_MARKER} */
@@ -181,6 +181,29 @@ export const BILTIA_SDK_SCRIPT = `<script>
         pct: opts.pct != null ? opts.pct : null })
         .then(function(r){ return (r && r.data) || null; });
     },
+    /* TRANSFORMATIONS 1-CLIC (memes garanties serveur : rattachements repris,
+       idempotentes). Resolvent la fiche CREEE (ou l'existante si deja liee). */
+    /* DEVIS ACCEPTE -> CHANTIER : ouvre le chantier d'execution (client/site/adresse
+       repris, budget = montant HT, devis relie). */
+    chantierFromDevis: function(devisId){
+      return call({ entity: 'chantiers', action: 'chantier_from_devis', devisId: String(devisId || '') })
+        .then(function(r){ return (r && r.data) || null; });
+    },
+    /* DEMANDE -> DEVIS : amorce un devis brouillon (client/site repris, demande reliee). */
+    devisFromDemande: function(demandeId){
+      return call({ entity: 'devis', action: 'devis_from_demande', demandeId: String(demandeId || '') })
+        .then(function(r){ return (r && r.data) || null; });
+    },
+    /* NOTE -> TACHE : cree une tache suivie depuis une note terrain. */
+    taskFromNote: function(noteId){
+      return call({ entity: 'tasks', action: 'task_from_note', noteId: String(noteId || '') })
+        .then(function(r){ return (r && r.data) || null; });
+    },
+    /* NOTE -> RESERVE : cree une reserve/incident depuis une note terrain. */
+    reserveFromNote: function(noteId){
+      return call({ entity: 'reserves', action: 'reserve_from_note', noteId: String(noteId || '') })
+        .then(function(r){ return (r && r.data) || null; });
+    },
     /* PILOTAGE : rentabilite REELLE par chantier (facture - heures pointees x taux
        horaire - achats materiaux). Agregat serveur cross-entites. Resout un tableau
        [{ id, nom, statut, budget, facture, encaisse, reste_a_encaisser, cout_mo,
@@ -228,6 +251,9 @@ export function injectBiltiaSDK(html: string): string {
   }
   if (html.includes("__biltia_sdk_v10__")) {
     return html.replace(/<script>\s*\/\* __biltia_sdk_v10__ \*\/[\s\S]*?<\/script>/, BILTIA_SDK_SCRIPT);
+  }
+  if (html.includes("__biltia_sdk_v11__")) {
+    return html.replace(/<script>\s*\/\* __biltia_sdk_v11__ \*\/[\s\S]*?<\/script>/, BILTIA_SDK_SCRIPT);
   }
   if (/<head[^>]*>/i.test(html)) {
     return html.replace(/<head[^>]*>/i, (m) => m + "\n" + BILTIA_SDK_SCRIPT);

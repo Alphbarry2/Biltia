@@ -14,6 +14,7 @@ import DataStartModal from "@/components/data-start-modal";
 import { computeStoredScope } from "@/lib/data-scope";
 import { buildStaticClarifyQuestions } from "@/lib/clarify-questions";
 import { CreditsUpsell } from "@/components/credits-upsell";
+import { ConnectCard } from "@/components/connect-card";
 import {
   AnalysisView,
   ReportView,
@@ -67,6 +68,16 @@ import {
 type Message = {
   role: "user" | "assistant";
   content: string;
+};
+
+// Flux de connexion « étape par étape » proposé dans le fil : une intégration à
+// la fois (index), les précédentes restant affichées « Connecté ». Une fois
+// toutes connectées, on rejoue `resumePrompt`. Gardé HORS de `messages` (donc
+// non persisté) : c'est une UI éphémère attachée au dernier tour de l'assistant.
+type ConnectFlow = {
+  connectors: string[];
+  index: number;
+  resumePrompt: string;
 };
 
 type Format = "auto" | "mobile" | "desktop";
@@ -165,6 +176,13 @@ const GEN_PLACEHOLDERS = [
 
 export default function GeneratePage() {
   const [messages, setMessages] = useState<Message[]>([]);
+  // Connexions à proposer dans le fil (null = aucune en cours). Mirroir en ref
+  // pour l'avancement depuis les callbacks des cartes sans closure périmée.
+  const [connectFlow, setConnectFlow] = useState<ConnectFlow | null>(null);
+  const connectFlowRef = useRef<ConnectFlow | null>(null);
+  useEffect(() => {
+    connectFlowRef.current = connectFlow;
+  }, [connectFlow]);
   const [input, setInput] = useState("");
   const typed = useTypewriter(GEN_PLACEHOLDERS);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -677,8 +695,11 @@ export default function GeneratePage() {
   // Repli quand on ferme le chooser ou qu'un modèle n'est pas instanciable :
   // on charge la maquette dans l'atelier pour l'adapter au chat (le modèle
   // d'origine ne bouge pas, l'utilisateur crée sa propre version).
+  // IMPORTANT : variante « /live » (SDK RÉEL → workspace de l'utilisateur), PAS
+  // /t/[id] qui embarque le jeu de DÉMO. Dans le produit connecté, un workspace
+  // vide DOIT s'afficher vide — jamais de donnée fabriquée (SCI Méditerranée…).
   const loadTemplatePreview = useCallback((tpl: string, name: string) => {
-    fetch(`/t/${encodeURIComponent(tpl)}`)
+    fetch(`/t/${encodeURIComponent(tpl)}/live`)
       .then((r) => (r.ok ? r.text() : Promise.reject()))
       .then((html) => {
         setGeneratedHTML(injectErrorCapture(html));
@@ -1300,6 +1321,42 @@ export default function GeneratePage() {
   };
 
   // Lance réellement la génération (le message utilisateur est déjà affiché).
+  // ── Connexions inline « étape par étape » ─────────────────────────────────
+  // Démarre le flux à partir d'une réponse serveur portant `connectors`. Retourne
+  // true si un flux a été lancé (le message factuel est déjà affiché à part).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const startConnectFlowFromData = (data: any, resumePrompt: string): boolean => {
+    const raw: unknown[] = Array.isArray(data?.connectors) ? data.connectors : [];
+    const connectors = [...new Set(raw.filter((c): c is string => typeof c === "string" && c.length > 0))];
+    if (connectors.length === 0) return false;
+    setConnectFlow({ connectors, index: 0, resumePrompt });
+    return true;
+  };
+
+  // Une intégration connectée → la suivante ; toutes connectées → on rejoue la
+  // demande d'origine (l'agent la crée / l'email part / l'agenda se lit MAINTENANT).
+  const handleConnectorConnected = () => {
+    const cf = connectFlowRef.current;
+    if (!cf) return;
+    const nextIndex = cf.index + 1;
+    if (nextIndex < cf.connectors.length) {
+      setConnectFlow({ ...cf, index: nextIndex });
+      return;
+    }
+    setConnectFlow(null);
+    setMessages((prev) => [...prev, { role: "assistant", content: "Parfait, tout est connecté ✅. Je continue." }]);
+    void executeGeneration(cf.resumePrompt);
+  };
+
+  // Refus d'une connexion → on arrête là, sans reprise ni fausse promesse.
+  const handleConnectorRefused = () => {
+    setConnectFlow(null);
+    setMessages((prev) => [
+      ...prev,
+      { role: "assistant", content: "Pas de souci — dis-moi si tu changes d'avis, ou demande-moi autre chose." },
+    ]);
+  };
+
   const executeGeneration = async (
     apiPrompt: string,
     opts?: {
@@ -1317,6 +1374,8 @@ export default function GeneratePage() {
   ) => {
     const isModification = generatedHTML.length > 0;
     const creditCost = isModification ? 60 : 300;
+    // Toute nouvelle demande supersède un flux de connexion resté ouvert.
+    setConnectFlow(null);
     setExpectingBuild(!looksLikePureQuestion(apiPrompt));
     setIsGenerating(true);
     const effectiveFormat = opts?.formatOverride ?? format;
@@ -1458,6 +1517,9 @@ export default function GeneratePage() {
       // né « bloqué » (info manquante réclamée). Rien à générer.
       if (data.kind === "rule" && typeof data.message === "string" && data.message) {
         setMessages((prev) => [...prev, { role: "assistant", content: data.message }]);
+        // Agent bloqué faute de connexion → cartes inline ; une fois connecté, on
+        // rejoue la demande et l'agent est créé (une seule fois : il n'existe pas encore).
+        startConnectFlowFromData(data, apiPrompt);
         return;
       }
 
@@ -1483,6 +1545,8 @@ export default function GeneratePage() {
             body: typeof data.task.body === "string" ? data.task.body : "",
           };
         }
+        // Pas de canal d'envoi → carte Gmail inline, puis reprise (aperçu du groupe).
+        startConnectFlowFromData(data, apiPrompt);
         return;
       }
 
@@ -1490,6 +1554,8 @@ export default function GeneratePage() {
       // Agenda), ou explique qu'il n'est pas connecté. Message factuel.
       if ((data.kind === "email" || data.kind === "calendar") && typeof data.message === "string" && data.message) {
         setMessages((prev) => [...prev, { role: "assistant", content: data.message }]);
+        // Gmail/Agenda pas connecté → cartes inline, puis reprise (envoi / lecture).
+        startConnectFlowFromData(data, apiPrompt);
         return;
       }
 
@@ -1969,6 +2035,22 @@ export default function GeneratePage() {
               </div>
             </div>
           ))}
+
+          {/* Connexions « étape par étape » : les intégrations déjà validées
+              restent affichées « Connecté », seule la courante montre le bouton.
+              Toutes connectées → le flux se referme et la demande est rejouée. */}
+          {connectFlow && !isGenerating && (
+            <div className="flex flex-col items-start gap-2 pl-8">
+              {connectFlow.connectors.slice(0, connectFlow.index + 1).map((cid) => (
+                <ConnectCard
+                  key={cid}
+                  connectorId={cid}
+                  onConnected={handleConnectorConnected}
+                  onRefused={handleConnectorRefused}
+                />
+              ))}
+            </div>
+          )}
 
           {clarify && !isGenerating && (
             <div className="flex justify-start">

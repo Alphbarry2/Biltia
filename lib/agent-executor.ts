@@ -26,7 +26,7 @@ import { computeNextRun, type AgentAction, type AgentSchedule, type AgentTrigger
 import { getEntitlementsForTenant } from "./entitlements";
 import { getWorkspaceContext, buildWorkspaceBlock } from "./workspace-context";
 import { runAgentLoop, buildWorkspaceToolsSystem, type ToolTrace } from "./agent-tools";
-import { getWatcher, buildFireKey, type WatcherDef, type WatcherMatch } from "./agent-watchers";
+import { getWatcher, buildFireKey, isSupplierRelanceWatcher, type WatcherDef, type WatcherMatch } from "./agent-watchers";
 import { readTeamAgenda } from "./gcal";
 import { buildDocumentSystemPrompt, injectDocumentRuntime } from "./document-generator";
 import { sendOutboundEmail, canSendOutbound } from "./outbound-email";
@@ -41,6 +41,11 @@ import { TIER_SIMPLE, TIER_MEDIUM, TIER_COMPLEX } from "./models";
 // complexité (simple=Haiku, medium=Sonnet, complex=Opus), whitelisté ici —
 // une valeur inattendue stockée en base ne peut jamais viser un autre modèle.
 const ALLOWED_EXEC_MODELS = new Set([TIER_SIMPLE, TIER_MEDIUM, TIER_COMPLEX]);
+
+// À partir de ce niveau d'escalade, une relance devient SENSIBLE (ton ferme :
+// pénalités / recouvrement) → jamais envoyée automatiquement, toujours retenue
+// pour validation humaine (#70), même hors mode brouillon.
+const FIRM_RELANCE_LEVEL = 3;
 function pickExecModel(action: AgentAction): string {
   if (action.model && ALLOWED_EXEC_MODELS.has(action.model)) return action.model;
   // Anciennes règles (sans modèle stocké) : un contrôle de données = Sonnet,
@@ -129,7 +134,7 @@ const COMPOSE_TOOL: Anthropic.Tool = {
  * effectuées en route sont tracées (traces) et journalisées.
  */
 async function compose(opts: {
-  mode: "email" | "notify" | "report";
+  mode: "email" | "notify" | "report" | "act";
   model: string;
   instruction: string;
   recipientNames: string;
@@ -159,7 +164,9 @@ async function compose(opts: {
       ? `Ton livrable : un EMAIL envoyé au nom de l'entreprise « ${opts.companyName} » à : ${opts.recipientNames}. Signe au nom de l'entreprise. Jamais de placeholder ([nom], XXX) : si une donnée manque, formule sans elle.`
       : opts.mode === "report"
         ? `Ton livrable : la SYNTHÈSE du contrôle demandé, pour le patron de « ${opts.companyName} ». Va droit aux faits : ce qui va, ce qui cloche, quoi faire. N'invente RIEN : uniquement ce que les données montrent. S'il n'y a rien à signaler, dis-le en une phrase.`
-        : `Ton livrable : un RAPPEL bref (notification) pour le patron de « ${opts.companyName} ». Deux phrases max.`;
+        : opts.mode === "act"
+          ? `Ta mission : AGIR dans le workspace de « ${opts.companyName} » — tu ne te contentes pas d'écrire, tu CRÉES / METS À JOUR les fiches nécessaires via les outils workspace_* (workspace_create, workspace_update), à partir des DONNÉES RÉELLES. CRÉER ≠ INVENTER : n'invente AUCUN montant, prix, date ni coordonnée absent. S'il manque des éléments pour une fiche complète (ex : les prix d'un devis, le chantier de rattachement), crée quand même un BROUILLON avec ce que tu sais (statut brouillon, champs connus) et LISTE précisément ce qui reste à compléter. Rattache les relations (client_id, chantier_id…) aux fiches EXISTANTES (workspace_list pour trouver l'id). Tu ne SUPPRIMES jamais une fiche. Ton livrable compose = un COMPTE-RENDU de ce que tu as fait (fiches créées/mises à jour) + ce qui reste à compléter.`
+          : `Ton livrable : un RAPPEL bref (notification) pour le patron de « ${opts.companyName} ». Deux phrases max.`;
 
   // Envois en cours de mission (opt-in) : réservés aux passages sans email de
   // livraison (report/notify), pour qu'une surveillance puisse VRAIMENT agir
@@ -197,6 +204,8 @@ Quand la mission du passage est accomplie, TERMINE OBLIGATOIREMENT en appelant l
       finishTool: COMPOSE_TOOL,
       allowEmail: opts.allowEmail,
       allowSms: opts.allowSms,
+      // Un agent AUTONOME ne supprime jamais de fiche sans humain dans la boucle.
+      allowDelete: opts.mode !== "act",
       maxIterations: 8,
       maxTokens: 1200,
     });
@@ -251,28 +260,118 @@ async function fetchFocusData(admin: SupabaseClient, tenantId: string): Promise<
   } catch {
     // tables absentes / migration non appliquée → l'agent travaille sans.
   }
+
+  // BLOC PILOTAGE (chiffres agrégés) : donne au report de quoi calculer un vrai
+  // CA / cash / marge plutôt que d'estimer à vue. Somme en JS sur volume borné
+  // (une entreprise BTP typique). Isolé dans son propre try : une table absente
+  // (depenses de la migration 037) ne prive pas le report du reste.
+  try {
+    const eur = (n: number) => `${Math.round(n).toLocaleString("fr-FR")} €`;
+    const sum = (rows: { montant_ttc?: number | null; montant_paye?: number | null }[] | null, field: "montant_ttc" | "montant_paye") =>
+      (rows ?? []).reduce((t, r) => t + (Number(r[field]) || 0), 0);
+
+    const [{ data: devisAll }, { data: factAll }] = await Promise.all([
+      admin.from("devis").select("statut, montant_ttc").eq("tenant_id", tenantId).limit(1000),
+      admin.from("factures").select("statut, montant_ttc, montant_paye").eq("tenant_id", tenantId).limit(1000),
+    ]);
+    const dv = (devisAll ?? []) as { statut: string | null; montant_ttc: number | null }[];
+    const fc = (factAll ?? []) as { statut: string | null; montant_ttc: number | null; montant_paye: number | null }[];
+
+    const emises = fc.filter((f) => ["envoyee", "partiellement_payee", "payee", "en_retard"].includes(String(f.statut)));
+    const caSigne = sum(dv.filter((d) => d.statut === "accepte"), "montant_ttc");
+    const devisAttente = sum(dv.filter((d) => d.statut === "envoye"), "montant_ttc");
+    const caFacture = sum(emises, "montant_ttc");
+    const caEncaisse = sum(emises, "montant_paye");
+    const caEnAttente = Math.max(0, caFacture - caEncaisse); // reste dû sur factures émises
+
+    const pilot: string[] = [];
+    if (caSigne > 0) pilot.push(`CA signé (devis acceptés) : ${eur(caSigne)}`);
+    if (devisAttente > 0) pilot.push(`Devis en attente de réponse : ${eur(devisAttente)}`);
+    if (caFacture > 0) pilot.push(`CA facturé (factures émises) : ${eur(caFacture)}`);
+    if (caEncaisse > 0) pilot.push(`Encaissé : ${eur(caEncaisse)}`);
+    if (caEnAttente > 0) pilot.push(`Reste à encaisser (clients) : ${eur(caEnAttente)}`);
+
+    // Payables fournisseurs (ce que l'entreprise doit) — table 037, tolérée absente.
+    const { data: depAll, error: depErr } = await admin
+      .from("depenses")
+      .select("statut, montant_ttc")
+      .eq("tenant_id", tenantId)
+      .in("statut", ["a_payer", "en_retard"])
+      .limit(1000);
+    if (!depErr) {
+      const aPayer = sum((depAll ?? []) as { montant_ttc: number | null }[], "montant_ttc");
+      if (aPayer > 0) pilot.push(`À payer aux fournisseurs : ${eur(aPayer)}`);
+    }
+
+    // Chantiers dont le coût engagé dépasse le budget (dérive de marge).
+    const { data: chAll } = await admin
+      .from("chantiers")
+      .select("budget, budget_engage, statut")
+      .eq("tenant_id", tenantId)
+      .in("statut", ["en_attente", "en_cours", "en_retard"])
+      .limit(500);
+    const horsBudget = ((chAll ?? []) as { budget: number | null; budget_engage: number | null }[]).filter(
+      (c) => (Number(c.budget) || 0) > 0 && (Number(c.budget_engage) || 0) > (Number(c.budget) || 0)
+    ).length;
+    if (horsBudget > 0) pilot.push(`Chantiers en dépassement de budget : ${horsBudget}`);
+
+    if (pilot.length) {
+      lines.push("");
+      lines.push("Pilotage (chiffres à date) :");
+      lines.push(...pilot.map((p) => `- ${p}`));
+    }
+  } catch {
+    // agrégats indisponibles → le report se contente des extraits ci-dessus.
+  }
   return lines.join("\n");
 }
 
 // ── Déclencheurs événementiels (« dès que… ») ────────────────────────────────
 
-/** Rédige UNE relance client focalisée sur une fiche déclenchante (appel IA unique). */
+/**
+ * Rédige UNE relance client focalisée sur une fiche déclenchante (appel IA unique).
+ * `relanceLevel` (1 = première fois, 2, 3+…) fait ESCALADER le ton : doux au
+ * début, ferme quand plusieurs relances sont restées sans suite. Le niveau est
+ * déduit du nombre de déclenchements déjà enregistrés pour cette fiche.
+ */
 async function composeRelance(opts: {
   model: string;
   companyName: string;
   watcher: WatcherDef;
   match: WatcherMatch;
   instruction: string;
+  relanceLevel: number;
+  /** À qui s'adresse la relance : un CLIENT (défaut) ou un FOURNISSEUR/sous-traitant. */
+  audience?: "client" | "supplier";
 }): Promise<{ subject: string; body: string; usage: { inputTokens: number; outputTokens: number } } | null> {
   const hasKey = !!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.startsWith("your_");
   if (!hasKey) return null;
+  const level = Math.max(1, Math.floor(opts.relanceLevel) || 1);
+  const isSupplier = opts.audience === "supplier";
+  // ESCALADE (demande user) : le ton monte avec le nombre de relances sans suite.
+  // Deux registres : CLIENT (peut aller jusqu'au recouvrement d'un impayé) vs
+  // FOURNISSEUR/sous-traitant (chasse de livraison / d'attestation — JAMAIS de
+  // menace de pénalités/recouvrement, ce n'est pas une créance client).
+  const toneGuide = isSupplier
+    ? level <= 1
+      ? "PREMIÈRE relance : ton cordial et professionnel, simple rappel (livraison attendue, document/attestation à fournir, point à régler). Pars du principe d'un oubli."
+      : level === 2
+        ? "DEUXIÈME relance : cordial mais plus direct. Rappelle qu'un premier message est resté sans réponse et que cela impacte le chantier/le planning."
+        : `RELANCE DE NIVEAU ${level} : plusieurs relances sans suite. Ton FERME et FACTUEL (jamais agressif) : rappelle l'engagement pris (délai de livraison, attestation obligatoire, réserve à lever), l'impact concret sur le chantier, et demande une régularisation SANS DÉLAI. N'ÉVOQUE PAS de pénalités de retard ni de recouvrement (ce n'est pas un impayé client).`
+    : level <= 1
+      ? "PREMIÈRE relance : ton chaleureux et courtois, un simple rappel amical, JAMAIS comminatoire. Pars du principe que c'est un oubli."
+      : level === 2
+        ? "DEUXIÈME relance : ton courtois mais plus direct. Rappelle poliment qu'un premier message est resté sans réponse et que le règlement/la réponse se fait attendre."
+        : `RELANCE DE NIVEAU ${level} : plusieurs relances sont restées sans suite. Ton PROFESSIONNEL et FERME (jamais agressif ni insultant) : rappelle l'échéance dépassée et le montant dû, invite à régulariser SANS DÉLAI, et indique qu'à défaut de réponse tu seras contraint d'envisager les suites prévues (pénalités de retard, procédure de recouvrement). Reste correct, factuel et signe proprement.`;
+  const destinataire = opts.match.contactName || (isSupplier ? "ce fournisseur / sous-traitant" : "un client");
   const client = new Anthropic();
-  const system = `Tu es un agent de Biltia (OS opérationnel du BTP). Tu écris UN email de relance professionnel et courtois, AU NOM de l'entreprise « ${opts.companyName} », adressé à ${opts.match.contactName || "un client"}.
+  const system = `Tu es un agent de Biltia (OS opérationnel du BTP). Tu écris UN email de relance AU NOM de l'entreprise « ${opts.companyName} », adressé à ${destinataire} (${isSupplier ? "un FOURNISSEUR / SOUS-TRAITANT de l'entreprise" : "un CLIENT de l'entreprise"}).
 
 SUJET DE LA RELANCE : ${opts.watcher.watching}.
 FICHE CONCERNÉE (seule source de faits) : ${opts.match.label} — ${opts.match.detail}.
+NIVEAU DE RELANCE : ${level}. ${toneGuide}
 ${opts.instruction ? `CONSIGNE DU PATRON : « ${opts.instruction} ».\n` : ""}
-Règles : français professionnel, ton courtois (une première relance n'est jamais comminatoire), 4 à 6 phrases, signe au nom de « ${opts.companyName} ». N'invente AUCUN montant, date ni référence au-delà de la fiche ci-dessus. Aucun placeholder ([nom], XXX).
+Règles : français professionnel, 4 à 6 phrases, signe au nom de « ${opts.companyName} ». N'invente AUCUN montant, date ni référence au-delà de la fiche ci-dessus. Aucun placeholder ([nom], XXX). Adapte l'objet au niveau (ex : « Relance », « 2e relance »${isSupplier ? ", « Relance — livraison en attente »" : ", « Relance — règlement en attente »"}).
 Termine en appelant l'outil compose (objet + corps prêts à envoyer).`;
   try {
     const msg = await client.messages.create({
@@ -415,6 +514,85 @@ async function composeCompteRendu(opts: {
       html: injectDocumentRuntime(html),
       usage: { inputTokens: msg.usage.input_tokens, outputTokens: msg.usage.output_tokens },
     };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * ACT sur UNE fiche déclenchante : l'agent RÉALISE la mission dans le workspace
+ * (crée/met à jour des fiches via les outils workspace_*), à partir des données
+ * réelles de la fiche déclenchante, puis rend compte. Ne SUPPRIME jamais (agent
+ * autonome). Une boucle agentique bornée par fiche. Retourne le compte-rendu +
+ * les écritures effectuées (traces) pour le journal et la notification.
+ */
+async function composeAct(opts: {
+  model: string;
+  companyName: string;
+  db: SupabaseClient;
+  tenantId: string;
+  userId: string | null;
+  fromEmail: string | null;
+  agentTitle: string;
+  instruction: string;
+  watcher: WatcherDef;
+  match: WatcherMatch;
+  allowEmail: boolean;
+}): Promise<{ summary: string; traces: ToolTrace[]; usage: { inputTokens: number; outputTokens: number } } | null> {
+  const hasKey = !!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.startsWith("your_");
+  if (!hasKey) return null;
+
+  const m = opts.match;
+  const ficheLine = m.entity
+    ? `FICHE DÉCLENCHANTE : ${m.label} — entité \`${m.entity}\`, id \`${m.ficheId}\` (relis-la avec workspace_get si besoin).`
+    : `FICHE DÉCLENCHANTE : ${m.label}.`;
+  const rawBlock =
+    m.raw && Object.keys(m.raw).length ? `\nDONNÉES DE LA FICHE :\n${JSON.stringify(m.raw).slice(0, 1500)}` : "";
+
+  const system = `Tu es un agent autonome de Biltia, l'OS opérationnel du BTP. Un DÉCLENCHEUR vient de se produire (${opts.watcher.watching}) et tu dois RÉALISER la mission confiée, dans le workspace de « ${opts.companyName} ».
+
+MISSION : « ${opts.instruction} »
+
+${ficheLine}
+DÉTAIL : ${m.detail}.${rawBlock}
+
+RÈGLES (comme un employé consciencieux) :
+- Tu AGIS vraiment : crée / mets à jour les fiches nécessaires via les outils workspace_* (à partir des données ci-dessus + le workspace). Ne devine JAMAIS un id : cherche la fiche liée (workspace_list) avant de la référencer.
+- CRÉER ≠ INVENTER : n'invente AUCUN montant, prix, date ni coordonnée absent. S'il manque des éléments pour une fiche complète (ex : les prix/lignes d'un devis, le chantier de rattachement), crée quand même un BROUILLON (statut « brouillon » quand il existe) avec ce que tu sais, et LISTE précisément ce qui reste à compléter.
+- Évite les doublons : si la fiche à créer semble déjà exister (même client/chantier/numéro), ne la recrée pas — mets-la à jour ou signale-le.
+- Tu ne SUPPRIMES jamais une fiche.
+
+${buildWorkspaceToolsSystem()}
+
+Quand c'est fait, TERMINE en appelant l'outil compose : subject = titre court, body = COMPTE-RENDU de CE QUE TU AS FAIT (fiches créées/mises à jour) + ce qui reste à compléter. Français, factuel, sans placeholder.`;
+
+  try {
+    const loop = await runAgentLoop({
+      model: opts.model,
+      system,
+      userMessage: "Réalise la mission sur cette fiche déclenchante.",
+      db: opts.db,
+      actor: {
+        tenantId: opts.tenantId,
+        userId: opts.userId,
+        label: `Agent « ${opts.agentTitle} »`,
+        fromEmail: opts.fromEmail,
+      },
+      finishTool: COMPOSE_TOOL,
+      allowEmail: opts.allowEmail,
+      allowSms: false,
+      allowDelete: false, // agent autonome : création/màj seulement, jamais de suppression
+      maxIterations: 10,
+      maxTokens: 1500,
+      maxDestructiveWrites: 8, // filet anti-emballement sur les mises à jour
+    });
+    const i = (loop.finishInput ?? {}) as { subject?: string; body?: string };
+    const composed = [i.subject, i.body].filter(Boolean).join(" — ");
+    // Compte-rendu du modèle sinon, à défaut, la liste des écritures effectuées.
+    const summary =
+      composed || (loop.traces.length ? loop.traces.map((t) => t.description).join(" · ") : "");
+    if (!summary && loop.traces.length === 0) return null;
+    return { summary: summary.slice(0, 800), traces: loop.traces, usage: loop.usage };
   } catch {
     return null;
   }
@@ -583,7 +761,7 @@ async function executeEventRule(
     //    compte-rendu) est réservé à Pro ; l'alerte patron (notify/digest) reste
     //    gratuite pour tous. Fondateur exempté. Filet pour une rétrogradation
     //    Pro→Free avec un agent-action resté actif (l'activation le bloque déjà). ──
-    if (!founder && (action.type === "send_email" || action.type === "compte_rendu")) {
+    if (!founder && (action.type === "send_email" || action.type === "compte_rendu" || action.type === "act")) {
       const ent = await getEntitlementsForTenant(admin, rule.tenant_id);
       if (ent.plan !== "pro") {
         for (const m of fresh) await releaseFire(m, watcher);
@@ -608,7 +786,7 @@ async function executeEventRule(
     //    à demain (pas de pause). On relâche les réservations pour qu'elles
     //    repartent « fraîches » au passage qui les traitera. ────────────────────
     const needsJudge = !!watcher.aiJudge;
-    const paidAction = action.type === "compte_rendu" || action.type === "send_email" || needsJudge;
+    const paidAction = action.type === "compte_rendu" || action.type === "send_email" || action.type === "act" || needsJudge;
     if (!founder && paidAction) {
       const monthlyBudget = Number(rule.monthly_credit_budget) || 0; // 0 = illimité
       const dailyBudget = Number(rule.daily_credit_budget) || 0;
@@ -833,6 +1011,107 @@ async function executeEventRule(
       return { status: "success", summary };
     }
 
+    // ── 3a-ter) ACT : RÉALISER une action dans le workspace (créer/mettre à jour)
+    //    pour chaque fiche déclenchante, via la boucle agentique. L'agent AGIT à
+    //    partir des données réelles puis rend compte au patron. ──────────────────
+    if (action.type === "act") {
+      if (!rule.created_by) {
+        await finishRun("failed", "Action impossible : créateur inconnu.");
+        await reschedule();
+        return { status: "failed", summary: "créateur inconnu" };
+      }
+      const CAP = 4; // écriture agentique = lourde → borne stricte par passage
+      const batch = fresh.slice(0, CAP);
+      const deferred = fresh.slice(CAP);
+      for (const m of deferred) await releaseFire(m, watcher);
+
+      // Un act peut aussi ENVOYER si un canal existe (« crée le devis ET envoie-le »).
+      const channels = await canSendOutbound(rule.tenant_id, rule.created_by);
+
+      let done = 0;
+      let inTok = 0;
+      let outTok = 0;
+      const okLabels: string[] = [];
+      const reports: string[] = [];
+      const allTraces: ToolTrace[] = [];
+      for (const m of batch) {
+        const res = await composeAct({
+          model: execModel,
+          companyName,
+          db: admin,
+          tenantId: rule.tenant_id,
+          userId: rule.created_by,
+          fromEmail: creatorEmail,
+          agentTitle: rule.title,
+          instruction: action.contentInstruction || rule.instruction,
+          watcher,
+          match: m,
+          allowEmail: channels.ok,
+        });
+        if (!res) {
+          await releaseFire(m, watcher);
+          continue;
+        }
+        inTok += res.usage.inputTokens;
+        outTok += res.usage.outputTokens;
+        done++;
+        okLabels.push(m.label);
+        reports.push(`${m.label} → ${res.summary}`);
+        allTraces.push(...res.traces);
+        await logActivity(admin, {
+          tenantId: rule.tenant_id,
+          userId: rule.created_by ?? undefined,
+          action: "create",
+          entityType: "agent",
+          description: `Agent « ${rule.title} » — action réalisée : ${m.label}`,
+        });
+      }
+
+      // Débit au coût réel (fondateur exempté) — même logique que le compte-rendu.
+      let creditsUsed = 0;
+      if (inTok + outTok > 0) {
+        try {
+          const tracked = await trackAiUsage({
+            supabase: admin,
+            userId: rule.created_by,
+            tenantId: rule.tenant_id,
+            action: "agent_run",
+            model: execModel,
+            inputTokens: inTok,
+            outputTokens: outTok,
+          });
+          if (!founder) {
+            const { data: debited } = await admin.rpc("deduct_credits_for_user", {
+              p_user_id: rule.created_by,
+              p_amount: tracked,
+            });
+            if (debited) {
+              creditsUsed = tracked;
+            } else {
+              await admin.from("agent_runs").update({ credits_used: 0 }).eq("id", run.id);
+              const reason = "crédits épuisés — rechargez puis relancez l'agent";
+              await finishRun("blocked", `${done} action(s) réalisée(s) ; ${reason} — agent en pause.`, { made: okLabels });
+              await reschedule(reason);
+              await notifyOwner("Agent en pause : crédits épuisés", `« ${rule.title} » : ${reason}. Passez à un plan supérieur pour qu'il reprenne aussitôt.`, "/tarifs");
+              return { status: "blocked", summary: `${done} réalisée(s), crédits épuisés` };
+            }
+          }
+        } catch {
+          // metering non bloquant
+        }
+      }
+      await admin.from("agent_runs").update({ credits_used: creditsUsed }).eq("id", run.id);
+
+      const parts: string[] = [];
+      if (done) parts.push(`${done} action(s) réalisée(s) : ${okLabels.join(", ")}`);
+      if (deferred.length) parts.push(`${deferred.length} au prochain passage`);
+      const summary = parts.join(" · ") || "aucune action réalisée";
+      await finishRun("success", summary, { done: okLabels, reports, workspace_actions: allTraces, deferred: deferred.length });
+      await reschedule();
+      if (done) await notifyOwner(`${watcher.label} : ${done} action(s) réalisée(s)`, reports.join("\n").slice(0, 240));
+      return { status: "success", summary };
+    }
+
     // ── 3a) RELANCE CLIENT (un email par fiche, borné par tick). ─────────────
     if (action.type === "send_email") {
       const withEmail = fresh.filter((m) => m.email && m.email.includes("@"));
@@ -860,17 +1139,39 @@ async function executeEventRule(
       // (plus riches, plus rares) restent, eux, sur execModel (Sonnet).
       const relanceModel = TIER_SIMPLE;
 
+      // ESCALADE (demande user) : le NIVEAU de relance d'une fiche = le nombre de
+      // déclenchements déjà enregistrés pour elle. On charge toutes les clés de
+      // tir de la règle UNE fois (le tir courant est déjà réservé), puis on compte
+      // par fiche → ton doux (1) → ferme (3+). startsWith évite les pièges LIKE.
+      const { data: firesData } = await admin
+        .from("agent_event_fires")
+        .select("fire_key")
+        .eq("rule_id", rule.id);
+      const allFireKeys = (firesData ?? []).map((f) => String((f as { fire_key: string }).fire_key));
+
       let sent = 0;
+      let held = 0; // relances préparées, mises en attente de validation (outbox)
       let inTok = 0;
       let outTok = 0;
       const okLabels: string[] = [];
+      const heldLabels: string[] = [];
+      // Mode brouillon (#67) : tout est soumis à validation. Sinon, seule une
+      // relance devenue FERME (#70, niveau ≥ 3) est retenue pour validation.
+      const draftMode = action.approval === "always";
+      // Veilleur orienté fournisseur → ton NEUTRE (chasse de livraison/attestation),
+      // jamais le registre « recouvrement » réservé aux impayés client.
+      const audience: "client" | "supplier" = isSupplierRelanceWatcher(watcher.key) ? "supplier" : "client";
       for (const m of batch) {
+        const firePrefix = `${watcher.key}:${m.ficheId}:`;
+        const relanceLevel = Math.max(1, allFireKeys.filter((k) => k.startsWith(firePrefix)).length);
         const composed = await composeRelance({
           model: relanceModel,
           companyName,
           watcher,
           match: m,
           instruction: action.contentInstruction,
+          relanceLevel,
+          audience,
         });
         if (!composed) {
           await releaseFire(m, watcher);
@@ -878,6 +1179,39 @@ async function executeEventRule(
         }
         inTok += composed.usage.inputTokens;
         outTok += composed.usage.outputTokens;
+
+        // RETENIR pour validation ? (brouillon systématique, ou relance sensible).
+        if (draftMode || relanceLevel >= FIRM_RELANCE_LEVEL) {
+          const { error: outErr } = await admin.from("agent_outbox").insert({
+            tenant_id: rule.tenant_id,
+            rule_id: rule.id,
+            created_by: rule.created_by,
+            fiche_id: m.ficheId,
+            fiche_label: m.label.slice(0, 200),
+            kind: "relance",
+            level: relanceLevel,
+            to_email: m.email as string,
+            subject: composed.subject,
+            body: composed.body,
+            status: "pending",
+          });
+          // Table absente (pré-déploiement) ou erreur : on relâche → nouvel essai.
+          if (outErr) {
+            await releaseFire(m, watcher);
+            continue;
+          }
+          held++;
+          heldLabels.push(m.label);
+          await logActivity(admin, {
+            tenantId: rule.tenant_id,
+            userId: rule.created_by ?? undefined,
+            action: "document",
+            entityType: "agent",
+            description: `Agent « ${rule.title} » — relance ${relanceLevel >= FIRM_RELANCE_LEVEL ? "ferme " : ""}préparée (à valider) : ${m.label}`,
+          });
+          continue;
+        }
+
         const res = await sendOutboundEmail({
           tenantId: rule.tenant_id,
           userId: rule.created_by,
@@ -937,16 +1271,25 @@ async function executeEventRule(
       await admin.from("agent_runs").update({ credits_used: creditsUsed }).eq("id", run.id);
 
       const parts: string[] = [];
-      if (sent) parts.push(`${sent} relance(s) : ${okLabels.join(", ")}`);
+      if (sent) parts.push(`${sent} relance(s) envoyée(s) : ${okLabels.join(", ")}`);
+      if (held) parts.push(`${held} à valider : ${heldLabels.join(", ")}`);
       if (withoutEmail.length) parts.push(`${withoutEmail.length} sans email (à compléter)`);
       if (deferred.length) parts.push(`${deferred.length} au prochain passage`);
       const summary = parts.join(" · ") || "aucune relance envoyée";
       await finishRun("success", summary, {
         sent: okLabels,
+        held: heldLabels,
         no_email: withoutEmail.map((m) => m.label),
         deferred: deferred.length,
       });
       await reschedule();
+      // #70 : une relance EN ATTENTE prévient le patron AVANT l'envoi (à valider).
+      if (held) {
+        await notifyOwner(
+          `${held} relance(s) à valider — ${watcher.label}`,
+          `${heldLabels.join(", ")} : relance${held > 1 ? "s" : ""} préparée${held > 1 ? "s" : ""}, en attente de votre validation dans Agents.`
+        );
+      }
       if (sent) await notifyOwner(`${watcher.label} : ${sent} relance(s) envoyée(s)`, summary);
       return { status: "success", summary };
     }
@@ -1180,7 +1523,14 @@ export async function executeRule(
 
     // ── Exécution agentique du passage (accès workspace complet). ───────────
     const composed = await compose({
-      mode: action.type === "send_email" ? "email" : action.type === "report" ? "report" : "notify",
+      mode:
+        action.type === "send_email"
+          ? "email"
+          : action.type === "report"
+            ? "report"
+            : action.type === "act"
+              ? "act"
+              : "notify",
       model: execModel,
       instruction: action.contentInstruction || rule.instruction,
       recipientNames: (action.recipients ?? []).map((r) => r.name).join(", ") || "vous",
@@ -1295,7 +1645,9 @@ export async function executeRule(
     const summary =
       action.type === "report"
         ? `Contrôle effectué : ${composed.subject}${extra}`
-        : `Rappel envoyé : ${composed.subject}${extra}`;
+        : action.type === "act"
+          ? `Action effectuée : ${composed.subject}${extra}`
+          : `Rappel envoyé : ${composed.subject}${extra}`;
     await finishRun("success", summary, {
       subject: composed.subject,
       body: composed.body,

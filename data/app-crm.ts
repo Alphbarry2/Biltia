@@ -148,7 +148,6 @@ textarea{resize:vertical;min-height:70px}
   .app-main{padding:0 0 40px}
   .topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:26px 32px 6px}
   .view-pad{padding:16px 32px}
-  .cockpit{max-width:640px}
 }
 @media(max-width:400px){.view-pad{padding:13px}.app-title{max-width:120px}.btn{padding:11px 15px}.c-value{font-size:28px}}
 @media(min-width:1600px){.topbar,.view-pad{max-width:1520px;margin-left:auto;margin-right:auto}}

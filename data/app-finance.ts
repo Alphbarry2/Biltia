@@ -99,7 +99,7 @@ input.invalid,select.invalid{border-color:#E11D48;box-shadow:0 0 0 3px rgba(225,
 .cockpit-top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
 .ck-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#F0A3B4;display:flex;align-items:center;gap:7px}
 .ck-label::before{content:"";width:7px;height:7px;border-radius:50%;background:#F0576F;box-shadow:0 0 8px #F0576F}
-.ck-value{font-size:40px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums;margin-top:6px;line-height:1.05}
+.ck-value{font-size:40px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums;margin-top:6px;line-height:1.05;white-space:nowrap}
 .ck-sub{font-size:12.5px;color:#A29FC0;margin-top:5px}.ck-sub b{color:#DAD7EE;font-weight:700}
 .ck-right{display:flex;align-items:center;gap:12px;flex-shrink:0}
 .dso-pill{border:1px solid rgba(255,255,255,.2);color:#E7E4F6;padding:6px 12px;border-radius:10px;font-size:12px;font-weight:700;white-space:nowrap}
@@ -206,7 +206,8 @@ input.invalid,select.invalid{border-color:#E11D48;box-shadow:0 0 0 3px rgba(225,
   .view-pad{padding:16px 32px}
   .ck-value{font-size:46px}
 }
-@media(max-width:400px){.view-pad{padding:13px}.cockpit{padding:18px 16px 14px}.ck-value{font-size:32px}.app-title{max-width:120px}.btn{padding:11px 15px}}
+@media(max-width:560px){.cockpit-top{flex-direction:column;align-items:stretch;gap:0}.ck-right{margin-top:16px;justify-content:flex-start}}
+@media(max-width:400px){.view-pad{padding:13px}.cockpit{padding:18px 16px 14px}.ck-value{font-size:34px}.app-title{max-width:120px}.btn{padding:11px 15px}}
 @media(min-width:1600px){.topbar,.view-pad{max-width:1520px;margin-left:auto;margin-right:auto}}
 @media print{.sidebar,.app-header,.tab-bar,.fab,.no-print{display:none!important}}
 </style>

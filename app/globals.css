@@ -243,6 +243,24 @@ img, svg, video, canvas {
 .animate-drift-c { animation: drift-c 23s ease-in-out infinite; }
 .animate-drift-d { animation: drift-d 27s ease-in-out infinite; }
 
+/* ── Blobs « aurora » du fond ────────────────────────────────────────────────
+   Bug : le blob est dimensionné en vw (ou %) mais son flou est ABSOLU (110-130px).
+   Sur desktop un blob ~560-820px encaisse le flou → couleurs éclatantes. Sur
+   tablette/mobile le même blob tombe à ~200px, le flou de 130px le dissout en
+   brume invisible → il ne reste que le centre blanc. On les élargit et on adoucit
+   proportionnellement sous 900px pour que les couleurs REMPLISSENT l'écran comme
+   sur desktop. Le desktop n'est PAS touché (la règle ne s'active qu'en petit
+   écran). Les blobs vivent dans des conteneurs overflow-hidden → aucun scroll. */
+@media (max-width: 900px) {
+  .mesh-blob {
+    width: 118vw !important;
+    height: 118vw !important;
+    max-width: none !important;
+    filter: blur(85px) !important;
+    opacity: 1 !important;
+  }
+}
+
 /* ── Grille de points (fond « Sinew ») ───────────────────────────────────── */
 .bg-dots {
   background-image: radial-gradient(circle, rgba(10, 10, 10, 0.07) 1px, transparent 1.4px);

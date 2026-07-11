@@ -63,7 +63,7 @@ export async function POST(req: Request) {
   const ctx = await requireContext();
   if ("error" in ctx) return ctx.error;
 
-  let body: { action?: string; connectorId?: string; provider?: string };
+  let body: { action?: string; connectorId?: string; provider?: string; mode?: string };
   try {
     body = await req.json();
   } catch {
@@ -96,8 +96,12 @@ export async function POST(req: Request) {
       origin: new URL(req.url).origin,
     });
 
+    // `mode:"popup"` : le flux est ouvert dans une fenêtre pop-up (chat / activation
+    // d'agent) → le callback devra renvoyer une page qui postMessage au lieu de
+    // rediriger. On mémorise ce choix dans l'état signé (cookie) pour que le
+    // callback sache quoi faire au retour.
     const jar = await cookies();
-    jar.set(OAUTH_STATE_COOKIE, JSON.stringify({ state, provider: connector.provider }), {
+    jar.set(OAUTH_STATE_COOKIE, JSON.stringify({ state, provider: connector.provider, popup: body.mode === "popup" }), {
       httpOnly: true,
       secure: true,
       sameSite: "lax",
