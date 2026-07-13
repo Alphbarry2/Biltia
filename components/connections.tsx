@@ -28,9 +28,15 @@ import {
 import {
   CONNECTORS,
   connectorStatus,
+  connectorName,
+  connectorDesc,
+  connectorWorks,
+  connectorCannot,
+  connectorHrefLabel,
   type ConnectionInfo,
   type Connector,
 } from "@/lib/connectors";
+import { useT, useLocale } from "@/lib/i18n/context";
 
 const EASE = [0.16, 1, 0.3, 1] as const;
 
@@ -78,6 +84,8 @@ function ConnectorCard({
   connections: ConnectionInfo[];
   onChanged: () => void;
 }) {
+  const t = useT();
+  const locale = useLocale();
   const status = connectorStatus(connector, connections);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -93,10 +101,10 @@ function ConnectorCard({
         body: JSON.stringify({ action: "start", connectorId: connector.id }),
       });
       const json = await res.json();
-      if (!res.ok || !json.url) throw new Error(json.error ?? "Connexion impossible.");
+      if (!res.ok || !json.url) throw new Error(json.error ?? t("Connexion impossible.", "Connection failed."));
       window.location.href = json.url; // → consentement Google / Microsoft
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Connexion impossible.");
+      setError(e instanceof Error ? e.message : t("Connexion impossible.", "Connection failed."));
       setBusy(false);
     }
   };
@@ -106,7 +114,10 @@ function ConnectorCard({
     const family = connector.provider === "google" ? "Google" : "Microsoft";
     if (
       !window.confirm(
-        `Déconnecter votre compte ${family} ? Tous les outils ${family} connectés (email, agenda, stockage) seront déconnectés.`
+        t(
+          `Déconnecter votre compte ${family} ? Tous les outils ${family} connectés (email, agenda, stockage) seront déconnectés.`,
+          `Disconnect your ${family} account? All connected ${family} tools (email, calendar, storage) will be disconnected.`,
+        )
       )
     )
       return;
@@ -118,41 +129,54 @@ function ConnectorCard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "disconnect", provider: connector.provider }),
       });
-      if (!res.ok) throw new Error("Déconnexion impossible.");
+      if (!res.ok) throw new Error(t("Déconnexion impossible.", "Disconnection failed."));
       onChanged();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Déconnexion impossible.");
+      setError(e instanceof Error ? e.message : t("Déconnexion impossible.", "Disconnection failed."));
     } finally {
       setBusy(false);
     }
   };
 
+  // « soon » = déclaré mais aucun code ne lit le jeton. Pas de bouton, pas de
+  // faux « Connecté ✅ » : la carte s'estompe et annonce l'attente.
+  const soon = status === "soon";
+
   return (
-    <div className="flex flex-col gap-2.5 rounded-xl border border-[#EDEDF2] bg-white p-4">
+    <div className={`flex flex-col gap-2.5 rounded-xl border border-[#EDEDF2] bg-white p-4 ${soon ? "opacity-70" : ""}`}>
       <div className="flex items-center gap-2.5 min-w-0">
-        <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${connector.logo ? "bg-white border border-[#EDEDF2]" : "bg-[#F3EFFC]"}`}>
+        <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${connector.logo ? "bg-white border border-[#EDEDF2]" : "bg-[#F3EFFC]"} ${soon ? "grayscale" : ""}`}>
           {connector.logo ? (
-            <Image src={connector.logo} alt={`Logo ${connector.name}`} width={20} height={20} className="w-5 h-5 object-contain" />
+            <Image src={connector.logo} alt={t(`Logo ${connector.name}`, `${connector.name} logo`)} width={20} height={20} className="w-5 h-5 object-contain" />
           ) : (
             <FallbackIcon id={connector.id} />
           )}
         </span>
-        <span className="text-[13.5px] font-semibold text-[#0A0A0A] truncate">{connector.name}</span>
+        <span className="text-[13.5px] font-semibold text-[#0A0A0A] truncate">{connectorName(connector, locale)}</span>
+        {soon && (
+          <span className="ml-auto flex-shrink-0 rounded-full border border-[#E4E4EA] bg-[#F5F5F7] px-2 py-0.5 text-[10.5px] font-bold text-[#8B8B96]">
+            {t("Bientôt", "Soon")}
+          </span>
+        )}
         {status === "builtin" && (
           <span className="ml-auto flex-shrink-0 rounded-full border border-[#E2D9F8] bg-[#F3EFFC] px-2 py-0.5 text-[10.5px] font-bold text-[#7C3AED]">
-            Intégré
+            {t("Intégré", "Built-in")}
           </span>
         )}
         {status === "connected" && (
           <span className="ml-auto flex-shrink-0 inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10.5px] font-bold text-emerald-600">
-            <CheckCircle className="w-3 h-3" /> Connecté
+            <CheckCircle className="w-3 h-3" /> {t("Connecté", "Connected")}
           </span>
         )}
       </div>
 
-      <p className="text-[12px] text-[#9A9A97] leading-snug">{connector.desc}</p>
+      <p className="text-[12px] text-[#9A9A97] leading-snug">{connectorDesc(connector, locale)}</p>
       {status === "disconnected" && connector.works && (
-        <p className="text-[11px] text-[#B4ADC4] leading-snug">{connector.works}</p>
+        <p className="text-[11px] text-[#B4ADC4] leading-snug">{connectorWorks(connector, locale)}</p>
+      )}
+      {/* Pour un « soon », cannot[0] dit ce qui couvre le besoin en attendant. */}
+      {soon && connectorCannot(connector, locale)[0] && (
+        <p className="text-[11px] text-[#B4ADC4] leading-snug">{connectorCannot(connector, locale)[0]}</p>
       )}
       {error && <p className="text-[11px] text-rose-600 leading-snug">{error}</p>}
 
@@ -165,7 +189,7 @@ function ConnectorCard({
             className="inline-flex items-center gap-1.5 rounded-lg bg-[#0A0A0A] px-3 py-1.5 text-[12px] font-semibold text-white shadow-[0_4px_14px_rgba(60,40,120,0.08)] hover:shadow-[0_8px_24px_rgba(60,40,120,0.12)] transition-all disabled:opacity-60"
           >
             {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plug className="w-3.5 h-3.5" />}
-            Connecter
+            {t("Connecter", "Connect")}
           </button>
         )}
         {status === "connected" && (
@@ -175,7 +199,7 @@ function ConnectorCard({
             disabled={busy}
             className="text-[12px] font-semibold text-[#9A9A97] hover:text-rose-600 transition-colors disabled:opacity-60"
           >
-            {busy ? "…" : "Déconnecter"}
+            {busy ? "…" : t("Déconnecter", "Disconnect")}
           </button>
         )}
         {connector.href && (
@@ -185,7 +209,7 @@ function ConnectorCard({
             rel="noopener noreferrer"
             className="text-[12px] font-semibold text-violet-600 hover:opacity-80 transition-opacity"
           >
-            {connector.hrefLabel ?? "Ouvrir"} ↗
+            {connectorHrefLabel(connector, locale) ?? t("Ouvrir", "Open")} ↗
           </a>
         )}
       </div>
@@ -196,6 +220,7 @@ function ConnectorCard({
 // ── Panneau complet (page + widget) ──────────────────────────────────────────
 
 export function ConnectionsPanel() {
+  const t = useT();
   const { connections, loading, refresh } = useConnections();
   const [banner, setBanner] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
 
@@ -205,7 +230,8 @@ export function ConnectionsPanel() {
     const connected = params.get("connected");
     const error = params.get("error");
     if (connected) {
-      setBanner({ tone: "ok", text: `Compte ${connected === "google" ? "Google" : "Microsoft"} connecté.` });
+      const fam = connected === "google" ? "Google" : "Microsoft";
+      setBanner({ tone: "ok", text: t(`Compte ${fam} connecté.`, `${fam} account connected.`) });
     } else if (error) {
       setBanner({ tone: "error", text: error });
     }
@@ -245,6 +271,7 @@ export function ConnectionsPanel() {
 // ── Widget modal (ouvert depuis le badge d'accueil) ──────────────────────────
 
 export function ConnectionsWidget({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const t = useT();
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -274,7 +301,7 @@ export function ConnectionsWidget({ open, onClose }: { open: boolean; onClose: (
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3 mb-1">
-              <h2 className="text-lg font-bold text-[#0A0A0A] tracking-[-0.01em]">Connectez vos outils</h2>
+              <h2 className="text-lg font-bold text-[#0A0A0A] tracking-[-0.01em]">{t("Connectez vos outils", "Connect your tools")}</h2>
               <button
                 onClick={onClose}
                 className="w-8 h-8 rounded-lg hover:bg-black/[0.05] flex items-center justify-center text-[#9A9A97] hover:text-[#0A0A0A] transition-colors flex-shrink-0"
@@ -283,8 +310,7 @@ export function ConnectionsWidget({ open, onClose }: { open: boolean; onClose: (
               </button>
             </div>
             <p className="text-[13px] text-[#6E6E6C] mb-5">
-              Connectés, vos outils laissent Biltia agir pour vous : envoyer un devis, créer un rendez-vous,
-              sauvegarder un PDF. Les outils « Intégré » marchent déjà sans connexion.
+              {t("Connectés, vos outils laissent Biltia agir pour vous : envoyer un devis, créer un rendez-vous, sauvegarder un PDF. Les outils « Intégré » marchent déjà sans connexion.", "Once connected, your tools let Biltia act for you: send a quote, create an appointment, save a PDF. “Built-in” tools already work without any connection.")}
             </p>
             <ConnectionsPanel />
             <div className="mt-5 text-right">
@@ -293,7 +319,7 @@ export function ConnectionsWidget({ open, onClose }: { open: boolean; onClose: (
                 onClick={onClose}
                 className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-violet-600 hover:opacity-80 transition-opacity"
               >
-                Voir la page Connecteurs <ArrowRight className="w-3.5 h-3.5" />
+                {t("Voir la page Connecteurs", "See the Connectors page")} <ArrowRight className="w-3.5 h-3.5" />
               </Link>
             </div>
           </motion.div>
@@ -313,6 +339,7 @@ const BADGE_LOGOS = [
 ];
 
 export function ConnectToolsBadge() {
+  const t = useT();
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -331,7 +358,7 @@ export function ConnectToolsBadge() {
             </span>
           ))}
         </span>
-        Connectez vos outils
+        {t("Connectez vos outils", "Connect your tools")}
         <ArrowRight className="w-3.5 h-3.5" />
       </button>
       <ConnectionsWidget open={open} onClose={() => setOpen(false)} />

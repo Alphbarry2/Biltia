@@ -14,6 +14,8 @@ import { createAdminClient } from "@/lib/supabase-admin";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
 import { exchangeCode, OAUTH_STATE_COOKIE } from "@/lib/oauth";
 import type { OAuthProvider } from "@/lib/connectors";
+import { getLocale } from "@/lib/i18n/server";
+import { pick, type Locale } from "@/lib/i18n/config";
 
 function back(origin: string, params: Record<string, string>): NextResponse {
   const url = new URL("/connectors", origin);
@@ -27,14 +29,15 @@ function back(origin: string, params: Record<string, string>): NextResponse {
 // jour (« Connecté ») sans jamais quitter la conversation.
 function popupResult(
   origin: string,
-  msg: { ok: boolean; provider?: string; error?: string }
+  msg: { ok: boolean; provider?: string; error?: string },
+  locale: Locale
 ): NextResponse {
   // JSON échappé pour injection sûre dans <script> (neutralise « < » → pas de
   // </script> ni de balise possible depuis un message d'erreur du fournisseur).
   const payload = JSON.stringify({ source: "biltia-oauth", ...msg }).replace(/</g, "\\u003c");
-  const html = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Connexion…</title></head>
+  const html = `<!doctype html><html lang="${locale}"><head><meta charset="utf-8"><title>${pick(locale, "Connexion…", "Connecting…")}</title></head>
 <body style="font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;color:#6b7280;font-size:14px">
-<p>Vous pouvez fermer cette fenêtre.</p>
+<p>${pick(locale, "Vous pouvez fermer cette fenêtre.", "You can close this window.")}</p>
 <script>
 (function(){
   try { if (window.opener) window.opener.postMessage(${payload}, ${JSON.stringify(origin)}); } catch (e) {}
@@ -48,6 +51,7 @@ function popupResult(
 }
 
 export async function GET(req: Request) {
+  const locale = await getLocale();
   const origin = new URL(req.url).origin;
   const search = new URL(req.url).searchParams;
 
@@ -64,27 +68,33 @@ export async function GET(req: Request) {
   const popup = expected?.popup === true;
   // Selon le mode : page postMessage (pop-up) ou redirection vers /connectors.
   const fail = (message: string) =>
-    popup ? popupResult(origin, { ok: false, error: message }) : back(origin, { error: message });
+    popup
+      ? popupResult(origin, { ok: false, error: message }, locale)
+      : back(origin, { error: message });
 
   // Refus utilisateur chez le fournisseur (bouton Annuler) → retour neutre.
   if (search.get("error")) {
-    return popup ? popupResult(origin, { ok: false }) : back(origin, { canceled: "1" });
+    return popup ? popupResult(origin, { ok: false }, locale) : back(origin, { canceled: "1" });
   }
 
   const code = search.get("code");
   const state = search.get("state");
   if (!code || !state || !expected || expected.state !== state) {
-    return fail("Session de connexion expirée. Réessayez.");
+    return fail(
+      pick(locale, "Session de connexion expirée. Réessayez.", "Connection session expired. Please try again.")
+    );
   }
 
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return fail("Authentification requise.");
+  if (!user) return fail(pick(locale, "Authentification requise.", "Authentication required."));
   const membership = await getActiveMembershipServer(supabase, user.id);
   const admin = createAdminClient();
-  if (!membership || !admin) return fail("Espace de travail introuvable.");
+  if (!membership || !admin) {
+    return fail(pick(locale, "Espace de travail introuvable.", "Workspace not found."));
+  }
 
   try {
     const tokens = await exchangeCode({ provider: expected.provider, code, origin });
@@ -117,12 +127,16 @@ export async function GET(req: Request) {
       },
       { onConflict: "tenant_id,user_id,provider" }
     );
-    if (error) throw new Error("Enregistrement de la connexion impossible.");
+    if (error) {
+      throw new Error(
+        pick(locale, "Enregistrement de la connexion impossible.", "Could not save the connection.")
+      );
+    }
 
     return popup
-      ? popupResult(origin, { ok: true, provider: expected.provider })
+      ? popupResult(origin, { ok: true, provider: expected.provider }, locale)
       : back(origin, { connected: expected.provider });
   } catch (e) {
-    return fail(e instanceof Error ? e.message : "Connexion impossible.");
+    return fail(e instanceof Error ? e.message : pick(locale, "Connexion impossible.", "Connection failed."));
   }
 }

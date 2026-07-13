@@ -19,16 +19,36 @@ export function hasMailerKey(): boolean {
 
 export type SendEmailResult = { ok: true; id: string } | { ok: false; reason: string };
 
+/** Pièce jointe. Défini ICI (module le plus bas de la pile, sans dépendance) et
+ *  importé par gmail.ts / outbound-email.ts — pas de cycle. */
+export type EmailAttachment = {
+  /** Nom vu par le destinataire. ASCII conseillé (les accents cassent certains clients). */
+  filename: string;
+  content: Buffer;
+  contentType: string;
+};
+
+/** Garde-fou commun aux deux canaux : un mail de 30 Mo est refusé par le serveur
+ *  d'en face APRÈS envoi (bounce silencieux). On refuse AVANT, avec un motif lisible.
+ *  Gmail plafonne à 25 Mo ; le base64 gonfle de ~33 % → 15 Mo de binaire max. */
+export const MAX_ATTACHMENTS_BYTES = 15 * 1024 * 1024;
+
+export function attachmentsTooBig(attachments?: EmailAttachment[]): boolean {
+  if (!attachments?.length) return false;
+  return attachments.reduce((n, a) => n + a.content.byteLength, 0) > MAX_ATTACHMENTS_BYTES;
+}
+
 /**
  * Envoie un email. Ne throw jamais.
  * `text` obligatoire (les emails d'agents restent sobres et lisibles partout) ;
- * `html` optionnel par-dessus.
+ * `html` et `attachments` optionnels par-dessus.
  */
 export async function sendEmail(opts: {
   to: string[];
   subject: string;
   text: string;
   html?: string;
+  attachments?: EmailAttachment[];
   replyTo?: string;
 }): Promise<SendEmailResult> {
   if (!hasMailerKey()) {
@@ -36,6 +56,9 @@ export async function sendEmail(opts: {
   }
   const to = opts.to.filter((e) => typeof e === "string" && e.includes("@")).slice(0, 50);
   if (to.length === 0) return { ok: false, reason: "aucun destinataire valide" };
+  if (attachmentsTooBig(opts.attachments)) {
+    return { ok: false, reason: "pièces jointes trop lourdes (15 Mo maximum)" };
+  }
 
   try {
     const res = await fetch(RESEND_URL, {
@@ -50,6 +73,15 @@ export async function sendEmail(opts: {
         subject: opts.subject.slice(0, 200),
         text: opts.text,
         ...(opts.html ? { html: opts.html } : {}),
+        ...(opts.attachments?.length
+          ? {
+              attachments: opts.attachments.map((a) => ({
+                filename: a.filename,
+                content: a.content.toString("base64"),
+                content_type: a.contentType,
+              })),
+            }
+          : {}),
         ...(opts.replyTo ? { reply_to: opts.replyTo } : {}),
       }),
     });

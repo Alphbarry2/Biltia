@@ -11,7 +11,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { sendGmail, gmailStatus } from "./gmail";
-import { sendEmail, hasMailerKey } from "./mailer";
+import { sendEmail, hasMailerKey, type EmailAttachment } from "./mailer";
+
+export type { EmailAttachment };
 
 export type OutboundEmailResult =
   | { ok: true; via: "gmail" | "resend"; id: string; note: string }
@@ -45,7 +47,12 @@ export async function sendOutboundEmail(opts: {
   fromEmail?: string | null;
   to: string[];
   subject: string;
+  /** Corps texte. TOUJOURS requis : c'est le repli quand le HTML n'est pas affiché. */
   body: string;
+  /** Corps HTML de marque (enveloppe d'un document commercial). Optionnel. */
+  html?: string;
+  /** Pièces jointes (le devis en PDF). Optionnel. */
+  attachments?: EmailAttachment[];
 }): Promise<OutboundEmailResult> {
   const to = opts.to.filter((e) => typeof e === "string" && e.includes("@")).slice(0, 50);
   if (to.length === 0) return { ok: false, reason: "aucun destinataire valide" };
@@ -65,6 +72,8 @@ export async function sendOutboundEmail(opts: {
         to: to.join(", "),
         subject: opts.subject,
         body: opts.body,
+        html: opts.html,
+        attachments: opts.attachments,
       });
       if (sent.ok) {
         return {
@@ -91,7 +100,14 @@ export async function sendOutboundEmail(opts: {
     };
   }
   const replyTo = opts.fromEmail && opts.fromEmail.includes("@") ? opts.fromEmail : undefined;
-  const sent = await sendEmail({ to, subject: opts.subject, text: opts.body, replyTo });
+  const sent = await sendEmail({
+    to,
+    subject: opts.subject,
+    text: opts.body,
+    html: opts.html,
+    attachments: opts.attachments,
+    replyTo,
+  });
   if (!sent.ok) return { ok: false, reason: sent.reason };
   return {
     ok: true,

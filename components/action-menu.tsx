@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Loader2 } from "lucide-react";
+import { useT } from "@/lib/i18n/context";
 
 const EASE = [0.16, 1, 0.3, 1] as const;
 
@@ -40,6 +41,7 @@ export function ActionMenu({
   menuClassName?: string;
   title?: string;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -74,7 +76,7 @@ export function ActionMenu({
       if (typeof msg === "string" && msg) setNote(msg);
       else setOpen(false);
     } catch (e) {
-      setNote(e instanceof Error ? e.message : "Action impossible. Réessayez.");
+      setNote(e instanceof Error ? e.message : t("Action impossible. Réessayez.", "Action failed. Please try again."));
     } finally {
       setBusy(null);
     }
