@@ -1,0 +1,9331 @@
+[
+  {
+    "text": "Dictez un ou plusieurs devis : « Devis pour M. Martin, rénovation salle de bain : dépose carrelage 45 m² à 18 €, pose à 42 €, un WC suspendu à 620 € »",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Facturez un chantier et pointez des heures : la rentabilité réelle (facturé − coûts) s'affichera ici. Ou ajoutez un budget prévu à un chantier.",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Bonjour,\n\nDans le cadre de nos obligations, merci de bien vouloir nous transmettre votre attestation d'assurance décennale à jour",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Créez une facture : votre cash bloqué, votre DSO et vos courbes d'encaissement s'afficheront ici, en direct.",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Vérifiez le client et les montants, puis enregistrez. Rien n'est écrit tant que vous n'avez pas validé.",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Vos encaissements alimenteront votre courbe de trésorerie dès votre première facture payée.",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Créez votre première tâche et glissez-la d'une colonne à l'autre au fil de l'avancement.",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": ". Restant à votre disposition pour en discuter et avancer ensemble.\n\nBien cordialement,",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Nous vous remercions de bien vouloir procéder au règlement dans les meilleurs délais.",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Ajoutez vos contrats d'entretien pour suivre le récurrent et les prochaines visites.",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Ajoutez vos prestations et prix : ils seront insérables en un clic dans vos devis.",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Renseignez l'assurance décennale de vos sous-traitants pour suivre les échéances.",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Merci de nous confirmer la disponibilité et le délai de livraison.\n\nCordialement,",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Personne n'est planifié aujourd'hui. Affectez votre équipe depuis le planning.",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Bonjour,\n\nMerci de nous préparer la commande de réapprovisionnement suivante :",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Créez votre premier chantier pour voir votre tableau de bord prendre vie.",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Planifiez une prochaine action sur vos opportunités pour ne rien oublier.",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Rien d'urgent : aucun retard ni échéance proche. Tout est sous contrôle.",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Dictez votre premier devis ou créez-le à la main : il se retrouvera ici.",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Ajoutez les membres de votre équipe pour les affecter à vos chantiers.",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "ÉTAT — semaine prête, non planifiés, et surtout QUI ne recevra pas son",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Ajoutez un budget prévu à un chantier pour comparer le prévu au réel.",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "entreprise) et le lien de consultation sont produits côté serveur. */",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Supprimer ce fournisseur ? Les articles liés ne seront pas supprimés.",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Toutes vos interventions sont à jour. Planifiez la prochaine visite.",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "impayé. La facture PART AVEC : un client relancé sans la pièce doit",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Ajoutez les membres de votre équipe pour leur attribuer des tâches.",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Créez des tâches pour suivre la charge de l'équipe et l'avancement.",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Ajoutez des équipiers pour construire votre planning de la semaine.",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "y .7s cubic-bezier(.2,.8,.2,1),height .7s cubic-bezier(.2,.8,.2,1)",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "finance_budgets",
+      "equipes_taches",
+      "planning_chantier",
+      "pointage_equipes",
+      "sous_traitants",
+      "crm_clients",
+      "sav_maintenance",
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Aucun devis en attente de réponse. Rien à relancer pour l'instant.",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Supprimer ce client ? Ses opportunités ne seront pas supprimées.",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Recensez les chaudières, PAC, VMC… installées chez vos clients.",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "app ne rédige PLUS le corps du mail : elle désigne la FICHE.",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Ajoutez vos pistes commerciales pour piloter votre pipeline.",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Créez votre première facture pour suivre vos encaissements.",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Aucune ligne détaillée. Modifiez le devis pour en ajouter.",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Aucune assurance décennale à renouveler dans les 30 jours.",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Ajoutez vos matériaux et fournitures pour suivre le stock.",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Tous vos articles sont au-dessus de leur seuil d'alerte.",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Ajoutez les membres de votre équipe pour les planifier.",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Ajoutez votre matériel et affectez-le à vos chantiers.",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Devis valable 30 jours. Acompte de 30% à la commande.",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Les heures pointées se répartissent ici par chantier.",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Aucune attestation d'assurance décennale enregistrée.",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Vérifiez votre connexion puis rouvrez l'application.",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "finance_budgets",
+      "equipes_taches",
+      "planning_chantier",
+      "pointage_equipes",
+      "sous_traitants",
+      "crm_clients",
+      "sav_maintenance",
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Créez la facture depuis ce devis, sans rien retaper.",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Ajoutez vos clients pour les rattacher à vos devis.",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Ajoutez l'email du client pour lui envoyer le devis",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Travaux réalisés, pièces changées, recommandations…",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Ajoutez vos négoces et fournisseurs de matériaux.",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Rechercher un équipement, un client, une marque…",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Parlez, Biltia le rédige et calcule les totaux.",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Aucune ligne. Ajoutez une prestation ci-dessus.",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Rechercher un partenaire, un métier, une ville…",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Biltia rédige vos devis et calcule les totaux.",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Dictée non comprise, réessayez plus clairement",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Rechercher un chantier, un client, une ville…",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Rechercher un numéro, un client, un chantier…",
+    "apps": [
+      "devis_factures",
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "» — sera créé si vous n'en choisissez pas un.",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Aucun encaissement enregistré pour l'instant.",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Les interventions clôturées apparaîtront ici.",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Ajoutez votre premier dépannage ou entretien.",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Aucune tâche en retard. L'équipe est à jour.",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Ajoutez votre équipe pour suivre les heures.",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "✓ Toute l'équipe est planifiée et joignable",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Ajoutez vos sous-traitants et fournisseurs.",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Autorisez le micro pour dicter votre devis",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Ajoutez l'email du client pour le relancer",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Bonjour,\n\nJe reviens vers vous au sujet de",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Ce fournisseur n'a pas d'email — l'ajouter",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Supprimer cette prestation du catalogue ?",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Recommandation, appel d'offres, site web…",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Supprimer définitivement cette facture ?",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Nous vous en souhaitons bonne réception.",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Pointez le temps passé par votre équipe.",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Attestation d'assurance décennale à jour",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Aucun chantier en cours pour le moment.",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "de retard. Votre recouvrement est sain.",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "on lui réclame. Le PDF (logo + couleurs",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "sans email — n'auront pas leur planning",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Supprimer définitivement le chantier «",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Remarques (non visibles par le client)",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Symptôme, matériel concerné, contexte…",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Associer un fournisseur à ces articles",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Micro non disponible sur cet appareil",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Sauf erreur de notre part, la facture",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Rechercher un article, une référence…",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Rechercher un fournisseur, une ville…",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Dictez ou créez votre premier devis.",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Aucun encours client à recouvrer. 👌",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Aucun résultat pour cette recherche.",
+    "apps": [
+      "sous_traitants",
+      "crm_clients",
+      "sav_maintenance",
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Supprimer définitivement le devis «",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "(la précédente arrive à échéance le",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Assurance décennale (n° / assureur)",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Changez de filtre ou de recherche.",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Retirer cet équipier de la liste ?",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Aucun devis reconnu dans la dictée",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Rechercher une tâche, un chantier…",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Aucune opportunité pour ce client.",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Matériaux, électricité, plomberie…",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Connexion au workspace impossible",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "finance_budgets",
+      "equipes_taches",
+      "planning_chantier",
+      "pointage_equipes",
+      "sous_traitants",
+      "crm_clients",
+      "sav_maintenance",
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Conditions de paiement, validité…",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Ajoutez vos clients et prospects.",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Réutilisable dans tous vos devis",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Rechercher un client, une ville…",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Ajoutez au moins une prestation",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Clients qui bloquent votre cash",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Rentabilité réelle par chantier",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Toute l'équipe est affectée. 👍",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Commande de réapprovisionnement",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Nature des travaux, remarques…",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Rien à analyser pour l'instant",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Assurance décennale · échéance",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Aucun email pour ce partenaire",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Supprimer cette intervention ?",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Aucun résultat pour ce filtre.",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Aucun chantier pour l'instant",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Créez votre premier chantier.",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Lecture de l'audio impossible",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "en cours · taux de conversion",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "SCI Méditerranée, M. Vasseur…",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Supprimer cette opportunité ?",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Conditions, matériel couvert…",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Valeur du stock par catégorie",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Emplacement, conditionnement…",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Conditions, remises, contact…",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Aucun chantier ne correspond",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Désignation de la prestation",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Préparation du devis en PDF…",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Cash bloqué chez vos clients",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Aucune facture ne correspond",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Trésorerie encaissée (cumul)",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Spécialité / corps de métier",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Aucune intervention terminée",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Revenu récurrent (annualisé)",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Parc installé chez le client",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Enregistrement non supporté",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "sont bloqués depuis plus de",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Sous-traitance & conformité",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "html"
+    ]
+  },
+  {
+    "text": "Aucune opportunité en cours",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Extension R+2, villa neuve…",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "— Intervenant (optionnel) —",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "— Fournisseur (optionnel) —",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Aucun seuil d'alerte défini",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Budget engagé par chantier",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "stroke-dashoffset .9s ease",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "finance_budgets",
+      "equipes_taches",
+      "planning_chantier",
+      "pointage_equipes",
+      "sous_traitants",
+      "crm_clients",
+      "sav_maintenance",
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Aucun devis pour l'instant",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "— à escalader en priorité.",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Pour recevoir son planning",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Aucune heure cette semaine",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Détails, budget, décideur…",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Aucun email pour ce client",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "— Équipement (optionnel) —",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Dépannage, entretien, SAV…",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Planifier une intervention",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Supprimer cet équipement ?",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "commanderSupplier(''+k+'')",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Sac de ciment CEM II 35kg…",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Chef d'équipe, compagnon…",
+    "apps": [
+      "suivi_chantiers",
+      "equipes_taches"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Nom du chef de chantier :",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Réponse attendue · expire",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Aucun devis ne correspond",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Pose carrelage sol collé…",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Enregistrement impossible",
+    "apps": [
+      "devis_factures",
+      "finance_budgets",
+      "equipes_taches",
+      "planning_chantier",
+      "pointage_equipes",
+      "sous_traitants",
+      "crm_clients",
+      "sav_maintenance",
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "M. Dupont / SCI Les Lilas",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "email, plan, canal…) */ }",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "stroke-dashoffset 1s ease",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Aucune facture au-delà de",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "facturé − heures − achats",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Pas encore d'encaissement",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Encaissement enregistré ·",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Supprimer ce partenaire ?",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Affaires gagnées par mois",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "CRM — Pipeline commercial",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "html"
+    ]
+  },
+  {
+    "text": "Aucune échéance planifiée",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Historique, spécificités…",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Nacelle 12m, bétonnière…",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "+ Ajouter une prestation",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Analyse de votre dictée…",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "main d'œuvre + matériaux",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "en attente d'affectation",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "1A;border-left:3px solid",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Couverture, électricité…",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Relancer, envoyer devis…",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Intervention enregistrée",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Gros œuvre, Électricité…",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Rénovation Villa Martin",
+    "apps": [
+      "suivi_chantiers",
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Nom du nouveau client :",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Supprimer ce matériel ?",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Coordonnées à compléter",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Vérifier le devis dicté",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Création de la facture…",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "➕ Autre nouveau client…",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Rien n'a été enregistré",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Devis valable 30 jours.",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Aucune tâche active. 👌",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Supprimer cette tâche ?",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "— Choisir un équipier —",
+    "apps": [
+      "planning_chantier",
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Affectation enregistrée",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Supprimer ce pointage ?",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Assurances qui expirent",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "+ Ajouter un partenaire",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js-html",
+      "html"
+    ]
+  },
+  {
+    "text": "Opportunité enregistrée",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "+ Nouvelle intervention",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js",
+      "js-html",
+      "html"
+    ]
+  },
+  {
+    "text": "Interventions à traiter",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Interventions clôturées",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Modifier l'intervention",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Rien à réapprovisionner",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Fournisseur introuvable",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Supprimer cet article ?",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Modifier le fournisseur",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "À relancer en priorité",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Modifier la prestation",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Prestation enregistrée",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "➕ Depuis le catalogue…",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Intitulé du chantier :",
+    "apps": [
+      "devis_factures",
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Ajouter une prestation",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Suppression impossible",
+    "apps": [
+      "devis_factures",
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "entreprise (Réglages →",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Création de l'acompte…",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Aucun devis enregistré",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Où en est votre argent",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Indiquez un montant HT",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Montant encaissé (€) :",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Finance & recouvrement",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "html"
+    ]
+  },
+  {
+    "text": "Retirer cet équipier ?",
+    "apps": [
+      "equipes_taches",
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Couler la dalle du R+2",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Précisions, consignes…",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "un agent « tourne » (l",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Occupation de l'équipe",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "— Aucun (jour libre) —",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Modifier l'affectation",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Relancer l'attestation",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Modifier le partenaire",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Nom / raison sociale *",
+    "apps": [
+      "sous_traitants",
+      "crm_clients",
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Remarques, conditions…",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "+ Nouvelle opportunité",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js",
+      "js-html",
+      "html"
+    ]
+  },
+  {
+    "text": "À relancer aujourd'hui",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Contexte, préférences…",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Modifier l'opportunité",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Intervention supprimée",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Rapport d'intervention",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Supprimer ce contrat ?",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Planifier un entretien",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Mise à jour impossible",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "➕ Nouveau fournisseur…",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Point P, Rexel, Cedeo…",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Fournisseur enregistré",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "À traiter en priorité",
+    "apps": [
+      "suivi_chantiers",
+      "sous_traitants"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "+ Ajouter du matériel",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "+ Ajouter un équipier",
+    "apps": [
+      "suivi_chantiers",
+      "equipes_taches",
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Aucun chantier dirigé",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "background:var(--vio)",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "finance_budgets",
+      "equipes_taches",
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "+ Nouvelle prestation",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "En attente de réponse",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Supprimer ce client ?",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "— Choisir un client —",
+    "apps": [
+      "devis_factures",
+      "finance_budgets",
+      "crm_clients",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Budgets & rentabilité",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "de votre cash bloqué.",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Encaissements récents",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": ") reste à régler pour",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Engagé / coûts (€ HT)",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Glissez une tâche ici",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "+ Affecter une équipe",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js",
+      "html"
+    ]
+  },
+  {
+    "text": "envoi a besoin. ── */",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Semaine à planifier —",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Matin, tâche précise…",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Validation impossible",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Toiture Pro, Point P…",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Partenaire enregistré",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Opportunité supprimée",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Intervention terminée",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Intervention démarrée",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Nouvelle intervention",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Type d'intervention *",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Modifier l'équipement",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Équipement enregistré",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "+ Nouveau fournisseur",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js",
+      "js-html"
+    ]
+  },
+  {
+    "text": "Matériau / fourniture",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "En retard — échéance",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Client non renseigné",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Modifier le chantier",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Modifier le matériel",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "— relancez le client",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Prix de vente (€ HT)",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Carreleur, plombier…",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Prestation supprimée",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Enregistrer le devis",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Choisissez un client",
+    "apps": [
+      "devis_factures",
+      "finance_budgets",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Santé d'encaissement",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Envoi de la relance…",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Suivi de rentabilité",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "+ Pointer des heures",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js",
+      "js-html",
+      "html"
+    ]
+  },
+  {
+    "text": "Aucune heure ce jour",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Modifier le pointage",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "background:var(--rz)",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Voir les partenaires",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "background:var(--sl)",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Matériaux, matériel…",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "background:var(--em)",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Nouvelle opportunité",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "8 dernières semaines",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Dépannage chaudière…",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "background:var(--cy)",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Nom du fournisseur :",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "background:var(--gd)",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Fournisseur supprimé",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Négoce / fournisseur",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Maçon, électricien…",
+    "apps": [
+      "suivi_chantiers",
+      "equipes_taches"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Équipier enregistré",
+    "apps": [
+      "suivi_chantiers",
+      "equipes_taches",
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Chantier enregistré",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Matériel enregistré",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Devis émis par mois",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Nouvelle prestation",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "+ Ajouter un client",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "➕ Nouveau chantier…",
+    "apps": [
+      "devis_factures",
+      "finance_budgets",
+      "planning_chantier",
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Vérifier les lignes",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Budget prévisionnel",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Modifier la facture",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Facture enregistrée",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Budget prévu (€ HT)",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Modifier l'équipier",
+    "apps": [
+      "equipes_taches",
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Nom de l'équipier :",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Charge par équipier",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Terminées (7 jours)",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "équipiers planifiés",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Affecter une équipe",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Affectation retirée",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Heures par chantier",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js",
+      "js-html"
+    ]
+  },
+  {
+    "text": "— Aucun (interne) —",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Pointage enregistré",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Pointage des heures",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "html"
+    ]
+  },
+  {
+    "text": "Décennale manquante",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js",
+      "js-html"
+    ]
+  },
+  {
+    "text": "À renouveler (30 j)",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Partenaire supprimé",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "contact & assurance",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Relance en retard (",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Supprimer le client",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "+ Nouvel équipement",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js",
+      "js-html"
+    ]
+  },
+  {
+    "text": "Aucune intervention",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Entretien à prévoir",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Contrat d'entretien",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Prochaine visite le",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Modifier le contrat",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Entretien récurrent",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Entretien en retard",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Équipement supprimé",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Chaufferie, garage…",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Réapprovisionnement",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Prix d'achat HT (€)",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Nouveau fournisseur",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "+ Nouveau chantier",
+    "apps": [
+      "suivi_chantiers",
+      "finance_budgets"
+    ],
+    "where": [
+      "js",
+      "html"
+    ]
+  },
+  {
+    "text": "Chantiers en cours",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Ajouter l'équipier",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Suivi de chantiers",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "html"
+    ]
+  },
+  {
+    "text": "+ Saisir à la main",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Taux d'acceptation",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "u, m², h, forfait…",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Prestation ajoutée",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "— Aucun chantier —",
+    "apps": [
+      "devis_factures",
+      "finance_budgets",
+      "equipes_taches"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Supprimer la ligne",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Tout enregistrer (",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "+ Nouvelle facture",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js",
+      "html"
+    ]
+  },
+  {
+    "text": "Pilotez votre cash",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Tous les clients →",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Encaisser le solde",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Budget du chantier",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "➕ Nouvel équipier…",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Semaine précédente",
+    "apps": [
+      "planning_chantier",
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Choisissez un jour",
+    "apps": [
+      "planning_chantier",
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Validation retirée",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Heures de l'équipe",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Pointer des heures",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "expire aujourd'hui",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": ".\n\nMerci d'avance,",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Nouveau partenaire",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Type de partenaire",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Entonnoir de vente",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Modifier le client",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Montant estimé (€)",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Visite de contrôle",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Devis / diagnostic",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Tableau électrique",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "équipements suivis",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Prochaine visite ·",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Intervention créée",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Équipement couvert",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Contrat enregistré",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Prochain entretien",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js",
+      "js-html"
+    ]
+  },
+  {
+    "text": "à réapprovisionner",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Commande envoyée à",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Modifier l'article",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Article enregistré",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Fournisseur ajouté",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "+ Nouvel équipier",
+    "apps": [
+      "suivi_chantiers",
+      "equipes_taches",
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Statut mis à jour",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Chantier supprimé",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "➕ Nouveau client…",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "finance_budgets",
+      "crm_clients",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Nom du chantier *",
+    "apps": [
+      "suivi_chantiers",
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Créer le chantier",
+    "apps": [
+      "suivi_chantiers",
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Ajouté à l'équipe",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Matériel supprimé",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Catalogue de prix",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Ajouter le client",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Client enregistré",
+    "apps": [
+      "devis_factures",
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Modifier le devis",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Facturer le solde",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Facture non créée",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Client à préciser",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Encaissé par mois",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "reste à encaisser",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Facture supprimée",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Relance envoyée à",
+    "apps": [
+      "finance_budgets",
+      "sous_traitants",
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Budget enregistré",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Modifier la tâche",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Tâche enregistrée",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Copilote planning",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Note (facultatif)",
+    "apps": [
+      "planning_chantier",
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Nom du chantier :",
+    "apps": [
+      "planning_chantier",
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Planning chantier",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "html"
+    ]
+  },
+  {
+    "text": "Pointages du jour",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Action impossible",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "h de main d'œuvre",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Aller à la saisie",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Tâche, précision…",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Pointage supprimé",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Assurance expirée",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Partenaire ajouté",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": ";border:1px solid",
+    "apps": [
+      "crm_clients",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Opportunité créée",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "SAV sous garantie",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "+ Nouveau contrat",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js",
+      "js-html"
+    ]
+  },
+  {
+    "text": "garantie jusqu'au",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Dernier entretien",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Nouvel équipement",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Type d'équipement",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Équipement ajouté",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "SAV & maintenance",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "html"
+    ]
+  },
+  {
+    "text": "Aucun fournisseur",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Quantité en stock",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Chantiers actifs",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Avancement moyen",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js-html",
+      "js"
+    ]
+  },
+  {
+    "text": "chantiers actifs",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Chef de chantier",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js-html",
+      "js"
+    ]
+  },
+  {
+    "text": "— Aucun client —",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Nouveau chantier",
+    "apps": [
+      "suivi_chantiers",
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Nouveau matériel",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Chantier affecté",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "opacity .6s ease",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "finance_budgets",
+      "equipes_taches",
+      "planning_chantier",
+      "pointage_equipes",
+      "sous_traitants",
+      "crm_clients",
+      "sav_maintenance",
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "+ Nouveau client",
+    "apps": [
+      "devis_factures",
+      "crm_clients"
+    ],
+    "where": [
+      "js",
+      "js-html"
+    ]
+  },
+  {
+    "text": "Valable jusqu'au",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Valider ce devis",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Devis enregistré",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "devis enregistré",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Nouvelle facture",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Créer la facture",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Paiement partiel",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Facture soldée ·",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "TTC (échéance le",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "+ Nouvelle tâche",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js",
+      "html"
+    ]
+  },
+  {
+    "text": "Tâche terminée ✓",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "— Non assignée —",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Équipes & tâches",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "html"
+    ]
+  },
+  {
+    "text": "Semaine suivante",
+    "apps": [
+      "planning_chantier",
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Aucun partenaire",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Envoi impossible",
+    "apps": [
+      "sous_traitants",
+      "crm_clients",
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Voir le pipeline",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Suivi commercial",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Prochaine action",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Entretien annuel",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Aucun équipement",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Prochaine visite",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Contrat supprimé",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "+ Nouvel article",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js",
+      "js-html",
+      "html"
+    ]
+  },
+  {
+    "text": "Sans fournisseur",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Rien à commander",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Fournisseur créé",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Seuil d'alerte :",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Ajuster le stock",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Article supprimé",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Réf. fournisseur",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Tableau de bord",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "finance_budgets"
+    ],
+    "where": [
+      "js",
+      "html"
+    ]
+  },
+  {
+    "text": "tout est à jour",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Nouvel équipier",
+    "apps": [
+      "suivi_chantiers",
+      "equipes_taches",
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Corps de métier",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "equipes_taches",
+      "planning_chantier"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Enregistrement…",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "finance_budgets",
+      "equipes_taches",
+      "planning_chantier",
+      "pointage_equipes",
+      "sous_traitants",
+      "crm_clients",
+      "sav_maintenance",
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Équipier ajouté",
+    "apps": [
+      "suivi_chantiers",
+      "equipes_taches",
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Équipier retiré",
+    "apps": [
+      "suivi_chantiers",
+      "equipes_taches",
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "— Non affecté —",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Matériel ajouté",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "+ Nouveau devis",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js",
+      "html"
+    ]
+  },
+  {
+    "text": "Dicter un devis",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html",
+      "html"
+    ]
+  },
+  {
+    "text": "créés récemment",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "réponse tardive",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Client supprimé",
+    "apps": [
+      "devis_factures",
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Nom du client :",
+    "apps": [
+      "devis_factures",
+      "finance_budgets",
+      "crm_clients",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Silence relance",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Date de facture",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "d'un montant de",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Relance facture",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Charge actuelle",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Tâches en cours",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Tâche supprimée",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Semaine prête ·",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "jours planifiés",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Pointage validé",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "h cette semaine",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Heures pointées",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Tout est à jour",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Aucune échéance",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Rien à relancer",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Mise en service",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Pompe à chaleur",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "contrats actifs",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Autres contrats",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Nouveau contrat",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Fin de garantie",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Valeur du stock",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Prix d'achat HT",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Valeur en stock",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Aucun chantier",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Aucun matériel",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Aucun équipier",
+    "apps": [
+      "suivi_chantiers",
+      "equipes_taches",
+      "planning_chantier",
+      "pointage_equipes"
+    ],
+    "where": [
+      "js",
+      "js-html"
+    ]
+  },
+  {
+    "text": "Mon entreprise",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "finance_budgets",
+      "equipes_taches",
+      "planning_chantier",
+      "pointage_equipes",
+      "sous_traitants",
+      "crm_clients",
+      "sav_maintenance",
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "devis tranchés",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Catalogue vide",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Nouveau client",
+    "apps": [
+      "devis_factures",
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Total ligne HT",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Notes internes",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Créer le devis",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Devis supprimé",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Devis envoyé à",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Aucune facture",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Montant HT (€)",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Toute l'équipe",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Tâche déplacée",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Nouvelle tâche",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Créer la tâche",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Rien à piloter",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "tâches actives",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Chef d'équipe…",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Jour précédent",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "6 mois à venir",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js-html",
+      "js"
+    ]
+  },
+  {
+    "text": "Sous-traitants",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "AXA n°DC-88213",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Pipeline actif",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": ";border-color:",
+    "apps": [
+      "crm_clients",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "+ Intervention",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js",
+      "html"
+    ]
+  },
+  {
+    "text": "sur 8 semaines",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Rien à traiter",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Saunier Duval…",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Sans catégorie",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Nouvel article",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Seuil d'alerte",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Article ajouté",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Stock & achats",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "html"
+    ]
+  },
+  {
+    "text": "Budget engagé",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js",
+      "js-html"
+    ]
+  },
+  {
+    "text": "Échéance dans",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Budget (€ HT)",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Engagé (€ HT)",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Récapitulatif",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Client ajouté",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "finance_budgets",
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Chantier créé",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "finance_budgets",
+      "planning_chantier",
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Engin, outil…",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Devis ce mois",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "rien d'urgent",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Devis récents",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Désignation *",
+    "apps": [
+      "devis_factures",
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Nouveau devis",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Date du devis",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Devis vérifié",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "devis reconnu",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "%;background:",
+    "apps": [
+      "finance_budgets",
+      "pointage_equipes",
+      "crm_clients",
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Facture créée",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "color:#E11D48",
+    "apps": [
+      "finance_budgets",
+      "equipes_taches"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "cette semaine",
+    "apps": [
+      "equipes_taches",
+      "planning_chantier",
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "entrée dont l",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Cette semaine",
+    "apps": [
+      "planning_chantier",
+      "pointage_equipes",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html",
+      "js"
+    ]
+  },
+  {
+    "text": "Sans chantier",
+    "apps": [
+      "planning_chantier",
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Non planifiés",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "jour planifié",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Disponibilité",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Récap semaine",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "· aujourd'hui",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Sous-traitant",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "expiré depuis",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Non conformes",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Sous 30 jours",
+    "apps": [
+      "sous_traitants",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "+ Opportunité",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js",
+      "js-html",
+      "html"
+    ]
+  },
+  {
+    "text": "Climatisation",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Tableau élec.",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Interventions",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js",
+      "html"
+    ]
+  },
+  {
+    "text": "Parc installé",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "aujourd'hui ·",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Aucun contrat",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Sous garantie",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html",
+      "js"
+    ]
+  },
+  {
+    "text": "Non planifiée",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "· réalisée le",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Quincaillerie",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "+ Fournisseur",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Aucun article",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Voir le stock",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "réceptionnés",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Hors service",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Informations",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Devis dictés",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "devis envoyé",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Devis envoyé",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Main d'œuvre",
+    "apps": [
+      "devis_factures",
+      "finance_budgets"
+    ],
+    "where": [
+      "js",
+      "js-html"
+    ]
+  },
+  {
+    "text": "+ Prestation",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Aucun client",
+    "apps": [
+      "devis_factures",
+      "crm_clients"
+    ],
+    "where": [
+      "js",
+      "js-html"
+    ]
+  },
+  {
+    "text": "Collectivité",
+    "apps": [
+      "devis_factures",
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Acompte 30 %",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "représentent",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Marge réelle",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Budget prévu",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Marge prévue",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Encaissement",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Déjà facturé",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Non assignée",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Aucune tâche",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Terminées 7j",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "En retard de",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "non assignée",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "non planifié",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "h pointées ·",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Jour suivant",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "œuvre) ── */",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "% des heures",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "À renouveler",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Fournisseurs",
+    "apps": [
+      "sous_traitants",
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "gagné · 30 j",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Opportunités",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Votre projet",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "votre projet",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "+ Équipement",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Intervention",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "CTR-2026-014",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Contrat créé",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Localisation",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Date de pose",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "en retard ·",
+    "apps": [
+      "suivi_chantiers",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Maintenance",
+    "apps": [
+      "suivi_chantiers",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Enregistrer",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "finance_budgets",
+      "equipes_taches",
+      "planning_chantier",
+      "pointage_equipes",
+      "sous_traitants",
+      "crm_clients",
+      "sav_maintenance",
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "background:",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "finance_budgets",
+      "equipes_taches",
+      "crm_clients",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Non affecté",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Description",
+    "apps": [
+      "suivi_chantiers",
+      "equipes_taches",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Code postal",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "sous_traitants",
+      "crm_clients",
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "aujourd'hui",
+    "apps": [
+      "devis_factures",
+      "planning_chantier"
+    ],
+    "where": [
+      "js",
+      "js-html"
+    ]
+  },
+  {
+    "text": "Aucun devis",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Particulier",
+    "apps": [
+      "devis_factures",
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Facturation",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "· PDF joint",
+    "apps": [
+      "devis_factures",
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "j de retard",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "À encaisser",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js",
+      "js-html"
+    ]
+  },
+  {
+    "text": "· matériaux",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Coûts réels",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "(en retard)",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Tâche créée",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Aujourd'hui",
+    "apps": [
+      "planning_chantier",
+      "pointage_equipes",
+      "crm_clients",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js",
+      "js-html"
+    ]
+  },
+  {
+    "text": "Jour libéré",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Répartition",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Fournisseur",
+    "apps": [
+      "sous_traitants",
+      "stock_achats"
+    ],
+    "where": [
+      "js",
+      "js-html"
+    ]
+  },
+  {
+    "text": "expire dans",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Partenaires",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Proposition",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "opportunité",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Opportunité",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Client créé",
+    "apps": [
+      "crm_clients",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Trimestriel",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Chauffe-eau",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "À planifier",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Équipements",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "· entretien",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Intervenant",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Date prévue",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Montant (€)",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Périodicité",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "N° de série",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "gros oeuvre",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "électricité",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Électricité",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "à commander",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html",
+      "js"
+    ]
+  },
+  {
+    "text": "go('stock')",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "+ Chantier",
+    "apps": [
+      "suivi_chantiers",
+      "finance_budgets"
+    ],
+    "where": [
+      "js",
+      "html",
+      "js-html"
+    ]
+  },
+  {
+    "text": "+ Équipier",
+    "apps": [
+      "suivi_chantiers",
+      "equipes_taches",
+      "planning_chantier"
+    ],
+    "where": [
+      "js",
+      "js-html"
+    ]
+  },
+  {
+    "text": "+ Matériel",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js",
+      "js-html"
+    ]
+  },
+  {
+    "text": "En attente",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Disponible",
+    "apps": [
+      "suivi_chantiers",
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "références",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Avancement",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Fin prévue",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "➕ Nouveau…",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "à relancer",
+    "apps": [
+      "devis_factures",
+      "equipes_taches",
+      "crm_clients"
+    ],
+    "where": [
+      "js",
+      "js-html"
+    ]
+  },
+  {
+    "text": "À relancer",
+    "apps": [
+      "devis_factures",
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Brouillons",
+    "apps": [
+      "devis_factures",
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Fourniture",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Prestation",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Entreprise",
+    "apps": [
+      "devis_factures",
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Conditions",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Devis créé",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Trésorerie",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "à échéance",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "% du prévu",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Montant HT",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "+ Facturer",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Intitulé *",
+    "apps": [
+      "equipes_taches",
+      "crm_clients"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Assignée à",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "en attente",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "+ Affecter",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js",
+      "html"
+    ]
+  },
+  {
+    "text": "Semaine du",
+    "apps": [
+      "planning_chantier",
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Équipier *",
+    "apps": [
+      "planning_chantier",
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "h au total",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Conformité",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js",
+      "html"
+    ]
+  },
+  {
+    "text": "Partenaire",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "· échéance",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Spécialité",
+    "apps": [
+      "sous_traitants",
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "sur 6 mois",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "en cours ·",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Semestriel",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "semaine du",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Équipement",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "équipement",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "ThemaPlus…",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "gros œuvre",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "maçonnerie",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Gros œuvre",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Menuiserie",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "en rupture",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "catégories",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "En retard",
+    "apps": [
+      "suivi_chantiers",
+      "finance_budgets",
+      "equipes_taches",
+      "crm_clients",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js",
+      "js-html"
+    ]
+  },
+  {
+    "text": "Chantiers",
+    "apps": [
+      "suivi_chantiers",
+      "pointage_equipes"
+    ],
+    "where": [
+      "js",
+      "html"
+    ]
+  },
+  {
+    "text": "+ Nouveau",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "à traiter",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Tout voir",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Téléphone",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "equipes_taches",
+      "planning_chantier",
+      "sous_traitants",
+      "crm_clients",
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Supprimer",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "finance_budgets",
+      "equipes_taches",
+      "pointage_equipes",
+      "sous_traitants",
+      "crm_clients",
+      "sav_maintenance",
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Continuer",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "— Aucun —",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Référence",
+    "apps": [
+      "suivi_chantiers",
+      "sav_maintenance",
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Catégorie",
+    "apps": [
+      "suivi_chantiers",
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Brouillon",
+    "apps": [
+      "devis_factures",
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Catalogue",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "% accepté",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Expiré le",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Dicté : «",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Total TTC",
+    "apps": [
+      "devis_factures",
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "➕ Créer «",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Partielle",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "30 à 60 j",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "60 à 90 j",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "90 j et +",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "+ Facture",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js",
+      "html"
+    ]
+  },
+  {
+    "text": "Coût réel",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "/ facturé",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Situation",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "en retard",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Terminées",
+    "apps": [
+      "equipes_taches",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "hui ── */",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Heure sup",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "+ Pointer",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js",
+      "html"
+    ]
+  },
+  {
+    "text": "à valider",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Échéances",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Conformes",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "à fournir",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js",
+      "js-html"
+    ]
+  },
+  {
+    "text": "Plus tard",
+    "apps": [
+      "sous_traitants",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Décennale",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Expire le",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "+ Ajouter",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "html"
+    ]
+  },
+  {
+    "text": "1A;color:",
+    "apps": [
+      "crm_clients",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Planifiée",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Dépannage",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Entretien",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Chaudière",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "+ Contrat",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "À traiter",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "sous 30 j",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Prévue le",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Durée (h)",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Plomberie",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Isolation",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Outillage",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Carrelage",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Stock bas",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "+ Article",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js",
+      "html"
+    ]
+  },
+  {
+    "text": "référence",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Commander",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "En cours",
+    "apps": [
+      "suivi_chantiers",
+      "equipes_taches",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js",
+      "js-html"
+    ]
+  },
+  {
+    "text": "Matériel",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "en cours",
+    "apps": [
+      "suivi_chantiers",
+      "equipes_taches",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Terminés",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Sans nom",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "equipes_taches",
+      "planning_chantier",
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "En arrêt",
+    "apps": [
+      "suivi_chantiers",
+      "equipes_taches",
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "équipier",
+    "apps": [
+      "suivi_chantiers",
+      "equipes_taches",
+      "planning_chantier",
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Équipier",
+    "apps": [
+      "suivi_chantiers",
+      "equipes_taches",
+      "planning_chantier",
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Chantier",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "finance_budgets",
+      "equipes_taches",
+      "planning_chantier",
+      "pointage_equipes"
+    ],
+    "where": [
+      "js",
+      "js-html"
+    ]
+  },
+  {
+    "text": "Modifier",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "finance_budgets",
+      "equipes_taches",
+      "sous_traitants",
+      "crm_clients",
+      "sav_maintenance",
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Quantité",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Acceptés",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "+ Client",
+    "apps": [
+      "devis_factures",
+      "crm_clients"
+    ],
+    "where": [
+      "js-html",
+      "js"
+    ]
+  },
+  {
+    "text": "Total HT",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Détail (",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Terminer",
+    "apps": [
+      "devis_factures",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "0 à 30 j",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Escalade",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Relancer",
+    "apps": [
+      "finance_budgets",
+      "crm_clients"
+    ],
+    "where": [
+      "js",
+      "js-html"
+    ]
+  },
+  {
+    "text": "Factures",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "60 jours",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Encaissé",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "· soldée",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Client *",
+    "apps": [
+      "finance_budgets",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Échéance",
+    "apps": [
+      "finance_budgets",
+      "equipes_taches"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Soldée ✓",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Pilotage",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "terminée",
+    "apps": [
+      "equipes_taches",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Priorité",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Dimanche",
+    "apps": [
+      "planning_chantier",
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Mercredi",
+    "apps": [
+      "planning_chantier",
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Vendredi",
+    "apps": [
+      "planning_chantier",
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Planning",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js",
+      "html"
+    ]
+  },
+  {
+    "text": "email. C",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Affecter",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "À jour ✓",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Sans ch.",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Conforme",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Expirées",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "identité",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Contacté",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Pipeline",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js",
+      "html"
+    ]
+  },
+  {
+    "text": "À suivre",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Terminée",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Suspendu",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Garantie",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Contrats",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "par mois",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Installé",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Démarrer",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Peinture",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "En stock",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "en stock",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Articles",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "À venir",
+    "apps": [
+      "suivi_chantiers",
+      "crm_clients",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Terminé",
+    "apps": [
+      "suivi_chantiers",
+      "equipes_taches"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "engagés",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "% · fin",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Affecté",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Inactif",
+    "apps": [
+      "suivi_chantiers",
+      "equipes_taches",
+      "planning_chantier"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Retirer",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "equipes_taches",
+      "planning_chantier",
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Adresse",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "sous_traitants"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Ajouter",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "finance_budgets",
+      "equipes_taches",
+      "planning_chantier",
+      "pointage_equipes",
+      "sous_traitants",
+      "crm_clients",
+      "sav_maintenance",
+      "stock_achats"
+    ],
+    "where": [
+      "js",
+      "html",
+      "js-html"
+    ]
+  },
+  {
+    "text": "Accepté",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Clients",
+    "apps": [
+      "devis_factures",
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Envoyés",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Refusés",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Expirés",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Ouvrage",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "+ Ligne",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Contact",
+    "apps": [
+      "devis_factures",
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Envoyer",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Facture",
+    "apps": [
+      "devis_factures",
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "créée ·",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Annuler",
+    "apps": [
+      "devis_factures",
+      "sous_traitants"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Envoyée",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Annulée",
+    "apps": [
+      "finance_budgets",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Budgets",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": ";color:",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "dépassé",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Facturé",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "· reste",
+    "apps": [
+      "finance_budgets",
+      "stock_achats"
+    ],
+    "where": [
+      "js",
+      "js-html"
+    ]
+  },
+  {
+    "text": "Acompte",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Finance",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "html"
+    ]
+  },
+  {
+    "text": "À faire",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js",
+      "js-html"
+    ]
+  },
+  {
+    "text": "Normale",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "+ Tâche",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js",
+      "js-html",
+      "html"
+    ]
+  },
+  {
+    "text": "Absence",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "ce jour",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Valider",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Pointer",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "sur 2 ·",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Suivant",
+    "apps": [
+      "sous_traitants"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Nouveau",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Pour le",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "— suivi",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Résilié",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Mensuel",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "expirés",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Contrat",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Rapport",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Montant",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Posé le",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Rupture",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Réappro",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Article",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "· seuil",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "ex : 10",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Annulé",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Équipe",
+    "apps": [
+      "suivi_chantiers",
+      "equipes_taches",
+      "planning_chantier"
+    ],
+    "where": [
+      "js",
+      "html",
+      "js-html"
+    ]
+  },
+  {
+    "text": "Retard",
+    "apps": [
+      "suivi_chantiers",
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "dirigé",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Prénom",
+    "apps": [
+      "suivi_chantiers",
+      "equipes_taches",
+      "planning_chantier"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Statut",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "finance_budgets",
+      "equipes_taches",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Client",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "finance_budgets",
+      "crm_clients",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html",
+      "js"
+    ]
+  },
+  {
+    "text": "Budget",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Retour",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "sous_traitants"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Envoyé",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Refusé",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Expiré",
+    "apps": [
+      "devis_factures",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "envoyé",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Dicter",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "html"
+    ]
+  },
+  {
+    "text": "Simple",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Toutes",
+    "apps": [
+      "finance_budgets",
+      "sav_maintenance",
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Payées",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Engagé",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Détail",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Tâches",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js",
+      "html"
+    ]
+  },
+  {
+    "text": "Samedi",
+    "apps": [
+      "planning_chantier",
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Maçon…",
+    "apps": [
+      "planning_chantier"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Normal",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Trajet",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Saisie",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js",
+      "html"
+    ]
+  },
+  {
+    "text": "Validé",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "validé",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Heures",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html",
+      "html"
+    ]
+  },
+  {
+    "text": "Source",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Annuel",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Marque",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Modèle",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Autres",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Actif",
+    "apps": [
+      "suivi_chantiers",
+      "equipes_taches",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Nom *",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "equipes_taches",
+      "planning_chantier"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Début",
+    "apps": [
+      "suivi_chantiers",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Étape",
+    "apps": [
+      "suivi_chantiers",
+      "sous_traitants",
+      "crm_clients"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "sur 3",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Ville",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "sous_traitants",
+      "crm_clients",
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Unité",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Devis",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js",
+      "html"
+    ]
+  },
+  {
+    "text": "févr.",
+    "apps": [
+      "devis_factures",
+      "finance_budgets",
+      "sous_traitants",
+      "crm_clients",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "signé",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "PU HT",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "· TVA",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Payée",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Avoir",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Reste",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Haute",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Basse",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Tâche",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "tâche",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Lundi",
+    "apps": [
+      "planning_chantier",
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Mardi",
+    "apps": [
+      "planning_chantier",
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Jeudi",
+    "apps": [
+      "planning_chantier",
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Récap",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "h sup",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Moins",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Notes",
+    "apps": [
+      "sous_traitants",
+      "crm_clients",
+      "sav_maintenance",
+      "stock_achats"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Gagné",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Perdu",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "gagné",
+    "apps": [
+      "crm_clients"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Créer",
+    "apps": [
+      "crm_clients",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Autre",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Durée",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Mens.",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Trim.",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Placo",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "boîte",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Stock",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js",
+      "html"
+    ]
+  },
+  {
+    "text": "Aucun",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "(réf.",
+    "apps": [
+      "stock_achats"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Tous",
+    "apps": [
+      "suivi_chantiers",
+      "devis_factures",
+      "sous_traitants"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Rôle",
+    "apps": [
+      "suivi_chantiers",
+      "equipes_taches",
+      "planning_chantier"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "août",
+    "apps": [
+      "devis_factures",
+      "finance_budgets",
+      "sous_traitants",
+      "crm_clients",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "déc.",
+    "apps": [
+      "devis_factures",
+      "finance_budgets",
+      "sous_traitants",
+      "crm_clients",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Type",
+    "apps": [
+      "devis_factures",
+      "finance_budgets",
+      "pointage_equipes",
+      "crm_clients",
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Éch.",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "éch.",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Jour",
+    "apps": [
+      "planning_chantier",
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Plus",
+    "apps": [
+      "pointage_equipes"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Clim",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Sem.",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Ann.",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "j —",
+    "apps": [
+      "suivi_chantiers"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Qté",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "Sur",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "j ·",
+    "apps": [
+      "equipes_taches"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "Fin",
+    "apps": [
+      "sav_maintenance"
+    ],
+    "where": [
+      "js-html"
+    ]
+  },
+  {
+    "text": "D-",
+    "apps": [
+      "devis_factures"
+    ],
+    "where": [
+      "js"
+    ]
+  },
+  {
+    "text": "F-",
+    "apps": [
+      "finance_budgets"
+    ],
+    "where": [
+      "js"
+    ]
+  }
+]
