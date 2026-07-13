@@ -10,16 +10,19 @@
 
 import { createClient } from "@/lib/supabase-server";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
-import { getEntitlementsForTenant, FROZEN_MESSAGE } from "@/lib/entitlements";
+import { getEntitlementsForTenant, FROZEN_MESSAGE, frozenMessage } from "@/lib/entitlements";
 import { enforceRateLimit, LIMITS } from "@/lib/rate-limit";
-import { getFlagshipApp, renderFlagshipHtml, getImportTarget } from "@/lib/flagship-apps";
+import { getFlagshipApp, renderFlagshipHtml, getImportTarget, flagshipName, flagshipDescription } from "@/lib/flagship-apps";
 import { injectBiltiaSDK } from "@/lib/biltia-sdk";
 import { slugify, shortId } from "@/lib/slug";
 import { normalizeClientScope, scopeWantsImport, type StoredScope } from "@/lib/data-scope";
 import { mapImportedRows } from "@/lib/import-map";
 import { ENTITIES } from "@/lib/data-entities";
+import { getLocale } from "@/lib/i18n/server";
+import { pick } from "@/lib/i18n/config";
 
 export async function POST(req: Request) {
+  const locale = await getLocale();
   try {
     const supabase = await createClient();
     const {
@@ -27,7 +30,7 @@ export async function POST(req: Request) {
       error: authError,
     } = await supabase.auth.getUser();
     if (authError || !user) {
-      return Response.json({ error: "Authentification requise." }, { status: 401 });
+      return Response.json({ error: pick(locale, "Authentification requise.", "Authentication required.") }, { status: 401 });
     }
 
     const limited = await enforceRateLimit("generate", user.id, LIMITS.generate);
@@ -37,33 +40,34 @@ export async function POST(req: Request) {
     try {
       body = await req.json();
     } catch {
-      return Response.json({ error: "Requête invalide." }, { status: 400 });
+      return Response.json({ error: pick(locale, "Requête invalide.", "Invalid request.") }, { status: 400 });
     }
 
     const app = getFlagshipApp(String(body.templateId || ""));
     if (!app || !app.ready) {
       // Modèle inconnu OU pas encore finalisé au standard → le client retombe
       // proprement sur l'aperçu adaptable (maquette premium).
-      return Response.json({ error: "Modèle inconnu." }, { status: 404 });
+      return Response.json({ error: pick(locale, "Modèle inconnu.", "Unknown template.") }, { status: 404 });
     }
 
     const membership = await getActiveMembershipServer(supabase, user.id);
     if (!membership) {
-      return Response.json({ error: "Aucun espace de travail trouvé." }, { status: 403 });
+      return Response.json({ error: pick(locale, "Aucun espace de travail trouvé.", "No workspace found.") }, { status: 403 });
     }
     const tenantId = membership.tenant_id;
 
     const ent = await getEntitlementsForTenant(supabase, tenantId);
     if (!ent.writable) {
-      return Response.json({ error: FROZEN_MESSAGE, frozen: true }, { status: 403 });
+      return Response.json({ error: frozenMessage(locale), frozen: true }, { status: 403 });
     }
 
     // Nom d'entreprise réel pour l'en-tête et les emails générés par l'app.
     const { data: tenant } = await supabase.from("tenants").select("name").eq("id", tenantId).maybeSingle();
-    const entreprise = tenant?.name || "Mon entreprise";
+    const entreprise = tenant?.name || pick(locale, "Mon entreprise", "My company");
 
-    const html = injectBiltiaSDK(renderFlagshipHtml(app, entreprise));
-    const slug = `${slugify(app.name)}-${shortId()}`;
+    const appName = flagshipName(app, locale);
+    const html = injectBiltiaSDK(renderFlagshipHtml(app, entreprise, locale));
+    const slug = `${slugify(appName)}-${shortId()}`;
 
     const { data: row, error } = await supabase
       .from("modules")
@@ -71,8 +75,8 @@ export async function POST(req: Request) {
         user_id: user.id,
         tenant_id: tenantId,
         created_by: user.id,
-        name: app.name,
-        description: app.description,
+        name: appName,
+        description: flagshipDescription(app, locale),
         html_content: html,
         format: app.format,
         kind: "app",
@@ -88,7 +92,11 @@ export async function POST(req: Request) {
         {
           error:
             error?.message ??
-            "Création impossible. Seuls les rôles Manager, Admin et Propriétaire peuvent créer une application.",
+            pick(
+              locale,
+              "Création impossible. Seuls les rôles Manager, Admin et Propriétaire peuvent créer une application.",
+              "Cannot create. Only the Manager, Admin and Owner roles can create an app.",
+            ),
         },
         { status: 403 }
       );
@@ -133,6 +141,9 @@ export async function POST(req: Request) {
 
     return Response.json({ id: row.id, slug: row.slug, imported });
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Erreur serveur." }, { status: 500 });
+    return Response.json(
+      { error: e instanceof Error ? e.message : pick(locale, "Erreur serveur.", "Server error.") },
+      { status: 500 }
+    );
   }
 }

@@ -18,6 +18,8 @@ import { createClient } from "@/lib/supabase-server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { isAdminEmail } from "@/lib/admin";
 import { runDueRules } from "@/lib/agent-executor";
+import { getLocale } from "@/lib/i18n/server";
+import { pick } from "@/lib/i18n/config";
 
 async function authorize(req: Request): Promise<boolean> {
   const secret = process.env.CRON_SECRET;
@@ -33,18 +35,23 @@ async function authorize(req: Request): Promise<boolean> {
 }
 
 async function run(req: Request) {
+  const locale = await getLocale();
   if (!(await authorize(req))) {
-    return Response.json({ error: "Accès refusé." }, { status: 403 });
+    return Response.json({ error: pick(locale, "Accès refusé.", "Access denied.") }, { status: 403 });
   }
   const admin = createAdminClient();
   if (!admin) {
-    return Response.json({ error: "Service role non configuré." }, { status: 503 });
+    return Response.json(
+      { error: pick(locale, "Service role non configuré.", "Service role not configured.") },
+      { status: 503 }
+    );
   }
 
-  const { scanned, results } = await runDueRules(admin);
+  const { scanned, results, metrics } = await runDueRules(admin);
   return Response.json({
     ok: true,
     scanned,
+    metrics,
     results: results.map((r) => ({ title: r.title, status: r.outcome.status, summary: r.outcome.summary })),
   });
 }

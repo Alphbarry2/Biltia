@@ -19,45 +19,69 @@ import { getStripe, resolvePriceId, findTierByPriceId } from "@/lib/stripe";
 import { isValidTier, type BillingCycle, type PlanId } from "@/lib/plans";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { getLocale } from "@/lib/i18n/server";
+import { pick } from "@/lib/i18n/config";
 import type Stripe from "stripe";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
+  const locale = await getLocale();
   const supabase = await createClient();
   const {
     data: { user },
     error: authError,
   } = await supabase.auth.getUser();
   if (authError || !user) {
-    return Response.json({ error: "Authentification requise." }, { status: 401 });
+    return Response.json(
+      { error: pick(locale, "Authentification requise.", "Authentication required.") },
+      { status: 401 }
+    );
   }
 
   let body: { credits?: number; cycle?: string };
   try {
     body = await req.json();
   } catch {
-    return Response.json({ error: "Corps de requête invalide." }, { status: 400 });
+    return Response.json(
+      { error: pick(locale, "Corps de requête invalide.", "Invalid request body.") },
+      { status: 400 }
+    );
   }
 
   const plan: PlanId = "pro";
   const targetCredits = Number(body.credits);
   if (!isValidTier(plan, targetCredits)) {
-    return Response.json({ error: "Palier de crédits invalide." }, { status: 400 });
+    return Response.json(
+      { error: pick(locale, "Palier de crédits invalide.", "Invalid credit tier.") },
+      { status: 400 }
+    );
   }
 
   const stripe = getStripe();
   if (!stripe) {
-    return Response.json({ error: "Paiement non configuré." }, { status: 503 });
+    return Response.json(
+      { error: pick(locale, "Paiement non configuré.", "Payments are not configured.") },
+      { status: 503 }
+    );
   }
 
   const membership = await getActiveMembershipServer(supabase, user.id);
   if (!membership?.tenant_id) {
-    return Response.json({ error: "Aucun espace de travail." }, { status: 403 });
+    return Response.json(
+      { error: pick(locale, "Aucun espace de travail.", "No workspace found.") },
+      { status: 403 }
+    );
   }
   if (membership.role !== "owner") {
     return Response.json(
-      { error: "Seul le propriétaire du workspace peut changer d'offre." },
+      {
+        error: pick(
+          locale,
+          "Seul le propriétaire du workspace peut changer d'offre.",
+          "Only the workspace owner can change the plan."
+        ),
+      },
       { status: 403 }
     );
   }
@@ -70,7 +94,13 @@ export async function POST(req: Request) {
   const subId: string | undefined = subRow?.stripe_subscription_id ?? undefined;
   if (!subId) {
     return Response.json(
-      { error: "Aucun abonnement actif. Souscris d'abord une offre." },
+      {
+        error: pick(
+          locale,
+          "Aucun abonnement actif. Souscris d'abord une offre.",
+          "No active subscription. Subscribe to a plan first."
+        ),
+      },
       { status: 400 }
     );
   }
@@ -82,7 +112,13 @@ export async function POST(req: Request) {
     const current = currentPriceId ? findTierByPriceId(currentPriceId) : null;
     if (!item || !currentPriceId || !current) {
       return Response.json(
-        { error: "Abonnement en cours introuvable ou illisible." },
+        {
+          error: pick(
+            locale,
+            "Abonnement en cours introuvable ou illisible.",
+            "Current subscription not found or unreadable."
+          ),
+        },
         { status: 409 }
       );
     }
@@ -93,12 +129,21 @@ export async function POST(req: Request) {
     const newPriceId = resolvePriceId(plan, targetCredits, cycle);
     if (!newPriceId) {
       return Response.json(
-        { error: `Price Stripe non configuré (${plan} ${targetCredits} ${cycle}).` },
+        {
+          error: pick(
+            locale,
+            `Price Stripe non configuré (${plan} ${targetCredits} ${cycle}).`,
+            `No Stripe price configured (${plan} ${targetCredits} ${cycle}).`
+          ),
+        },
         { status: 503 }
       );
     }
     if (newPriceId === currentPriceId) {
-      return Response.json({ error: "C'est déjà ton offre actuelle." }, { status: 400 });
+      return Response.json(
+        { error: pick(locale, "C'est déjà ton offre actuelle.", "This is already your current plan.") },
+        { status: 400 }
+      );
     }
 
     const oldCredits = current.tier.credits;
@@ -195,7 +240,10 @@ export async function POST(req: Request) {
     });
   } catch (err) {
     console.error("[billing/change-plan]", err);
-    const msg = err instanceof Error ? err.message : "Erreur de changement d'offre.";
+    const msg =
+      err instanceof Error
+        ? err.message
+        : pick(locale, "Erreur de changement d'offre.", "Plan change failed.");
     return Response.json({ error: msg }, { status: 500 });
   }
 }

@@ -10,7 +10,8 @@
 // reste côté route serveur. Aucune donnée n'est lue ici.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { ENTITIES } from "./data-entities";
+import { ENTITIES, entityLabel, fieldLabel } from "./data-entities";
+import { pick, type Locale } from "./i18n/config";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -92,8 +93,12 @@ const LABELS: Record<string, string> = {
   created_at: "Créé le",
 };
 
-const labelFor = (key: string): string =>
-  LABELS[key] ?? key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, " ");
+// En-tête de colonne du fichier exporté. La source FR (LABELS) est traduite via
+// fieldLabel() (data-entities), qui indexe par la CHAÎNE FR → EN.
+const labelFor = (key: string, locale: Locale = "fr"): string => {
+  const fr = LABELS[key] ?? key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, " ");
+  return fieldLabel(fr, locale);
+};
 
 // Colonnes exportées, dans l'ordre : champs métier (writable) + date de création.
 function exportColumns(entity: string): string[] {
@@ -105,7 +110,7 @@ const isDateKey = (key: string): boolean =>
 
 // Formatage d'une cellule : dates en JJ/MM/AAAA, nombres bruts (Excel calcule),
 // booléens en Oui/Non, null → vide.
-function formatCell(key: string, value: unknown): string | number {
+function formatCell(key: string, value: unknown, locale: Locale = "fr"): string | number {
   if (value === null || value === undefined) return "";
   if (isDateKey(key)) {
     const d = new Date(value as string);
@@ -116,32 +121,32 @@ function formatCell(key: string, value: unknown): string | number {
     return String(value);
   }
   if (typeof value === "number") return value;
-  if (typeof value === "boolean") return value ? "Oui" : "Non";
+  if (typeof value === "boolean") return value ? pick(locale, "Oui", "Yes") : pick(locale, "Non", "No");
   return String(value);
 }
 
 // Cellule finale : résout les clés étrangères en nom lisible si possible,
 // sinon délègue au formatage standard. Un id orphelin retombe sur sa valeur brute.
-function resolveCell(key: string, value: unknown, lookups: Lookups): string | number {
+function resolveCell(key: string, value: unknown, lookups: Lookups, locale: Locale = "fr"): string | number {
   const refEntity = FK_TO_ENTITY[key];
   if (refEntity && value !== null && value !== undefined && value !== "") {
     const name = lookups[refEntity]?.get(String(value));
     return name ?? String(value);
   }
-  return formatCell(key, value);
+  return formatCell(key, value, locale);
 }
 
 // Nom de feuille Excel valide : pas de [ ] : * ? / \, max 31 caractères.
-export function sheetName(entity: string): string {
-  const raw = ENTITIES[entity]?.label ?? entity;
+export function sheetName(entity: string, locale: Locale = "fr"): string {
+  const raw = entityLabel(entity, locale);
   return raw.replace(/[[\]:*?/\\]/g, " ").replace(/\s+/g, " ").trim().slice(0, 31);
 }
 
 // Construit une feuille de calcul pour une entité (avec en-tête même si vide,
 // ce qui produit un modèle réimportable).
-export function buildSheet(xlsx: XLSX, entity: string, rows: Row[], lookups: Lookups = {}) {
+export function buildSheet(xlsx: XLSX, entity: string, rows: Row[], lookups: Lookups = {}, locale: Locale = "fr") {
   const cols = exportColumns(entity);
-  const headers = cols.map(labelFor);
+  const headers = cols.map((k) => labelFor(k, locale));
 
   if (!rows.length) {
     const ws = xlsx.utils.aoa_to_sheet([headers]);
@@ -152,7 +157,7 @@ export function buildSheet(xlsx: XLSX, entity: string, rows: Row[], lookups: Loo
   const data = rows.map((row) => {
     const o: Record<string, string | number> = {};
     cols.forEach((key, i) => {
-      o[headers[i]] = resolveCell(key, row[key], lookups);
+      o[headers[i]] = resolveCell(key, row[key], lookups, locale);
     });
     return o;
   });

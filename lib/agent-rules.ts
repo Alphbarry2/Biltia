@@ -22,11 +22,16 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { TIER_SIMPLE, TIER_MEDIUM, TIER_COMPLEX } from "./models";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { matchVocabInText, matchTradeInText, vocabLabel } from "@/lib/vocabulaires";
 import { getEntitlementsForTenant } from "./entitlements";
 import { isFounderEmail } from "./founder";
 import { WATCHER_KEYS, getWatcher, isSupplierRelanceWatcher, type WatcherKey } from "./agent-watchers";
 import type { AgentTemplate } from "./agent-templates";
 import { checkAgentReadiness, summarizeGaps, type CapabilityGap } from "./agent-readiness";
+import type { Locale } from "./i18n/config";
+import { buildSpec, coerceConditionGroup, coerceRecipientTargets, type ParsedActionStep, type ConditionGroup, type RecipientResolver } from "./agent-model";
+import { buildEventWatcherDescription } from "./watcher-parser-docs";
+import { coerceRelativeDate, RELATIVE_DATE_FIELDS, type RelativeDateConfig } from "./agent-triggers";
 
 // COMPRÉHENSION AVANT VITESSE (2026-07-07) : le recruteur d'agents lit la mission
 // avec Sonnet 5, pas Haiku. Comprendre la vraie intention (« relance mon ami tous
@@ -86,6 +91,21 @@ export type AgentSchedule = {
   tz: string;
 };
 
+/**
+ * CIBLAGE DE L'ÉQUIPE — « mes chefs d'équipe », « mes électriciens ».
+ *
+ * Sans lui, `recipientKind: "team"` prenait TOUS les employés : l'artisan qui
+ * demandait le planning « pour mes chefs d'équipe » l'envoyait à toute la boîte,
+ * sans jamais le savoir. Les valeurs sont CANONIQUES (résolues contre le même
+ * référentiel que les fiches) : la demande et la donnée se rencontrent forcément.
+ */
+export type TeamFilter = {
+  /** Valeurs canoniques de employees.role (ex : ["chef_equipe"]). */
+  role?: string[];
+  /** Valeurs canoniques de employees.corps_metier (ex : ["electricite_generale"]). */
+  corps_metier?: string[];
+};
+
 export type AgentAction = {
   type: AgentActionType;
   recipientKind: AgentRecipientKind;
@@ -93,6 +113,8 @@ export type AgentAction = {
   recipientName: string;
   /** Destinataires résolus : [{ name, email, entity, id }]. */
   recipients: { name: string; email: string; entity: string; id: string }[];
+  /** Sous-ensemble visé quand recipientKind = "team" (vide = toute l'équipe). */
+  teamFilter?: TeamFilter;
   /** Ce que l'agent doit dire/faire à chaque passage. */
   contentInstruction: string;
   /** Données du workspace à examiner (report) : « devis en attente »… */
@@ -139,6 +161,14 @@ export type ParsedRule = {
   eventWatcher: WatcherKey | null;
   /** Paramètre jours du veilleur (0 = défaut du veilleur). */
   eventDays: number;
+  /** Phase 2a.2 : séquence multi-actions (additive — legacy actionType reste la 1re). Absente si mono-action. */
+  v2Actions?: ParsedActionStep[];
+  /** Phase 2a.2 : conditions chiffrées all/any/not. Absente si aucune condition. */
+  v2Conditions?: ConditionGroup;
+  /** Phase 3b : destinataires relationnels (le chef du chantier, l'intervenant affecté…). Absent si legacy suffit. */
+  v2Recipients?: RecipientResolver[];
+  /** Phase 7 (gaté runner) : déclencheur GÉNÉRIQUE sur date (« N jours avant/après … »), quand aucun veilleur nommé ne colle. Absent sinon. */
+  relativeDate?: RelativeDateConfig;
   usage?: { model: string; inputTokens: number; outputTokens: number };
 };
 
@@ -243,6 +273,58 @@ const PARSE_TOOL: Anthropic.Tool = {
     type: "object",
     properties: {
       title: { type: "string", description: "Libellé court de la mission (max 8 mots)." },
+      actions: {
+        type: "array",
+        description:
+          "ADDITIF. Séquence ORDONNÉE d'opérations quand la mission en enchaîne PLUSIEURS (« crée le chantier, prépare la facture d'acompte, crée les tâches ET prépare l'email de confirmation »). La 1re opération DOIT correspondre à action_type. Laisse VIDE (tableau vide) si la mission n'a qu'une seule action — ne découpe JAMAIS artificiellement une action simple.",
+        items: {
+          type: "object",
+          properties: {
+            operation: {
+              type: "string",
+              description:
+                "Nom d'opération en snake_case, ex : create_chantier, convert_quote_to_chantier, create_deposit_invoice, create_invoice, create_tasks, create_task, create_email_draft, send_email, send_notification, update_status, generate_report, create_reminder, assign_employee.",
+            },
+            instruction: { type: "string", description: "Ce que fait cette étape, en clair." },
+          },
+          required: ["operation", "instruction"],
+          additionalProperties: false,
+        },
+      },
+      conditions: {
+        type: "object",
+        description:
+          "ADDITIF. Conditions CHIFFRÉES à remplir pour agir (« facture > 5000 € impayée depuis > 15 jours », « réserve urgente ouverte depuis > 3 jours »). Laisse VIDE (omets ou {}) si aucun seuil chiffré. Champs courants : amount_due, days_overdue, montant, priority, days_open, marge_pct.",
+        properties: {
+          type: { type: "string", enum: ["all", "any"], description: "all = toutes vraies ; any = au moins une." },
+          conditions: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                field: { type: "string", description: "Champ métier (amount_due, days_overdue, montant, priority…)." },
+                operator: {
+                  type: "string",
+                  enum: ["gt", "gte", "lt", "lte", "eq", "neq", "before", "after", "days_since_gt", "days_until_lt", "contains", "in"],
+                },
+                value: { type: "string", description: "Valeur de comparaison en texte (\"5000\", \"15\", \"urgente\"…) — les nombres seront convertis à l'évaluation." },
+              },
+              required: ["field", "operator"],
+              additionalProperties: false,
+            },
+          },
+        },
+        additionalProperties: false,
+      },
+      recipient_targets: {
+        type: "array",
+        description:
+          "ADDITIF. Destinataires RELATIONNELS liés à la FICHE déclenchante, quand le destinataire dépend de l'objet concerné (« préviens LE CHEF DU CHANTIER », « l'intervenant affecté », « le client lié », « le fournisseur de la commande »). Laisse VIDE si le destinataire est simplement toi / l'équipe / un client nommé (recipient_kind suffit alors).",
+        items: {
+          type: "string",
+          enum: ["related_chantier_manager", "related_task_assignee", "related_intervention_employee", "related_client", "related_supplier", "related_subcontractor", "record_creator", "workspace_owner", "workspace_team"],
+        },
+      },
       action_type: {
         type: "string",
         enum: ["send_email", "notify", "report", "team_planning", "act"],
@@ -288,9 +370,12 @@ const PARSE_TOOL: Anthropic.Tool = {
       },
       event_watcher: {
         type: "string",
-        enum: ["chantier_en_retard", "chantier_fin_proche", "chantier_hors_budget", "chantier_sans_activite", "chantier_sans_devis", "chantier_termine", "demande_urgente", "devis_non_signe", "devis_accepte", "devis_expire_bientot", "facture_echeance_proche", "facture_impayee", "facture_payee", "echeance_proche", "visite_terminee", "rdv_demain", "conflit_planning", "intervention_annulee", "tache_en_retard", "tache_terminee", "tache_sans_responsable", "chantier_sans_responsable", "equipe_surchargee", "stock_bas", "nouveau_lead", "nouveau_client", "nouveau_chantier", "pointage_manquant", "heures_a_valider", "heures_incoherentes", "chantier_trop_heures", "document_a_regulariser", "assurance_expiree", "clients_doublons", "client_mauvais_payeur", "sous_traitant_a_probleme", "sous_traitant_sans_assurance", "documents_a_classer", "chantier_sans_photo", "intervention_sans_responsable", "intervention_sans_date", "intervention_en_retard", "commande_en_retard", "achat_non_affecte", "facture_fournisseur_a_payer", "chantier_sans_budget", "client_inactif", ""],
+        // DATA-DRIVEN (Phase 4) : l'enum est GÉNÉRÉ depuis le registre (WATCHER_KEYS),
+        // plus jamais recopié à la main. Corrige la dérive historique (rappel_echu
+        // existait dans le registre mais manquait ici → jamais sélectionnable).
+        enum: [...WATCHER_KEYS, ""],
         description:
-          "OBLIGATOIRE si trigger_type=event : le veilleur qui colle. chantier_en_retard = chantiers qui dépassent leur DATE de fin prévue (déjà en retard, APRÈS la date). chantier_fin_proche = chantiers dont la date de fin prévue APPROCHE / va bientôt arriver (alerter AVANT l'échéance, « préviens-moi quand un chantier arrive bientôt à son terme ») — à distinguer de chantier_en_retard qui agit APRÈS. chantier_hors_budget = chantiers dont le BUDGET/coût engagé dépasse le budget prévu (marge, rentabilité, « dépasse son budget »). chantier_sans_activite = chantiers en cours qui N'AVANCENT PLUS / stagnent / pas bougé depuis X jours. chantier_sans_devis = chantiers démarrés SANS devis signé (accepté). chantier_termine = un chantier vient d'être TERMINÉ (demande d'avis au client, remerciement, solde à facturer). demande_urgente = demandes/interventions clients URGENTES restées sans réponse (SAV, dépannage urgent, « alerte-moi si une demande urgente traîne » — l'IA lit la description pour juger l'urgence). devis_non_signe = devis envoyés sans réponse. devis_accepte = un devis vient d'être ACCEPTÉ/signé par le client (confirmer/remercier + prochaines étapes, OU créer le chantier/la facture). devis_expire_bientot = un devis ENVOYÉ approche de sa DATE DE VALIDITÉ / va bientôt EXPIRER (relancer le client avant qu'il ne soit plus valable, ou prévenir l'artisan). facture_echeance_proche = une facture non soldée approche de sa DATE D'ÉCHÉANCE / va BIENTÔT être due (rappel de paiement AVANT le retard, ou alerte à l'artisan) — À DISTINGUER de facture_impayee qui agit APRÈS l'échéance. facture_impayee = factures ÉCHUES non payées / impayés / relances de paiement (l'échéance est DÉJÀ dépassée). facture_payee = une facture vient d'être RÉGLÉE (remercier le client). echeance_proche = documents, attestations, assurances, contrats d'entretien ou entretiens qui arrivent à échéance / expirent. visite_terminee = une intervention/visite chantier vient d'être TERMINÉE, y compris exprimé comme « un salarié/ouvrier/gars finit son travail / sa tâche / son intervention / son chantier » (= une intervention assignée passe en terminé ; « préviens-moi » → notify, « fais le compte-rendu » → compte_rendu). rdv_demain = un RDV/intervention client est prévu PROCHAINEMENT (rappeler le client avant le RDV, « rappelle au client son rendez-vous la veille »). conflit_planning = deux interventions d'un MÊME intervenant se CHEVAUCHENT / se superposent dans le planning (« préviens-moi s'il y a un conflit de planning », « si un gars est sur deux chantiers en même temps », « alerte-moi en cas de double réservation ») → notify le patron. intervention_annulee = un RDV/intervention vient d'être ANNULÉ (statut annulé) et il faut prévenir le client ou le patron (« quand un rendez-vous est annulé, préviens le client », « en cas d'annulation »). tache_en_retard = des TÂCHES dont l'échéance est DÉPASSÉE et pas terminées (« préviens-moi des tâches en retard », « alerte si une tâche traîne / n'est pas commencée à temps »). tache_terminee = une TÂCHE vient d'être TERMINÉE / cochée (« préviens-moi quand une tâche est finie »). tache_sans_responsable = des TÂCHES ouvertes SANS personne assignée (« signale les tâches que personne ne prend », « les tâches sans intervenant »). chantier_sans_responsable = des CHANTIERS actifs SANS chef de chantier désigné (« préviens-moi si un chantier n'a pas de responsable / de chef »). equipe_surchargee = un INTERVENANT a TROP de travail ouvert (tâches + interventions) au-delà d'un seuil (« préviens-moi si quelqu'un est surchargé », « détecte les gars débordés ») → notify le patron. nouveau_lead = une nouvelle demande arrive via un FORMULAIRE public (un lead/prospect à traiter). nouveau_client = une fiche CLIENT vient d'être créée (« à chaque nouveau client, crée… »). nouveau_chantier = une fiche CHANTIER vient d'être créée (« quand j'ajoute un chantier, crée les tâches / le devis »). client_inactif = un CLIENT n'a plus AUCUNE activité (devis, facture, intervention) depuis longtemps et serait à recontacter/relancer (« mes clients inactifs », « les clients qu'on n'a pas vus depuis 6 mois », « relance ceux qui dorment »). pointage_manquant = des EMPLOYÉS n'ont PAS POINTÉ récemment / il manque des heures / une journée sans pointage (« préviens-moi si un ouvrier n'a pas pointé », « alerte-moi des heures non remplies », « qui n'a pas fait ses heures »). heures_a_valider = des heures/pointages restent NON VALIDÉS et attendent une validation (« préviens-moi des heures à valider », « les pointages pas encore validés »). heures_incoherentes = des heures pointées sont ANORMALES / incohérentes / trop élevées sur une journée (« signale les pointages bizarres / aberrants », « si quelqu'un pointe plus de 12h dans la journée »). chantier_trop_heures = un CHANTIER consomme TROP d'heures de main-d'œuvre au-delà d'un seuil (« alerte-moi si un chantier dépasse X heures », « le chantier consomme trop d'heures »). document_a_regulariser = des DOCUMENTS/attestations sont MANQUANTS ou DÉJÀ EXPIRÉS et à régulariser (« préviens-moi des documents manquants », « mes attestations périmées / plus à jour », « papiers à régulariser ») — à distinguer de echeance_proche qui alerte AVANT l'expiration. assurance_expiree = l'assurance DÉCENNALE d'un fournisseur/sous-traitant est DÉJÀ EXPIRÉE (« alerte-moi si la décennale d'un sous-traitant est périmée / n'est plus valable ») — risque de conformité. clients_doublons = des fiches CLIENTS font DOUBLON / sont en double (même email ou téléphone) (« détecte les doublons clients », « préviens-moi si j'ai deux fois le même client »). client_mauvais_payeur = un CLIENT cumule plusieurs factures ÉCHUES IMPAYÉES / paie mal (« signale mes mauvais payeurs », « les clients qui paient mal / en retard tout le temps ») — À DISTINGUER de facture_impayee qui relance UNE facture ; ici on qualifie le CLIENT. sous_traitant_a_probleme = un SOUS-TRAITANT cumule des RÉSERVES/incidents/malfaçons ouverts (« signale les sous-traitants à problème », « quels sous-traitants posent souci »). sous_traitant_sans_assurance = un SOUS-TRAITANT n'a PAS d'assurance décennale renseignée (« préviens-moi des sous-traitants sans assurance / pas assurés / sans décennale ») — à distinguer de assurance_expiree (décennale DÉJÀ expirée). documents_a_classer = des DOCUMENTS/fichiers sont uploadés SANS rattachement (à ranger/classer) (« signale les documents à classer », « les fichiers non rangés / en vrac »). chantier_sans_photo = un CHANTIER TERMINÉ n'a AUCUNE photo au dossier (« préviens-moi des chantiers finis sans photo », « les chantiers livrés sans photo de fin »). intervention_sans_responsable = une INTERVENTION/SAV ouverte n'a PERSONNE d'assigné (« les SAV sans technicien / sans responsable », « interventions non affectées »). intervention_sans_date = une INTERVENTION/SAV ouverte n'a PAS de date prévue / n'est pas planifiée (« les SAV sans date », « interventions à planifier »). intervention_en_retard = une INTERVENTION/SAV a sa date prévue DÉPASSÉE et n'est pas terminée (« les SAV en retard / dépassés / non traités », « interventions qui traînent »). commande_en_retard = une COMMANDE fournisseur a sa LIVRAISON en retard / n'est pas arrivée (« relance le fournisseur si la commande tarde », « préviens-moi si une commande / livraison est en retard ou bloque un chantier »). achat_non_affecte = des DÉPENSES / ACHATS / FACTURES FOURNISSEUR ne sont RATTACHÉS À AUCUN CHANTIER (« signale les achats non affectés », « les factures fournisseurs non classées », « les dépenses sans chantier ») — fausse la marge. facture_fournisseur_a_payer = des FACTURES FOURNISSEUR / dépenses sont À PAYER et leur échéance est DÉPASSÉE (« ce que je dois aux fournisseurs », « les factures fournisseurs à régler / en retard de paiement », « préviens-moi de ce qu'il faut payer ») — À DISTINGUER de facture_impayee qui concerne l'argent que les CLIENTS nous doivent ; ici c'est ce que NOUS devons. chantier_sans_budget = des CHANTIERS actifs n'ont AUCUN budget renseigné (« les chantiers sans budget / sans marge renseignée », « détecte les chantiers dont je n'ai pas chiffré le budget ») — impossible de piloter la marge sans montant de référence, à distinguer de chantier_hors_budget qui compare un budget EXISTANT au coût engagé. Vide si trigger_type=schedule.",
+          buildEventWatcherDescription(),
       },
       event_days: {
         type: "integer",
@@ -355,7 +440,70 @@ PLANNING AUX ÉQUIPES (cas à part, PLANIFIÉ) : « je veux que mes équipes re�
 
 CONTEXTE (comme un employé, ne rien inventer) : si la mission dit d'ENVOYER un message/mail mais ne dit PAS quoi dire, mets content_missing=true — Biltia demandera « quel message ? » plutôt que d'inventer. Si le contenu est explicite ou déductible d'une donnée du workspace (« relance le devis en attente », « rappelle-moi de faire mes factures », « vérifie mes impayés et fais le point »), content_missing=false.
 
+ACTIONS MULTIPLES (additif, nouveau) : si la mission enchaîne PLUSIEURS opérations (« dès qu'un devis est accepté, crée le chantier, prépare la facture d'acompte, crée les premières tâches et prépare un email »), remplis \`actions\` avec la séquence ORDONNÉE (operation en snake_case + instruction). La PREMIÈRE opération doit correspondre à action_type. Si une seule action, laisse \`actions\` vide. Ne découpe pas artificiellement une action simple en plusieurs.
+
+CONDITIONS CHIFFRÉES (additif, nouveau) : si la mission pose des SEUILS (« si une facture de plus de 5 000 € est impayée depuis plus de 15 jours », « quand une réserve urgente reste ouverte plus de 3 jours »), remplis \`conditions\` = { type:"all", conditions:[{field, operator, value}] }. Sinon laisse vide.
+
+DESTINATAIRES RELATIONNELS (additif, nouveau) : si le destinataire DÉPEND de la fiche déclenchante (« préviens le chef DU chantier », « l'intervenant affecté à l'intervention », « le client lié à la facture », « le fournisseur de la commande »), liste les types dans \`recipient_targets\`. Sinon (toi, l'équipe, un client nommé), laisse \`recipient_targets\` vide et remplis \`recipient_kind\` comme d'habitude.
+
+Ces trois champs (actions, conditions, recipient_targets) sont STRICTEMENT ADDITIONNELS : action_type, event_watcher, recipient_kind, trigger_type restent remplis EXACTEMENT comme d'habitude (ils restent la source exécutée aujourd'hui).
+
 Réponds UNIQUEMENT en appelant l'outil parse_rule.`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DÉCLENCHEUR SUR DATE (relative_date) — capacité AVANCÉE, GATÉE sur AGENT_V2_RUNNER.
+// Une règle relative_date n'est PAS représentable par les colonnes legacy : elle
+// n'existe que dans le spec V2 et n'est exécutée que par le runner V2. On ne
+// l'expose donc au parseur (champ d'outil + consigne) QUE lorsque le runner est
+// armé — sinon on émettrait des agents que le chemin legacy ne saurait pas faire
+// tourner (« veilleur inconnu »). Runner OFF → tool/prompt STRICTEMENT identiques.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Paires (entité → champ_date) autorisées, en clair pour la consigne LLM. */
+const RELATIVE_DATE_PAIRS = Object.entries(RELATIVE_DATE_FIELDS)
+  .map(([e, fields]) => `${e} (${fields.join(", ")})`)
+  .join(" ; ");
+
+const RELATIVE_DATE_TOOL_FIELD = {
+  type: "object" as const,
+  description:
+    "AVANCÉ & OPTIONNEL. Déclencheur GÉNÉRIQUE « N jours AVANT ou APRÈS une DATE précise d'une fiche », À N'UTILISER QUE si AUCUN veilleur nommé (event_watcher) ne convient. PRÉFÈRE TOUJOURS un veilleur nommé s'il colle (devis_expire_bientot, facture_echeance_proche, chantier_fin_proche, rdv_demain, echeance_proche…). Laisse VIDE (omets) dès qu'un veilleur nommé fait l'affaire. Uniquement des paires (entité, champ) AUTORISÉES — toute autre est ignorée : " +
+    RELATIVE_DATE_PAIRS +
+    ".",
+  properties: {
+    entity_type: { type: "string" as const, description: "Entité surveillée (ex : factures, devis, chantiers). DOIT figurer dans les paires autorisées." },
+    date_field: { type: "string" as const, description: "Champ date de cette entité (ex : date_echeance, date_validite, date_fin_prevue). DOIT figurer dans les paires autorisées." },
+    offset_value: { type: "integer" as const, description: "Nombre de jours (0–365). Ex : « 3 jours avant » → 3." },
+    offset_unit: { type: "string" as const, enum: ["days", "weeks", "months", "hours", "minutes"], description: "Unité de l'écart (défaut days)." },
+    direction: { type: "string" as const, enum: ["before", "after"], description: "before = la date APPROCHE (rappel avant échéance) ; after = la date est PASSÉE (relance après)." },
+  },
+  required: ["entity_type", "date_field", "offset_value", "direction"],
+  additionalProperties: false,
+};
+
+const RELATIVE_DATE_SYSTEM_ADDENDUM = `
+
+DÉCLENCHEUR SUR DATE (générique, avancé — dernier recours) : si la mission vise « N jours AVANT ou APRÈS une DATE précise d'une fiche » (ex : « X jours avant la date de fin d'un contrat », « rappelle le client 2 jours avant son entretien », « relance 5 jours après la date de livraison prévue ») ET qu'AUCUN veilleur nommé ne colle vraiment, remplis \`relative_date\` { entity_type, date_field, offset_value, offset_unit:"days", direction }. PRÉFÈRE TOUJOURS un veilleur nommé quand il existe (devis_expire_bientot, facture_echeance_proche, chantier_fin_proche, rdv_demain, echeance_proche…) : dans ce cas laisse \`relative_date\` VIDE. Paires (entité, champ) AUTORISÉES uniquement : ${RELATIVE_DATE_PAIRS}. Une paire hors liste est ignorée. Pour un relative_date, trigger_type="event", event_watcher="", et le destinataire suit les règles habituelles (recipient_targets=related_client pour relancer le client de la fiche).`;
+
+/** Outil de parsing : ajoute le champ relative_date UNIQUEMENT si le runner V2 est armé (sinon identique). */
+function buildParseTool(withRelativeDate: boolean): Anthropic.Tool {
+  if (!withRelativeDate) return PARSE_TOOL;
+  return {
+    ...PARSE_TOOL,
+    input_schema: {
+      ...PARSE_TOOL.input_schema,
+      properties: {
+        ...(PARSE_TOOL.input_schema.properties as Record<string, unknown>),
+        relative_date: RELATIVE_DATE_TOOL_FIELD,
+      },
+    },
+  };
+}
+
+/** Système de parsing : ajoute la consigne relative_date UNIQUEMENT si le runner V2 est armé. */
+function buildParseSystem(withRelativeDate: boolean): string {
+  return withRelativeDate ? PARSE_SYSTEM + RELATIVE_DATE_SYSTEM_ADDENDUM : PARSE_SYSTEM;
+}
 
 /** Repli heuristique pur — jamais d'exception, toujours une règle plausible. */
 export function parseInstructionHeuristic(instruction: string): ParsedRule {
@@ -494,6 +642,8 @@ export function parseInstructionHeuristic(instruction: string): ParsedRule {
     eventWatcher = "chantier_sans_activite";
   } else if (/chantier/.test(text) && /(sans devis|pas de devis|devis (signe|accepte)|demarre sans|commence sans)/.test(text)) {
     eventWatcher = "chantier_sans_devis";
+  } else if (/chantier/.test(text) && /(termine|fini|livre|cloture)/.test(text) && /(non facture|pas facture|sans facture|a facturer|pas encore facture|reste a facturer)/.test(text)) {
+    eventWatcher = "chantier_termine_non_facture";
   } else if (
     // Chantier dont la fin APPROCHE (avant l'échéance) → distinct du retard (après).
     /chantier/.test(text) &&
@@ -529,6 +679,8 @@ export function parseInstructionHeuristic(instruction: string): ParsedRule {
     (/(payer|regler|solder|regl|dois|doit|redevable|du a|due a)/.test(text) && /(fournisseur|sous.?traitant)/.test(text))
   ) {
     eventWatcher = "facture_fournisseur_a_payer";
+  } else if (/facture/.test(text) && /(brouillon|pas envoye|non envoye|jamais envoye|non finalise|pas finalise|pas encore envoye)/.test(text)) {
+    eventWatcher = "facture_brouillon_non_envoyee";
   } else if (
     // Facture dont l'échéance APPROCHE (avant le retard) → distinct de l'impayé.
     /facture/.test(text) &&
@@ -538,6 +690,8 @@ export function parseInstructionHeuristic(instruction: string): ParsedRule {
     eventWatcher = "facture_echeance_proche";
   } else if (/(impaye|impayes|pas paye|non paye)/.test(text) || (/facture/.test(text) && /(echeance|relance|paiement|paye)/.test(text))) {
     eventWatcher = "facture_impayee";
+  } else if (/devis/.test(text) && /(accepte|signe|valide|ok client)/.test(text) && /(sans chantier|pas de chantier|chantier pas ouvert|pas ouvert|pas cree|non ouvert|pas demarre)/.test(text)) {
+    eventWatcher = "devis_accepte_sans_chantier";
   } else if (/devis/.test(text) && /(expire|expiration|va expirer|validite|bientot|avant.{0,15}(expir|validite)|proche.{0,12}(expir|echeance|fin))/.test(text)) {
     eventWatcher = "devis_expire_bientot";
   } else if (/devis/.test(text) && /(non signe|pas signe|sans reponse|non accepte|en attente|pas repondu|relance|signature)/.test(text)) {
@@ -619,13 +773,18 @@ export async function parseInstruction(instruction: string): Promise<ParsedRule>
     !!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.startsWith("your_");
   if (!hasKey) return parseInstructionHeuristic(instruction);
 
+  // relative_date (déclencheur générique sur date) n'est proposé au parseur QUE si
+  // le runner V2 est armé — sinon on créerait un agent que le legacy ne sait pas
+  // exécuter. Runner off → tool/prompt strictement identiques à l'historique.
+  const v2On = process.env.AGENT_V2_RUNNER === "1";
+
   try {
     const client = new Anthropic();
     const msg = await client.messages.create({
       model: PARSE_MODEL,
       max_tokens: 512,
-      system: PARSE_SYSTEM,
-      tools: [PARSE_TOOL],
+      system: buildParseSystem(v2On),
+      tools: [buildParseTool(v2On)],
       tool_choice: { type: "tool", name: "parse_rule" },
       messages: [{ role: "user", content: `Mission dictée : « ${instruction} »` }],
     });
@@ -657,10 +816,24 @@ export async function parseInstruction(instruction: string): Promise<ParsedRule>
     // schedule, jamais un event orphelin qui ne surveillerait rien).
     const rawWatcher = typeof i.event_watcher === "string" ? i.event_watcher.trim() : "";
     const eventWatcher = (WATCHER_KEYS as string[]).includes(rawWatcher) ? (rawWatcher as WatcherKey) : null;
-    const triggerType: AgentTriggerType = i.trigger_type === "event" && eventWatcher ? "event" : "schedule";
+    // relative_date : dernier recours, GATÉ (v2On) et SUBORDONNÉ au veilleur nommé —
+    // on ne le retient que si le modèle a choisi event SANS veilleur nommé valide.
+    const relativeDate =
+      v2On && !eventWatcher && i.trigger_type === "event" ? coerceRelativeDate(i.relative_date) : null;
+    const triggerType: AgentTriggerType =
+      i.trigger_type === "event" && (eventWatcher || relativeDate) ? "event" : "schedule";
     const eventDays = triggerType === "event" && typeof i.event_days === "number" && i.event_days >= 0
       ? Math.min(365, Math.floor(i.event_days))
       : 0;
+
+    // Phase 2a.2 : enrichissements ADDITIFS (lecture défensive, ne change rien au legacy).
+    const rawActions = Array.isArray(i.actions) ? (i.actions as Record<string, unknown>[]) : [];
+    const v2Actions: ParsedActionStep[] = rawActions
+      .filter((a) => a && typeof a.operation === "string")
+      .map((a) => ({ operation: String(a.operation).slice(0, 60), instruction: String(a.instruction ?? "").slice(0, 300) }))
+      .slice(0, 8);
+    const v2Conditions = coerceConditionGroup(i.conditions);
+    const v2Recipients = coerceRecipientTargets(i.recipient_targets);
 
     return {
       title: typeof i.title === "string" && i.title.trim() ? i.title.trim().slice(0, 80) : instruction.slice(0, 60),
@@ -680,6 +853,11 @@ export async function parseInstruction(instruction: string): Promise<ParsedRule>
       triggerType,
       eventWatcher: triggerType === "event" ? eventWatcher : null,
       eventDays,
+      // >1 seulement : une action unique est déjà portée par le legacy (actionType).
+      v2Actions: v2Actions.length > 1 ? v2Actions : undefined,
+      v2Conditions,
+      v2Recipients: v2Recipients.length ? v2Recipients : undefined,
+      relativeDate: relativeDate ?? undefined,
       usage: {
         model: PARSE_MODEL,
         inputTokens: msg.usage.input_tokens,
@@ -689,6 +867,38 @@ export async function parseInstruction(instruction: string): Promise<ParsedRule>
   } catch {
     return parseInstructionHeuristic(instruction);
   }
+}
+
+// ── Ciblage de l'équipe : la phrase de l'artisan → un filtre canonique ───────
+
+/**
+ * « chaque vendredi, envoie le planning à mes chefs d'équipe » → { role: [chef_equipe] }.
+ * « envoie un email à tous mes électriciens »                  → { corps_metier: [electricite_generale] }.
+ * « envoie le planning à l'équipe »                            → {} (toute l'équipe).
+ *
+ * Les valeurs sortent du RÉFÉRENTIEL (lib/vocabulaires), donc de la même table
+ * d'alias qui a normalisé les fiches : une faute de frappe côté demande (« chef
+ * d equipe ») comme côté fiche (« Chef d'équipe ») retombe sur `chef_equipe`.
+ */
+export function parseTeamFilter(instruction: string): TeamFilter | undefined {
+  const role = matchVocabInText("role_employe", instruction);
+  const corps_metier = matchTradeInText(instruction);
+  if (!role.length && !corps_metier.length) return undefined;
+  const f: TeamFilter = {};
+  if (role.length) f.role = role;
+  if (corps_metier.length) f.corps_metier = corps_metier;
+  return f;
+}
+
+/** « les chefs d'équipe », « les électriciens » — pour le parler à l'artisan. */
+export function describeTeamFilter(filter?: TeamFilter): string {
+  if (!filter) return "";
+  const parts = [
+    ...(filter.role ?? []).map((v) => vocabLabel("role_employe", v).toLowerCase()),
+    ...(filter.corps_metier ?? []).map((v) => vocabLabel("corps_metier", v).toLowerCase()),
+  ];
+  if (!parts.length) return "";
+  return `« ${parts.join(" / ")} »`;
 }
 
 // ── Résolution des destinataires (contre le workspace) ───────────────────────
@@ -729,7 +939,8 @@ export async function resolveRecipients(
   tenantId: string,
   kind: AgentRecipientKind,
   name: string,
-  creatorEmail: string | null
+  creatorEmail: string | null,
+  filter?: TeamFilter
 ): Promise<ResolveResult> {
   if (kind === "me") {
     if (!creatorEmail) {
@@ -739,25 +950,40 @@ export async function resolveRecipients(
   }
 
   if (kind === "team") {
-    const { data } = await supabase
+    let q = supabase
       .from("employees")
       .select("id, nom, prenom, email")
       .eq("tenant_id", tenantId)
-      .limit(100);
+      // `statut <> 'inactif'` vaut NULL (donc FAUX) quand le statut n'est pas
+      // renseigné : un `.neq()` seul EXCLURAIT en silence tout employé sans statut.
+      .or("statut.is.null,statut.neq.inactif");
+    // Ciblage « mes chefs d'équipe » / « mes électriciens » : on filtre sur les
+    // valeurs CANONIQUES, celles-là mêmes que le formulaire impose aux fiches.
+    if (filter?.role?.length) q = q.in("role", filter.role);
+    if (filter?.corps_metier?.length) q = q.in("corps_metier", filter.corps_metier);
+    const { data } = await q.limit(100);
     const rows = (data ?? []) as { id: string; nom: string; prenom: string | null; email: string | null }[];
     const withEmail = rows.filter((r) => r.email && r.email.includes("@"));
+    const cible = describeTeamFilter(filter);
+
     if (rows.length === 0) {
+      // Un agent qui ne vise PERSONNE ne doit jamais être « activé » : il tournerait
+      // chaque vendredi dans le vide, et l'artisan croirait que Biltia est cassé.
       return {
         ok: false,
-        reason: "aucun employé dans votre workspace",
-        missing: { entity: "employees", id: null, name: "équipe", field: "fiche" },
+        reason: cible
+          ? `aucun employé ${cible} dans votre workspace — vérifiez la fiche de vos employés (champ « Rôle » / « Corps de métier »)`
+          : "aucun employé dans votre workspace",
+        missing: { entity: "employees", id: null, name: cible || "équipe", field: "fiche" },
       };
     }
     if (withEmail.length === 0) {
       return {
         ok: false,
-        reason: "aucun de vos employés n'a d'adresse email renseignée",
-        missing: { entity: "employees", id: null, name: "équipe", field: "email" },
+        reason: cible
+          ? `aucun employé ${cible} n'a d'adresse email renseignée`
+          : "aucun de vos employés n'a d'adresse email renseignée",
+        missing: { entity: "employees", id: null, name: cible || "équipe", field: "email" },
       };
     }
     return {
@@ -853,6 +1079,32 @@ export type CreateRuleResult = {
 };
 
 /**
+ * Phase 2a : pose le `spec` V2 (représentation canonique de la règle) SANS jamais
+ * risquer la création. L'insert legacy reste la source de vérité exécutée ; le
+ * spec est une écriture BEST-EFFORT découplée — si la colonne n'est pas encore
+ * migrée (040), l'update échoue silencieusement et l'agent est créé normalement.
+ * Aujourd'hui le spec = simple élévation du legacy (liftLegacyToV2) ; quand le
+ * parseur produira du V2 riche, on stockera directement la forme complète ici.
+ */
+async function attachSpecBestEffort(
+  supabase: SupabaseClient,
+  ruleId: string,
+  legacy: { trigger_type: string; schedule?: unknown; action?: unknown; trigger?: unknown },
+  rich?: { actions?: ParsedActionStep[]; conditions?: ConditionGroup; recipients?: RecipientResolver[] }
+): Promise<void> {
+  try {
+    // buildSpec : base legacy + enrichissements (multi-actions / conditions) si présents.
+    const spec = buildSpec(legacy, rich);
+    await supabase
+      .from("agent_rules")
+      .update({ spec: spec as unknown as Record<string, unknown> })
+      .eq("id", ruleId);
+  } catch {
+    // colonne `spec` absente (pré-migration 040) ou erreur transitoire → best-effort, on ignore.
+  }
+}
+
+/**
  * Recrute un agent : parse l'instruction, résout les destinataires, calcule le
  * prochain passage et écrit la règle. Une info manquante ne REFUSE pas la
  * mission : la règle est créée « bloquée » avec la question précise, et
@@ -864,8 +1116,10 @@ export async function createAgentRule(opts: {
   userEmail: string | null;
   tenantId: string;
   instruction: string;
+  /** Langue de l'interface : les manques de capacité (pop-up) sont rendus dedans. */
+  locale?: Locale;
 }): Promise<CreateRuleResult> {
-  const { supabase, userId, userEmail, tenantId, instruction } = opts;
+  const { supabase, userId, userEmail, tenantId, instruction, locale = "fr" } = opts;
 
   // ── QUOTA FREE : 1 agent actif. Le mur des crédits fait le reste sur Pro. ──
   let isFreePlan = false;
@@ -994,6 +1248,7 @@ export async function createAgentRule(opts: {
     userId,
     userEmail,
     plan: { actionType: planAction, recipientKind: planRecipient, watcher: planWatcher },
+    locale,
   });
   if (!readiness.ok) {
     return {
@@ -1009,6 +1264,104 @@ export async function createAgentRule(opts: {
     };
   }
   const warnNote = readiness.gaps.length ? ` À finir pour un fonctionnement optimal : ${summarizeGaps(readiness.gaps)}.` : "";
+
+  // ── DÉCLENCHEUR SUR DATE (relative_date, générique) — GATÉ sur le runner V2 ───
+  // Non représentable par les colonnes legacy : la règle n'existe QUE dans le spec.
+  // On écrit donc le spec INLINE (fail-closed) — sans la migration 040, l'insert
+  // échoue proprement (« vos crédits n'ont pas été touchés ») plutôt que de laisser
+  // un agent-fantôme que le runner ne saurait pas faire tourner. Double-gate sur le
+  // flag (le parseur ne l'émet déjà que si v2On). L'agent naît actif : le runner V2
+  // évalue le relative_date à chaque tick (idempotence par fiche, cf executeV2Rule).
+  if (
+    parsed.triggerType === "event" &&
+    parsed.relativeDate &&
+    !parsed.eventWatcher &&
+    process.env.AGENT_V2_RUNNER === "1"
+  ) {
+    const rel = parsed.relativeDate;
+    const wantsEmail = parsed.actionType === "send_email";
+    const evType: AgentActionType = wantsEmail ? "send_email" : parsed.actionType === "act" ? "act" : "notify";
+    const complexity: AgentComplexity = evType === "notify" ? "simple" : "medium";
+    // Destinataires : relationnels du parseur ; à défaut, une relance vise le client
+    // de la fiche (repli patron). Une alerte (notify) va au patron (recipients vides).
+    const recipients: RecipientResolver[] = parsed.v2Recipients?.length
+      ? parsed.v2Recipients
+      : wantsEmail
+        ? [{ type: "related_client", fallback: { type: "workspace_owner" } }]
+        : [];
+    const action: AgentAction = {
+      type: evType,
+      recipientKind: wantsEmail ? "client" : "me",
+      recipientName: "",
+      recipients: [],
+      contentInstruction: parsed.contentInstruction,
+      dataFocus: "",
+      complexity,
+      model: COMPLEXITY_MODEL[complexity],
+      estimatedCreditsPerRun: evType === "notify" ? 0 : COMPLEXITY_ESTIMATE[complexity],
+      approval: evType === "send_email" && mentionsApprovalIntent(instruction) ? "always" : "auto",
+    };
+    // Trigger legacy : blob bénin (le legacy ne l'exécute jamais — runner gaté ON) ;
+    // porte quand même la cadence de scan pour reschedule(). Le spec, lui, est riche.
+    const trigger = { relative: rel, scanEveryMinutes: 720 };
+    const title = parsed.title || `Rappel sur date : ${rel.entityType}`;
+    const spec = buildSpec(
+      { trigger_type: "event", trigger, action },
+      {
+        actions: parsed.v2Actions,
+        conditions: parsed.v2Conditions,
+        recipients,
+        trigger: { type: "event", subtype: "relative_date", scanEveryMinutes: 720, relative: rel },
+      }
+    );
+
+    const { data: insertedRel, error: relErr } = await supabase
+      .from("agent_rules")
+      .insert({
+        tenant_id: tenantId,
+        created_by: userId,
+        title,
+        instruction: instruction.slice(0, 2000),
+        trigger_type: "event",
+        trigger: trigger as unknown as Record<string, unknown>,
+        schedule: {} as unknown as Record<string, unknown>,
+        action: action as unknown as Record<string, unknown>,
+        // INLINE (fail-closed) : sans la colonne `spec` (migration 040), l'insert
+        // échoue → on ne crée PAS d'agent relative_date orphelin.
+        spec: spec as unknown as Record<string, unknown>,
+        status: "active",
+        next_run_at: new Date().toISOString(),
+      })
+      .select("id")
+      .single();
+
+    if (relErr || !insertedRel) {
+      return {
+        ok: false,
+        ruleId: null,
+        blocked: false,
+        message:
+          "Je n'ai pas réussi à mettre en place ce rappel sur date à l'instant. Réessayez dans un instant — vos crédits n'ont pas été touchés.",
+        usage: parsed.usage,
+      };
+    }
+
+    const unitLabel =
+      rel.offsetUnit === "days" ? "jour(s)" : rel.offsetUnit === "weeks" ? "semaine(s)" : rel.offsetUnit === "months" ? "mois" : rel.offsetUnit === "hours" ? "heure(s)" : "minute(s)";
+    const whenLabel = `${rel.offsetValue} ${unitLabel} ${rel.direction === "before" ? "avant" : "après"}`;
+    const actLabel =
+      evType === "send_email"
+        ? action.approval === "always"
+          ? "je prépare la relance et vous la soumets pour validation avant envoi"
+          : "je relance le client concerné par email"
+        : evType === "act"
+          ? "je réalise l'action demandée sur la fiche concernée et je vous rends compte"
+          : "je vous préviens aussitôt";
+    const message =
+      `🤖 Agent recruté : **${title}**. Je surveille la date « ${rel.dateField} » de vos ${rel.entityType} en continu — ` +
+      `${whenLabel}, ${actLabel}. Chaque fiche n'est traitée qu'une fois.${warnNote} Retrouvez-le dans **Agents**.`;
+    return { ok: true, ruleId: insertedRel.id, blocked: false, message, gaps: readiness.gaps, usage: parsed.usage };
+  }
 
   // ── DÉCLENCHEUR ÉVÉNEMENTIEL : « dès qu'une fiche remplit la condition » ─────
   // Chemin distinct du planning : AUCUNE résolution de destinataire au
@@ -1112,6 +1465,8 @@ export async function createAgentRule(opts: {
         };
       }
 
+      await attachSpecBestEffort(supabase, insertedEvt.id, { trigger_type: "event", trigger, action }, { actions: parsed.v2Actions, conditions: parsed.v2Conditions, recipients: parsed.v2Recipients });
+
       const daysNote = watcher.daysMeaning && days > 0 ? ` (${days} ${watcher.daysMeaning})` : "";
       const actLabel =
         evType === "act"
@@ -1150,10 +1505,13 @@ export async function createAgentRule(opts: {
   let missing: MissingInfo | null = null;
   // send_email ET team_planning ont un destinataire à résoudre au recrutement
   // (le client/l'équipe) — on préfère bloquer maintenant avec une question claire.
+  // « à mes chefs d'équipe » / « à mes électriciens » : le sous-ensemble visé est
+  // lu dans la phrase d'origine, jamais deviné à l'exécution.
+  const teamFilter = parseTeamFilter(instruction);
   if (parsed.actionType === "send_email" || parsed.actionType === "team_planning") {
     // Le planning s'adresse à l'ÉQUIPE quoi qu'il arrive.
     const kind: AgentRecipientKind = parsed.actionType === "team_planning" ? "team" : parsed.recipientKind;
-    const r = await resolveRecipients(supabase, tenantId, kind, parsed.recipientName, userEmail);
+    const r = await resolveRecipients(supabase, tenantId, kind, parsed.recipientName, userEmail, kind === "team" ? teamFilter : undefined);
     if (r.ok) recipients = r.recipients;
     else {
       blockedReason = r.reason;
@@ -1181,6 +1539,7 @@ export async function createAgentRule(opts: {
     recipientKind: isPlanning ? "team" : parsed.recipientKind,
     recipientName: parsed.recipientName,
     recipients,
+    teamFilter,
     contentInstruction: parsed.contentInstruction,
     dataFocus: parsed.dataFocus,
     complexity: parsed.complexity,
@@ -1221,6 +1580,8 @@ export async function createAgentRule(opts: {
     };
   }
 
+  await attachSpecBestEffort(supabase, inserted.id, { trigger_type: "schedule", schedule, action }, { actions: parsed.v2Actions, conditions: parsed.v2Conditions, recipients: parsed.v2Recipients });
+
   const planning = describeSchedule(schedule);
   // Transparence prix : estimation annoncée AU RECRUTEMENT (le débit réel,
   // calculé sur le coût mesuré de chaque passage, fait foi et est visible
@@ -1237,7 +1598,18 @@ export async function createAgentRule(opts: {
           : "";
     message = `🤖 Agent recruté : **${parsed.title}** (${planning}). ${priceLine} ⚠️ Mais avant de démarrer : ${blockedReason}.${hint} Retrouvez cet agent dans **Agents**.`;
   } else {
-    message = `🤖 Agent recruté : **${parsed.title}** — ${planning}. Premier passage : ${
+    // QUI VA RECEVOIR ? L'artisan doit le voir AVANT que ça parte, pas le découvrir
+    // au premier envoi du vendredi. On nomme les gens quand ils sont peu nombreux,
+    // et on rappelle le ciblage compris (« chef d'équipe ») quand il y en a un.
+    let cibleLine = "";
+    if (action.recipients.length && (action.type === "team_planning" || action.type === "send_email")) {
+      const qui = describeTeamFilter(action.teamFilter);
+      const noms = action.recipients.map((r) => r.name).filter(Boolean);
+      const liste = noms.length <= 5 ? noms.join(", ") : `${noms.slice(0, 5).join(", ")} et ${noms.length - 5} autre(s)`;
+      cibleLine =
+        ` Destinataires${qui ? ` ${qui}` : ""} : **${action.recipients.length} personne(s)** — ${liste}.`;
+    }
+    message = `🤖 Agent recruté : **${parsed.title}** — ${planning}.${cibleLine} Premier passage : ${
       nextRun ? formatRunDate(nextRun) : "à planifier"
     }. ${priceLine} Je m'en occupe.`;
   }
@@ -1274,8 +1646,10 @@ export async function activateAgentTemplate(opts: {
   userEmail: string | null;
   tenantId: string;
   template: AgentTemplate;
+  /** Langue de l'interface : les manques de capacité (pop-up) sont rendus dedans. */
+  locale?: Locale;
 }): Promise<ActivateTemplateResult> {
-  const { supabase, userId, userEmail, tenantId, template } = opts;
+  const { supabase, userId, userEmail, tenantId, template, locale = "fr" } = opts;
 
   // ── Anti-doublon : ce modèle est-il déjà activé dans cet espace ? ──────────
   const { data: existingRows } = await supabase
@@ -1337,6 +1711,7 @@ export async function activateAgentTemplate(opts: {
     userId,
     userEmail,
     plan: { actionType: planAction, recipientKind: planRecipient, watcher: planWatcher },
+    locale,
   });
   if (!readiness.ok) {
     return {
@@ -1400,6 +1775,8 @@ export async function activateAgentTemplate(opts: {
       return { ok: false, ruleId: null, message: "Activation impossible à l'instant. Réessayez dans un moment." };
     }
 
+    await attachSpecBestEffort(supabase, inserted.id, { trigger_type: "event", trigger, action });
+
     const actLabel =
       evType === "compte_rendu"
         ? "je rédige le compte-rendu et vous le retrouvez dans la Bibliothèque"
@@ -1422,8 +1799,9 @@ export async function activateAgentTemplate(opts: {
   let missing: MissingInfo | null = null;
   // Le planning s'adresse à l'ÉQUIPE : on résout maintenant pour bloquer avec
   // une question claire plutôt qu'échouer au premier passage.
+  const tplTeamFilter = parseTeamFilter(template.instruction);
   if (isPlanning) {
-    const r = await resolveRecipients(supabase, tenantId, "team", "", userEmail);
+    const r = await resolveRecipients(supabase, tenantId, "team", "", userEmail, tplTeamFilter);
     if (r.ok) recipients = r.recipients;
     else {
       blockedReason = r.reason;
@@ -1437,6 +1815,7 @@ export async function activateAgentTemplate(opts: {
     recipientKind: isPlanning ? "team" : "me",
     recipientName: "",
     recipients,
+    teamFilter: isPlanning ? tplTeamFilter : undefined,
     contentInstruction: template.instruction,
     dataFocus: template.dataFocus ?? "",
     complexity,
@@ -1471,6 +1850,8 @@ export async function activateAgentTemplate(opts: {
   if (error || !inserted) {
     return { ok: false, ruleId: null, message: "Activation impossible à l'instant. Réessayez dans un moment." };
   }
+
+  await attachSpecBestEffort(supabase, inserted.id, { trigger_type: "schedule", schedule, action });
 
   const when = describeSchedule(schedule);
   const message = (blocked

@@ -8,6 +8,8 @@
 // Honeypot `hp` : champ caché ; s'il est rempli, l'endpoint ignore en silence.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { pick, type Locale } from "./i18n/config";
+
 export type PublicFormField = { key: string; label: string; type: string; required?: boolean };
 export type PublicFormScope = { title?: string; intro?: string; fields?: PublicFormField[] };
 
@@ -17,12 +19,16 @@ const STORABLE = new Set([
   "nom", "email", "tel", "ville", "adresse", "code_postal", "message", "demande", "projet", "budget",
 ]);
 
-const DEFAULT_FIELDS: PublicFormField[] = [
-  { key: "nom", label: "Votre nom", type: "text", required: true },
-  { key: "tel", label: "Téléphone", type: "tel" },
-  { key: "email", label: "Email", type: "email" },
-  { key: "message", label: "Votre demande", type: "textarea", required: true },
-];
+// Champs par défaut, dans la langue du formulaire. Les `key` (colonnes stockées)
+// ne changent JAMAIS — seul le libellé affiché est traduit.
+function defaultFields(l: Locale): PublicFormField[] {
+  return [
+    { key: "nom", label: pick(l, "Votre nom", "Your name"), type: "text", required: true },
+    { key: "tel", label: pick(l, "Téléphone", "Phone"), type: "tel" },
+    { key: "email", label: "Email", type: "email" },
+    { key: "message", label: pick(l, "Votre demande", "Your request"), type: "textarea", required: true },
+  ];
+}
 
 function esc(s: unknown): string {
   return String(s ?? "")
@@ -44,19 +50,34 @@ function fieldHtml(f: PublicFormField): string {
   return `<label class="fld"><span>${label}</span>${control}</label>`;
 }
 
-/** HTML complet d'un formulaire public pour un token 'form'. */
-export function renderPublicForm(token: string, scope: PublicFormScope | null | undefined): string {
+/** HTML complet d'un formulaire public pour un token 'form'.
+ *  NB : le visiteur est ANONYME (client de l'artisan) et n'a donc normalement pas
+ *  de cookie de langue → le formulaire sort en FRANÇAIS par défaut. Le titre, l'intro
+ *  et les libellés définis par l'artisan (scope) sont affichés tels quels. */
+export function renderPublicForm(
+  token: string,
+  scope: PublicFormScope | null | undefined,
+  locale: Locale = "fr"
+): string {
   const s = scope && typeof scope === "object" ? scope : {};
-  const title = esc(s.title || "Demande de devis");
+  const fallbackFields = defaultFields(locale);
+  const title = esc(s.title || pick(locale, "Demande de devis", "Quote request"));
   const intro = s.intro ? `<p class="intro">${esc(s.intro)}</p>` : "";
-  const chosen = (Array.isArray(s.fields) && s.fields.length ? s.fields : DEFAULT_FIELDS).filter(
+  const chosen = (Array.isArray(s.fields) && s.fields.length ? s.fields : fallbackFields).filter(
     (f) => f && f.key && STORABLE.has(f.key)
   );
-  const fieldsHtml = (chosen.length ? chosen : DEFAULT_FIELDS).map(fieldHtml).join("\n");
+  const fieldsHtml = (chosen.length ? chosen : fallbackFields).map(fieldHtml).join("\n");
   const tokenJson = JSON.stringify(token);
 
+  const tSend = esc(pick(locale, "Envoyer ma demande", "Send my request"));
+  const tSending = esc(pick(locale, "Envoi…", "Sending…"));
+  const tOk1 = pick(locale, "Merci ! Votre demande a bien été envoyée.", "Thank you! Your request has been sent.");
+  const tOk2 = pick(locale, "On vous recontacte très vite.", "We'll get back to you very soon.");
+  const tErr = pick(locale, "Une erreur est survenue. Merci de réessayer.", "Something went wrong. Please try again.");
+  const tPowered = pick(locale, "Propulsé par", "Powered by");
+
   return `<!doctype html>
-<html lang="fr">
+<html lang="${locale}">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -94,11 +115,11 @@ ${intro}
 <form id="form" novalidate>
 <input class="hp" type="text" name="hp" tabindex="-1" autocomplete="off" aria-hidden="true" />
 ${fieldsHtml}
-<button type="submit" id="btn">Envoyer ma demande</button>
+<button type="submit" id="btn">${tSend}</button>
 </form>
-<div class="msg ok">Merci ! Votre demande a bien été envoyée.<br />On vous recontacte très vite.</div>
-<div class="msg err">Une erreur est survenue. Merci de réessayer.</div>
-<div class="foot">Propulsé par <b>Biltia</b></div>
+<div class="msg ok">${tOk1}<br />${tOk2}</div>
+<div class="msg err">${tErr}</div>
+<div class="foot">${tPowered} <b>Biltia</b></div>
 </div></div>
 <script>
 (function(){
@@ -108,14 +129,14 @@ ${fieldsHtml}
     e.preventDefault();
     var fd=new FormData(form), payload={}, hp='';
     fd.forEach(function(v,k){ if(k==='hp'){ hp=String(v); return; } payload[k]=String(v); });
-    btn.disabled=true; btn.textContent='Envoi…'; card.classList.remove('err');
+    btn.disabled=true; btn.textContent=${JSON.stringify(tSending)}; card.classList.remove('err');
     fetch('/api/share/submit',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({token:TOKEN,payload:payload,hp:hp})})
       .then(function(r){ return r.json().catch(function(){return {};}).then(function(j){ return { ok: r.ok && j && j.ok }; }); })
       .then(function(res){
         if(res.ok){ card.classList.add('ok'); }
-        else { card.classList.add('err'); btn.disabled=false; btn.textContent='Envoyer ma demande'; }
+        else { card.classList.add('err'); btn.disabled=false; btn.textContent=${JSON.stringify(tSend)}; }
       })
-      .catch(function(){ card.classList.add('err'); btn.disabled=false; btn.textContent='Envoyer ma demande'; });
+      .catch(function(){ card.classList.add('err'); btn.disabled=false; btn.textContent=${JSON.stringify(tSend)}; });
   });
 })();
 </script>

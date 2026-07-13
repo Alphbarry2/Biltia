@@ -2,6 +2,8 @@
 // Le HTML complet vit dans data/templates-html.ts et est servi par /t/[id]
 // (jamais importé côté client → bundle léger).
 
+import type { Locale } from "@/lib/i18n/config";
+
 export type TemplatePreview = {
   id: string;
   name: string;
@@ -22,3 +24,24 @@ export const TEMPLATE_PREVIEWS: TemplatePreview[] = [
   { id: "sav_maintenance", name: "SAV & maintenance", category: "Maintenance", accent: "#0891B2", tagline: "Dépannages, contrats d'entretien, parc client : tout le récurrent." },
   { id: "stock_achats", name: "Stock & achats", category: "Stock", accent: "#B45309", tagline: "Inventaire, seuils d'alerte et réappro par fournisseur en un clic." },
 ];
+
+// ── i18n : nom / catégorie / accroche EN (galerie de modèles). id + accent inchangés.
+const TEMPLATE_PREVIEW_EN: Record<string, { name: string; category: string; tagline: string }> = {
+  suivi_chantiers:   { name: "Job-site tracking",          category: "Management",  tagline: "Dashboard, job sites, team and equipment — live." },
+  finance_budgets:   { name: "Finance & collections",      category: "Finance",     tagline: "Cash locked up, DSO, follow-ups: steer your cash flow." },
+  devis_factures:    { name: "Voice quotes",               category: "Sales",       tagline: "Dictate your quotes; they write and send themselves." },
+  equipes_taches:    { name: "Teams & tasks",              category: "Team",        tagline: "Full-screen kanban: drag tasks, track the workload." },
+  planning_chantier: { name: "Job-site schedule",          category: "Scheduling",  tagline: "Assign your teams to job sites, week by week." },
+  pointage_equipes:  { name: "Time tracking",              category: "HR",          tagline: "Log time, approve with a tick, zero lost sheets." },
+  sous_traitants:    { name: "Subcontracting & compliance", category: "Compliance", tagline: "Liability insurance, deadlines, follow-ups. Alerts 30 days ahead." },
+  crm_clients:       { name: "CRM — Sales pipeline",       category: "Sales",       tagline: "From lead to signed job: track your whole pipeline." },
+  sav_maintenance:   { name: "After-sales & maintenance",  category: "Maintenance", tagline: "Repairs, maintenance contracts, client base: all the recurring." },
+  stock_achats:      { name: "Stock & purchasing",         category: "Stock",       tagline: "Inventory, low-stock alerts and supplier reordering in one click." },
+};
+
+/** Modèle de galerie avec nom/catégorie/accroche traduits si l'interface est en anglais. */
+export function localizeTemplatePreview(tp: TemplatePreview, locale: Locale): TemplatePreview {
+  if (locale !== "en") return tp;
+  const en = TEMPLATE_PREVIEW_EN[tp.id];
+  return en ? { ...tp, ...en } : tp;
+}

@@ -1,4 +1,4 @@
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { createClient as createSupabaseClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "./database.types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -23,4 +23,20 @@ export function createAdminClient() {
   return createSupabaseClient<Database>(url, serviceKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
+}
+
+/**
+ * Même client, mais SANS le typage `Database`.
+ *
+ * `lib/database.types.ts` est en retard sur la base réelle : les entités métier
+ * (devis, factures, lignes, validations, document_links…) n'y figurent pas, alors
+ * qu'elles existent en production. Un `.from("devis")` sur le client typé échoue
+ * donc à la compilation, pour une table parfaitement valide.
+ *
+ * Motif déjà employé par lib/demo-server.ts:28 — centralisé ici pour ne pas le
+ * recopier à chaque route. À supprimer le jour où les types seront régénérés.
+ */
+export function createAdminClientUntyped(): SupabaseClient | null {
+  const admin = createAdminClient();
+  return admin ? (admin as unknown as SupabaseClient) : null;
 }

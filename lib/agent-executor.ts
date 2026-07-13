@@ -22,11 +22,17 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { computeNextRun, type AgentAction, type AgentSchedule, type AgentTrigger } from "./agent-rules";
+import { computeNextRun, type AgentAction, type AgentSchedule, type AgentTrigger, type TeamFilter } from "./agent-rules";
 import { getEntitlementsForTenant } from "./entitlements";
 import { getWorkspaceContext, buildWorkspaceBlock } from "./workspace-context";
 import { runAgentLoop, buildWorkspaceToolsSystem, type ToolTrace } from "./agent-tools";
 import { getWatcher, buildFireKey, isSupplierRelanceWatcher, type WatcherDef, type WatcherMatch } from "./agent-watchers";
+import { normalizeRule, type AgentRuleV2 } from "./agent-model";
+import { consumeOutbox } from "./agent-event-consumer";
+import { isRichV2, evaluateConditions, interpolateParams } from "./agent-workflow";
+import { resolveRecipientsV2 } from "./agent-recipients";
+import { executeOperation, type OpContext } from "./agent-operations";
+import { evaluateRelativeDate } from "./agent-triggers";
 import { readTeamAgenda } from "./gcal";
 import { buildDocumentSystemPrompt, injectDocumentRuntime } from "./document-generator";
 import { sendOutboundEmail, canSendOutbound } from "./outbound-email";
@@ -36,6 +42,7 @@ import { trackAiUsage } from "./ai-usage";
 import { logActivity } from "./activity";
 import { isFounderEmail } from "./founder";
 import { TIER_SIMPLE, TIER_MEDIUM, TIER_COMPLEX } from "./models";
+import { brandAgentEmail } from "./documents/agent-attachment";
 
 // MODÈLE PAR MISSION (règle user 2026-07-05) : figé au recrutement selon la
 // complexité (simple=Haiku, medium=Sonnet, complex=Opus), whitelisté ici —
@@ -71,6 +78,8 @@ export type AgentRuleRow = {
   monthly_credit_budget?: number | null;
   /** Plafond QUOTIDIEN de crédits (0 = illimité). Atteint → fiches reportées à demain. Migration 026. */
   daily_credit_budget?: number | null;
+  /** Spec V2 canonique (migration 040). Vide {} pour les règles legacy → normalizeRule relève le legacy. */
+  spec?: unknown;
 };
 
 /**
@@ -397,6 +406,70 @@ Termine en appelant l'outil compose (objet + corps prêts à envoyer).`;
 }
 
 /**
+ * RÉDACTEUR d'email du RUNNER V2 (record-based) : compose objet + corps depuis
+ * l'instruction de l'étape et les FAITS de la fiche déclenchante. Un seul appel IA,
+ * borné. Distinct de composeRelance (qui est indexé sur un veilleur nommé + niveau
+ * d'escalade) : ici la source est un `record` générique du spec V2. N'invente rien
+ * au-delà des faits fournis. Retourne null si l'IA est indisponible (→ l'op retombe
+ * sur la mise en forme minimale).
+ */
+async function composeAgentEmailV2(opts: {
+  model: string;
+  companyName: string;
+  instruction: string;
+  recipientName?: string | null;
+  ficheLabel?: string | null;
+  record?: { fields?: Record<string, unknown> };
+}): Promise<{ subject: string; body: string; usage: { inputTokens: number; outputTokens: number } } | null> {
+  const hasKey = !!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.startsWith("your_");
+  if (!hasKey) return null;
+  const dest = opts.recipientName?.trim() || "le destinataire";
+  const fields = opts.record?.fields ?? {};
+  const factLine = (label: string, k: string) =>
+    fields[k] != null && String(fields[k]).trim() !== "" ? `${label} : ${String(fields[k]).trim()}` : "";
+  // Faits courants d'une fiche BTP (montant/échéance/numéro/statut/dates clés) — le
+  // modèle ne cite QUE ce qui est présent, jamais d'invention.
+  const facts = [
+    opts.ficheLabel ? `Fiche concernée : ${opts.ficheLabel}` : "",
+    factLine("Numéro", "numero"),
+    factLine("Montant TTC", "montant_ttc"),
+    factLine("Statut", "statut"),
+    factLine("Date d'échéance", "date_echeance"),
+    factLine("Date de validité", "date_validite"),
+    factLine("Date de fin prévue", "date_fin_prevue"),
+    factLine("Date prévue", "date_prevue"),
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const system = `Tu es un agent de Biltia (OS opérationnel du BTP). Tu écris UN email AU NOM de l'entreprise « ${opts.companyName} », adressé à ${dest}.
+CONSIGNE DU PATRON : « ${opts.instruction} ».
+${facts ? `FAITS (seule source ; n'invente RIEN au-delà) :\n${facts}\n` : ""}Règles : français professionnel, 3 à 6 phrases, signe au nom de « ${opts.companyName} ». N'invente AUCUN montant, date ni référence absent des faits ci-dessus. Aucun placeholder ([nom], XXX) : si une donnée manque, formule sans elle.
+Termine en appelant l'outil compose (objet + corps prêts à envoyer).`;
+  try {
+    const client = new Anthropic();
+    const msg = await client.messages.create({
+      model: opts.model,
+      max_tokens: 800,
+      system,
+      tools: [COMPOSE_TOOL],
+      tool_choice: { type: "tool", name: "compose" },
+      messages: [{ role: "user", content: "Rédige l'email." }],
+    });
+    const block = msg.content.find((b) => b.type === "tool_use");
+    if (!block || block.type !== "tool_use") return null;
+    const i = block.input as { subject?: string; body?: string };
+    if (!i.subject || !i.body) return null;
+    return {
+      subject: String(i.subject).slice(0, 180),
+      body: String(i.body).slice(0, 6000),
+      usage: { inputTokens: msg.usage.input_tokens, outputTokens: msg.usage.output_tokens },
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * CAS « l'IA LIT ET JUGE » (aiJudge) : parmi des candidats pré-filtrés en SQL,
  * ne garde que ceux qui remplissent un critère exprimé en langage naturel
  * (urgence, risque…). UN seul appel IA, borné, avec biais prudent (dans le doute,
@@ -655,6 +728,166 @@ async function buildWorkspacePlanning(admin: SupabaseClient, tenantId: string, d
   return lines.join("\n");
 }
 
+/** Une semaine par employé, avec son nom, son email et son texte prêt à envoyer. */
+type EmployeePlanning = { employeeId: string; name: string; email: string | null; text: string; count: number };
+
+/**
+ * Le planning de l'app, PAR EMPLOYÉ — la SOURCE DE VÉRITÉ que l'artisan remplit à
+ * la main dans la grille Planning (app phare). Lit la collection libre `planning`
+ * ({ employee_id, chantier_id, date AAAA-MM-JJ, note }) stockée dans app_records,
+ * sur la fenêtre [aujourd'hui, +days], la JOINT aux chantiers pour l'ADRESSE (« il
+ * ne sait jamais où aller »), et compose la semaine de CHAQUE employé — là où IL
+ * va, pas une liste globale. Vide si la grille n'a rien sur la fenêtre : l'appelant
+ * retombe alors sur le planning global (agenda Google / interventions).
+ *
+ * STRICTEMENT service_role (tenant_id filtré). Ne throw jamais : toute erreur de
+ * lecture renvoie [] plutôt que de casser le passage de l'agent.
+ */
+async function buildPlanningPerEmployee(
+  admin: SupabaseClient,
+  tenantId: string,
+  days: number,
+  filter?: TeamFilter
+): Promise<EmployeePlanning[]> {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const horizon = new Date(Date.now() + Math.max(1, days) * 86_400_000).toISOString().slice(0, 10);
+    // La date vit dans le JSONB (data->>date) ; stockée en AAAA-MM-JJ → comparaison lexicale exacte.
+    const { data: rows } = await admin
+      .from("app_records")
+      .select("data")
+      .eq("tenant_id", tenantId)
+      .eq("collection", "planning")
+      .gte("data->>date", today)
+      .lte("data->>date", horizon)
+      .limit(1000);
+    const plan = ((rows ?? []) as { data: Record<string, unknown> | null }[])
+      .map((r) => (r.data && typeof r.data === "object" ? r.data : {}))
+      .filter((d) => d.employee_id && d.date);
+    if (plan.length === 0) return [];
+
+    const empIds = [...new Set(plan.map((d) => String(d.employee_id)))];
+    const chIds = [...new Set(plan.map((d) => (d.chantier_id ? String(d.chantier_id) : "")).filter(Boolean))];
+
+    // Résolution des noms/emails (employés) et des adresses (chantiers), une requête chacune.
+    const employees = new Map<string, { name: string; email: string | null; statut: string | null }>();
+    {
+      // Le CIBLAGE s'applique ICI aussi, pas seulement à la liste figée au
+      // recrutement : c'est ce chemin-là qui envoie réellement (« mes chefs
+      // d'équipe » ne doit pas se transformer en « toute la boîte » à l'exécution).
+      let q = admin
+        .from("employees")
+        .select("id, nom, prenom, email, statut")
+        .eq("tenant_id", tenantId)
+        .in("id", empIds);
+      if (filter?.role?.length) q = q.in("role", filter.role);
+      if (filter?.corps_metier?.length) q = q.in("corps_metier", filter.corps_metier);
+      const { data } = await q;
+      for (const e of (data ?? []) as { id: string; nom: string | null; prenom: string | null; email: string | null; statut: string | null }[]) {
+        employees.set(String(e.id), {
+          name: [e.prenom, e.nom].filter(Boolean).join(" ").trim() || String(e.nom ?? ""),
+          email: e.email && e.email.includes("@") ? e.email : null,
+          statut: e.statut,
+        });
+      }
+    }
+    const chantiers = new Map<string, { nom: string; adresse: string }>();
+    if (chIds.length) {
+      const { data } = await admin
+        .from("chantiers")
+        .select("id, nom, adresse, ville")
+        .eq("tenant_id", tenantId)
+        .in("id", chIds);
+      for (const c of (data ?? []) as { id: string; nom: string | null; adresse: string | null; ville: string | null }[]) {
+        chantiers.set(String(c.id), { nom: String(c.nom ?? ""), adresse: [c.adresse, c.ville].filter(Boolean).join(", ") });
+      }
+    }
+
+    const byEmp = new Map<string, Record<string, unknown>[]>();
+    for (const d of plan) {
+      const k = String(d.employee_id);
+      const arr = byEmp.get(k) ?? [];
+      arr.push(d);
+      byEmp.set(k, arr);
+    }
+
+    const out: EmployeePlanning[] = [];
+    for (const [empId, items] of byEmp) {
+      const emp = employees.get(empId);
+      if (!emp) continue; // employé retiré du workspace → on saute
+      if (String(emp.statut ?? "") === "inactif") continue; // on n'envoie pas de planning à un inactif
+      items.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+      const lines = items.map((it) => {
+        const dISO = String(it.date).slice(0, 10);
+        const label = new Date(`${dISO}T00:00:00`).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+        const ch = it.chantier_id ? chantiers.get(String(it.chantier_id)) : undefined;
+        const chNom = ch && ch.nom ? ch.nom : "Chantier à préciser";
+        const adr = ch ? ch.adresse : "";
+        const note = String(it.note ?? "").trim();
+        let line = `- ${label} · ${chNom}`;
+        if (adr) line += ` — ${adr}`;
+        if (note) line += ` (${note})`;
+        return line;
+      });
+      out.push({ employeeId: empId, name: emp.name, email: emp.email, text: lines.join("\n"), count: items.length });
+    }
+    // Les mieux planifiés d'abord (récap patron plus lisible).
+    out.sort((a, b) => b.count - a.count);
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Réserve en IDEMPOTENCE les fiches NOUVELLES d'un scan. Batch : UN seul upsert
+ * `ON CONFLICT DO NOTHING` (`.select()` ne renvoie que les lignes réellement
+ * insérées) au lieu de N inserts séquentiels — 1 aller-retour au lieu de 300 à
+ * backlog élevé. Sémantique STRICTEMENT identique à l'ancienne boucle : une fiche
+ * déjà vue (fire_key en base) n'est pas re-traitée ; les doublons de fire_key dans
+ * le même lot sont dédupliqués (1re occurrence gagne, comme avant). Repli per-row
+ * si le batch échoue, pour ne jamais dégrader la robustesse.
+ */
+async function reserveFreshMatches(
+  admin: SupabaseClient,
+  ruleId: string,
+  tenantId: string,
+  watcher: WatcherDef,
+  matches: WatcherMatch[]
+): Promise<WatcherMatch[]> {
+  if (matches.length === 0) return [];
+  // Dédup intra-lot par fire_key (1re occurrence), comme la boucle historique
+  // où le 2e insert d'une même clé échouait (UNIQUE) et n'était pas retenu.
+  const byKey = new Map<string, WatcherMatch>();
+  for (const m of matches) {
+    const k = buildFireKey(watcher, m);
+    if (!byKey.has(k)) byKey.set(k, m);
+  }
+  const rows = [...byKey.entries()].map(([fire_key, m]) => ({
+    rule_id: ruleId,
+    tenant_id: tenantId,
+    fire_key,
+    label: m.label.slice(0, 120),
+  }));
+  const { data, error } = await admin
+    .from("agent_event_fires")
+    .upsert(rows, { onConflict: "rule_id,fire_key", ignoreDuplicates: true })
+    .select("fire_key");
+  if (!error) {
+    const freshKeys = new Set(((data ?? []) as { fire_key: string }[]).map((r) => r.fire_key));
+    return [...byKey.entries()].filter(([k]) => freshKeys.has(k)).map(([, m]) => m);
+  }
+  // Repli : per-row (comportement historique) si le batch a échoué.
+  const fresh: WatcherMatch[] = [];
+  for (const [fire_key, m] of byKey) {
+    const { error: e } = await admin
+      .from("agent_event_fires")
+      .insert({ rule_id: ruleId, tenant_id: tenantId, fire_key, label: m.label.slice(0, 120) });
+    if (!e) fresh.push(m);
+  }
+  return fresh;
+}
+
 /**
  * Exécute UN scan d'un agent-ÉVÉNEMENT : évalue le veilleur, RÉSERVE les fiches
  * nouvellement concernées (idempotence par fiche via agent_event_fires), puis
@@ -724,18 +957,9 @@ async function executeEventRule(
     // 1) Évaluer la condition (lecture seule, tenant-scopée).
     const matches = await watcher.run(admin, rule.tenant_id, days).catch(() => [] as WatcherMatch[]);
 
-    // 2) Réserver les fiches NOUVELLES : l'insert dans agent_event_fires échoue
-    //    (UNIQUE) si la fiche a déjà déclenché → on ne la retraite pas.
-    let fresh: WatcherMatch[] = [];
-    for (const m of matches) {
-      const { error } = await admin.from("agent_event_fires").insert({
-        rule_id: rule.id,
-        tenant_id: rule.tenant_id,
-        fire_key: buildFireKey(watcher, m),
-        label: m.label.slice(0, 120),
-      });
-      if (!error) fresh.push(m);
-    }
+    // 2) Réserver les fiches NOUVELLES en idempotence (batch — cf reserveFreshMatches).
+    //    `let` : le jugement IA (aiJudge) réduit ensuite `fresh` aux fiches retenues.
+    let fresh = await reserveFreshMatches(admin, rule.id, rule.tenant_id, watcher, matches);
 
     if (fresh.length === 0) {
       await finishRun("success", `Rien de nouveau (${watcher.watching}).`);
@@ -1212,13 +1436,27 @@ async function executeEventRule(
           continue;
         }
 
+        // Relance envoyée SANS validation humaine : elle doit porter l'identité de
+        // l'entreprise comme les autres. Si la fiche est un devis ou une facture,
+        // le PDF de marque part en pièce jointe et le lien de consultation est
+        // ajouté. Sinon, le message reste tel quel.
+        const dressed = await brandAgentEmail({
+          db: admin,
+          tenantId: rule.tenant_id,
+          userId: rule.created_by,
+          ficheId: m.ficheId,
+          body: composed.body,
+        });
+
         const res = await sendOutboundEmail({
           tenantId: rule.tenant_id,
           userId: rule.created_by,
           fromEmail: creatorEmail,
           to: [m.email as string],
           subject: composed.subject,
-          body: composed.body,
+          body: dressed.body,
+          html: dressed.html,
+          attachments: dressed.attachments,
         });
         if (!res.ok) {
           await releaseFire(m, watcher);
@@ -1326,11 +1564,326 @@ async function executeEventRule(
  * Exécute UN passage d'une règle. `runKey` identifie le créneau (idempotence).
  * Écrit toujours le journal et replanifie la règle. Ne throw jamais.
  */
+/**
+ * RUNNER V2 (Phase 2a.3) — exécute une règle à SPEC RICHE (séquence multi-actions
+ * ou conditions). MODE CONSERVATEUR volontaire : il évalue les conditions, PLANIFIE
+ * la séquence et n'exécute que les étapes `auto` sûres (notification interne, sans
+ * effet externe) ; les étapes `approval` / inconnues / `forbidden` sont classées et
+ * SIGNALÉES (« à valider » / disponibles en Phase 6) SANS aucune écriture workspace.
+ * L'implémentation réelle des opérations + l'outbox par étape + le binding par fiche
+ * (record réel) = Phase 6. Idempotent (verrou run_key). Ne throw jamais.
+ */
+/**
+ * Exécute la SÉQUENCE d'actions d'un spec V2 pour UNE fiche (record). Interpole
+ * les params avec les sorties accumulées ({{cle.champ}}), applique les conditions
+ * d'étape, dispatche chaque opération (executeOperation), respecte la politique
+ * d'exécution (arrêt sur échec critique, plafond d'écritures). Ne throw jamais.
+ */
+async function runWorkflowSteps(
+  admin: SupabaseClient,
+  tenantId: string,
+  spec: AgentRuleV2,
+  ctx: OpContext
+): Promise<{ done: number; deferred: number; skipped: number; failed: number; notifications: string[]; log: string[] }> {
+  const outputs: Record<string, unknown> = {};
+  let done = 0, deferred = 0, skipped = 0, failed = 0, destructive = 0;
+  const notifications: string[] = [];
+  const log: string[] = [];
+  const maxDestructive = spec.execution?.maxDestructiveWrites ?? 12;
+  const stopOnFailure = (spec.execution?.onFailure ?? "stop") === "stop";
+  const fields = ctx.record?.fields ?? {};
+
+  for (const step of spec.actions ?? []) {
+    if (step.condition && !evaluateConditions(step.condition, fields)) {
+      log.push(`↷ ${step.operation} (condition d'étape non remplie)`);
+      continue;
+    }
+    const params = interpolateParams(step.params ?? {}, outputs);
+    const res = await executeOperation(admin, tenantId, step.operation, params, ctx).catch(
+      (e): { status: "failed"; detail: string } => ({ status: "failed", detail: e instanceof Error ? e.message : "erreur" })
+    );
+    log.push(`${res.status} · ${step.operation}: ${res.detail}`);
+    if (res.status === "done") {
+      done++;
+      if (res.notify) notifications.push(res.notify);
+      if (res.output && step.outputKey) outputs[step.outputKey] = res.output;
+      if (res.destructive) destructive++;
+    } else if (res.status === "deferred" || res.status === "queued") {
+      deferred++;
+    } else if (res.status === "skipped") {
+      skipped++;
+    } else {
+      failed++;
+      if (stopOnFailure && step.onFailure !== "continue") {
+        log.push("■ arrêt (échec critique)");
+        break;
+      }
+    }
+    if (destructive >= maxDestructive) {
+      log.push("■ plafond d'écritures atteint");
+      break;
+    }
+  }
+  return { done, deferred, skipped, failed, notifications, log };
+}
+
+async function executeV2Rule(
+  admin: SupabaseClient,
+  rule: AgentRuleRow,
+  spec: AgentRuleV2,
+  runKey: string
+): Promise<RunOutcome> {
+  const { data: run, error: lockErr } = await admin
+    .from("agent_runs")
+    .insert({ rule_id: rule.id, tenant_id: rule.tenant_id, run_key: runKey, status: "running" })
+    .select("id")
+    .single();
+  if (lockErr || !run) return { status: "skipped", summary: "créneau déjà exécuté (idempotence)" };
+
+  const finish = async (status: "success" | "blocked" | "failed", summary: string, output: Record<string, unknown> = {}, credits = 0) => {
+    await admin
+      .from("agent_runs")
+      .update({ status, summary: summary.slice(0, 500), output, credits_used: credits, finished_at: new Date().toISOString() })
+      .eq("id", run.id);
+  };
+  const reschedule = async () => {
+    const isEvent = rule.trigger_type === "event";
+    const cadence = Math.min(1440, Math.max(5, Number(rule.trigger?.scanEveryMinutes) || 60));
+    const next = isEvent ? new Date(Date.now() + cadence * 60_000) : computeNextRun(rule.schedule);
+    await admin
+      .from("agent_rules")
+      .update({ last_run_at: new Date().toISOString(), next_run_at: next ? next.toISOString() : null, updated_at: new Date().toISOString() })
+      .eq("id", rule.id);
+  };
+  // Suspend l'agent (info manquante / plan / budget) : plus de prochain passage.
+  const block = async (reason: string) => {
+    await admin
+      .from("agent_rules")
+      .update({ status: "blocked", blocked_reason: reason, last_run_at: new Date().toISOString(), next_run_at: null, updated_at: new Date().toISOString() })
+      .eq("id", rule.id);
+  };
+
+  const notifyOwner = async (title: string, body: string) => {
+    if (rule.created_by) await sendPushToUser(rule.created_by, { title, body: body.slice(0, 240), url: "/agents", tag: `agent-${rule.id}` });
+  };
+
+  try {
+    // Email du créateur (repli workspace_owner de la résolution relationnelle).
+    let creatorEmail: string | null = null;
+    if (rule.created_by) {
+      try {
+        const { data } = await admin.auth.admin.getUserById(rule.created_by);
+        creatorEmail = data.user?.email ?? null;
+      } catch {
+        // sans email : le repli patron sera simplement indisponible
+      }
+    }
+    // ── GATING & BUDGET (parité avec les chemins legacy) ─────────────────────
+    // Un agent V2 qui AGIT (au-delà d'une simple notif interne) est réservé au
+    // plan Pro ; le fondateur est exempté. Plafond mensuel de crédits → pause.
+    const acts = (spec.actions ?? []).some((a) => a.operation !== "send_notification");
+    if (acts && !isFounderEmail(creatorEmail)) {
+      const ent = await getEntitlementsForTenant(admin, rule.tenant_id);
+      if (ent.plan !== "pro") {
+        const reason = "action réservée au plan Pro — repassez à Pro pour que cet agent agisse";
+        await finish("blocked", "Agent Pro requis : passage suspendu.");
+        await block(reason);
+        await notifyOwner("Agent en pause : réservé au plan Pro", `« ${rule.title} » agit à votre place — réservé au plan Pro. Repassez à Pro pour le réactiver.`);
+        return { status: "blocked", summary: reason };
+      }
+      const monthlyBudget = Number(rule.monthly_credit_budget) || 0; // 0 = illimité
+      if (monthlyBudget > 0) {
+        const spend = await ruleSpend(admin, rule.id);
+        if (spend.month >= monthlyBudget) {
+          const reason = `budget mensuel atteint (${spend.month}/${monthlyBudget} crédits) — reprise le mois prochain ou après relèvement du plafond`;
+          await finish("blocked", "Budget mensuel atteint : passage suspendu.");
+          await block(reason);
+          await notifyOwner("Agent en pause : budget mensuel atteint", `« ${rule.title} » a atteint son plafond de ${monthlyBudget} crédits ce mois-ci. Relevez-le pour reprendre.`);
+          return { status: "blocked", summary: reason };
+        }
+      }
+    }
+
+    const recipientNames = new Set<string>();
+
+    // ── RÉDACTEUR EMAIL IA (Piece B) : les étapes send_email font composer un
+    //    objet + corps professionnels au nom de l'entreprise, depuis la fiche.
+    //    Les jetons sont accumulés ici puis débités APRÈS la passe (parité billing
+    //    legacy : trackAiUsage + deduct_credits_for_user). Palier Haiku (relance).
+    const { data: tRow } = await admin.from("tenants").select("name").eq("id", rule.tenant_id).single();
+    const companyName = tRow?.name ?? "l'entreprise";
+    const emailModel = TIER_SIMPLE;
+    const emailUsage = { inTok: 0, outTok: 0 };
+    const composeEmail = async (a: {
+      instruction: string;
+      recipientName?: string | null;
+      ficheLabel?: string | null;
+      record?: { fields?: Record<string, unknown> };
+    }): Promise<{ subject: string; body: string } | null> => {
+      const c = await composeAgentEmailV2({
+        model: emailModel,
+        companyName,
+        instruction: a.instruction,
+        recipientName: a.recipientName,
+        ficheLabel: a.ficheLabel,
+        record: a.record,
+      });
+      if (!c) return null;
+      emailUsage.inTok += c.usage.inputTokens;
+      emailUsage.outTok += c.usage.outputTokens;
+      return { subject: c.subject, body: c.body };
+    };
+
+    const agg = { done: 0, deferred: 0, skipped: 0, failed: 0 };
+    const notes: string[] = [];
+    let processed = 0;
+
+    if (rule.trigger_type === "event") {
+      // Agent-ÉVÉNEMENT : on RÉSOUT la fiche déclenchante et on exécute la séquence
+      // PAR FICHE (idempotence par fiche via reserveFreshMatches : jamais deux fois,
+      // donc jamais de doublon de chantier/tâche même si un passage est rejoué).
+      // Source des fiches : un VEILLEUR nommé (watcher_scan) OU le déclencheur
+      // GÉNÉRIQUE relative_date (Phase 7). Idempotence par fiche dans les deux cas
+      // (reserveFreshMatches ne lit que key + refireDays de la source).
+      let matches: WatcherMatch[];
+      let fireSource: WatcherDef;
+      let watchingLabel: string;
+      const rel = spec.trigger?.subtype === "relative_date" ? spec.trigger.relative : undefined;
+      if (rel) {
+        matches = await evaluateRelativeDate(admin, rule.tenant_id, rel).catch(() => [] as WatcherMatch[]);
+        // Source synthétique : reserveFreshMatches/buildFireKey ne lisent que key + refireDays.
+        fireSource = { key: `reldate:${rel.entityType}:${rel.dateField}`, refireDays: null } as unknown as WatcherDef;
+        watchingLabel = `${rel.entityType}.${rel.dateField} (${rel.direction})`;
+      } else {
+        const watcher = getWatcher((spec.watcher?.key as string) ?? rule.trigger?.watcher);
+        if (!watcher) {
+          await finish("failed", "Veilleur inconnu — surveillance suspendue.");
+          await reschedule();
+          return { status: "failed", summary: "veilleur inconnu" };
+        }
+        const days = Number(spec.watcher?.params?.days) || Number(rule.trigger?.params?.days) || watcher.defaultDays;
+        matches = await watcher.run(admin, rule.tenant_id, days).catch(() => [] as WatcherMatch[]);
+        fireSource = watcher;
+        watchingLabel = watcher.watching;
+      }
+      const fresh = await reserveFreshMatches(admin, rule.id, rule.tenant_id, fireSource, matches);
+      if (fresh.length === 0) {
+        await finish("success", `Rien de nouveau (${watchingLabel}).`);
+        await reschedule();
+        return { status: "success", summary: "rien de nouveau" };
+      }
+      for (const m of fresh) {
+        const record = { entity: m.entity ?? null, id: m.ficheId, fields: m.raw ?? {} };
+        // Conditions globales (« montant > 5000 ET retard > 15 j ») sur la fiche.
+        if (!evaluateConditions(spec.conditions, record.fields)) continue;
+        processed++;
+        // Destinataire résolu PAR FICHE (le client de CE devis, le chef de CE chantier…).
+        const recips = await resolveRecipientsV2(admin, rule.tenant_id, spec.recipients ?? [], { creatorEmail, record });
+        const primary = recips[0];
+        recips.forEach((r) => recipientNames.add(r.name));
+        const ctx: OpContext = {
+          ruleId: rule.id, createdBy: rule.created_by, ruleTitle: rule.title,
+          recipientEmail: primary?.email ?? null, recipientName: primary?.name ?? null,
+          ficheId: m.ficheId, ficheLabel: m.label, record, composeEmail,
+        };
+        const r = await runWorkflowSteps(admin, rule.tenant_id, spec, ctx);
+        agg.done += r.done; agg.deferred += r.deferred; agg.skipped += r.skipped; agg.failed += r.failed;
+        notes.push(...r.notifications);
+      }
+    } else {
+      // Agent PLANIFIÉ : une passe, sans fiche déclenchante (record vide).
+      if (!evaluateConditions(spec.conditions, {})) {
+        await finish("success", "Conditions non remplies — aucune action.");
+        await reschedule();
+        return { status: "success", summary: "conditions non remplies" };
+      }
+      processed = 1;
+      const recips = await resolveRecipientsV2(admin, rule.tenant_id, spec.recipients ?? [], { creatorEmail, record: {} });
+      const primary = recips[0];
+      recips.forEach((r) => recipientNames.add(r.name));
+      const ctx: OpContext = {
+        ruleId: rule.id, createdBy: rule.created_by, ruleTitle: rule.title,
+        recipientEmail: primary?.email ?? null, recipientName: primary?.name ?? null, record: { fields: {} }, composeEmail,
+      };
+      const r = await runWorkflowSteps(admin, rule.tenant_id, spec, ctx);
+      agg.done += r.done; agg.deferred += r.deferred; agg.skipped += r.skipped; agg.failed += r.failed;
+      notes.push(...r.notifications);
+    }
+
+    const summary =
+      `V2 : ${processed} fiche(s), ${agg.done} action(s) exécutée(s), ${agg.deferred} à valider, ${agg.skipped} ignorée(s)` +
+      (agg.failed ? `, ${agg.failed} échec(s)` : "") + ".";
+
+    // ── DÉBIT des rédactions email IA (parité billing legacy) ────────────────────
+    // On facture les jetons consommés par les emails composés (envoyés OU préparés
+    // en outbox : la rédaction a un coût réel). Fondateur : tracé, jamais débité.
+    // Crédits épuisés → l'agent passe en pause (les brouillons restent en attente).
+    let creditsUsed = 0;
+    if (rule.created_by && emailUsage.inTok + emailUsage.outTok > 0) {
+      try {
+        const tracked = await trackAiUsage({
+          supabase: admin,
+          userId: rule.created_by,
+          tenantId: rule.tenant_id,
+          action: "agent_run",
+          model: emailModel,
+          inputTokens: emailUsage.inTok,
+          outputTokens: emailUsage.outTok,
+        });
+        if (!isFounderEmail(creatorEmail)) {
+          const { data: debited } = await admin.rpc("deduct_credits_for_user", {
+            p_user_id: rule.created_by,
+            p_amount: tracked,
+          });
+          if (debited) {
+            creditsUsed = tracked;
+          } else {
+            const reason = "crédits épuisés — rechargez puis relancez l'agent";
+            await finish("blocked", `${summary} — crédits épuisés, agent en pause.`, { v2: true, processed, ...agg });
+            await block(reason);
+            await notifyOwner("Agent en pause : crédits épuisés", `« ${rule.title} » : ${reason}. Passez à un plan supérieur pour qu'il reprenne.`);
+            return { status: "blocked", summary: reason };
+          }
+        }
+      } catch {
+        // le metering ne casse jamais une rédaction déjà préparée/envoyée
+      }
+    }
+
+    const who = recipientNames.size ? `\nDestinataires : ${[...recipientNames].join(", ")}.` : "";
+    const extra = notes.length ? `\n${notes.slice(0, 3).join(" · ")}` : "";
+    await notifyOwner("Automatisation exécutée", `« ${rule.title} » — ${summary}${who}${extra}`);
+    await finish("success", summary, {
+      v2: true,
+      processed,
+      ...agg,
+      recipients: [...recipientNames],
+    }, creditsUsed);
+    await reschedule();
+    return { status: "success", summary };
+  } catch (err) {
+    await finish("failed", "Runner V2 en erreur — nouveau passage au prochain créneau.", { error: err instanceof Error ? err.message : "?" });
+    await reschedule();
+    return { status: "failed", summary: err instanceof Error ? err.message : "erreur" };
+  }
+}
+
 export async function executeRule(
   admin: SupabaseClient,
   rule: AgentRuleRow,
   runKey: string
 ): Promise<RunOutcome> {
+  // ── RUNNER V2 (Phase 2a.3) : uniquement pour une règle à SPEC RICHE (séquence
+  //    multi-actions ou conditions), ET seulement si le kill-switch est armé.
+  //    Sinon → chemin legacy STRICTEMENT INCHANGÉ. Prouvablement inerte par défaut
+  //    (AGENT_V2_RUNNER off) et de toute façon dormant tant que la migration 040
+  //    n'est pas appliquée et qu'aucune règle n'a de spec riche. ──
+  if (process.env.AGENT_V2_RUNNER === "1") {
+    const v2 = normalizeRule(rule);
+    // Rich (séquence/conditions) OU déclencheur générique relative_date (Phase 7).
+    if (isRichV2(v2) || v2.trigger?.subtype === "relative_date") return executeV2Rule(admin, rule, v2, runKey);
+  }
+
   // Agents-ÉVÉNEMENT : chemin dédié (surveille une condition, agit par fiche,
   // idempotence à la granularité de la fiche). Les agents PLANIFIÉS continuent ci-dessous.
   if (rule.trigger_type === "event") {
@@ -1432,16 +1985,6 @@ export async function executeRule(
     //    patron, sinon workspace) et le TRANSMETTRE à l'équipe. Biltia relaie,
     //    n'invente pas. Gabarit → 0 crédit IA. ─────────────────────────────────
     if (action.type === "team_planning") {
-      const teamEmails = (action.recipients ?? [])
-        .map((r) => r.email)
-        .filter((e) => e && e.includes("@")) as string[];
-      if (teamEmails.length === 0) {
-        const reason = "aucun employé avec email pour recevoir le planning";
-        await finishRun("blocked", `Planning non transmis : ${reason}.`);
-        await reschedule(reason);
-        await notifyOwner("Agent bloqué", `« ${rule.title} » : ${reason}.`);
-        return { status: "blocked", summary: reason };
-      }
       const channels = await canSendOutbound(rule.tenant_id, rule.created_by);
       if (!channels.ok) {
         const reason = "aucun canal d'envoi : connectez votre Gmail ou configurez l'envoi Biltia";
@@ -1452,6 +1995,74 @@ export async function executeRule(
       }
       const { data: tRow } = await admin.from("tenants").select("name").eq("id", rule.tenant_id).single();
       const companyName = tRow?.name ?? "l'entreprise";
+
+      // ── SOURCE DE VÉRITÉ #1 : la grille Planning de l'app, PAR EMPLOYÉ (avec
+      //    l'ADRESSE du chantier). Chacun reçoit SA semaine — là où il va, pas une
+      //    liste globale. C'est ce que le patron remplit lui-même dans l'app. ──
+      const perEmp = await buildPlanningPerEmployee(admin, rule.tenant_id, 7, action.teamFilter);
+      if (perEmp.length > 0) {
+        const withEmail = perEmp.filter((e) => e.email);
+        const withoutEmail = perEmp.filter((e) => !e.email).map((e) => e.name).filter(Boolean);
+        if (withEmail.length === 0) {
+          const reason = "les employés planifiés n'ont pas d'email — ajoutez-le sur leur fiche (ou activez le SMS)";
+          await finishRun("blocked", `Planning non transmis : ${reason}.`);
+          await reschedule(reason);
+          await notifyOwner("Agent bloqué", `« ${rule.title} » : ${reason}.`);
+          return { status: "blocked", summary: reason };
+        }
+        let ok = 0;
+        const failed: string[] = [];
+        for (const e of withEmail) {
+          const subject = `Ton planning de la semaine — ${companyName}`;
+          const body = `Bonjour ${e.name || ""},\n\nVoici ton planning des prochains jours :\n\n${e.text}\n\nBon courage !\n\n— ${companyName} (message automatique)`;
+          const sent = await sendOutboundEmail({
+            tenantId: rule.tenant_id,
+            userId: rule.created_by,
+            fromEmail: creatorEmail,
+            to: [e.email as string],
+            subject,
+            body,
+          });
+          if (sent.ok) ok++;
+          else failed.push(e.name || (e.email as string));
+        }
+        if (ok === 0) {
+          const reason = failed.length ? `envoi refusé (${failed[0]})` : "envoi refusé";
+          await finishRun("blocked", `Planning non transmis : ${reason}.`);
+          await reschedule(reason);
+          await notifyOwner("Agent bloqué", `« ${rule.title} » : ${reason}.`);
+          return { status: "blocked", summary: reason };
+        }
+        await admin.from("agent_runs").update({ credits_used: 0 }).eq("id", run.id);
+        let summary = `Planning personnalisé transmis à ${ok} employé(s).`;
+        if (withoutEmail.length) summary += ` Sans email : ${withoutEmail.join(", ")}.`;
+        if (failed.length) summary += ` Échec d'envoi : ${failed.join(", ")}.`;
+        await finishRun("success", summary, { transmis: ok, sansEmail: withoutEmail, source: "planning" });
+        await reschedule();
+        await notifyOwner("Planning transmis à l'équipe", summary);
+        await logActivity(admin, {
+          tenantId: rule.tenant_id,
+          userId: rule.created_by ?? undefined,
+          action: "send",
+          entityType: "agent",
+          description: `Agent « ${rule.title} » — ${summary}`,
+        });
+        return { status: "success", summary };
+      }
+
+      // ── REPLI : aucune grille remplie → planning GLOBAL (agenda Google du patron,
+      //    sinon interventions/tâches du workspace), diffusion unique. Comportement
+      //    historique, conservé pour les tenants qui ne remplissent pas la grille. ──
+      const teamEmails = (action.recipients ?? [])
+        .map((r) => r.email)
+        .filter((e) => e && e.includes("@")) as string[];
+      if (teamEmails.length === 0) {
+        const reason = "aucun employé avec email pour recevoir le planning";
+        await finishRun("blocked", `Planning non transmis : ${reason}.`);
+        await reschedule(reason);
+        await notifyOwner("Agent bloqué", `« ${rule.title} » : ${reason}.`);
+        return { status: "blocked", summary: reason };
+      }
       const planning = await buildTeamPlanning(admin, rule.tenant_id, rule.created_by, 7);
       if (!planning.text.trim()) {
         // Rien à transmettre : on prévient le patron, jamais un mail vide à l'équipe.
@@ -1671,31 +2282,137 @@ export async function executeRule(
   }
 }
 
+/** Métriques d'un tick — santé de l'ordonnanceur (backlog, retard, débit). */
+export type TickMetrics = {
+  scanned: number;
+  dueBacklog: number;
+  durationMs: number;
+  concurrency: number;
+  limit: number;
+  tenantsServed: number;
+  byStatus: Record<string, number>;
+};
+
+const clampInt = (v: unknown, min: number, max: number, dflt: number): number => {
+  const n = Math.floor(Number(v));
+  return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : dflt;
+};
+
+/**
+ * Sélection ÉQUITABLE inter-tenant : round-robin sur les tenants pour qu'un
+ * tenant au gros backlog ne monopolise pas les créneaux du tick (l'ancien
+ * `ORDER BY next_run_at LIMIT 20` laissait 500 règles d'un même tenant affamer
+ * les autres). À l'intérieur d'un tenant, on garde l'ordre next_run_at reçu
+ * (le plus en retard d'abord).
+ */
+function fairPick(candidates: AgentRuleRow[], limit: number): AgentRuleRow[] {
+  const byTenant = new Map<string, AgentRuleRow[]>();
+  for (const r of candidates) {
+    const arr = byTenant.get(r.tenant_id) ?? [];
+    arr.push(r);
+    byTenant.set(r.tenant_id, arr);
+  }
+  const queues = [...byTenant.values()];
+  const picked: AgentRuleRow[] = [];
+  let i = 0;
+  while (picked.length < limit && queues.some((q) => q.length > 0)) {
+    const q = queues[i % queues.length];
+    const next = q.shift();
+    if (next) picked.push(next);
+    i++;
+  }
+  return picked;
+}
+
+/** Exécute `items` avec un parallélisme borné à `concurrency`. Ordre de retour = ordre d'entrée. */
+async function runBounded<T, R>(items: T[], concurrency: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    for (;;) {
+      const idx = cursor++;
+      if (idx >= items.length) break;
+      results[idx] = await fn(items[idx]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 /**
  * Balaye les règles dues (status active, next_run_at ≤ maintenant) et les
- * exécute. Appelé par le cron. Retourne un résumé lisible.
+ * exécute. Appelé par le cron. Équité inter-tenant + parallélisme borné (chaque
+ * règle reste verrouillée par son run_key → l'idempotence est intacte, deux
+ * ticks concurrents ne l'exécutent jamais deux fois). `AGENT_TICK_LIMIT` et
+ * `AGENT_TICK_CONCURRENCY` (env) pilotent le débit ; défauts sûrs (20 / 6).
  */
 export async function runDueRules(
   admin: SupabaseClient,
-  limit = 20
-): Promise<{ scanned: number; results: { ruleId: string; title: string; outcome: RunOutcome }[] }> {
+  limitArg?: number
+): Promise<{ scanned: number; results: { ruleId: string; title: string; outcome: RunOutcome }[]; metrics: TickMetrics }> {
+  const t0 = Date.now();
+  const nowIso = new Date().toISOString();
+  // Consomme l'outbox d'événements (câble Phase 5→6) AVANT de sélectionner les
+  // règles dues : les règles-événement dont l'entité a bougé sont avancées à
+  // « maintenant » → elles réagissent dès ce tick. 100 % additif, best-effort.
+  try {
+    await consumeOutbox(admin, { nowIso });
+  } catch {
+    /* jamais bloquant pour le tick */
+  }
+  const limit = clampInt(process.env.AGENT_TICK_LIMIT, 1, 500, limitArg ?? 20);
+  const concurrency = clampInt(process.env.AGENT_TICK_CONCURRENCY, 1, 16, 6);
+  // On ne SÉLECTIONNE `spec` que si le runner V2 est armé : sinon (défaut, et tant
+  // que la migration 040 n'est pas appliquée) la colonne peut ne pas exister et
+  // sélectionner une colonne absente casserait tout le tick. Kill-switch = sécurité.
+  const v2On = process.env.AGENT_V2_RUNNER === "1";
+  const baseCols = "id, tenant_id, created_by, title, instruction, schedule, action, status, next_run_at, trigger_type, trigger, monthly_credit_budget, daily_credit_budget";
+
+  // Backlog réel (métrique de santé) : combien de règles sont dues au total.
+  const { count: dueBacklog } = await admin
+    .from("agent_rules")
+    .select("id", { count: "exact", head: true })
+    .eq("status", "active")
+    .lte("next_run_at", nowIso);
+
+  // Pool de candidats élargi (jusqu'à 4× la limite) pour alimenter l'équité
+  // inter-tenant, mais borné pour rester bon marché.
   const { data } = await admin
     .from("agent_rules")
-    .select("id, tenant_id, created_by, title, instruction, schedule, action, status, next_run_at, trigger_type, trigger, monthly_credit_budget, daily_credit_budget")
+    .select(v2On ? `${baseCols}, spec` : baseCols)
     .eq("status", "active")
-    .lte("next_run_at", new Date().toISOString())
+    .lte("next_run_at", nowIso)
     .order("next_run_at", { ascending: true })
-    .limit(limit);
+    .limit(Math.min(500, limit * 4));
 
-  const rules = (data ?? []) as unknown as AgentRuleRow[];
-  const results: { ruleId: string; title: string; outcome: RunOutcome }[] = [];
+  const candidates = (data ?? []) as unknown as AgentRuleRow[];
+  const picked = fairPick(candidates, limit);
 
-  for (const rule of rules) {
+  const results = await runBounded(picked, concurrency, async (rule) => {
     // run_key = créneau planifié → un même créneau ne part jamais deux fois.
-    const runKey = rule.next_run_at ?? new Date().toISOString();
-    const outcome = await executeRule(admin, rule, runKey);
-    results.push({ ruleId: rule.id, title: rule.title, outcome });
-  }
+    const runKey = rule.next_run_at ?? nowIso;
+    try {
+      const outcome = await executeRule(admin, rule, runKey);
+      return { ruleId: rule.id, title: rule.title, outcome };
+    } catch (err) {
+      // Filet : executeRule capture déjà ses erreurs, mais on garantit qu'un
+      // rejet imprévu ne casse jamais le pool ni les autres règles.
+      const outcome: RunOutcome = { status: "failed", summary: err instanceof Error ? err.message : "erreur inconnue" };
+      return { ruleId: rule.id, title: rule.title, outcome };
+    }
+  });
 
-  return { scanned: rules.length, results };
+  const byStatus: Record<string, number> = {};
+  for (const r of results) byStatus[r.outcome.status] = (byStatus[r.outcome.status] ?? 0) + 1;
+
+  const metrics: TickMetrics = {
+    scanned: picked.length,
+    dueBacklog: dueBacklog ?? picked.length,
+    durationMs: Date.now() - t0,
+    concurrency,
+    limit,
+    tenantsServed: new Set(picked.map((r) => r.tenant_id)).size,
+    byStatus,
+  };
+  return { scanned: picked.length, results, metrics };
 }

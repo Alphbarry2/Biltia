@@ -65,7 +65,10 @@ export type WatcherKey =
   | "facture_fournisseur_a_payer"
   | "chantier_sans_budget"
   | "client_inactif"
-  | "rappel_echu";
+  | "rappel_echu"
+  | "devis_accepte_sans_chantier"
+  | "chantier_termine_non_facture"
+  | "facture_brouillon_non_envoyee";
 export const WATCHER_KEYS: WatcherKey[] = [
   "chantier_en_retard",
   "chantier_fin_proche",
@@ -115,6 +118,9 @@ export const WATCHER_KEYS: WatcherKey[] = [
   "chantier_sans_budget",
   "client_inactif",
   "rappel_echu",
+  "devis_accepte_sans_chantier",
+  "chantier_termine_non_facture",
+  "facture_brouillon_non_envoyee",
 ];
 
 /** Une fiche qui remplit la condition surveillée. */
@@ -2156,6 +2162,116 @@ async function runRappelEchu(db: SupabaseClient, tenantId: string, graceDays: nu
   return out;
 }
 
+/**
+ * Devis ACCEPTÉS dont le CHANTIER n'a pas été ouvert (chantier_id null) : le devis
+ * est signé mais l'exécution n'est pas tracée. `graceDays` = tolérance après
+ * l'acceptation (proxy : updated_at). Re-signalé chaque semaine.
+ */
+async function runDevisAccepteSansChantier(db: SupabaseClient, tenantId: string, graceDays: number): Promise<WatcherMatch[]> {
+  const cutoffIso = new Date(Date.now() - Math.max(0, Math.floor(graceDays)) * 86_400_000).toISOString();
+  const { data } = await db
+    .from("devis")
+    .select("id, numero, statut, montant_ttc, client_id, chantier_id, updated_at")
+    .eq("tenant_id", tenantId)
+    .eq("statut", "accepte")
+    .is("chantier_id", null)
+    .limit(SCAN_LIMIT);
+  const rows = (data ?? []) as { id: string; numero: string | null; montant_ttc: number | null; client_id: string | null; updated_at: string | null }[];
+  if (rows.length === 0) return [];
+  const clients = await loadClients(db, tenantId, rows.map((r) => r.client_id ?? ""));
+  const out: WatcherMatch[] = [];
+  for (const d of rows) {
+    if (graceDays > 0 && d.updated_at && d.updated_at > cutoffIso) continue; // accepté tout récemment
+    const cl = d.client_id ? clients.get(d.client_id) : undefined;
+    out.push({
+      ficheId: d.id,
+      entity: "devis",
+      label: `Devis ${d.numero ?? "?"} accepté`,
+      detail: `${money(d.montant_ttc)} TTC accepté${cl?.nom ? ` par ${cl.nom}` : ""} — chantier pas encore ouvert`,
+      email: cl?.email ?? null,
+      contactName: cl?.nom ?? null,
+      raw: { numero: d.numero, montant_ttc: d.montant_ttc, client_id: d.client_id, client_nom: cl?.nom ?? null },
+    });
+  }
+  return out;
+}
+
+/**
+ * Chantiers TERMINÉS sans AUCUNE facture émise (hors factures annulées) : du travail
+ * livré mais pas facturé (argent oublié). `graceDays` = tolérance après la fin
+ * (proxy : updated_at). Re-signalé chaque semaine.
+ */
+async function runChantierTermineNonFacture(db: SupabaseClient, tenantId: string, graceDays: number): Promise<WatcherMatch[]> {
+  const cutoffIso = new Date(Date.now() - Math.max(0, Math.floor(graceDays)) * 86_400_000).toISOString();
+  const { data: chs } = await db
+    .from("chantiers")
+    .select("id, nom, statut, client_id, ville, updated_at")
+    .eq("tenant_id", tenantId)
+    .eq("statut", "termine")
+    .limit(SCAN_LIMIT);
+  const chantiers = (chs ?? []) as { id: string; nom: string | null; client_id: string | null; ville: string | null; updated_at: string | null }[];
+  if (chantiers.length === 0) return [];
+  const ids = chantiers.map((c) => c.id);
+  const { data: facs } = await db
+    .from("factures")
+    .select("chantier_id, statut")
+    .eq("tenant_id", tenantId)
+    .in("chantier_id", ids)
+    .neq("statut", "annulee");
+  const facture = new Set<string>();
+  for (const f of (facs ?? []) as { chantier_id: string | null }[]) if (f.chantier_id) facture.add(String(f.chantier_id));
+  const clients = await loadClients(db, tenantId, chantiers.map((c) => c.client_id ?? ""));
+  const out: WatcherMatch[] = [];
+  for (const c of chantiers) {
+    if (facture.has(c.id)) continue;
+    if (graceDays > 0 && c.updated_at && c.updated_at > cutoffIso) continue;
+    const cl = c.client_id ? clients.get(c.client_id) : undefined;
+    out.push({
+      ficheId: c.id,
+      entity: "chantiers",
+      label: `Chantier « ${c.nom ?? "sans nom"} » terminé`,
+      detail: `terminé sans facture émise${cl?.nom ? ` · ${cl.nom}` : ""}${c.ville ? ` · ${c.ville}` : ""} — à facturer`,
+      email: cl?.email ?? null,
+      contactName: cl?.nom ?? null,
+      raw: { nom: c.nom, client_id: c.client_id, client_nom: cl?.nom ?? null, ville: c.ville },
+    });
+  }
+  return out;
+}
+
+/**
+ * Factures restées en BROUILLON (jamais envoyées) au-delà de `graceDays` jours :
+ * de l'argent prêt à réclamer mais dormant. Proxy d'âge : updated_at. Re-signalé
+ * chaque semaine.
+ */
+async function runFactureBrouillonNonEnvoyee(db: SupabaseClient, tenantId: string, graceDays: number): Promise<WatcherMatch[]> {
+  const cutoffIso = new Date(Date.now() - Math.max(0, Math.floor(graceDays)) * 86_400_000).toISOString();
+  const { data } = await db
+    .from("factures")
+    .select("id, numero, statut, montant_ttc, client_id, updated_at")
+    .eq("tenant_id", tenantId)
+    .eq("statut", "brouillon")
+    .limit(SCAN_LIMIT);
+  const rows = (data ?? []) as { id: string; numero: string | null; montant_ttc: number | null; client_id: string | null; updated_at: string | null }[];
+  if (rows.length === 0) return [];
+  const clients = await loadClients(db, tenantId, rows.map((r) => r.client_id ?? ""));
+  const out: WatcherMatch[] = [];
+  for (const f of rows) {
+    if (graceDays > 0 && f.updated_at && f.updated_at > cutoffIso) continue;
+    const cl = f.client_id ? clients.get(f.client_id) : undefined;
+    out.push({
+      ficheId: f.id,
+      entity: "factures",
+      label: `Facture ${f.numero ?? "brouillon"}`,
+      detail: `${money(f.montant_ttc)} en brouillon, jamais envoyée${cl?.nom ? ` · ${cl.nom}` : ""} — à finaliser`,
+      email: cl?.email ?? null,
+      contactName: cl?.nom ?? null,
+      raw: { numero: f.numero, montant_ttc: f.montant_ttc, client_id: f.client_id, client_nom: cl?.nom ?? null },
+    });
+  }
+  return out;
+}
+
 // ── Le catalogue ─────────────────────────────────────────────────────────────
 
 export const WATCHERS: Record<WatcherKey, WatcherDef> = {
@@ -2643,11 +2759,125 @@ export const WATCHERS: Record<WatcherKey, WatcherDef> = {
     refireDays: 7,
     run: runRappelEchu,
   },
+  devis_accepte_sans_chantier: {
+    key: "devis_accepte_sans_chantier",
+    label: "Devis acceptés sans chantier",
+    watching: "les devis acceptés dont le chantier n'a pas été ouvert",
+    suggestedAction: "notify",
+    defaultDays: 3,
+    daysMeaning: "jours de tolérance après l'acceptation",
+    refireDays: 7,
+    run: runDevisAccepteSansChantier,
+  },
+  chantier_termine_non_facture: {
+    key: "chantier_termine_non_facture",
+    label: "Chantiers terminés non facturés",
+    watching: "les chantiers terminés sans aucune facture émise",
+    suggestedAction: "notify",
+    defaultDays: 3,
+    daysMeaning: "jours de tolérance après la fin du chantier",
+    refireDays: 7,
+    run: runChantierTermineNonFacture,
+  },
+  facture_brouillon_non_envoyee: {
+    key: "facture_brouillon_non_envoyee",
+    label: "Factures en brouillon",
+    watching: "les factures restées en brouillon, jamais envoyées",
+    suggestedAction: "notify",
+    defaultDays: 3,
+    daysMeaning: "jours en brouillon avant l'alerte",
+    refireDays: 7,
+    run: runFactureBrouillonNonEnvoyee,
+  },
 };
 
 export function getWatcher(key: string | null | undefined): WatcherDef | null {
   if (!key) return null;
   return (WATCHERS as Record<string, WatcherDef>)[key] ?? null;
+}
+
+// ── DATA-DRIVEN (Phase 4) : DOMAINE métier de chaque veilleur, en source UNIQUE.
+//    Le type `Record<WatcherKey, WatcherDomain>` garantit au COMPILE-TIME que
+//    chaque veilleur a exactement un domaine (ajouter un veilleur sans domaine ne
+//    compile pas). Sert à la vitrine (regroupement UI par métier) et au routage,
+//    sans dupliquer l'information ailleurs.
+export type WatcherDomain =
+  | "commercial" | "finance" | "chantier" | "planning" | "sav" | "equipe" | "approvisionnement" | "documents";
+
+export const WATCHER_DOMAIN: Record<WatcherKey, WatcherDomain> = {
+  // Commercial (devis, prospects, relation client)
+  devis_non_signe: "commercial",
+  devis_expire_bientot: "commercial",
+  devis_accepte: "commercial",
+  nouveau_lead: "commercial",
+  nouveau_client: "commercial",
+  client_inactif: "commercial",
+  clients_doublons: "commercial",
+  client_mauvais_payeur: "commercial",
+  devis_accepte_sans_chantier: "commercial",
+  // Finance (factures clients & fournisseurs, dépenses)
+  facture_echeance_proche: "finance",
+  facture_impayee: "finance",
+  facture_payee: "finance",
+  facture_fournisseur_a_payer: "finance",
+  achat_non_affecte: "finance",
+  chantier_termine_non_facture: "finance",
+  facture_brouillon_non_envoyee: "finance",
+  // Chantier
+  chantier_en_retard: "chantier",
+  chantier_fin_proche: "chantier",
+  chantier_hors_budget: "chantier",
+  chantier_sans_budget: "chantier",
+  chantier_sans_activite: "chantier",
+  chantier_sans_devis: "chantier",
+  chantier_sans_responsable: "chantier",
+  chantier_trop_heures: "chantier",
+  chantier_termine: "chantier",
+  chantier_sans_photo: "chantier",
+  nouveau_chantier: "chantier",
+  // Planning (RDV, conflits)
+  rdv_demain: "planning",
+  conflit_planning: "planning",
+  // SAV / interventions
+  visite_terminee: "sav",
+  demande_urgente: "sav",
+  intervention_annulee: "sav",
+  intervention_sans_responsable: "sav",
+  intervention_sans_date: "sav",
+  intervention_en_retard: "sav",
+  // Équipe (pointages, heures, tâches, charge)
+  pointage_manquant: "equipe",
+  heures_a_valider: "equipe",
+  heures_incoherentes: "equipe",
+  equipe_surchargee: "equipe",
+  tache_en_retard: "equipe",
+  tache_terminee: "equipe",
+  tache_sans_responsable: "equipe",
+  // Approvisionnement / sous-traitants
+  stock_bas: "approvisionnement",
+  commande_en_retard: "approvisionnement",
+  sous_traitant_a_probleme: "approvisionnement",
+  sous_traitant_sans_assurance: "approvisionnement",
+  // Documents / conformité / rappels
+  echeance_proche: "documents",
+  document_a_regulariser: "documents",
+  documents_a_classer: "documents",
+  assurance_expiree: "documents",
+  rappel_echu: "documents",
+};
+
+/** Domaine métier d'un veilleur (pour la vitrine / le routage). */
+export function getWatcherDomain(key: WatcherKey): WatcherDomain {
+  return WATCHER_DOMAIN[key];
+}
+
+/** Les veilleurs regroupés par domaine (ordre du registre préservé). Pour l'UI. */
+export function listWatchersByDomain(): Record<WatcherDomain, WatcherKey[]> {
+  const out: Record<WatcherDomain, WatcherKey[]> = {
+    commercial: [], finance: [], chantier: [], planning: [], sav: [], equipe: [], approvisionnement: [], documents: [],
+  };
+  for (const k of WATCHER_KEYS) out[WATCHER_DOMAIN[k]].push(k);
+  return out;
 }
 
 /**

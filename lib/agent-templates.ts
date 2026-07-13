@@ -21,6 +21,7 @@
 
 import type { AgentComplexity } from "./agent-rules";
 import type { WatcherKey } from "./agent-watchers";
+import type { Locale } from "./i18n/config";
 
 export type AgentTemplateKind = "event" | "schedule";
 
@@ -231,4 +232,79 @@ export const AGENT_TEMPLATE_IDS = AGENT_TEMPLATES.map((t) => t.id);
 
 export function getAgentTemplate(id: string): AgentTemplate | undefined {
   return AGENT_TEMPLATES.find((t) => t.id === id);
+}
+
+// ── i18n : surcharges EN (le texte visible + la mission utilisée à l'activation).
+// Les `value`/`id`/`watcher`/`icon` ne changent pas ; seul le texte est traduit.
+type AgentTemplateI18n = { name: string; tagline: string; pricing: string; instruction: string; dataFocus?: string };
+const AGENT_TEMPLATE_EN: Record<string, AgentTemplateI18n> = {
+  alerte_chantiers_retard: {
+    name: "Late job-site alert",
+    tagline: "Alerts you the moment a job site runs past its end date.",
+    pricing: "Free",
+    instruction: "Alert me as soon as a job site runs past its planned end date and isn't finished.",
+  },
+  veille_echeances: {
+    name: "Insurance & expiry watch",
+    tagline: "Warns you before an insurance policy or certificate expires.",
+    pricing: "Free",
+    instruction: "Warn me 30 days before an insurance policy, certificate, maintenance contract or equipment inspection expires.",
+  },
+  alerte_impayes: {
+    name: "Unpaid invoice alert",
+    tagline: "Flags every invoice that passes its due date without being paid.",
+    pricing: "Free",
+    instruction: "Alert me as soon as an invoice is overdue and hasn't been paid.",
+  },
+  alerte_stock_bas: {
+    name: "Low-stock alert",
+    tagline: "Alerts you as soon as a material drops below its reorder threshold.",
+    pricing: "Free",
+    instruction: "Alert me as soon as a material drops below its low-stock threshold so I can reorder in time.",
+  },
+  planning_equipe_hebdo: {
+    name: "Weekly schedule to the team",
+    tagline: "Every Monday, sends your teams their schedule — without you thinking about it.",
+    pricing: "Free",
+    instruction: "Every Monday morning, send my team the schedule for the coming days.",
+  },
+  relance_devis: {
+    name: "Quote follow-ups",
+    tagline: "Follows up with clients who haven't answered a quote.",
+    pricing: "≈ 10 credits / follow-up",
+    instruction: "Politely follow up by email with every client whose quote went unanswered. Recall the quote's subject and offer your help.",
+  },
+  recouvrement_factures: {
+    name: "Debt recovery",
+    tagline: "Chases every overdue invoice until it's paid.",
+    pricing: "≈ 10 credits / follow-up",
+    instruction: "Follow up by email with every client who has an overdue, unpaid invoice. Recall the number, amount due and due date; stay courteous but firm.",
+  },
+  compte_rendu_visite: {
+    name: "Visit report",
+    tagline: "Writes the report after each completed job.",
+    pricing: "≈ 25 credits / report",
+    instruction: "Write a professional visit report after each completed job and file it in the Library.",
+  },
+  point_treso_matin: {
+    name: "Morning cash check",
+    tagline: "Every weekday morning, your cash status: what's coming in, what's dragging.",
+    pricing: "≈ 25 credits / day",
+    dataFocus: "quotes awaiting a reply and overdue unpaid invoices",
+    instruction: "Every morning, review my cash flow: quotes awaiting a reply and overdue unpaid invoices. Tell me what's coming in, what's dragging, and what to chase first.",
+  },
+  bilan_semaine: {
+    name: "Weekly wrap-up",
+    tagline: "Every Friday, a summary of your activity: job sites, quotes, payments.",
+    pricing: "≈ 25 credits / week",
+    dataFocus: "the week's activity: ongoing job sites and their progress, signed and pending quotes, invoices and payments",
+    instruction: "Every Friday, give me the week's wrap-up: where my job sites stand, signed and pending quotes, what was collected, and what to watch next week.",
+  },
+};
+
+/** Renvoie le template avec son texte visible + sa mission traduits si EN. */
+export function localizeAgentTemplate(tpl: AgentTemplate, locale: Locale): AgentTemplate {
+  if (locale !== "en") return tpl;
+  const en = AGENT_TEMPLATE_EN[tpl.id];
+  return en ? { ...tpl, ...en } : tpl;
 }

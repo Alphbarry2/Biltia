@@ -10,6 +10,16 @@
 // Le serveur force tenant_id ; le client ne peut jamais le falsifier.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import type { Locale } from "@/lib/i18n/config";
+import { FIELD_VOCAB, VOCABS, vocabLabel, vocabValues } from "@/lib/vocabulaires";
+import { tousLesTauxTva } from "@/lib/tva";
+
+// Les taux de TVA proposés dans les formulaires : l'UNION France + Belgique. Le pays
+// de l'entreprise n'est pas connu côté client ; les libellés portent donc le drapeau
+// quand un taux est propre à un pays (« 21 % (BE) »). Le serveur, lui, connaît le pays
+// et proposera le bon taux sur un devis (lib/tva.ts).
+const TVA_OPTIONS = tousLesTauxTva().map((t) => String(t));
+
 export type EntityDef = {
   /** Table Postgres (= clé du registre, mais explicite pour lisibilité). */
   table: string;
@@ -120,20 +130,46 @@ export const ENTITIES: Record<string, EntityDef> = {
   catalogue: {
     table: "catalogue",
     label: "Catalogue de prix",
-    writable: ["designation", "type", "reference", "unite", "prix_achat_ht", "prix_vente_ht", "taux_tva", "corps_metier", "notes"],
+    writable: [
+      "designation", "type", "reference", "unite", "prix_achat_ht", "prix_vente_ht", "taux_tva",
+      "corps_metier", "notes", "aliases", "mots_cles", "marque", "modele", "actif",
+      "prix_maj_le", "prix_source", "marge_cible_pct", "fournisseur_id", "minutes_pose",
+      "cout_materiel_estime", "mode_tarif",
+    ],
     fields:
-      "designation (requis), type (fourniture|main_oeuvre|ouvrage), reference, " +
-      "unite (u|m²|m³|ml|kg|h|forfait), prix_achat_ht (nombre), prix_vente_ht (nombre), " +
-      "taux_tva (nombre: 20|10|5.5), corps_metier (macon|electricien|plombier|chauffagiste|…), notes",
+      "LE TARIF DE L'ENTREPRISE — la source de vérité des prix (un prix ne s'invente jamais, il se lit ici). " +
+      "designation (requis), type (fourniture|main_oeuvre|prestation|ouvrage|forfait), reference, " +
+      "unite (u|m²|m³|ml|kg|t|l|h|j|forfait), prix_achat_ht (nombre), prix_vente_ht (nombre), " +
+      "taux_tva (nombre : selon le pays — FR 20|10|5.5, BE 21|12|6), corps_metier, " +
+      "aliases (tableau de textes : les autres façons de NOMMER l'article — « double prise », " +
+      "« bloc 2 prises » — c'est ce qui permet de retrouver l'article dans une dictée), " +
+      "mots_cles (tableau de textes), marque, modele, actif (booléen, un article retiré reste lié aux anciens devis), " +
+      "prix_maj_le (date du dernier changement de PRIX — sert à avertir d'un tarif ancien), " +
+      "prix_source (manuel|fournisseur|calcule|importe|historique), marge_cible_pct (nombre, % — permet de " +
+      "calculer le prix de vente depuis le prix d'achat), fournisseur_id (uuid → suppliers), " +
+      "minutes_pose (nombre, temps de pose estimé), cout_materiel_estime (nombre), " +
+      "mode_tarif (ouvrages : prix_fixe|somme_composants|fixe_plus_variable), notes. " +
+      "Un OUVRAGE se décompose dans l'entité `catalogue_composants`.",
+  },
+  catalogue_composants: {
+    table: "catalogue_composants",
+    label: "Composition des ouvrages",
+    writable: ["ouvrage_id", "composant_id", "quantite", "formule_quantite", "perte_pct", "optionnel", "position"],
+    fields:
+      "DÉCOMPOSITION d'un ouvrage du catalogue (« pose d'un point lumineux » = douille + câble + 45 min de pose). " +
+      "ouvrage_id (uuid → catalogue, l'ouvrage), composant_id (uuid → catalogue, la ressource consommée), " +
+      "quantite (nombre), formule_quantite (texte, quantité variable selon le devis), " +
+      "perte_pct (nombre, % de chute/perte), optionnel (booléen), position (entier, ordre).",
   },
   devis: {
     table: "devis",
     label: "Devis",
-    writable: ["numero", "client_id", "chantier_id", "site_id", "demande_id", "statut", "date_devis", "date_validite", "montant_ht", "montant_tva", "montant_ttc", "conditions", "notes"],
+    writable: ["numero", "client_id", "chantier_id", "site_id", "demande_id", "statut", "date_devis", "date_validite", "montant_ht", "montant_tva", "montant_ttc", "acompte_pct", "conditions", "notes"],
     fields:
       "numero (texte, unique par entreprise), client_id (uuid → clients), chantier_id (uuid → chantiers), " +
       "statut (brouillon|envoye|accepte|refuse|expire), date_devis, date_validite (AAAA-MM-JJ), " +
-      "montant_ht/montant_tva/montant_ttc (nombres), conditions (conditions de paiement), notes. " +
+      "montant_ht/montant_tva/montant_ttc (nombres), acompte_pct (nombre, % d'acompte demandé), " +
+      "conditions (conditions de paiement), notes. " +
       "Le détail chiffré va dans l'entité `lignes` (une ligne par prestation).",
   },
   factures: {
@@ -150,11 +186,21 @@ export const ENTITIES: Record<string, EntityDef> = {
   lignes: {
     table: "lignes",
     label: "Lignes de devis / facture",
-    writable: ["devis_id", "facture_id", "catalogue_id", "designation", "quantite", "unite", "prix_unitaire_ht", "taux_tva", "total_ht", "position"],
+    writable: [
+      "devis_id", "facture_id", "catalogue_id", "designation", "quantite", "unite",
+      "prix_unitaire_ht", "taux_tva", "total_ht", "position",
+      "origine_prix", "confiance_match", "remise_pct", "ouvrage_id",
+    ],
     fields:
       "UNE ligne appartient soit à un devis (devis_id) soit à une facture (facture_id) — l'un des deux OBLIGATOIRE. " +
-      "catalogue_id (uuid → catalogue, optionnel), designation (requis), quantite (nombre), unite, " +
-      "prix_unitaire_ht (nombre), taux_tva (nombre: 20|10|5.5, par ligne), total_ht (nombre = quantite × prix_unitaire_ht), position (entier, ordre d'affichage)",
+      "catalogue_id (uuid → catalogue, l'article d'où vient le prix — À RENSEIGNER dès qu'il existe), " +
+      "designation (requis), quantite (nombre), unite, prix_unitaire_ht (nombre), " +
+      "taux_tva (nombre, par ligne : FR 20|10|5.5, BE 21|12|6), remise_pct (nombre, %), " +
+      "total_ht (nombre = quantite × prix_unitaire_ht − remise), position (entier, ordre d'affichage), " +
+      "origine_prix (D'OÙ VIENT LE PRIX : prix_dicte|catalogue|calcule_marge|suggestion_historique|a_saisir — " +
+      "`a_saisir` signifie qu'AUCUN tarif fiable n'a été trouvé : le devis ne doit pas partir en l'état), " +
+      "confiance_match (nombre 0→1, fiabilité de la correspondance avec l'article du catalogue), " +
+      "ouvrage_id (uuid → catalogue, si la ligne est le détail d'un ouvrage éclaté)",
   },
 
   // ── MAIN D'ŒUVRE & RÉCURRENT (coûts réels + mémoire SAV) ───────────────────
@@ -322,13 +368,18 @@ export const ALLOWED_ENTITIES = Object.keys(ENTITIES);
 export type FormField = {
   key: string;
   label: string;
-  type: "text" | "email" | "tel" | "date" | "number" | "select" | "textarea" | "relation" | "checkbox";
+  /** `tags` = liste de mots (colonne text[]) : les alias d'un article, par exemple. */
+  type: "text" | "email" | "tel" | "date" | "number" | "select" | "textarea" | "relation" | "checkbox" | "tags";
   required?: boolean;
-  /** Valeurs pour type=select. */
+  /** Valeurs pour type=select. Dérivées du RÉFÉRENTIEL quand `vocab` est présent. */
   options?: string[];
   /** Entité liée pour type=relation (le champ stocke son uuid). */
   relation?: string;
   placeholder?: string;
+  /** Vocabulaire fermé qui gouverne ce champ (lib/vocabulaires). Posé automatiquement. */
+  vocab?: string;
+  /** Liste longue → le formulaire affiche une recherche, pas un <select> déroulant. */
+  searchable?: boolean;
 };
 
 /** Colonnes qui composent le libellé d'une fiche liée (selects de relation). */
@@ -343,6 +394,7 @@ export const RELATION_DISPLAY: Record<string, string[]> = {
   interventions: ["type"],
   equipment: ["nom"],
   catalogue: ["designation"],
+  catalogue_composants: ["composant_id"],
   sites: ["nom"],
   demandes: ["titre"],
   commandes: ["numero"],
@@ -381,7 +433,7 @@ export function recordLabel(entity: string, row: Record<string, unknown>): strin
   return "(sans nom)";
 }
 
-export const FORM_FIELDS: Record<string, FormField[]> = {
+const FORM_FIELDS_BASE: Record<string, FormField[]> = {
   clients: [
     { key: "nom", label: "Nom", type: "text", required: true, placeholder: "Jean Dupont / SCI Les Lilas" },
     { key: "type", label: "Type", type: "select", options: ["particulier", "entreprise", "collectivite"] },
@@ -496,14 +548,31 @@ export const FORM_FIELDS: Record<string, FormField[]> = {
   ],
   catalogue: [
     { key: "designation", label: "Désignation", type: "text", required: true, placeholder: "Pose prise 16A…" },
-    { key: "type", label: "Type", type: "select", options: ["fourniture", "main_oeuvre", "ouvrage"] },
+    { key: "type", label: "Type", type: "select" },
+    // LE champ qui fait marcher le devis vocal : les autres façons de nommer l'article.
+    // Sans lui, « mets-moi 6 doubles prises » ne retrouve jamais « Prise double encastrée ».
+    { key: "aliases", label: "Autres appellations", type: "tags", placeholder: "double prise, bloc 2 prises…" },
     { key: "reference", label: "Référence", type: "text" },
-    { key: "unite", label: "Unité", type: "select", options: ["u", "m²", "m³", "ml", "kg", "h", "forfait"] },
+    { key: "marque", label: "Marque", type: "text" },
+    { key: "unite", label: "Unité", type: "select" },
     { key: "prix_achat_ht", label: "Prix d'achat (€ HT)", type: "number" },
     { key: "prix_vente_ht", label: "Prix de vente (€ HT)", type: "number" },
-    { key: "taux_tva", label: "TVA (%)", type: "select", options: ["20", "10", "5.5"] },
+    { key: "marge_cible_pct", label: "Marge cible (%)", type: "number" },
+    { key: "taux_tva", label: "TVA (%)", type: "select", options: TVA_OPTIONS, vocab: "taux_tva" },
     { key: "corps_metier", label: "Corps de métier", type: "text" },
+    { key: "fournisseur_id", label: "Fournisseur", type: "relation", relation: "suppliers" },
+    { key: "minutes_pose", label: "Temps de pose (min)", type: "number" },
+    { key: "mode_tarif", label: "Tarif de l'ouvrage", type: "select" },
+    { key: "actif", label: "Actif", type: "checkbox" },
     { key: "notes", label: "Notes", type: "textarea" },
+  ],
+  catalogue_composants: [
+    { key: "ouvrage_id", label: "Ouvrage", type: "relation", relation: "catalogue", required: true },
+    { key: "composant_id", label: "Ressource consommée", type: "relation", relation: "catalogue", required: true },
+    { key: "quantite", label: "Quantité", type: "number" },
+    { key: "perte_pct", label: "Perte / chute (%)", type: "number" },
+    { key: "optionnel", label: "Optionnel", type: "checkbox" },
+    { key: "position", label: "Ordre", type: "number" },
   ],
   devis: [
     { key: "numero", label: "Numéro", type: "text", required: true, placeholder: "D-2026-001" },
@@ -540,10 +609,12 @@ export const FORM_FIELDS: Record<string, FormField[]> = {
     { key: "catalogue_id", label: "Article du catalogue", type: "relation", relation: "catalogue" },
     { key: "designation", label: "Désignation", type: "text", required: true },
     { key: "quantite", label: "Quantité", type: "number" },
-    { key: "unite", label: "Unité", type: "text" },
+    { key: "unite", label: "Unité", type: "select" },
     { key: "prix_unitaire_ht", label: "PU HT (€)", type: "number" },
-    { key: "taux_tva", label: "TVA (%)", type: "select", options: ["20", "10", "5.5"] },
+    { key: "remise_pct", label: "Remise (%)", type: "number" },
+    { key: "taux_tva", label: "TVA (%)", type: "select", options: TVA_OPTIONS, vocab: "taux_tva" },
     { key: "total_ht", label: "Total HT (€)", type: "number" },
+    { key: "origine_prix", label: "Origine du prix", type: "select" },
   ],
   pointages: [
     { key: "employee_id", label: "Employé", type: "relation", relation: "employees", required: true },
@@ -737,6 +808,195 @@ export const FORM_FIELDS: Record<string, FormField[]> = {
   ],
 };
 
+/**
+ * LES LISTES DU FORMULAIRE SONT DÉRIVÉES DU RÉFÉRENTIEL — jamais recopiées.
+ *
+ * Tout champ déclaré dans FIELD_VOCAB devient une liste fermée, avec EXACTEMENT
+ * les valeurs que le serveur accepte. C'est structurel : le formulaire ne PEUT
+ * plus proposer une valeur que /api/data refuserait, ni laisser en texte libre un
+ * champ sur lequel un agent filtre (« mes chefs d'équipe » → `role = chef_equipe`).
+ * Ajouter une valeur au métier = l'ajouter dans lib/vocabulaires, un seul endroit.
+ */
+export const FORM_FIELDS: Record<string, FormField[]> = Object.fromEntries(
+  Object.entries(FORM_FIELDS_BASE).map(([entity, fields]) => [
+    entity,
+    fields.map((f): FormField => {
+      const vocabId = FIELD_VOCAB[`${entity}.${f.key}`];
+      if (!vocabId || f.type === "relation") return f;
+      const vocab = VOCABS[vocabId];
+      if (!vocab) return f;
+      return {
+        ...f,
+        type: "select",
+        options: vocabValues(vocabId),
+        vocab: vocabId,
+        searchable: vocab.searchable,
+        // Le placeholder d'un champ libre (« Chef d'équipe, compagnon… ») n'a plus
+        // de sens sur une liste : il invitait précisément à la saisie libre.
+        placeholder: undefined,
+      };
+    }),
+  ])
+);
+
+// ─── i18n des FORMULAIRES (labels / placeholders / options) ──────────────────
+// FORM_FIELDS reste la SOURCE FR (partagée SDK/agents/apps, inchangée). Pour
+// l'affichage en anglais, on traduit UNIQUEMENT le texte VISIBLE, jamais les
+// `key`, `relation`, ni les VALEURS d'options (ce sont des enums stockés en base
+// : les traduire casserait les données, les filtres et les agents). Les maps
+// sont indexées par la CHAÎNE FR (label / placeholder / valeur) → EN, avec repli
+// sur la VF quand l'entrée manque. Helpers `fieldLabel/fieldPlaceholder/optionLabel`.
+
+const FIELD_LABEL_EN: Record<string, string> = {
+  "Nom": "Name", "Type": "Type", "Statut": "Status", "Source": "Source",
+  "Téléphone": "Phone", "Email": "Email", "Adresse": "Address", "Ville": "City",
+  "Code postal": "Postal code", "SIRET (si pro)": "Company ID (if applicable)", "Notes": "Notes",
+  "Prénom": "First name", "Rôle": "Role", "Corps de métier": "Trade",
+  "Date d'embauche": "Hire date", "Taux horaire (€)": "Hourly rate (€)",
+  "Nom du chantier": "Project name", "Client": "Client", "Site / Adresse": "Site / Address",
+  "Demande d'origine": "Source request", "Budget (€ HT)": "Budget (excl. tax €)",
+  "Avancement (%)": "Progress (%)", "Début": "Start", "Fin prévue": "Planned end",
+  "Chef de chantier": "Site manager", "Description": "Description", "Chantier": "Project",
+  "Employé": "Employee", "Expire le": "Expires on", "Lien (URL)": "Link (URL)",
+  "Référence": "Reference", "Catégorie": "Category", "Quantité": "Quantity", "Unité": "Unit",
+  "Seuil d'alerte stock": "Low-stock threshold", "Prix d'achat (€ HT)": "Purchase price (excl. tax €)",
+  "Prix de vente (€ HT)": "Sale price (excl. tax €)", "Chantier affecté": "Assigned project",
+  "Fournisseur": "Supplier", "Spécialité": "Specialty", "SIRET": "Company ID",
+  "Assurance décennale (n°/assureur)": "Liability insurance (no./insurer)",
+  "Assurance expire le": "Insurance expires on", "Marque": "Brand", "N° de série": "Serial number",
+  "Date d'achat": "Purchase date", "Prochain contrôle": "Next inspection", "Intervenant": "Assignee",
+  "Équipement": "Equipment", "Date prévue": "Planned date", "Durée (h)": "Duration (h)",
+  "Titre": "Title", "Assignée à": "Assigned to", "Priorité": "Priority", "Échéance": "Due date",
+  "Désignation": "Description", "TVA (%)": "VAT (%)", "Numéro": "Number", "Date du devis": "Quote date",
+  "Valide jusqu'au": "Valid until", "Montant HT (€)": "Amount excl. tax (€)", "TVA (€)": "VAT (€)",
+  "Montant TTC (€)": "Amount incl. tax (€)", "Conditions de paiement": "Payment terms",
+  "Devis d'origine": "Source quote", "Date de facture": "Invoice date", "Déjà payé (€)": "Already paid (€)",
+  "Devis": "Quote", "Facture": "Invoice", "Article du catalogue": "Catalog item",
+  "PU HT (€)": "Unit price excl. tax (€)", "Total HT (€)": "Total excl. tax (€)", "Intervention": "Job",
+  "Date": "Date", "Heures": "Hours", "Validé": "Approved", "Équipement couvert": "Covered equipment",
+  "Montant (€)": "Amount (€)", "Périodicité": "Frequency", "Fin": "End",
+  "Prochaine échéance": "Next due date", "Type d'équipement": "Equipment type", "Modèle": "Model",
+  "Localisation chez le client": "Location at client site", "Chantier d'origine": "Source project",
+  "Date de pose": "Installation date", "Fin de garantie": "Warranty end", "Prochain entretien": "Next service",
+  "Nom du site": "Site name", "Contact sur place": "On-site contact", "Téléphone contact": "Contact phone",
+  "Objet de la demande": "Request subject", "Client / Prospect": "Client / Prospect", "Canal": "Channel",
+  "Reçue le": "Received on", "Date de commande": "Order date", "Livraison prévue": "Expected delivery",
+  "Livraison réelle": "Actual delivery", "N° facture fournisseur": "Supplier invoice no.",
+  "Chantier imputé": "Charged to project", "Commande liée": "Linked order", "Facture réglée": "Invoice paid",
+  "Date d'encaissement": "Payment date", "Méthode": "Method",
+  "Référence (n° chèque, virement…)": "Reference (cheque no., transfer…)",
+  "Objet de la réserve": "Snag subject", "Sous-traitant concerné": "Subcontractor involved",
+  "Gravité": "Severity", "Constatée le": "Noted on", "Résolue le": "Resolved on", "Intitulé": "Title",
+  "Assigné à": "Assigned to", "Contrat": "Contract", "Document": "Document",
+  "Nom de l'étape": "Phase name", "Ordre": "Order", "Responsable": "Owner", "Sous-traitant": "Subcontractor",
+  "Début prévu": "Planned start", "Début réel": "Actual start", "Fin réelle": "Actual end",
+  "Objet": "Subject", "Sens": "Direction", "Destinataire (email / n°)": "Recipient (email / no.)",
+  "Message": "Message", "Demande": "Request", "Fournisseur / Sous-traitant": "Supplier / Subcontractor",
+  "Note": "Note", "Auteur": "Author", "Réserve": "Snag", "Tâche": "Task", "Signataire": "Signatory",
+  "Email signataire": "Signatory email", "Téléphone signataire": "Signatory phone",
+  "Demandé par": "Requested by", "Signé le": "Signed on", "Motif du refus": "Rejection reason",
+};
+
+const FIELD_PLACEHOLDER_EN: Record<string, string> = {
+  "Jean Dupont / SCI Les Lilas": "John Smith / Acme Ltd",
+  "Formulaire, bouche-à-oreille, recommandation…": "Web form, word of mouth, referral…",
+  "06 12 34 56 78": "07700 900000",
+  "jean@exemple.fr": "john@example.com",
+  "Chef d'équipe, compagnon…": "Team lead, tradesperson…",
+  "Électricien, plombier…": "Electrician, plumber…",
+  "Rénovation SdB Morel": "Morel bathroom refurb",
+  "Négoce, plâtrerie…": "Merchant, plastering…",
+  "Mini-pelle, échafaudage…": "Mini-digger, scaffolding…",
+  "Dépannage, entretien, SAV…": "Repair, maintenance, after-sales…",
+  "Pose prise 16A…": "Install 16A socket…",
+  "Villa Morel / Siège / Lot 3": "Morel villa / HQ / Unit 3",
+  "Devis rénovation SdB / SAV chaudière": "Bathroom refurb quote / boiler after-sales",
+  "Bouche-à-oreille, recommandation…": "Word of mouth, referral…",
+  "Fissure plafond salon": "Living-room ceiling crack",
+  "Relancer devis / Rappeler client": "Chase quote / Call client back",
+  "Plomberie / Peinture / Réception": "Plumbing / Painting / Handover",
+  "Relance devis / Confirmation RDV": "Quote follow-up / Appointment confirmation",
+  "Observation chantier": "Site observation",
+};
+
+// Affichage EN des VALEURS d'options (la valeur stockée ne change JAMAIS).
+const OPTION_LABEL_EN: Record<string, string> = {
+  a_faire: "to do", a_payer: "to pay", a_valider: "to approve", absence: "absence",
+  acceptation_devis: "quote acceptance", accepte: "accepted", acompte: "deposit", actif: "active",
+  affecte: "assigned", annuel: "yearly", annule: "cancelled", annulee: "cancelled",
+  appartement: "apartment", appel: "call", approbation_document: "document approval",
+  approuve: "approved", archive: "archived", arret: "stopped", autre: "other", avoir: "credit note",
+  basse: "low", bloquante: "blocking", bloque: "blocked", brouillon: "draft", carburant: "fuel",
+  carrelage: "tiling", cb: "card", chantier: "project", chaudiere: "boiler", chauffe_eau: "water heater",
+  cheque: "cheque", climatisation: "air conditioning", collectivite: "public body", confirmee: "confirmed",
+  converti: "converted", demande_prix: "price request", demolition: "demolition", devis: "quote",
+  disponible: "available", doing: "doing", done: "done", echeance: "due date", echec: "failed",
+  electricite: "electrical", email: "email", en_attente: "pending", en_cours: "in progress",
+  en_retard: "overdue", entrant: "incoming", entreprise: "company", entretien: "maintenance",
+  envoye: "sent", envoyee: "sent", especes: "cash", expiration: "expiry", expire: "expired",
+  facturation: "billing", facture: "invoice", fait: "done", finition: "finishing", forfait: "flat rate",
+  formulaire: "form", fournisseur: "supplier", fourniture: "supply", frais: "expense", garantie: "warranty",
+  gros_oeuvre: "structural work", haute: "high", heure_sup: "overtime", high: "high",
+  hors_service: "out of service", ia: "AI", immeuble: "building", import: "import", inactif: "inactive",
+  incident: "incident", interne: "internal", intervention: "job", kbis: "registration extract",
+  levee: "lifted", litige: "dispute", livree: "delivered", local: "premises", location: "rental",
+  lot: "phase", low: "low", main_oeuvre: "labor", maintenance: "maintenance", majeure: "major",
+  malfacon: "defect", manquant: "missing", manuel: "manual", materiaux: "materials", mensuel: "monthly",
+  menuiserie: "joinery", mineure: "minor", normal: "normal", normale: "normal", note_appel: "call note",
+  nouveau: "new", ouverte: "open", ouvrage: "structure", particulier: "individual",
+  partiellement_payee: "partially paid", payee: "paid", peinture: "painting", perdu: "lost",
+  planifie: "scheduled", platrerie: "plastering", plomberie: "plumbing", point_bloquant: "blocker",
+  pompe_chaleur: "heat pump", prelevement: "direct debit", preparation: "preparation", prospect: "prospect",
+  qualibat: "Qualibat", rappel: "reminder", rc_pro: "professional liability", rdv: "appointment",
+  reception: "handover", receptionne: "received", recu: "received", refuse: "declined", rejete: "rejected",
+  relance: "follow-up", reserve: "snag", residence: "residence", resilie: "terminated", salon: "living room",
+  sav: "after-sales", semestriel: "half-yearly", siege: "HQ", signature_intervention: "job sign-off",
+  signature_pv: "handover sign-off", signe: "signed", site: "site", situation: "progress claim",
+  sms: "SMS", sortant: "outgoing", sous_traitance: "subcontracting", sous_traitant: "subcontractor",
+  suspendu: "on hold", tableau_electrique: "electrical panel", telephone: "phone", termine: "completed",
+  todo: "to do", trajet: "travel", trimestriel: "quarterly", u: "unit", urssaf: "URSSAF",
+  validation_facture: "invoice approval", validation_reserve: "snag approval", valide: "valid",
+  virement: "bank transfer", vmc: "ventilation (VMC)", vocal: "voice", whatsapp: "WhatsApp",
+};
+
+/** Label d'un champ de formulaire, traduit si l'interface est en anglais. */
+export function fieldLabel(label: string, locale: Locale): string {
+  return locale === "en" ? (FIELD_LABEL_EN[label] ?? label) : label;
+}
+
+/** Placeholder d'un champ, traduit si EN (repli sur la VF si non listé). */
+export function fieldPlaceholder(placeholder: string | undefined, locale: Locale): string | undefined {
+  if (!placeholder) return placeholder;
+  return locale === "en" ? (FIELD_PLACEHOLDER_EN[placeholder] ?? placeholder) : placeholder;
+}
+
+/** Affichage d'une VALEUR d'option (la valeur stockée est inchangée). Le RÉFÉRENTIEL
+ *  fait foi quand le champ en a un (« chef_equipe » → « Chef d'équipe ») ; sinon on
+ *  retombe sur le texte lisible + la traduction EN historique. */
+export function optionLabel(value: string, locale: Locale, vocabId?: string): string {
+  if (vocabId && VOCABS[vocabId]) return vocabLabel(vocabId, value, locale);
+  if (locale === "en" && OPTION_LABEL_EN[value]) return OPTION_LABEL_EN[value];
+  return value.replace(/_/g, " ");
+}
+
+// Nom EN d'une ENTITÉ (le picker workspace, le sélecteur de portée…). Doit
+// rester ALIGNÉ avec ENTITY_LABEL_EN de app/(app)/workspace/page.tsx.
+const ENTITY_LABEL_EN: Record<string, string> = {
+  chantiers: "Job sites", clients: "Clients", employees: "Employees", documents: "Documents",
+  interventions: "Jobs", materials: "Materials", equipment: "Equipment", suppliers: "Suppliers",
+  tasks: "Tasks", catalogue: "Catalog", catalogue_composants: "Work package items",
+  devis: "Quotes", factures: "Invoices", pointages: "Time tracking",
+  contrats: "Contracts", parc_installe: "Installed base", sites: "Sites / Addresses", demandes: "Requests",
+  commandes: "Orders", depenses: "Expenses", paiements: "Payments", reserves: "Snags", rappels: "Reminders",
+  messages: "Messages", notes: "Notes", validations: "Validations",
+};
+
+/** Nom d'une entité (registre ENTITIES), traduit si l'interface est en anglais. */
+export function entityLabel(key: string, locale: Locale): string {
+  if (locale === "en") return ENTITY_LABEL_EN[key] ?? ENTITIES[key]?.label ?? key;
+  return ENTITIES[key]?.label ?? key;
+}
+
 // ─── Détection : la demande porte-t-elle sur une entité connectée ? ──────────
 
 const ENTITY_KEYWORDS: Record<string, string[]> = {
@@ -908,6 +1168,45 @@ ${catalog}
  * exacts → tables workspace partagées) avec leurs SCHÉMAS DE CHAMPS détaillés. Le
  * reste passe AUSSI par window.biltia (collections libres, cloud) — JAMAIS localStorage.
  */
+/**
+ * VALEURS AUTORISÉES — bloc généré depuis le référentiel (lib/vocabulaires).
+ *
+ * Une app générée écrit dans les MÊMES colonnes que le formulaire du workspace et
+ * que les agents. Si elle invente « En cours » là où le référentiel dit `en_cours`,
+ * le veilleur qui filtre sur `en_cours` rate la fiche en silence. Le serveur rattrape
+ * les écarts connus et refuse les inconnus — mais autant que le modèle écrive juste
+ * du premier coup : on lui donne la liste exacte, jamais une paraphrase.
+ */
+function buildVocabBlock(entityKeys: string[]): string {
+  const lines: string[] = [];
+  for (const entity of entityKeys) {
+    const champs = Object.entries(FIELD_VOCAB)
+      .filter(([key]) => key.startsWith(`${entity}.`))
+      .map(([key, vocabId]) => {
+        const field = key.slice(entity.length + 1);
+        const vocab = VOCABS[vocabId];
+        if (!vocab) return null;
+        const vals = vocab.options.map((o) => o.value).join(" | ");
+        return `  - \`${field}\` : ${vals}`;
+      })
+      .filter(Boolean);
+    if (champs.length) lines.push(`- \`${entity}\`\n${champs.join("\n")}`);
+  }
+  if (!lines.length) return "";
+
+  return `
+## VALEURS AUTORISÉES (listes fermées — le serveur REFUSE tout le reste)
+Ces champs ne sont PAS du texte libre. Écris la valeur EXACTE de la liste (minuscules,
+underscores), jamais un libellé d'affichage : \`en_cours\` et non « En cours », \`chef_equipe\`
+et non « Chef d'équipe ». Dans l'interface, affiche un \`<select>\` avec ces valeurs — jamais
+un \`<input type="text">\`. Une saisie libre ici casserait les filtres et les agents de
+l'entreprise (« envoie le planning à mes chefs d'équipe » ne trouverait plus personne).
+${lines.join("\n")}
+  - Option \`autre\` : quand elle existe et que rien ne convient, stocke \`autre:precision\`
+    (ex \`autre:carreleur_mosaiste\`). Jamais une valeur inventée.
+`;
+}
+
 export function buildDataModeBlock(entityKeys: string[]): string {
   if (!entityKeys.length) return "";
 
@@ -926,7 +1225,7 @@ utiliser l'API globale \`window.biltia\` (asynchrone) — **PAS localStorage**.
 
 ## Entités connectées disponibles
 ${list}
-
+${buildVocabBlock(entityKeys)}
 ## API \`window.biltia\` (déjà injectée, ne la redéfinis pas)
 - \`await biltia.list('${primary}', { match, order, ascending, limit })\` → tableau de lignes
 - \`await biltia.get('${primary}', id)\` → une ligne
@@ -937,12 +1236,16 @@ ${list}
 - \`await biltia.transcribe(audioDataUrl, { fields:['employe','heures','date'] })\` → **IA VOIX** : transcrit une DICTÉE et renvoie \`{ text, data:{employe, heures, date} }\` (sans \`fields\` → \`{ text }\` seul). Idéal pour pointer/noter à la voix, mains libres. ~10-25 crédits.
 - \`await biltia.sendEmail({ to:'client@ex.fr', subject:'…', body:'…' })\` → **ENVOI EMAIL** au nom de l'entreprise (Gmail connecté de l'utilisateur si dispo, sinon envoi Biltia). Dès qu'un devis/une facture/un message client est en jeu, propose un bouton « Envoyer par email » qui appelle ceci (vérifie qu'une adresse existe, ne l'invente jamais).
 - \`await biltia.sendSms({ to:'+33612345678', body:'…' })\` → **ENVOI SMS** au nom de l'entreprise (relance facture, confirmation RDV). Bouton « Relancer par SMS » là où c'est utile ; vérifie qu'un numéro existe, ne l'invente jamais.
+- \`await biltia.link({entity:'employees',id:e}, {entity:'chantiers',id:c}, 'affecte')\` / \`biltia.unlink(…)\` / \`await biltia.links('chantiers', c, {with:'employees'})\` → **RELATIONS PLUSIEURS-À-PLUSIEURS** : quand une fiche peut être reliée à PLUSIEURS autres (un employé sur plusieurs chantiers, un chantier avec plusieurs employés, un document rattaché à plusieurs objets), utilise ces liens plutôt qu'un seul champ \`*_id\`. Le lien est unique et symétrique. \`biltia.links(...)\` liste les fiches reliées (dans les deux sens), \`{with:'…'}\` filtre par type. Pour une relation SIMPLE (un chantier a UN client), garde le champ \`client_id\`.
+- \`await biltia.listAttachedAgents()\` / \`biltia.createAgent(instruction)\` / \`biltia.pauseAgent(id)\` / \`biltia.resumeAgent(id)\` / \`biltia.triggerAgent(id)\` / \`biltia.listPendingApprovals()\` → **AGENTS DE L'APP** : si l'app gagne à avoir une automatisation de fond (« chaque vendredi, envoyer le récap au client », « prévenir dès qu'un chantier prend du retard »), tu peux afficher une petite section « Automatisations » qui liste les agents rattachés (\`listAttachedAgents\`), permet d'en créer un en langage clair (\`createAgent('…')\`), de les mettre en pause/relancer, et de voir les messages **en attente de validation** (\`listPendingApprovals\`). N'ajoute cette section QUE si elle est utile au métier de l'app ; ne crée jamais d'agent tout seul sans action de l'utilisateur.
+- \`biltia.track('action_clicked', { action:'export_pdf' })\` → **TÉLÉMÉTRIE D'USAGE** (facultatif, jamais bloquant) : signale une action importante que l'utilisateur déclenche. L'ouverture de l'app, l'ouverture d'une vue \`biltiaUI\` et la création de fiche sont déjà tracées automatiquement — n'ajoute \`track\` que pour une action métier notable (export, envoi, validation).
 Chaque ligne possède un \`id\` (uuid) généré par le serveur. N'envoie jamais \`id\`,
 \`tenant_id\` ni les dates \`*_at\` dans create/update : le serveur les gère.
 Pour un champ optionnel laissé vide (uuid de liaison, date, nombre), envoie \`null\`
 (ou omets la clé) — JAMAIS une chaîne vide \`""\`.
 
 ## Règles d'implémentation (obligatoires)
+0. FILTRES / PAGINATION / FORMULES (côté serveur — Phase 9) : pour une liste qui peut être longue, filtrée ou triée, utilise \`await biltia.listPage('${primary}', { filters:{ type:'all', conditions:[{field:'statut',op:'eq',value:'en_cours'},{field:'date_fin_prevue',op:'before',value:'@today'}] }, search:'mot', searchFields:['nom'], order:'created_at', ascending:false, offset:0, limit:20 })\` → \`{ data, total, hasMore }\`. Opérateurs : eq/neq/gt/gte/lt/lte/contains/before/after/is_empty/is_not_empty/in/mine (\`mine\` = mes fiches, filtrées sur l'employé connecté). Dates relatives : \`@today\`, \`@today-7d\`. Le filtrage/tri/pagination se fait EN BASE (jamais charger 500 lignes pour filtrer en JS). Pour un CALCUL d'affichage (marge, avancement, reste à payer), utilise \`biltiaUI.compute({operation:'subtract',args:[{field:'montant_ttc'},{field:'montant_paye'}]}, fiche)\` (opérations : add/subtract/multiply/divide/sum/average/min/max/percentage/if/coalesce/date_diff) — jamais un calcul « en dur » faux. Les montants LÉGAUX (facturation) restent gérés par le serveur.
 1. Au démarrage : fonction \`async function load(){ const rows = await biltia.list('${primary}', { order:'created_at', ascending:false }); render(rows); }\` appelée dans un \`try/catch\`.
 2. Après create/update/remove : ré-appelle \`load()\` pour rafraîchir (pas de cache localStorage pour ces entités).
 3. Affiche un état de chargement et un état d'erreur clair si l'API échoue

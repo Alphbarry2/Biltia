@@ -1,18 +1,25 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase-server";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { getLocale } from "@/lib/i18n/server";
+import { pick } from "@/lib/i18n/config";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DELETE /api/account — suppression définitive du compte (RGPD).
-// L'utilisateur confirme côté client en tapant « SUPPRIMER ». La suppression
-// auth.users cascade sur profiles, memberships, conversations, reports…
+// L'utilisateur confirme côté client en tapant « SUPPRIMER » (« DELETE » en
+// anglais) ; le client envoie TOUJOURS "SUPPRIMER" au serveur (contrat API).
+// La suppression auth.users cascade sur profiles, memberships, conversations…
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function DELETE(req: Request) {
+  const locale = await getLocale();
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
-    return NextResponse.json({ error: "Authentification requise." }, { status: 401 });
+    return NextResponse.json(
+      { error: pick(locale, "Authentification requise.", "Authentication required.") },
+      { status: 401 }
+    );
   }
 
   let confirmation = "";
@@ -24,7 +31,13 @@ export async function DELETE(req: Request) {
   }
   if (confirmation !== "SUPPRIMER") {
     return NextResponse.json(
-      { error: "Confirmation invalide : tapez SUPPRIMER pour valider." },
+      {
+        error: pick(
+          locale,
+          "Confirmation invalide : tapez SUPPRIMER pour valider.",
+          "Invalid confirmation: type DELETE to confirm."
+        ),
+      },
       { status: 400 }
     );
   }
@@ -32,7 +45,13 @@ export async function DELETE(req: Request) {
   const admin = createAdminClient();
   if (!admin) {
     return NextResponse.json(
-      { error: "Suppression indisponible (configuration serveur incomplète)." },
+      {
+        error: pick(
+          locale,
+          "Suppression indisponible (configuration serveur incomplète).",
+          "Account deletion is unavailable (incomplete server configuration)."
+        ),
+      },
       { status: 503 }
     );
   }

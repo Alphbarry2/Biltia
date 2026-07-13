@@ -13,6 +13,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase-server";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
+import { getLocale } from "@/lib/i18n/server";
+import { pick } from "@/lib/i18n/config";
 import { trackAiUsage } from "@/lib/ai-usage";
 import { embedTexts, hasEmbeddingKey } from "@/lib/embeddings";
 import { chunkText } from "@/lib/rag";
@@ -34,8 +36,13 @@ async function resolveMembership() {
 }
 
 export async function GET() {
+  const locale = await getLocale();
   const { supabase, user } = await resolveMembership();
-  if (!user) return Response.json({ error: "Authentification requise." }, { status: 401 });
+  if (!user)
+    return Response.json(
+      { error: pick(locale, "Authentification requise.", "Authentication required.") },
+      { status: 401 }
+    );
 
   // RLS filtre automatiquement : global (tenant_id null) + docs du tenant.
   const { data, error } = await supabase
@@ -43,24 +50,43 @@ export async function GET() {
     .select("id, tenant_id, title, source_url, source_type, license, trade_ids, created_at")
     .order("created_at", { ascending: false });
 
-  if (error) return Response.json({ error: "Lecture impossible." }, { status: 500 });
+  if (error)
+    return Response.json({ error: pick(locale, "Lecture impossible.", "Unable to read.") }, { status: 500 });
   return Response.json({ documents: data ?? [] });
 }
 
 export async function POST(req: Request) {
+  const locale = await getLocale();
   const { supabase, user, membership } = await resolveMembership();
-  if (!user) return Response.json({ error: "Authentification requise." }, { status: 401 });
-  if (!membership) return Response.json({ error: "Aucun espace de travail." }, { status: 403 });
+  if (!user)
+    return Response.json(
+      { error: pick(locale, "Authentification requise.", "Authentication required.") },
+      { status: 401 }
+    );
+  if (!membership)
+    return Response.json({ error: pick(locale, "Aucun espace de travail.", "No workspace.") }, { status: 403 });
 
   if (!WRITE_ROLES.includes(membership.role)) {
     return Response.json(
-      { error: "Seuls owner, admin ou manager peuvent enrichir la base de connaissances." },
+      {
+        error: pick(
+          locale,
+          "Seuls owner, admin ou manager peuvent enrichir la base de connaissances.",
+          "Only an owner, admin or manager can add to the knowledge base."
+        ),
+      },
       { status: 403 }
     );
   }
   if (!hasEmbeddingKey()) {
     return Response.json(
-      { error: "Vectorisation non configurée (OPENAI_API_KEY manquante)." },
+      {
+        error: pick(
+          locale,
+          "Vectorisation non configurée (OPENAI_API_KEY manquante).",
+          "Vectorization is not configured (OPENAI_API_KEY missing)."
+        ),
+      },
       { status: 503 }
     );
   }
@@ -76,7 +102,10 @@ export async function POST(req: Request) {
   try {
     body = await req.json();
   } catch {
-    return Response.json({ error: "Corps de requête invalide." }, { status: 400 });
+    return Response.json(
+      { error: pick(locale, "Corps de requête invalide.", "Invalid request body.") },
+      { status: 400 }
+    );
   }
 
   const title = typeof body.title === "string" ? body.title.trim() : "";
@@ -87,7 +116,10 @@ export async function POST(req: Request) {
   if (!content && body.file?.data && body.file.mediaType === "application/pdf") {
     const approxBytes = Math.floor(body.file.data.length * 0.75);
     if (approxBytes > 3.5 * 1024 * 1024) {
-      return Response.json({ error: "PDF trop lourd (3,5 Mo max)." }, { status: 400 });
+      return Response.json(
+        { error: pick(locale, "PDF trop lourd (3,5 Mo max).", "PDF too large (3.5 MB max).") },
+        { status: 400 }
+      );
     }
     try {
       const client = new Anthropic();
@@ -125,17 +157,29 @@ export async function POST(req: Request) {
       }).catch(() => {});
     } catch {
       return Response.json(
-        { error: "Extraction du PDF impossible. Réessayez, ou collez le texte directement." },
+        {
+          error: pick(
+            locale,
+            "Extraction du PDF impossible. Réessayez, ou collez le texte directement.",
+            "Could not extract the PDF. Try again, or paste the text directly."
+          ),
+        },
         { status: 502 }
       );
     }
   }
 
   if (!title || !content) {
-    return Response.json({ error: "« title » et « content » sont requis." }, { status: 400 });
+    return Response.json(
+      { error: pick(locale, "« title » et « content » sont requis.", "“title” and “content” are required.") },
+      { status: 400 }
+    );
   }
   if (content.length > 50000) {
-    return Response.json({ error: "Document trop long (50000 caractères max)." }, { status: 400 });
+    return Response.json(
+      { error: pick(locale, "Document trop long (50000 caractères max).", "Document too long (50,000 characters max).") },
+      { status: 400 }
+    );
   }
 
   const source_url =
@@ -154,10 +198,16 @@ export async function POST(req: Request) {
   try {
     embeddings = await embedTexts(chunks);
   } catch {
-    return Response.json({ error: "Échec de la vectorisation (Mistral)." }, { status: 502 });
+    return Response.json(
+      { error: pick(locale, "Échec de la vectorisation (Mistral).", "Vectorization failed (Mistral).") },
+      { status: 502 }
+    );
   }
   if (!embeddings) {
-    return Response.json({ error: "Vectorisation non configurée." }, { status: 503 });
+    return Response.json(
+      { error: pick(locale, "Vectorisation non configurée.", "Vectorization is not configured.") },
+      { status: 503 }
+    );
   }
 
   const tenantId = membership.tenant_id;
@@ -178,7 +228,10 @@ export async function POST(req: Request) {
     .single();
 
   if (docErr || !inserted) {
-    return Response.json({ error: "Insertion refusée (droits insuffisants ?)." }, { status: 403 });
+    return Response.json(
+      { error: pick(locale, "Insertion refusée (droits insuffisants ?).", "Insert refused (insufficient permissions?).") },
+      { status: 403 }
+    );
   }
 
   const rows = chunks.map((c, i) => ({
@@ -197,7 +250,10 @@ export async function POST(req: Request) {
   if (chunkErr) {
     // Rollback best-effort : on retire le document orphelin.
     await supabase.from("knowledge_documents").delete().eq("id", inserted.id);
-    return Response.json({ error: "Insertion des extraits échouée." }, { status: 500 });
+    return Response.json(
+      { error: pick(locale, "Insertion des extraits échouée.", "Failed to insert the excerpts.") },
+      { status: 500 }
+    );
   }
 
   return Response.json({ ok: true, documentId: inserted.id, chunks: rows.length });

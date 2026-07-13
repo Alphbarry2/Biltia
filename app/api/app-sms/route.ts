@@ -11,9 +11,11 @@
 import { createClient } from "@/lib/supabase-server";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
 import { enforceRateLimit, LIMITS } from "@/lib/rate-limit";
-import { getEntitlementsForTenant, canSendMessages, FROZEN_MESSAGE } from "@/lib/entitlements";
+import { getEntitlementsForTenant, canSendMessages, FROZEN_MESSAGE, frozenMessage } from "@/lib/entitlements";
 import { isFounderEmail } from "@/lib/founder";
 import { sendSms } from "@/lib/outbound-sms";
+import { getLocale } from "@/lib/i18n/server";
+import { pick } from "@/lib/i18n/config";
 
 function sameOrigin(req: Request): boolean {
   const origin = req.headers.get("origin");
@@ -26,8 +28,9 @@ function sameOrigin(req: Request): boolean {
 }
 
 export async function POST(req: Request) {
+  const locale = await getLocale();
   if (!sameOrigin(req)) {
-    return Response.json({ error: "Origine non autorisée." }, { status: 403 });
+    return Response.json({ error: pick(locale, "Origine non autorisée.", "Origin not allowed.") }, { status: 403 });
   }
 
   const supabase = await createClient();
@@ -35,7 +38,10 @@ export async function POST(req: Request) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) {
-    return Response.json({ error: "Authentification requise." }, { status: 401 });
+    return Response.json(
+      { error: pick(locale, "Authentification requise.", "Authentication required.") },
+      { status: 401 }
+    );
   }
 
   const limited = await enforceRateLimit("app_sms", user.id, LIMITS.app_sms);
@@ -43,13 +49,13 @@ export async function POST(req: Request) {
 
   const membership = await getActiveMembershipServer(supabase, user.id);
   if (!membership) {
-    return Response.json({ error: "Aucun espace de travail." }, { status: 403 });
+    return Response.json({ error: pick(locale, "Aucun espace de travail.", "No workspace.") }, { status: 403 });
   }
   const tenantId = membership.tenant_id;
 
   const ent = await getEntitlementsForTenant(supabase, tenantId);
   if (!ent.writable) {
-    return Response.json({ error: FROZEN_MESSAGE, frozen: true }, { status: 403 });
+    return Response.json({ error: frozenMessage(locale), frozen: true }, { status: 403 });
   }
 
   // Plan : l'envoi automatique de SMS est réservé à Pro (et a un coût réel chez le
@@ -57,8 +63,11 @@ export async function POST(req: Request) {
   if (!canSendMessages(ent) && !isFounderEmail(user.email)) {
     return Response.json(
       {
-        error:
+        error: pick(
+          locale,
           "L'envoi de SMS depuis vos apps fait partie du plan Pro. Passez à un plan payant pour l'activer.",
+          "Sending SMS from your apps is part of the Pro plan. Upgrade to a paid plan to enable it."
+        ),
         upgrade: true,
       },
       { status: 403 }
@@ -69,7 +78,7 @@ export async function POST(req: Request) {
   try {
     body = await req.json();
   } catch {
-    return Response.json({ error: "Requête invalide." }, { status: 400 });
+    return Response.json({ error: pick(locale, "Requête invalide.", "Invalid request.") }, { status: 400 });
   }
 
   const to = Array.isArray(body.to)
@@ -79,7 +88,16 @@ export async function POST(req: Request) {
       : [];
   const text = typeof body.body === "string" ? body.body.slice(0, 1600) : "";
   if (!to.length || !text.trim()) {
-    return Response.json({ error: "SMS incomplet : au moins un numéro et un message requis." }, { status: 400 });
+    return Response.json(
+      {
+        error: pick(
+          locale,
+          "SMS incomplet : au moins un numéro et un message requis.",
+          "Incomplete SMS: at least one number and a message are required."
+        ),
+      },
+      { status: 400 }
+    );
   }
 
   const sent = await sendSms({ to, body: text });

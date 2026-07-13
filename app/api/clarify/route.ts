@@ -7,13 +7,14 @@ import { trackAiUsage } from "@/lib/ai-usage";
 import { classifyKind } from "@/lib/kind-router";
 import {
   type ClarifyQuestion,
-  DEVICE_QUESTION,
-  DATA_QUESTION,
-  WORKSPACE_SCOPE_QUESTION,
-  THEME_QUESTION,
-  LAYOUT_QUESTION,
-  FALLBACK_SPECIFIC,
+  dataQuestion,
+  workspaceScopeQuestion,
+  themeQuestion,
+  fallbackSpecific,
 } from "@/lib/clarify-questions";
+import { getLocale } from "@/lib/i18n/server";
+import { withLocale } from "@/lib/i18n/llm";
+import { getSectorContext } from "@/lib/sector-context";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // /api/clarify — questions préalables à la création d'une app (façon Lovable).
@@ -33,16 +34,34 @@ import {
 const CLARIFY_MODEL = TIER_MEDIUM;
 const LLM_TIMEOUT_MS = 12000;
 
-const PROPOSE_TOOL = {
-  name: "propose_questions",
-  description: "Propose EXACTEMENT 2 questions spécifiques à la demande pour cadrer l'application.",
+const PLAN_TOOL = {
+  name: "plan_clarification",
+  description:
+    "Décide s'il faut poser des questions AVANT de créer l'app. Si la demande contient déjà assez d'infos pour construire directement, renvoie ready=true et questions vide. Sinon, propose UNIQUEMENT les questions vraiment manquantes.",
   input_schema: {
     type: "object",
     properties: {
+      ready: {
+        type: "boolean",
+        description:
+          "true si la demande contient DÉJÀ assez d'infos pour créer une app utile SANS rien demander (but concret clair + contenu/éléments principaux connus). Dans ce cas, questions doit être vide.",
+      },
+      ask_data_source: {
+        type: "boolean",
+        description:
+          "true SEULEMENT si la demande n'indique pas D'OÙ viennent les données (workspace existant / import de fichier / partir de zéro). false si l'utilisateur l'a déjà précisé.",
+      },
+      ask_style: {
+        type: "boolean",
+        description:
+          "true SEULEMENT si AUCUNE couleur ni ambiance visuelle n'est indiquée dans la demande. false si une couleur/un style est déjà donné.",
+      },
       questions: {
         type: "array",
-        minItems: 2,
+        minItems: 0,
         maxItems: 2,
+        description:
+          "UNIQUEMENT les questions VRAIMENT manquantes sur le besoin ou le contenu (tableau VIDE si la demande est déjà claire). Jamais de question sur les couleurs, la mise en page, le support ni la source des données.",
         items: {
           type: "object",
           properties: {
@@ -68,23 +87,34 @@ const PROPOSE_TOOL = {
         },
       },
     },
-    required: ["questions"],
+    required: ["ready", "ask_data_source", "ask_style", "questions"],
   },
 } as Anthropic.Tool;
 
-const CLARIFY_SYSTEM = `Tu prépares la création d'une application SUR MESURE pour un pro du BTP. À partir de SA demande PRÉCISE, propose EXACTEMENT 2 questions courtes, VRAIMENT SPÉCIFIQUES à ce qu'il veut faire. Interdit : les questions génériques passe-partout. Chaque question doit montrer que tu as COMPRIS sa demande.
+const CLARIFY_SYSTEM = `Tu prépares la création d'une application SUR MESURE pour un pro du BTP. Ton rôle : décider s'il faut CLARIFIER la demande avant de construire, et si oui, ne poser QUE les questions vraiment nécessaires.
 
-Les 2 questions couvrent 2 angles DIFFÉRENTS, adaptés à SON cas :
-1. LE BESOIN / L'USAGE RÉEL : ce qu'il veut pouvoir FAIRE ou RETROUVER grâce à l'app (le vrai but derrière la demande).
-2. LE CONTENU CONCRET : les informations à saisir/associer à chaque élément, ou qui s'en sert et comment.
+RÈGLE D'OR : si la demande contient déjà assez d'infos pour construire une app utile, NE POSE AUCUNE QUESTION (ready=true, questions vide). On n'embête JAMAIS un utilisateur qui a déjà été précis — on exécute sa demande, point.
 
-Exemple — demande « photographier les bons de livraison pour ne plus les perdre » :
-- Q1 : « Que voulez-vous pouvoir faire ensuite avec ces bons ? » → les retrouver par fournisseur / par chantier / les exporter / les relier à une commande.
-- Q2 : « Quelles infos noter avec chaque bon ? » → fournisseur, date, n° de commande, chantier concerné, montant.
+La demande est SUFFISANTE (ready=true) dès qu'on comprend :
+- CE QUE l'app doit faire / gérer (son but concret), ET
+- GROSSO MODO ce qu'elle manipule (les éléments principaux ou les infos à suivre).
+Pour un besoin BTP standard nommé explicitement (suivi de chantiers, devis, factures, clients, planning d'équipe, stock, pointage des heures…), les champs habituels sont connus : considère-le SUFFISANT sauf demande vraiment inhabituelle. Dans le doute quand le but est clair, préfère ready=true.
 
-Ancre-toi dans SON vocabulaire et SON exemple. Les options sont des choix CONCRETS de son métier (jamais « option 1/2 »), chacune avec un hint clair d'une ligne.
+Exemples SUFFISANTS (ready=true, 0 question) :
+- « Une app pour suivre mes chantiers : client, adresse, budget, date de début, avancement, statut. »
+- « Un carnet de devis avec le client, le montant, la date et l'état (envoyé / accepté / refusé). »
+- « Une app pour pointer les heures de mes ouvriers par chantier. »
+- « Un suivi de mes factures clients. »
 
-RÈGLES : vouvoiement ; EXACTEMENT 2 questions ; pas de jargon ; NE PAS poser de question sur les couleurs, la mise en page ni le support (mobile/desktop) — gérés ailleurs. Réponds UNIQUEMENT via l'outil propose_questions.`;
+Exemples INSUFFISANTS (ready=false, 1 à 2 questions CIBLÉES) :
+- « Je veux une app pour mieux gérer mon activité. » → trop vague : demande ce qu'il veut suivre en priorité.
+- « Une app pour mon entreprise. » → demande le besoin n°1.
+
+Quand tu poses des questions (ready=false), elles sont VRAIMENT SPÉCIFIQUES à SA demande, dans SON vocabulaire, avec des options CONCRÈTES de son métier (jamais « option 1/2 »), chacune avec un hint clair d'une ligne. Couvre le besoin réel et/ou le contenu concret. N'invente pas de question de remplissage : s'il ne manque qu'une chose, ne pose qu'UNE question.
+
+INTERDIT dans questions : couleurs, mise en page, support (mobile/desktop), source des données — ils sont pilotés par ask_style et ask_data_source, pas par toi.
+
+Vouvoiement. Réponds UNIQUEMENT via l'outil plan_clarification.`;
 
 export async function POST(req: Request) {
   const supabase = await createClient();
@@ -94,6 +124,13 @@ export async function POST(req: Request) {
   // Rate limiting : rejette un flood au plus tôt.
   const limited = await enforceRateLimit("clarify", user.id, LIMITS.clarify);
   if (limited) return limited;
+
+  // Langue de l'interface (cookie) : questions LLM + repli statique en EN si besoin.
+  const locale = await getLocale();
+
+  // Le MÉTIER de l'artisan : il pilote l'aiguillage ET les questions. On ne lui
+  // demande jamais son métier — on le connaît (onboarding + réglages).
+  const sectorCtx = await getSectorContext(supabase, user.id, locale);
 
   let prompt = "";
   try {
@@ -115,7 +152,7 @@ export async function POST(req: Request) {
   // (comportement historique, jamais bloquant).
   if (prompt && hasKey) {
     try {
-      const k = await classifyKind({ prompt });
+      const k = await classifyKind({ prompt, sector: sectorCtx.primary });
       if (k.usage) {
         try {
           const membership = await getActiveMembershipServer(supabase, user.id);
@@ -139,20 +176,29 @@ export async function POST(req: Request) {
     } catch { /* classif indisponible → questionnaire d'app (historique) */ }
   }
 
-  let specific: ClarifyQuestion[] = FALLBACK_SPECIFIC;
+  // Repli PRUDENT (LLM lent/indisponible) : on garde le comportement historique
+  // — questions génériques + Données + Palette. Le chemin « exécute directement »
+  // n'est emprunté QUE quand le modèle a bien jugé la demande suffisante.
+  let specific: ClarifyQuestion[] = fallbackSpecific(locale);
+  let ready = false;
+  let askData = true;
+  let askStyle = true;
   let usage: { inputTokens: number; outputTokens: number } | null = null;
 
   if (prompt && hasKey) {
     try {
       const client = new Anthropic();
-      // Course LLM vs délai : jamais plus de 4 s d'attente pour l'utilisateur.
+      // Course LLM vs délai : au-delà du timeout, on tombe sur le repli statique.
       const message = await Promise.race([
         client.messages.create({
           model: CLARIFY_MODEL,
           max_tokens: 900,
-          system: CLARIFY_SYSTEM,
-          tools: [PROPOSE_TOOL],
-          tool_choice: { type: "tool", name: "propose_questions" },
+          system: withLocale(
+            sectorCtx.block ? `${CLARIFY_SYSTEM}\n\n${sectorCtx.block}` : CLARIFY_SYSTEM,
+            locale
+          ),
+          tools: [PLAN_TOOL],
+          tool_choice: { type: "tool", name: "plan_clarification" },
           messages: [{ role: "user", content: `Demande de l'utilisateur : « ${prompt} »` }],
         }),
         new Promise<never>((_, reject) =>
@@ -162,7 +208,17 @@ export async function POST(req: Request) {
       usage = { inputTokens: message.usage.input_tokens, outputTokens: message.usage.output_tokens };
       const block = message.content.find((b) => b.type === "tool_use");
       if (block && block.type === "tool_use") {
-        const input = block.input as { questions?: ClarifyQuestion[] };
+        const input = block.input as {
+          ready?: boolean;
+          ask_data_source?: boolean;
+          ask_style?: boolean;
+          questions?: ClarifyQuestion[];
+        };
+        ready = input.ready === true;
+        // Défaut prudent : on demande la source/le style SAUF si le modèle dit
+        // explicitement que c'est déjà précisé (false). Absent = on demande.
+        askData = input.ask_data_source !== false;
+        askStyle = input.ask_style !== false;
         const qs = (input.questions ?? [])
           .filter((q) => q && q.question && Array.isArray(q.options) && q.options.length >= 2)
           .slice(0, 2)
@@ -176,7 +232,9 @@ export async function POST(req: Request) {
               hint:  o.hint ? String(o.hint).slice(0, 90) : undefined,
             })),
           }));
-        if (qs.length) specific = qs;
+        // Le modèle a répondu : ses questions font foi (même 0). On n'impose plus
+        // les 2 questions génériques du repli quand il juge la demande claire.
+        specific = qs;
       }
     } catch { /* timeout ou API indisponible → repli statique silencieux */ }
   }
@@ -200,11 +258,30 @@ export async function POST(req: Request) {
     } catch { /* tracking best-effort : jamais bloquant */ }
   }
 
-  // On ne demande PLUS le support ni l'organisation d'écran : les apps sont
-  // responsive (adaptatives) par défaut. Ordre : 2 questions LLM SPÉCIFIQUES à la
-  // demande → DONNÉES (d'où viennent-elles ?) → Palette. La question DONNÉES est
-  // posée SYSTÉMATIQUEMENT (décision user 2026-07-07) : workspace / import / zéro
-  // change tout ce qui suit, on ne la déduit plus en silence.
-  const questions = [...specific.slice(0, 2), DATA_QUESTION, WORKSPACE_SCOPE_QUESTION, THEME_QUESTION];
+  // DIRECTIVE USER (2026-07-12) : si la demande contient DÉJÀ assez de contexte,
+  // on n'embête pas l'utilisateur — on exécute directement (ceci ASSOUPLIT la
+  // règle « question DONNÉES systématique » du 2026-07-07 : la source des données
+  // n'est demandée que si elle n'est pas déjà connue). Le client, en recevant
+  // skipClarify, lance la génération telle quelle.
+  if (ready) {
+    return Response.json({ skipClarify: true, kind: "module" });
+  }
+
+  // Sinon : on ne pose QUE ce qui manque. Les apps sont responsive par défaut
+  // (pas de question support/layout). Ordre : questions SPÉCIFIQUES au besoin →
+  // DONNÉES (seulement si la source n'est pas déjà donnée) → Palette (seulement
+  // si aucune couleur n'est mentionnée).
+  const questions = [
+    ...specific.slice(0, 2),
+    ...(askData ? [dataQuestion(locale), workspaceScopeQuestion(locale)] : []),
+    ...(askStyle ? [themeQuestion(locale)] : []),
+  ];
+
+  // Filet : le modèle n'a rien à demander mais ne s'est pas déclaré ready →
+  // on construit directement plutôt que d'afficher un questionnaire vide.
+  if (questions.length === 0) {
+    return Response.json({ skipClarify: true, kind: "module" });
+  }
+
   return Response.json({ questions });
 }

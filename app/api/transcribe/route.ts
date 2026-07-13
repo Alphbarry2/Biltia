@@ -19,6 +19,8 @@
 
 import { createClient } from "@/lib/supabase-server";
 import { enforceRateLimit, LIMITS } from "@/lib/rate-limit";
+import { getLocale } from "@/lib/i18n/server";
+import { pick, type Locale } from "@/lib/i18n/config";
 
 const MAX_BYTES = 25 * 1024 * 1024; // limite OpenAI/Groq
 
@@ -30,6 +32,20 @@ const TRANSCRIBE_PROMPT =
   "Termes possibles : devis, avenant, acompte, situation de travaux, CCTP, DPGF, DGD, DTU, VRD, " +
   "placo, BA13, parpaing, ferraillage, chape, ragréage, faïence, huisserie, hourdis, VMC, PAC, " +
   "MOA, MOE, showroom, deadline, planning, Velux, Placoplatre, Knauf, Weber, Sika, Rockwool.";
+
+const TRANSCRIBE_PROMPT_EN =
+  "Dictation by a construction professional. Likely terms: quote, variation order, deposit, " +
+  "progress claim, bill of quantities, snagging, plasterboard, drywall, screed, skim coat, " +
+  "blockwork, rebar, joinery, lintel, ventilation (MVHR), heat pump, scaffolding, site survey, " +
+  "handover, punch list, RFI, lead time, schedule.";
+
+/** Langue + biais de vocabulaire de la dictée, selon l'interface. Sans ça, un
+ *  utilisateur anglophone se ferait transcrire EN FRANÇAIS (language forcé "fr"). */
+function transcribeHints(locale: Locale): { language: string; prompt: string } {
+  return locale === "en"
+    ? { language: "en", prompt: TRANSCRIBE_PROMPT_EN }
+    : { language: "fr", prompt: TRANSCRIBE_PROMPT };
+}
 
 type Provider = { name: string; url: string; key: string; model: string };
 
@@ -62,10 +78,18 @@ function providers(): Provider[] {
 
 export async function POST(req: Request) {
   try {
+    const locale = await getLocale();
     const provs = providers();
     if (provs.length === 0) {
       return Response.json(
-        { error: "Aucun service de transcription configuré.", fallback: true },
+        {
+          error: pick(
+            locale,
+            "Aucun service de transcription configuré.",
+            "No transcription service is configured."
+          ),
+          fallback: true,
+        },
         { status: 503 }
       );
     }
@@ -75,7 +99,10 @@ export async function POST(req: Request) {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) {
-      return Response.json({ error: "Authentification requise." }, { status: 401 });
+      return Response.json(
+        { error: pick(locale, "Authentification requise.", "Authentication required.") },
+        { status: 401 }
+      );
     }
 
     // Rate limiting : rejette un flood au plus tôt.
@@ -86,26 +113,31 @@ export async function POST(req: Request) {
     try {
       form = await req.formData();
     } catch {
-      return Response.json({ error: "Requête invalide." }, { status: 400 });
+      return Response.json({ error: pick(locale, "Requête invalide.", "Invalid request.") }, { status: 400 });
     }
 
     const file = form.get("file");
     if (!(file instanceof Blob)) {
-      return Response.json({ error: "Aucun audio fourni." }, { status: 400 });
+      return Response.json({ error: pick(locale, "Aucun audio fourni.", "No audio provided.") }, { status: 400 });
     }
     if (file.size === 0) return Response.json({ text: "" });
     if (file.size > MAX_BYTES) {
-      return Response.json({ error: "Audio trop long (25 Mo max)." }, { status: 413 });
+      return Response.json(
+        { error: pick(locale, "Audio trop long (25 Mo max).", "Audio too long (25 MB max).") },
+        { status: 413 }
+      );
     }
     const filename = file instanceof File && file.name ? file.name : "audio.webm";
+
+    const hints = transcribeHints(locale);
 
     let quotaExhausted = false;
     for (const p of provs) {
       const upstream = new FormData();
       upstream.append("file", file, filename);
       upstream.append("model", p.model);
-      upstream.append("language", "fr");
-      upstream.append("prompt", TRANSCRIBE_PROMPT);
+      upstream.append("language", hints.language);
+      upstream.append("prompt", hints.prompt);
       upstream.append("response_format", "json");
 
       let res: Response;
@@ -139,14 +171,22 @@ export async function POST(req: Request) {
     return Response.json(
       {
         error: quotaExhausted
-          ? "Quota de transcription épuisé (OpenAI/Groq). Ajoutez une clé Groq gratuite ou rechargez OpenAI."
-          : "La transcription a échoué. Réessayez.",
+          ? pick(
+              locale,
+              "Quota de transcription épuisé (OpenAI/Groq). Ajoutez une clé Groq gratuite ou rechargez OpenAI.",
+              "Transcription quota exhausted (OpenAI/Groq). Add a free Groq key or top up OpenAI."
+            )
+          : pick(locale, "La transcription a échoué. Réessayez.", "Transcription failed. Please try again."),
         fallback: true,
       },
       { status: quotaExhausted ? 503 : 502 }
     );
   } catch (err) {
     console.error("Transcribe error:", err);
-    return Response.json({ error: "Erreur de transcription.", fallback: true }, { status: 500 });
+    const locale = await getLocale();
+    return Response.json(
+      { error: pick(locale, "Erreur de transcription.", "Transcription error."), fallback: true },
+      { status: 500 }
+    );
   }
 }

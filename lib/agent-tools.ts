@@ -20,6 +20,12 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { ENTITIES, ALLOWED_ENTITIES } from "./data-entities";
+import {
+  runWorkspaceTransform,
+  isTransformAction,
+  TRANSFORM_ACTIONS,
+  TRANSFORM_LABEL,
+} from "./workspace-transforms";
 import { logActivity } from "./activity";
 import { listAppCollections, listAppRecords } from "./app-records";
 import { sendOutboundEmail } from "./outbound-email";
@@ -129,6 +135,22 @@ export const WORKSPACE_TOOLS: Anthropic.Tool[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "workspace_transform",
+    description:
+      "Transforme UNE fiche existante en une autre, sans re-saisie (rattachements repris, liens posés, idempotent). PRÉFÈRE cet outil à workspace_create quand la fiche cible dérive d'une source : " +
+      TRANSFORM_ACTIONS.map((a) => `${a} = ${TRANSFORM_LABEL[a]}`).join(" ; ") +
+      ". `source_id` = l'uuid de la fiche SOURCE (le devis pour chantier_from_devis/…, la demande, la note). Retourne la fiche créée (ou l'existante si déjà liée).",
+    input_schema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: [...TRANSFORM_ACTIONS], description: "La transformation à appliquer." },
+        source_id: { type: "string", description: "uuid de la fiche source (devis / demande / note)." },
+      },
+      required: ["action", "source_id"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 // Lecture des données d'apps HORS entités standard (collections libres, table
@@ -222,7 +244,8 @@ collections d'app — la donnée y est peut-être.
 3. INTROUVABLE = HONNÊTETÉ : la fiche n'existe pas (workspace ET collections d'app vérifiés) → tu le dis, et tu proposes de la créer si pertinent.
 4. Champs : respecte STRICTEMENT les noms et enums du catalogue. Optionnel vide → omets la clé (jamais "").
 5. Relations : un champ *_id se remplit avec l'uuid d'une fiche EXISTANTE (workspace_list pour le trouver). Si la fiche liée n'existe pas, crée-la d'abord.
-6. Suppression : UNE fiche à la fois, identifiée sans ambiguïté.`;
+6. Suppression : UNE fiche à la fois, identifiée sans ambiguïté.
+7. TRANSFORMER plutôt que recréer : pour « ouvrir le chantier d'un devis accepté », « faire un devis à partir d'une demande », « transformer une note en tâche/réserve », utilise \`workspace_transform\` (source_id = l'uuid de la fiche source). Il reprend les rattachements, pose les liens retour et évite les doublons — bien mieux qu'un workspace_create manuel.`;
 }
 
 // ── Exécution des outils ─────────────────────────────────────────────────────
@@ -453,6 +476,32 @@ export async function runAgentTool(
       description: `${actor.label} — ${desc}`,
     });
     return { ok: true, sent: sent.sent, failed: sent.failed };
+  }
+
+  // ── Transformation atomique (devis→chantier, demande→devis, note→tâche/réserve) ──
+  if (toolName === "workspace_transform") {
+    const action = typeof input.action === "string" ? input.action : "";
+    if (!isTransformAction(action)) return { error: `Transformation inconnue : ${action}` };
+    const sourceId = String(input.source_id ?? input.sourceId ?? "");
+    const log = (act: string, description: string, entityId?: string | null) =>
+      logActivity(db, {
+        tenantId: actor.tenantId,
+        userId: actor.userId ?? undefined,
+        action: act,
+        entityType: "workspace",
+        entityId,
+        description: `${actor.label} — ${description}`,
+      });
+    const r = await runWorkspaceTransform({
+      from: (t: string) => db.from(t),
+      tenantId: actor.tenantId,
+      action,
+      sourceId,
+      log,
+    });
+    if (r.error) return { error: r.error };
+    traces.push({ action: "create", description: `Transformation ${action} (source ${sourceId})` });
+    return { ok: true, row: r.data };
   }
 
   // ── Sinon : opération workspace ───────────────────────────────────────────

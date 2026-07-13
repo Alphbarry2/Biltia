@@ -16,6 +16,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { canSendOutbound } from "./outbound-email";
 import { canSendSms } from "./outbound-sms";
 import { calendarConnected } from "./gcal";
+import { pick, type Locale } from "./i18n/config";
 
 /** Les outils qu'un agent peut mobiliser. Étendre ici quand un connecteur arrive. */
 export type CapabilityId = "email_send" | "sms_send" | "calendar_read" | "push_notify";
@@ -44,8 +45,10 @@ export async function getCapabilityStatuses(opts: {
   supabase: SupabaseClient;
   tenantId: string;
   userId: string | null;
+  /** Langue de l'interface : les libellés voyagent jusqu'à la pop-up. Défaut FR. */
+  locale?: Locale;
 }): Promise<Record<CapabilityId, CapabilityStatus>> {
-  const { supabase, tenantId, userId } = opts;
+  const { supabase, tenantId, userId, locale = "fr" } = opts;
 
   // Email sortant : Gmail connecté OU envoi Biltia (Resend) configuré.
   let emailConnected = false;
@@ -84,28 +87,28 @@ export async function getCapabilityStatuses(opts: {
   return {
     email_send: {
       id: "email_send",
-      label: "envoi d'emails",
+      label: pick(locale, "envoi d'emails", "sending emails"),
       supported: true,
       connected: emailConnected,
-      fix: { label: "Connecter Gmail", href: HREF_CONNECTORS },
+      fix: { label: pick(locale, "Connecter Gmail", "Connect Gmail"), href: HREF_CONNECTORS },
     },
     calendar_read: {
       id: "calendar_read",
-      label: "agenda Google",
+      label: pick(locale, "agenda Google", "Google Calendar"),
       supported: true,
       connected: calendarConn,
-      fix: { label: "Connecter l'agenda", href: HREF_CONNECTORS },
+      fix: { label: pick(locale, "Connecter l'agenda", "Connect the calendar"), href: HREF_CONNECTORS },
     },
     push_notify: {
       id: "push_notify",
-      label: "notifications",
+      label: pick(locale, "notifications", "notifications"),
       supported: true,
       connected: pushConnected,
-      fix: { label: "Activer les notifications", href: HREF_NOTIFICATIONS },
+      fix: { label: pick(locale, "Activer les notifications", "Turn on notifications"), href: HREF_NOTIFICATIONS },
     },
     sms_send: {
       id: "sms_send",
-      label: "envoi de SMS",
+      label: pick(locale, "envoi de SMS", "sending texts"),
       // L'outil n'existe que si la plateforme a un fournisseur SMS branché.
       supported: smsSupported,
       connected: smsSupported,

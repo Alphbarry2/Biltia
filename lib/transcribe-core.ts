@@ -4,10 +4,15 @@
 // meilleur sur le jargon) puis Groq (Whisper large v3 turbo, repli gratuit).
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { getLocale } from "./i18n/server";
+import { pick } from "./i18n/config";
+
 type Provider = { name: string; url: string; key: string; model: string };
 
 const TRANSCRIBE_PROMPT =
   "Transcription en français, vocabulaire du BTP (devis, chantier, TVA, m², bon de livraison, pointage, avenant).";
+const TRANSCRIBE_PROMPT_EN =
+  "Transcription in English, construction vocabulary (quote, job site, VAT, m², delivery note, time log, variation order).";
 
 function isRealKey(k?: string): boolean {
   return !!k && !k.startsWith("your_") && k.length > 20;
@@ -28,18 +33,25 @@ export type TranscribeResult =
   | { text: string }
   | { error: string; status: number };
 
-/** Transcrit un Blob audio en texte français. Bascule de fournisseur en fournisseur. */
+/** Transcrit un Blob audio. La LANGUE de dictée suit l'interface : sans ça, un
+ *  utilisateur anglophone serait transcrit en français (language forcé "fr"). */
 export async function transcribeBlob(file: Blob, filename = "audio.webm"): Promise<TranscribeResult> {
+  const locale = await getLocale();
   const provs = providers();
-  if (provs.length === 0) return { error: "Aucun service de transcription configuré.", status: 503 };
+  if (provs.length === 0) {
+    return {
+      error: pick(locale, "Aucun service de transcription configuré.", "No transcription service configured."),
+      status: 503,
+    };
+  }
 
   let quotaExhausted = false;
   for (const p of provs) {
     const upstream = new FormData();
     upstream.append("file", file, filename);
     upstream.append("model", p.model);
-    upstream.append("language", "fr");
-    upstream.append("prompt", TRANSCRIBE_PROMPT);
+    upstream.append("language", locale === "en" ? "en" : "fr");
+    upstream.append("prompt", locale === "en" ? TRANSCRIBE_PROMPT_EN : TRANSCRIBE_PROMPT);
     upstream.append("response_format", "json");
 
     let res: Response;
@@ -59,7 +71,9 @@ export async function transcribeBlob(file: Blob, filename = "audio.webm"): Promi
     }
   }
   return {
-    error: quotaExhausted ? "Quota de transcription épuisé (OpenAI/Groq)." : "La transcription a échoué.",
+    error: quotaExhausted
+      ? pick(locale, "Quota de transcription épuisé (OpenAI/Groq).", "Transcription quota exhausted (OpenAI/Groq).")
+      : pick(locale, "La transcription a échoué.", "Transcription failed."),
     status: quotaExhausted ? 503 : 502,
   };
 }

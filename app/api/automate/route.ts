@@ -21,10 +21,14 @@ import { trackAiUsage, reconcileCredits } from "@/lib/ai-usage";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
 import { can } from "@/lib/permissions";
 import { enforceRateLimit, LIMITS } from "@/lib/rate-limit";
-import { getEntitlementsForTenant, FROZEN_MESSAGE } from "@/lib/entitlements";
+import { getEntitlementsForTenant, FROZEN_MESSAGE, frozenMessage } from "@/lib/entitlements";
 import { isFounderEmail } from "@/lib/founder";
 import { logActivity } from "@/lib/activity";
 import { VISION_MODEL, buildFileBlocks, validateFiles, ValidationError } from "@/lib/vision";
+import { getLocale } from "@/lib/i18n/server";
+import { getSectorContext } from "@/lib/sector-context";
+import { pick } from "@/lib/i18n/config";
+import { withLocale } from "@/lib/i18n/llm";
 
 const client = new Anthropic();
 const MAX_TOKENS = 3000;
@@ -82,8 +86,9 @@ const REPORT_TOOL: Anthropic.Tool = {
   },
 };
 
-function buildSystem(): string {
-  return `Tu es le contrôleur qualité de Biltia, expert du BTP français. On te fournit un LOT de documents (bons de livraison, factures, devis, courriers…) et une instruction de contrôle. Tu les lis TOUS et tu produis un rapport.
+function buildSystem(sectorBlock: string): string {
+  const sector = sectorBlock ? `\n\n${sectorBlock}\n` : "";
+  return `Tu es le contrôleur qualité de Biltia, expert du BTP français. On te fournit un LOT de documents (bons de livraison, factures, devis, courriers…) et une instruction de contrôle. Tu les lis TOUS et tu produis un rapport.${sector}
 
 CE QUE TU VÉRIFIES (selon l'instruction) :
 - Doublons : même numéro/référence, ou même émetteur + même montant + même date.
@@ -102,9 +107,13 @@ Réponds UNIQUEMENT en appelant l'outil build_report.`;
 }
 
 export async function POST(req: Request) {
+  const locale = await getLocale();
   try {
     if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY.startsWith("your_")) {
-      return Response.json({ error: "Clé API Anthropic non configurée." }, { status: 503 });
+      return Response.json(
+        { error: pick(locale, "Clé API Anthropic non configurée.", "Anthropic API key not configured.") },
+        { status: 503 }
+      );
     }
 
     const supabase = await createClient();
@@ -113,7 +122,10 @@ export async function POST(req: Request) {
       error: authError,
     } = await supabase.auth.getUser();
     if (authError || !user) {
-      return Response.json({ error: "Authentification requise." }, { status: 401 });
+      return Response.json(
+        { error: pick(locale, "Authentification requise.", "Authentication required.") },
+        { status: 401 }
+      );
     }
 
     // Rate limiting : rejette un flood au plus tôt (avant toute lecture DB).
@@ -122,7 +134,10 @@ export async function POST(req: Request) {
 
     const membership = await getActiveMembershipServer(supabase, user.id);
     if (!membership) {
-      return Response.json({ error: "Aucun espace de travail trouvé." }, { status: 403 });
+      return Response.json(
+        { error: pick(locale, "Aucun espace de travail trouvé.", "No workspace found.") },
+        { status: 403 }
+      );
     }
     const tenantId = membership.tenant_id;
 
@@ -130,7 +145,13 @@ export async function POST(req: Request) {
     // créer (un lecteur est en lecture seule).
     if (!can(membership.role, "ai.create")) {
       return Response.json(
-        { error: "Vous êtes en lecture seule sur cet espace. Demandez à un administrateur les droits pour lancer une automatisation." },
+        {
+          error: pick(
+            locale,
+            "Vous êtes en lecture seule sur cet espace. Demandez à un administrateur les droits pour lancer une automatisation.",
+            "You have read-only access to this workspace. Ask an admin for the rights to run an automation."
+          ),
+        },
         { status: 403 }
       );
     }
@@ -138,19 +159,22 @@ export async function POST(req: Request) {
     // GEL LECTURE SEULE : un abonnement expiré ne peut plus lancer d'automatisation.
     const ent = await getEntitlementsForTenant(supabase, tenantId);
     if (!ent.writable) {
-      return Response.json({ error: FROZEN_MESSAGE, frozen: true }, { status: 403 });
+      return Response.json({ error: frozenMessage(locale), frozen: true }, { status: 403 });
     }
 
     let body: { files?: unknown; instruction?: string };
     try {
       body = await req.json();
     } catch {
-      return Response.json({ error: "Corps de requête invalide." }, { status: 400 });
+      return Response.json(
+        { error: pick(locale, "Corps de requête invalide.", "Invalid request body.") },
+        { status: 400 }
+      );
     }
 
     let files;
     try {
-      files = validateFiles(body.files);
+      files = validateFiles(body.files, locale);
     } catch (e) {
       if (e instanceof ValidationError) {
         return Response.json({ error: e.message }, { status: 400 });
@@ -171,7 +195,13 @@ export async function POST(req: Request) {
       const { data: credited } = await supabase.rpc("deduct_credits", { p_amount: HOLD });
       if (!credited) {
         return Response.json(
-          { error: "Crédits insuffisants. Rechargez votre compte pour continuer." },
+          {
+            error: pick(
+              locale,
+              "Crédits insuffisants. Rechargez votre compte pour continuer.",
+              "Not enough credits. Top up your account to continue."
+            ),
+          },
           { status: 402 }
         );
       }
@@ -195,12 +225,16 @@ export async function POST(req: Request) {
       text: `Instruction de contrôle : « ${instruction} »\n\nContrôle les ${files.length} documents ci-dessus et produis le rapport.`,
     });
 
+    // Le métier oriente le CONTRÔLE : les prix, références et anomalies qui
+    // comptent ne sont pas les mêmes d'un corps d'état à l'autre.
+    const sectorCtx = await getSectorContext(supabase, user.id, locale);
+
     let message: Anthropic.Message;
     try {
       message = await client.messages.create({
         model: VISION_MODEL,
         max_tokens: MAX_TOKENS,
-        system: buildSystem(),
+        system: withLocale(buildSystem(sectorCtx.block), locale),
         tools: [REPORT_TOOL],
         tool_choice: { type: "tool", name: "build_report" },
         messages: [{ role: "user", content: userBlocks }],
@@ -214,7 +248,13 @@ export async function POST(req: Request) {
     if (!toolBlock || toolBlock.type !== "tool_use") {
       await refund();
       return Response.json(
-        { error: "Le contrôle n'a rien renvoyé. Réessayez — vos crédits ont été remboursés." },
+        {
+          error: pick(
+            locale,
+            "Le contrôle n'a rien renvoyé. Réessayez — vos crédits ont été remboursés.",
+            "The check returned nothing. Please try again — your credits have been refunded."
+          ),
+        },
         { status: 502 }
       );
     }
@@ -288,13 +328,15 @@ export async function POST(req: Request) {
     });
   } catch (err) {
     console.error("Automate error:", err);
-    let msg = "Erreur de contrôle. Réessayez.";
+    let msg = pick(locale, "Erreur de contrôle. Réessayez.", "Check failed. Please try again.");
     let status = 500;
     if (err instanceof Anthropic.APIError) {
       status = err.status ?? 500;
-      if (err.status === 429) msg = "Trop de requêtes. Patientez quelques secondes.";
-      else if (err.status === 401) msg = "Clé API Anthropic invalide.";
-      else msg = `Erreur Anthropic (${err.status}).`;
+      if (err.status === 429)
+        msg = pick(locale, "Trop de requêtes. Patientez quelques secondes.", "Too many requests. Wait a few seconds.");
+      else if (err.status === 401)
+        msg = pick(locale, "Clé API Anthropic invalide.", "Invalid Anthropic API key.");
+      else msg = pick(locale, `Erreur Anthropic (${err.status}).`, `Anthropic error (${err.status}).`);
     }
     return Response.json({ error: msg }, { status });
   }

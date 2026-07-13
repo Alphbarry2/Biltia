@@ -13,6 +13,8 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase-server";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
 import { sendPushToUser } from "@/lib/push";
+import { getLocale } from "@/lib/i18n/server";
+import { pick, type Locale } from "@/lib/i18n/config";
 
 export const runtime = "nodejs";
 
@@ -21,26 +23,33 @@ type WebPushSubscription = {
   keys?: { p256dh?: string; auth?: string };
 };
 
-async function requireUser() {
+async function requireUser(locale: Locale) {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) {
-    return { error: NextResponse.json({ error: "Authentification requise." }, { status: 401 }) };
+    return {
+      error: NextResponse.json(
+        { error: pick(locale, "Authentification requise.", "Authentication required.") },
+        { status: 401 }
+      ),
+    };
   }
   return { supabase, user };
 }
 
 export async function GET() {
-  const ctx = await requireUser();
+  const locale = await getLocale();
+  const ctx = await requireUser(locale);
   if ("error" in ctx) return ctx.error;
   const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "";
   return NextResponse.json({ enabled: publicKey.length > 20, publicKey });
 }
 
 export async function POST(req: Request) {
-  const ctx = await requireUser();
+  const locale = await getLocale();
+  const ctx = await requireUser(locale);
   if ("error" in ctx) return ctx.error;
   const { supabase, user } = ctx;
 
@@ -48,7 +57,10 @@ export async function POST(req: Request) {
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: "Corps de requête invalide." }, { status: 400 });
+    return NextResponse.json(
+      { error: pick(locale, "Corps de requête invalide.", "Invalid request body.") },
+      { status: 400 }
+    );
   }
 
   const sub = body.subscription;
@@ -56,7 +68,10 @@ export async function POST(req: Request) {
   const p256dh = sub?.keys?.p256dh ?? "";
   const auth = sub?.keys?.auth ?? "";
   if (!endpoint.startsWith("https://") || !p256dh || !auth) {
-    return NextResponse.json({ error: "Abonnement push invalide." }, { status: 400 });
+    return NextResponse.json(
+      { error: pick(locale, "Abonnement push invalide.", "Invalid push subscription.") },
+      { status: 400 }
+    );
   }
 
   const membership = await getActiveMembershipServer(supabase, user.id);
@@ -74,13 +89,20 @@ export async function POST(req: Request) {
   );
   if (error) {
     console.error("[push] subscribe error:", error.message);
-    return NextResponse.json({ error: "Enregistrement impossible." }, { status: 500 });
+    return NextResponse.json(
+      { error: pick(locale, "Enregistrement impossible.", "Could not register this device.") },
+      { status: 500 }
+    );
   }
 
   // Preuve immédiate : l'appareil reçoit une notification de bienvenue.
   const sent = await sendPushToUser(user.id, {
-    title: "Notifications activées",
-    body: "Biltia vous préviendra ici quand vos tâches seront prêtes.",
+    title: pick(locale, "Notifications activées", "Notifications enabled"),
+    body: pick(
+      locale,
+      "Biltia vous préviendra ici quand vos tâches seront prêtes.",
+      "Biltia will let you know here when your tasks are ready.",
+    ),
     url: "/settings",
     tag: "biltia-welcome",
   });
@@ -89,7 +111,8 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const ctx = await requireUser();
+  const locale = await getLocale();
+  const ctx = await requireUser(locale);
   if ("error" in ctx) return ctx.error;
   const { supabase, user } = ctx;
 
@@ -97,10 +120,16 @@ export async function DELETE(req: Request) {
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: "Corps de requête invalide." }, { status: 400 });
+    return NextResponse.json(
+      { error: pick(locale, "Corps de requête invalide.", "Invalid request body.") },
+      { status: 400 }
+    );
   }
   if (!body.endpoint) {
-    return NextResponse.json({ error: "endpoint requis." }, { status: 400 });
+    return NextResponse.json(
+      { error: pick(locale, "endpoint requis.", "“endpoint” is required.") },
+      { status: 400 }
+    );
   }
 
   await supabase

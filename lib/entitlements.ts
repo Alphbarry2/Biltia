@@ -22,6 +22,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { getPlan, type PlanId, type PlanLimits } from "./plans";
+import { pick, type Locale } from "./i18n/config";
 
 /** Vue minimale d'un client Supabase, compatible client typé ET service_role. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -218,3 +219,35 @@ export const EQUIPE_UPGRADE_MESSAGE =
 /** Message standard renvoyé quand une écriture est refusée pour cause de gel. */
 export const FROZEN_MESSAGE =
   "Votre espace est en lecture seule : votre abonnement a expiré. Réactivez-le pour reprendre votre activité (vos données restent consultables et exportables).";
+
+// ── i18n : versions locale-aware des 3 messages ci-dessus ────────────────────
+// Les constantes FR restent exportées (compat : elles servent de source). Les
+// routes qui répondent à un NAVIGATEUR doivent utiliser ces fonctions, pour que
+// le message suive la langue de l'interface.
+
+/** Gel (abonnement expiré) — dans la langue de l'utilisateur. */
+export function frozenMessage(locale: Locale): string {
+  return pick(
+    locale,
+    FROZEN_MESSAGE,
+    "Your workspace is read-only: your subscription has expired. Reactivate it to resume work (your data stays viewable and exportable).",
+  );
+}
+
+/** Fonctionnalité réservée au plan Pro — dans la langue de l'utilisateur. */
+export function upgradeMessage(locale: Locale): string {
+  return pick(
+    locale,
+    UPGRADE_MESSAGE,
+    "This feature is part of the Pro plan. Switch to a paid plan from Settings → Billing to enable it.",
+  );
+}
+
+/** Fonctionnalité réservée au plan Équipe — dans la langue de l'utilisateur. */
+export function equipeUpgradeMessage(locale: Locale): string {
+  return pick(
+    locale,
+    EQUIPE_UPGRADE_MESSAGE,
+    "This feature is part of the Team plan. Add collaboration (+€50/month) from Settings → Billing to invite your team, open a portal for your clients and subcontractors, and enable collaborative agents.",
+  );
+}

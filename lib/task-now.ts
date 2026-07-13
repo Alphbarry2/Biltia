@@ -20,6 +20,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Locale } from "@/lib/i18n/config";
 import { sendOutboundEmail } from "./outbound-email";
 
 export type TaskAudience = "all_clients" | "team" | "all_suppliers";
@@ -34,6 +35,15 @@ export const AUDIENCE_LABELS: Record<TaskAudience, { plural: string; singular: s
   team: { plural: "employés", singular: "employé" },
   all_suppliers: { plural: "fournisseurs", singular: "fournisseur" },
 };
+const AUDIENCE_LABELS_EN: Record<TaskAudience, { plural: string; singular: string }> = {
+  all_clients: { plural: "clients", singular: "client" },
+  team: { plural: "team members", singular: "team member" },
+  all_suppliers: { plural: "suppliers", singular: "supplier" },
+};
+/** Libellé d'audience traduit si l'interface est en anglais (pour l'aperçu utilisateur). */
+export function audienceLabels(audience: TaskAudience, locale: Locale): { plural: string; singular: string } {
+  return locale === "en" ? AUDIENCE_LABELS_EN[audience] : AUDIENCE_LABELS[audience];
+}
 
 export type TaskRecipient = { name: string; email: string };
 

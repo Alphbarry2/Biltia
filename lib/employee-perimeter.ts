@@ -30,8 +30,28 @@ export function isPerimeterEntity(entity: string): boolean {
 }
 
 /**
+ * Fiches employé RELIÉES à ce compte (employees.user_id = userId, migration 031).
+ * Tableau VIDE = compte non relié → aucune fiche employé.
+ * Sert au fail-closed de /api/data (un membre non relié ne voit aucune donnée).
+ */
+export async function memberEmployeeIds(
+  from: From,
+  tenantId: string,
+  userId: string
+): Promise<string[]> {
+  const { data: emps } = await from("employees")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .eq("user_id", userId);
+  return (emps ?? []).map((e: { id: string }) => e.id).filter(Boolean);
+}
+
+/**
  * Chantiers visibles par un compte employé.
  *   • null  → compte NON relié à une fiche → AUCUNE restriction (fail-open).
+ *             NB : depuis 2026-07-12, /api/data bloque en amont les LECTURES d'un
+ *             membre non relié (fail-closed) → ce cas `null` n'est plus atteint
+ *             pour un `member` en lecture ; il reste pour la robustesse.
  *   • []    → relié mais affecté à aucun chantier → ne voit aucun chantier.
  *   • [ids] → ses chantiers (chef de chantier OU intervention OU tâche assignée).
  */
@@ -40,11 +60,7 @@ export async function memberChantierScope(
   tenantId: string,
   userId: string
 ): Promise<string[] | null> {
-  const { data: emps } = await from("employees")
-    .select("id")
-    .eq("tenant_id", tenantId)
-    .eq("user_id", userId);
-  const empIds: string[] = (emps ?? []).map((e: { id: string }) => e.id).filter(Boolean);
+  const empIds = await memberEmployeeIds(from, tenantId, userId);
   if (empIds.length === 0) return null; // non relié → pas de périmètre
 
   const [chefs, itvs, tks] = await Promise.all([

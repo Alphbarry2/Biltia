@@ -12,12 +12,34 @@
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase-server";
+import { getLocale } from "@/lib/i18n/server";
+import { pick, type Locale } from "@/lib/i18n/config";
 import { ENTITIES, ALLOWED_ENTITIES } from "@/lib/data-entities";
+import { normalizeRecordValues, fieldErrorMessage } from "@/lib/vocabulaires";
+import { runWorkspaceTransform, isTransformAction, invoiceFromDevis } from "@/lib/workspace-transforms";
 import { coerceStoredScope, scopeReadFilter, type StoredScope } from "@/lib/data-scope";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
-import { memberChantierScope, isPerimeterEntity } from "@/lib/employee-perimeter";
+import { memberChantierScope, memberEmployeeIds, isPerimeterEntity } from "@/lib/employee-perimeter";
+import {
+  createEntityLink,
+  deleteEntityLink,
+  listEntityLinks,
+  cleanupLinksForRecord,
+  cleanupLinksForRecords,
+  type LinkEndpoint,
+} from "@/lib/entity-links";
+import {
+  emitDomainEvents,
+  buildCreateEvent,
+  buildDeleteEvent,
+  buildUpdateEvents,
+  buildLinkEvent,
+  changedFields,
+} from "@/lib/domain-events";
+import { applyFilterGroup, applySearch, type AppFilterGroup } from "@/lib/app-filters";
+import { getCustomEntityByKey, validateAgainstDefinition } from "@/lib/custom-entities";
 import { can } from "@/lib/permissions";
-import { getEntitlementsForTenant, FROZEN_MESSAGE } from "@/lib/entitlements";
+import { getEntitlementsForTenant, frozenMessage } from "@/lib/entitlements";
 import { logActivity } from "@/lib/activity";
 import { recordSignal } from "@/lib/collective-brain";
 
@@ -63,6 +85,8 @@ const WRITE_ACTIONS = new Set([
   "create", "bulk_create", "update", "delete", "bulk_delete", "invoice_from_devis",
   // Transformations atomiques (même famille que invoice_from_devis) — écritures.
   "chantier_from_devis", "devis_from_demande", "task_from_note", "reserve_from_note",
+  // Relations many-to-many (Phase 4) — écritures.
+  "link", "unlink",
 ]);
 const DELETE_ACTIONS = new Set(["delete", "bulk_delete"]);
 
@@ -93,6 +117,31 @@ function sanitize(values: unknown, writable: string[]): Record<string, unknown> 
   return out;
 }
 
+/**
+ * VALEURS CANONIQUES — le point de passage OBLIGÉ de toute écriture typée.
+ *
+ * Le <select> du formulaire ne protège que le formulaire. Ici passent AUSSI les
+ * apps générées par l'IA, le SDK `window.biltia`, l'action `act` des agents et
+ * l'import CSV — et aucune contrainte CHECK n'existe en base. Sans ce filtre, un
+ * `statut: "En cours"` s'insère sans broncher, et le veilleur qui cherche
+ * `en_cours` ne voit jamais la fiche : l'automatisation « ne marche pas », sans
+ * la moindre erreur nulle part.
+ *
+ * On CORRIGE ce qui est reconnaissable (alias : « Chef d'équipe » → chef_equipe)
+ * et on REFUSE ce qui ne l'est pas, avec les valeurs proches en clair.
+ */
+function canonize(
+  entity: string,
+  values: Record<string, unknown>,
+  locale: Locale
+): { values: Record<string, unknown>; error?: string } {
+  const { values: canon, errors } = normalizeRecordValues(entity, values);
+  if (errors.length) {
+    return { values: canon, error: errors.map((e) => fieldErrorMessage(entity, e, locale)).join(" ; ") };
+  }
+  return { values: canon };
+}
+
 // ── Magasin cloud GÉNÉRIQUE (app_records) : CRUD sur données jsonb par collection.
 // Toute entité non-workspace atterrit ici → les apps persistent dans le cloud même
 // sans schéma prédéfini. Isolé par tenant + collection ; l'id remonte à plat.
@@ -114,7 +163,8 @@ async function handleAppStore(
   collection: string,
   action: string,
   body: { id?: string; values?: unknown; rows?: unknown; ids?: unknown; match?: Record<string, unknown>; ascending?: boolean; limit?: number },
-  readFilter?: { since?: string; ids?: string[] } | null,
+  readFilter: { since?: string; ids?: string[] } | null | undefined,
+  locale: Locale,
 ) {
   const T = "app_records";
   const flat = (r: Record<string, unknown>) => ({
@@ -123,6 +173,8 @@ async function handleAppStore(
     created_at: r.created_at,
     updated_at: r.updated_at,
   });
+  // Événements de domaine pour les collections custom (Phase 5). Best-effort.
+  const ectx = { tenantId, actorId: userId, moduleId: (body as { moduleId?: string }).moduleId ?? null };
 
   if (action === "list") {
     let q = from(T).select("*").eq("tenant_id", tenantId).eq("collection", collection);
@@ -136,32 +188,57 @@ async function handleAppStore(
     return NextResponse.json({ data: (data ?? []).map(flat) });
   }
   if (action === "get") {
-    if (!body.id) return NextResponse.json({ error: "id manquant." }, { status: 400 });
+    if (!body.id) return NextResponse.json({ error: pick(locale, "id manquant.", "Missing id.") }, { status: 400 });
     const { data, error } = await from(T).select("*").eq("tenant_id", tenantId).eq("collection", collection).eq("id", body.id).single();
     if (error) throw error;
     return NextResponse.json({ data: flat(data) });
   }
   if (action === "create") {
-    const { data, error } = await from(T).insert({ tenant_id: tenantId, collection, data: cleanData(body.values), created_by: userId }).select().single();
+    // B5 : si la collection a une DÉFINITION custom, on valide/coerce le payload
+    // contre son schéma (requis, types, options). Sinon (pas de définition) : libre.
+    let values = cleanData(body.values);
+    const def = await getCustomEntityByKey(from, tenantId, collection);
+    if (def && def.fields.length) {
+      const v = validateAgainstDefinition(values, def, { partial: false });
+      if (!v.ok) return NextResponse.json({ error: v.errors.join(" ; ") }, { status: 400 });
+      values = v.values;
+    }
+    const { data, error } = await from(T).insert({ tenant_id: tenantId, collection, data: values, created_by: userId }).select().single();
     if (error) throw error;
-    return NextResponse.json({ data: flat(data) });
+    const row = flat(data);
+    await emitDomainEvents(from, ectx, [buildCreateEvent(collection, row)]);
+    return NextResponse.json({ data: row });
   }
   if (action === "update") {
-    if (!body.id) return NextResponse.json({ error: "id manquant." }, { status: 400 });
-    const { data, error } = await from(T).update({ data: cleanData(body.values), updated_at: new Date().toISOString() }).eq("tenant_id", tenantId).eq("collection", collection).eq("id", body.id).select().single();
+    if (!body.id) return NextResponse.json({ error: pick(locale, "id manquant.", "Missing id.") }, { status: 400 });
+    const { data: prev } = await from(T).select("*").eq("tenant_id", tenantId).eq("collection", collection).eq("id", body.id).maybeSingle();
+    let cleaned = cleanData(body.values);
+    // B5 : validation partielle (pas de requis sur un update) + coercion des types.
+    const defU = await getCustomEntityByKey(from, tenantId, collection);
+    if (defU && defU.fields.length) {
+      const v = validateAgainstDefinition(cleaned, defU, { partial: true });
+      if (!v.ok) return NextResponse.json({ error: v.errors.join(" ; ") }, { status: 400 });
+      cleaned = v.values;
+    }
+    const { data, error } = await from(T).update({ data: cleaned, updated_at: new Date().toISOString() }).eq("tenant_id", tenantId).eq("collection", collection).eq("id", body.id).select().single();
     if (error) throw error;
-    return NextResponse.json({ data: flat(data) });
+    const before = prev ? flat(prev as Record<string, unknown>) : null;
+    const after = flat(data);
+    await emitDomainEvents(from, ectx, buildUpdateEvents(collection, before, after, changedFields(before, cleaned)));
+    return NextResponse.json({ data: after });
   }
   if (action === "delete") {
-    if (!body.id) return NextResponse.json({ error: "id manquant." }, { status: 400 });
+    if (!body.id) return NextResponse.json({ error: pick(locale, "id manquant.", "Missing id.") }, { status: 400 });
     const { error } = await from(T).delete().eq("tenant_id", tenantId).eq("collection", collection).eq("id", body.id);
     if (error) throw error;
+    await cleanupLinksForRecord(from, tenantId, collection, body.id);
+    await emitDomainEvents(from, ectx, [buildDeleteEvent(collection, String(body.id))]);
     return NextResponse.json({ ok: true });
   }
   if (action === "bulk_create") {
     const rows = Array.isArray(body.rows) ? body.rows : [];
-    if (!rows.length) return NextResponse.json({ error: "Aucune ligne à importer." }, { status: 400 });
-    if (rows.length > 2000) return NextResponse.json({ error: "Trop de lignes (max 2000)." }, { status: 400 });
+    if (!rows.length) return NextResponse.json({ error: pick(locale, "Aucune ligne à importer.", "No rows to import.") }, { status: 400 });
+    if (rows.length > 2000) return NextResponse.json({ error: pick(locale, "Trop de lignes (max 2000).", "Too many rows (2000 max).") }, { status: 400 });
     const payload = rows.map((r) => ({ tenant_id: tenantId, collection, data: cleanData(r), created_by: userId }));
     const { data, error } = await from(T).insert(payload).select("id");
     if (error) throw error;
@@ -169,18 +246,24 @@ async function handleAppStore(
   }
   if (action === "bulk_delete") {
     const ids = (Array.isArray(body.ids) ? body.ids : []).map(String).filter(Boolean);
-    if (!ids.length) return NextResponse.json({ error: "Aucun élément sélectionné." }, { status: 400 });
-    if (ids.length > 500) return NextResponse.json({ error: "Trop d'éléments (max 500)." }, { status: 400 });
+    if (!ids.length) return NextResponse.json({ error: pick(locale, "Aucun élément sélectionné.", "No items selected.") }, { status: 400 });
+    if (ids.length > 500) return NextResponse.json({ error: pick(locale, "Trop d'éléments (max 500).", "Too many items (500 max).") }, { status: 400 });
     const { error } = await from(T).delete().eq("tenant_id", tenantId).eq("collection", collection).in("id", ids);
     if (error) throw error;
+    await cleanupLinksForRecords(from, tenantId, collection, ids);
     return NextResponse.json({ ok: true, deleted: ids.length });
   }
-  return NextResponse.json({ error: `Action inconnue : ${action}` }, { status: 400 });
+  return NextResponse.json(
+    { error: pick(locale, `Action inconnue : ${action}`, `Unknown action: ${action}`) },
+    { status: 400 }
+  );
 }
 
 export async function POST(req: Request) {
+  const locale = await getLocale();
+
   if (!sameOrigin(req)) {
-    return NextResponse.json({ error: "Origine non autorisée." }, { status: 403 });
+    return NextResponse.json({ error: pick(locale, "Origine non autorisée.", "Origin not allowed.") }, { status: 403 });
   }
 
   const supabase = await createClient();
@@ -188,13 +271,13 @@ export async function POST(req: Request) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) {
-    return NextResponse.json({ error: "Authentification requise." }, { status: 401 });
+    return NextResponse.json({ error: pick(locale, "Authentification requise.", "Authentication required.") }, { status: 401 });
   }
 
   const membership = await getActiveMembershipServer(supabase, user.id);
 
   if (!membership) {
-    return NextResponse.json({ error: "Aucun espace de travail." }, { status: 403 });
+    return NextResponse.json({ error: pick(locale, "Aucun espace de travail.", "No workspace.") }, { status: 403 });
   }
   const tenantId = membership.tenant_id;
 
@@ -221,11 +304,21 @@ export async function POST(req: Request) {
     // Transformations atomiques : id de la fiche SOURCE (fallback sur `id`).
     demandeId?: string;
     noteId?: string;
+    // Relations many-to-many (Phase 4) : deux extrémités + libellé + filtre.
+    a?: { entity?: string; id?: string };
+    b?: { entity?: string; id?: string };
+    with?: string;
+    relation?: string;
+    // Filtres/recherche/pagination serveur (Phase 9).
+    filters?: unknown;
+    search?: string;
+    searchFields?: string[];
+    offset?: number;
   };
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: "Corps de requête invalide." }, { status: 400 });
+    return NextResponse.json({ error: pick(locale, "Corps de requête invalide.", "Invalid request body.") }, { status: 400 });
   }
 
   const entity = body.entity ?? "";
@@ -240,13 +333,25 @@ export async function POST(req: Request) {
   //   normal d'une app, pas une action destructrice sur le métier.
   if (WRITE_ACTIONS.has(action) && !can(membership.role, "data.write")) {
     return NextResponse.json(
-      { error: "Vous êtes en lecture seule sur cet espace : vous ne pouvez pas modifier les données." },
+      {
+        error: pick(
+          locale,
+          "Vous êtes en lecture seule sur cet espace : vous ne pouvez pas modifier les données.",
+          "You have read-only access to this workspace: you cannot edit data."
+        ),
+      },
       { status: 403 }
     );
   }
   if (isWorkspaceEntity && DELETE_ACTIONS.has(action) && !can(membership.role, "data.delete")) {
     return NextResponse.json(
-      { error: "Seuls le propriétaire ou un administrateur peuvent supprimer des données du workspace." },
+      {
+        error: pick(
+          locale,
+          "Seuls le propriétaire ou un administrateur peuvent supprimer des données du workspace.",
+          "Only the owner or an administrator can delete workspace data."
+        ),
+      },
       { status: 403 }
     );
   }
@@ -257,13 +362,60 @@ export async function POST(req: Request) {
   if (WRITE_ACTIONS.has(action)) {
     const ent = await getEntitlementsForTenant(supabase, tenantId);
     if (!ent.writable) {
-      return NextResponse.json({ error: FROZEN_MESSAGE, frozen: true }, { status: 403 });
+      return NextResponse.json({ error: frozenMessage(locale), frozen: true }, { status: 403 });
     }
   }
 
   // Accès dynamique à la table (nom validé) → cast contrôlé du client typé.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const from = (t: string) => (supabase.from as any)(t);
+
+  // Contexte d'émission des événements de domaine (Phase 5) : qui, quel espace,
+  // quelle app émettrice (module_id transmis par le pont de l'app). Best-effort.
+  const emitCtx = { tenantId, actorId: user.id, moduleId: typeof body.moduleId === "string" ? body.moduleId : null };
+
+  // ── FAIL-CLOSED (décision 2026-07-12) ── un compte `member` NON relié à une
+  // fiche employé ne doit voir AUCUNE donnée métier en LECTURE (avant : il voyait
+  // tout le tenant — fail-open). S'applique aux entités workspace ET aux
+  // collections libres (app_records). Les écritures restent gouvernées par RBAC/RLS.
+  const READ_GATE_ACTIONS = new Set(["list", "get", "chantier_rentabilite", "list_links"]);
+  if (membership.role === "member" && READ_GATE_ACTIONS.has(action)) {
+    const linkedEmpIds = await memberEmployeeIds(from, tenantId, user.id);
+    if (linkedEmpIds.length === 0) {
+      return NextResponse.json({ data: action === "get" ? null : [] });
+    }
+  }
+
+  // ── RELATIONS MANY-TO-MANY (Phase 4) ── actions transverses (pas liées à UNE
+  // entité) : elles opèrent sur entity_links entre deux extrémités quelconques
+  // (canonique ou custom). RBAC/gel déjà vérifiés (link/unlink ∈ WRITE_ACTIONS).
+  if (action === "link" || action === "unlink" || action === "list_links") {
+    if (action === "list_links") {
+      const r = await listEntityLinks(
+        from,
+        tenantId,
+        String(body.entity ?? ""),
+        String(body.id ?? ""),
+        typeof body.with === "string" ? body.with : undefined
+      );
+      if (r.error) return NextResponse.json({ error: r.error }, { status: r.status ?? 400 });
+      return NextResponse.json({ data: r.data });
+    }
+    const a: LinkEndpoint = { entity: String(body.a?.entity ?? ""), id: String(body.a?.id ?? "") };
+    const b: LinkEndpoint = { entity: String(body.b?.entity ?? ""), id: String(body.b?.id ?? "") };
+    const rel = typeof body.relation === "string" ? body.relation : "";
+    const r =
+      action === "link"
+        ? await createEntityLink(from, tenantId, user.id, a, b, rel)
+        : await deleteEntityLink(from, tenantId, a, b, rel);
+    if (r.error) return NextResponse.json({ error: r.error }, { status: r.status ?? 400 });
+    if (r.ok && a.entity && b.entity) {
+      await emitDomainEvents(from, emitCtx, [
+        buildLinkEvent(action === "link" ? "relation_added" : "relation_removed", a, b, rel),
+      ]);
+    }
+    return NextResponse.json({ ok: r.ok, data: r.data });
+  }
 
   // ── PORTÉE DES DONNÉES (data_scope) ── uniquement en LECTURE (`list`). La portée
   // vient du module appelant (id → on lit modules.data_scope) ou est fournie inline
@@ -290,12 +442,13 @@ export async function POST(req: Request) {
   // permet à N'IMPORTE QUELLE app de sauvegarder dans le cloud, sans schéma prédéfini.
   if (!isWorkspaceEntity) {
     if (!entity || entity.length > 80) {
-      return NextResponse.json({ error: "Collection invalide." }, { status: 400 });
+      return NextResponse.json({ error: pick(locale, "Collection invalide.", "Invalid collection.") }, { status: 400 });
     }
     try {
-      return await handleAppStore(from, tenantId, user.id, entity, action, body, readFilter);
+      return await handleAppStore(from, tenantId, user.id, entity, action, body, readFilter, locale);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Erreur base de données.";
+      const msg =
+        err instanceof Error ? err.message : pick(locale, "Erreur base de données.", "Database error.");
       return NextResponse.json({ error: msg }, { status: 400 });
     }
   }
@@ -333,8 +486,11 @@ export async function POST(req: Request) {
 
   try {
     if (action === "list") {
+      // Pagination serveur (Phase 9) : `offset` fourni → on renvoie aussi le total.
+      const wantsPage = typeof body.offset === "number" && body.offset >= 0;
+      const limit = Math.min(Number(body.limit) || 200, 500);
       let q = from(def.table)
-        .select(typeof body.columns === "string" ? body.columns : "*")
+        .select(typeof body.columns === "string" ? body.columns : "*", wantsPage ? { count: "exact" } : undefined)
         .eq("tenant_id", tenantId);
       // Périmètre employé : borne aux chantiers autorisés (racine par id, enfants
       // par chantier_id). null = pas de restriction ; [] = aucun chantier visible.
@@ -344,17 +500,45 @@ export async function POST(req: Request) {
       // l'app ; « choisir » = uniquement les ids sélectionnés pour cette entité.
       if (readFilter?.since) q = q.gte("created_at", readFilter.since);
       if (readFilter?.ids) q = q.in("id", readFilter.ids);
+      // ── FILTRES + RECHERCHE SERVEUR (Phase 9) ── colonnes whitelistées, valeurs
+      // paramétrées (aucune chaîne SQL brute). `mine` → fiche employé de l'user.
+      if (body.filters || (typeof body.search === "string" && body.search.trim())) {
+        const allowedCols = new Set<string>([...def.writable, "id", "created_at", "updated_at"]);
+        let employeeId: string | null = null;
+        if (body.filters && JSON.stringify(body.filters).includes('"mine"')) {
+          employeeId = (await memberEmployeeIds(from, tenantId, user.id))[0] ?? null;
+        }
+        try {
+          if (body.filters) q = applyFilterGroup(q, body.filters as AppFilterGroup, { allowedColumns: allowedCols, employeeId });
+          if (typeof body.search === "string" && body.search.trim() && Array.isArray(body.searchFields)) {
+            q = applySearch(q, body.search, body.searchFields, allowedCols);
+          }
+        } catch (fe) {
+          return NextResponse.json(
+            { error: fe instanceof Error ? fe.message : pick(locale, "Filtre invalide.", "Invalid filter.") },
+            { status: 400 }
+          );
+        }
+      }
       if (typeof body.order === "string") {
         q = q.order(body.order, { ascending: body.ascending !== false });
       }
-      q = q.limit(Math.min(Number(body.limit) || 200, 500));
+      if (wantsPage) {
+        const from0 = Number(body.offset) || 0;
+        q = q.range(from0, from0 + limit - 1);
+        const { data, error, count } = await q;
+        if (error) throw error;
+        const total = typeof count === "number" ? count : null;
+        return NextResponse.json({ data, total, hasMore: total != null ? from0 + (data?.length ?? 0) < total : false });
+      }
+      q = q.limit(limit);
       const { data, error } = await q;
       if (error) throw error;
       return NextResponse.json({ data });
     }
 
     if (action === "get") {
-      if (!body.id) return NextResponse.json({ error: "id manquant." }, { status: 400 });
+      if (!body.id) return NextResponse.json({ error: pick(locale, "id manquant.", "Missing id.") }, { status: 400 });
       // Hors périmètre → comportement inchangé (.single()). Sous périmètre employé,
       // on borne et on renvoie null si l'enregistrement n'est pas dans sa portée.
       if (allowedChantierIds !== null) {
@@ -464,13 +648,16 @@ export async function POST(req: Request) {
     }
 
     if (action === "create") {
-      const values = sanitize(body.values, def.writable);
+      const canon = canonize(entity, sanitize(body.values, def.writable), locale);
+      if (canon.error) return NextResponse.json({ error: canon.error }, { status: 400 });
+      const values = canon.values;
       const { data, error } = await from(def.table)
         .insert({ ...values, tenant_id: tenantId })
         .select()
         .single();
       if (error) throw error;
       await log("create", `${def.label}${rowName(values)} — ajout`, data?.id ?? null);
+      await emitDomainEvents(from, emitCtx, [buildCreateEvent(entity, data)]);
       return NextResponse.json({ data });
     }
 
@@ -479,18 +666,57 @@ export async function POST(req: Request) {
       // (colonnes whitelistées) et tenant_id est forcé côté serveur.
       const rows = Array.isArray(body.rows) ? body.rows : [];
       if (!rows.length) {
-        return NextResponse.json({ error: "Aucune ligne à importer." }, { status: 400 });
+        return NextResponse.json({ error: pick(locale, "Aucune ligne à importer.", "No rows to import.") }, { status: 400 });
       }
       if (rows.length > 2000) {
-        return NextResponse.json({ error: "Trop de lignes (max 2000 par import)." }, { status: 400 });
+        return NextResponse.json(
+          { error: pick(locale, "Trop de lignes (max 2000 par import).", "Too many rows (2000 max per import).") },
+          { status: 400 }
+        );
       }
       const clean = rows
         .map((r) => sanitize(r, def.writable))
         .filter((r) => Object.values(r).some((v) => v !== null && v !== undefined && String(v).trim() !== ""));
       if (!clean.length) {
-        return NextResponse.json({ error: "Aucune donnée exploitable (colonnes non reconnues ?)." }, { status: 400 });
+        return NextResponse.json(
+          {
+            error: pick(
+              locale,
+              "Aucune donnée exploitable (colonnes non reconnues ?).",
+              "No usable data (unrecognized columns?)."
+            ),
+          },
+          { status: 400 }
+        );
       }
-      const payload = clean.map((r) => ({ ...r, tenant_id: tenantId }));
+      // Un import est TOUT OU RIEN : mieux vaut renvoyer l'artisan corriger son
+      // fichier que laisser entrer 300 lignes dont 12 invisibles aux agents. On
+      // pointe les lignes fautives (numéro + valeur) au lieu d'un refus opaque.
+      const canonRows: Record<string, unknown>[] = [];
+      const bad: string[] = [];
+      clean.forEach((r, i) => {
+        const c = canonize(entity, r, locale);
+        if (c.error) bad.push(pick(locale, `ligne ${i + 1} : ${c.error}`, `row ${i + 1}: ${c.error}`));
+        else canonRows.push(c.values);
+      });
+      if (bad.length) {
+        const head = bad.slice(0, 5).join(" | ");
+        const reste =
+          bad.length > 5
+            ? pick(locale, ` (+ ${bad.length - 5} autre(s) ligne(s))`, ` (+ ${bad.length - 5} more row(s))`)
+            : "";
+        return NextResponse.json(
+          {
+            error: pick(
+              locale,
+              `Import annulé — ${bad.length} ligne(s) contiennent une valeur non reconnue. ${head}${reste}`,
+              `Import cancelled — ${bad.length} row(s) contain an unrecognized value. ${head}${reste}`
+            ),
+          },
+          { status: 400 }
+        );
+      }
+      const payload = canonRows.map((r) => ({ ...r, tenant_id: tenantId }));
       const { data, error } = await from(def.table).insert(payload).select("id");
       if (error) throw error;
       await log("create", `${def.label} — import de ${data?.length ?? clean.length} ligne(s)`);
@@ -498,8 +724,16 @@ export async function POST(req: Request) {
     }
 
     if (action === "update") {
-      if (!body.id) return NextResponse.json({ error: "id manquant." }, { status: 400 });
-      const values = sanitize(body.values, def.writable);
+      if (!body.id) return NextResponse.json({ error: pick(locale, "id manquant.", "Missing id.") }, { status: 400 });
+      const canonU = canonize(entity, sanitize(body.values, def.writable), locale);
+      if (canonU.error) return NextResponse.json({ error: canonU.error }, { status: 400 });
+      const values = canonU.values;
+      // État AVANT (lookup PK, peu coûteux) → before/after + status_changed précis.
+      const { data: before } = await from(def.table)
+        .select("*")
+        .eq("tenant_id", tenantId)
+        .eq("id", body.id)
+        .maybeSingle();
       const { data, error } = await from(def.table)
         .update(values)
         .eq("tenant_id", tenantId)
@@ -509,27 +743,42 @@ export async function POST(req: Request) {
       if (error) throw error;
       await log("update", `${def.label}${rowName(values)} — mise à jour`, body.id);
       captureLearningSignal(supabase, tenantId, entity, data as Record<string, unknown>);
+      await emitDomainEvents(
+        from,
+        emitCtx,
+        buildUpdateEvents(
+          entity,
+          before as Record<string, unknown> | null,
+          data as Record<string, unknown>,
+          changedFields(before as Record<string, unknown> | null, values)
+        )
+      );
       return NextResponse.json({ data });
     }
 
     if (action === "delete") {
-      if (!body.id) return NextResponse.json({ error: "id manquant." }, { status: 400 });
+      if (!body.id) return NextResponse.json({ error: pick(locale, "id manquant.", "Missing id.") }, { status: 400 });
       const { error } = await from(def.table)
         .delete()
         .eq("tenant_id", tenantId)
         .eq("id", body.id);
       if (error) throw error;
+      // Relations (Phase 4) : la fiche disparaît → ses liens aussi (best-effort).
+      await cleanupLinksForRecord(from, tenantId, entity, body.id);
       await log("delete", `${def.label} — suppression`, body.id);
+      await emitDomainEvents(from, emitCtx, [buildDeleteEvent(entity, String(body.id))]);
       return NextResponse.json({ ok: true });
     }
 
     if (action === "bulk_delete") {
       const ids = (Array.isArray(body.ids) ? body.ids : []).map(String).filter(Boolean);
-      if (!ids.length) return NextResponse.json({ error: "Aucun élément sélectionné." }, { status: 400 });
-      if (ids.length > 500) return NextResponse.json({ error: "Trop d'éléments (max 500)." }, { status: 400 });
+      if (!ids.length) return NextResponse.json({ error: pick(locale, "Aucun élément sélectionné.", "No items selected.") }, { status: 400 });
+      if (ids.length > 500) return NextResponse.json({ error: pick(locale, "Trop d'éléments (max 500).", "Too many items (500 max).") }, { status: 400 });
       const { error } = await from(def.table).delete().eq("tenant_id", tenantId).in("id", ids);
       if (error) throw error;
+      await cleanupLinksForRecords(from, tenantId, entity, ids);
       await log("delete", `${def.label} — suppression de ${ids.length} élément(s)`);
+      await emitDomainEvents(from, emitCtx, ids.slice(0, 20).map((id) => buildDeleteEvent(entity, id)));
       return NextResponse.json({ ok: true, deleted: ids.length });
     }
 
@@ -540,313 +789,46 @@ export async function POST(req: Request) {
     //   mode = "acompte" (pct %, défaut 30) · "situation" (pct %) · "solde" (reste
     //   à facturer = total du devis − déjà facturé). Appelé avec entity="factures".
     if (action === "invoice_from_devis") {
+      // Logique déplacée dans lib/workspace-transforms (invoiceFromDevis) pour être
+      // réutilisable par la validation d'un item d'agent. Comportement IDENTIQUE.
       const devisId =
         typeof body.devisId === "string" && body.devisId
           ? body.devisId
           : typeof body.id === "string"
             ? body.id
             : "";
-      if (!devisId) return NextResponse.json({ error: "Devis manquant." }, { status: 400 });
-
-      const { data: dv, error: dErr } = await from("devis")
-        .select("id, numero, client_id, chantier_id, montant_ht, montant_tva, montant_ttc, statut")
-        .eq("tenant_id", tenantId)
-        .eq("id", devisId)
-        .single();
-      if (dErr || !dv) return NextResponse.json({ error: "Devis introuvable." }, { status: 404 });
-
-      const round2 = (n: number) => Math.round(n * 100) / 100;
-      const totalHt = Number(dv.montant_ht) || 0;
-      const totalTva = Number(dv.montant_tva) || 0;
-      if (totalHt <= 0) {
-        return NextResponse.json({ error: "Ce devis n'a pas de montant à facturer." }, { status: 400 });
-      }
-
-      // Déjà facturé pour ce devis (les avoirs se déduisent) → base du solde.
-      const { data: prev } = await from("factures")
-        .select("montant_ht, type")
-        .eq("tenant_id", tenantId)
-        .eq("devis_id", devisId);
-      let invoicedHt = 0;
-      for (const p of (prev ?? []) as { montant_ht: number | null; type: string | null }[]) {
-        const v = Number(p.montant_ht) || 0;
-        invoicedHt += p.type === "avoir" ? -v : v;
-      }
-
       const mode = body.mode === "acompte" || body.mode === "situation" ? body.mode : "solde";
-      let ht: number;
-      let factType: string;
-      if (mode === "acompte") {
-        factType = "acompte";
-        const pct = Math.min(100, Math.max(1, Number(body.pct) || 30));
-        ht = round2(totalHt * (pct / 100));
-      } else if (mode === "situation") {
-        factType = "situation";
-        const pct = Math.min(100, Math.max(1, Number(body.pct) || 0));
-        ht = round2(totalHt * (pct / 100));
-      } else {
-        factType = "facture";
-        ht = round2(totalHt - invoicedHt); // solde = total − déjà facturé
-      }
-      if (!(ht > 0)) {
-        return NextResponse.json(
-          { error: "Rien à facturer : le devis est déjà entièrement facturé." },
-          { status: 400 }
-        );
-      }
-
-      // TVA proportionnelle au HT du devis (conserve le taux moyen, multi-taux inclus).
-      const tvaRate = totalHt > 0 ? totalTva / totalHt : 0.2;
-      const tva = round2(ht * tvaRate);
-      const ttc = round2(ht + tva);
-
-      // Prochain numéro F-AAAA-NNN pour l'entreprise (base = max de l'année).
-      const year = new Date().getFullYear();
-      const pre = `F-${year}-`;
-      const { data: existing } = await from("factures")
-        .select("numero")
-        .eq("tenant_id", tenantId)
-        .ilike("numero", `${pre}%`);
-      let seq = 0;
-      for (const r of (existing ?? []) as { numero: string | null }[]) {
-        const n = String(r.numero || "");
-        if (!n.startsWith(pre)) continue;
-        const val = parseInt(n.slice(pre.length), 10);
-        if (Number.isFinite(val) && val > seq) seq = val;
-      }
-
-      const today = new Date();
-      const dateFacture = today.toISOString().slice(0, 10);
-      const dateEcheance = new Date(today.getTime() + 30 * 86_400_000).toISOString().slice(0, 10);
-
-      // Insertion anti-collision : l'index unique (tenant_id, numero) est la
-      // garantie légale. Sous course, on retente au rang suivant plutôt qu'échouer.
-      let facture: Record<string, unknown> | null = null;
-      let insErr: unknown = null;
-      for (let attempt = 1; attempt <= 6; attempt++) {
-        const numero = `${pre}${String(seq + attempt).padStart(3, "0")}`;
-        const { data: ins, error } = await from("factures")
-          .insert({
-            tenant_id: tenantId,
-            numero,
-            client_id: dv.client_id ?? null,
-            chantier_id: dv.chantier_id ?? null,
-            devis_id: devisId,
-            type: factType,
-            statut: "brouillon",
-            date_facture: dateFacture,
-            date_echeance: dateEcheance,
-            montant_ht: ht,
-            montant_tva: tva,
-            montant_ttc: ttc,
-            montant_paye: 0,
-          })
-          .select()
-          .single();
-        if (!error) {
-          facture = ins as Record<string, unknown>;
-          break;
-        }
-        insErr = error;
-        if ((error as { code?: string }).code !== "23505") break; // pas un conflit d'unicité → stop
-      }
-      if (!facture) throw insErr || new Error("Création de la facture impossible.");
-
-      const kindLabel = factType === "acompte" ? "acompte" : factType === "situation" ? "situation" : "facture";
-      await log(
-        "create",
-        `${def.label} ${facture.numero} — ${kindLabel} depuis le devis ${dv.numero ?? ""}`.trim(),
-        (facture.id as string) ?? null
-      );
-      return NextResponse.json({ data: facture });
+      const result = await invoiceFromDevis({
+        from,
+        tenantId,
+        devisId,
+        mode,
+        pct: typeof body.pct === "number" ? body.pct : null,
+        log,
+        factureLabel: def.label,
+      });
+      if (result.error) return NextResponse.json({ error: result.error }, { status: result.status ?? 400 });
+      return NextResponse.json({ data: result.data });
     }
 
-    // ── DEVIS ACCEPTÉ → CHANTIER ── ouvre le chantier d'exécution SANS re-saisie :
-    // reprend client/site/demande + l'adresse, budgète au montant HT du devis, et
-    // RELIE le devis au chantier créé (devis.chantier_id). Idempotent : si le devis
-    // pointe déjà un chantier, on le renvoie au lieu d'en créer un doublon.
-    // Appelé avec entity="chantiers", devisId (ou id) = le devis source.
-    if (action === "chantier_from_devis") {
-      const devisId = String(body.devisId || body.id || "");
-      if (!devisId) return NextResponse.json({ error: "Devis manquant." }, { status: 400 });
-      const { data: dv, error: dErr } = await from("devis")
-        .select("id, numero, client_id, chantier_id, site_id, demande_id, montant_ht")
-        .eq("tenant_id", tenantId)
-        .eq("id", devisId)
-        .single();
-      if (dErr || !dv) return NextResponse.json({ error: "Devis introuvable." }, { status: 404 });
-
-      // Déjà relié → renvoie le chantier existant (pas de doublon).
-      if (dv.chantier_id) {
-        const { data: existing } = await from("chantiers")
-          .select("*").eq("tenant_id", tenantId).eq("id", dv.chantier_id).maybeSingle();
-        if (existing) return NextResponse.json({ data: existing });
-      }
-
-      // Nom + adresse : depuis le site s'il existe, sinon le client.
-      let clientNom = "";
-      let addr: { adresse: string | null; ville: string | null; code_postal: string | null } = {
-        adresse: null, ville: null, code_postal: null,
-      };
-      if (dv.client_id) {
-        const { data: cl } = await from("clients")
-          .select("nom, adresse, ville, code_postal").eq("tenant_id", tenantId).eq("id", dv.client_id).maybeSingle();
-        if (cl) {
-          clientNom = String(cl.nom || "");
-          addr = { adresse: cl.adresse ?? null, ville: cl.ville ?? null, code_postal: cl.code_postal ?? null };
-        }
-      }
-      if (dv.site_id) {
-        const { data: st } = await from("sites")
-          .select("adresse, ville, code_postal").eq("tenant_id", tenantId).eq("id", dv.site_id).maybeSingle();
-        if (st) addr = { adresse: st.adresse ?? null, ville: st.ville ?? null, code_postal: st.code_postal ?? null };
-      }
-      const nom = clientNom ? `Chantier — ${clientNom}` : `Chantier ${dv.numero ?? ""}`.trim();
-
-      const { data: chantier, error: insErr } = await from("chantiers")
-        .insert({
-          tenant_id: tenantId,
-          nom,
-          client_id: dv.client_id ?? null,
-          site_id: dv.site_id ?? null,
-          demande_id: dv.demande_id ?? null,
-          adresse: addr.adresse,
-          ville: addr.ville,
-          code_postal: addr.code_postal,
-          budget: Number(dv.montant_ht) || 0,
-          avancement: 0,
-          statut: "en_attente",
-        })
-        .select()
-        .single();
-      if (insErr || !chantier) throw insErr || new Error("Création du chantier impossible.");
-
-      // Lien retour : le devis pointe désormais son chantier.
-      await from("devis").update({ chantier_id: chantier.id }).eq("tenant_id", tenantId).eq("id", devisId);
-      await log("create", `${ENTITIES.chantiers.label} « ${nom} » — ouvert depuis le devis ${dv.numero ?? ""}`.trim(), (chantier.id as string) ?? null);
-      return NextResponse.json({ data: chantier });
+    // ── TRANSFORMATIONS ATOMIQUES ── logique partagée (lib/workspace-transforms),
+    // réutilisée À L'IDENTIQUE par les outils agent. La source est prise dans
+    // devisId/demandeId/noteId, avec repli sur `id`. `invoice_from_devis` reste
+    // au-dessus (numérotation LÉGALE des factures — chemin dédié, non extrait).
+    if (isTransformAction(action)) {
+      const sourceId = String(body.devisId || body.demandeId || body.noteId || body.id || "");
+      const r = await runWorkspaceTransform({ from, tenantId, action, sourceId, log });
+      if (r.error) return NextResponse.json({ error: r.error }, { status: r.status ?? 400 });
+      return NextResponse.json({ data: r.data });
     }
 
-    // ── DEMANDE → DEVIS ── amorce un devis brouillon depuis une demande entrante :
-    // reprend client/site + relie demande_id, numérote D-AAAA-NNN côté serveur.
-    // Idempotent : si un devis existe déjà pour cette demande, on le renvoie.
-    // Appelé avec entity="devis", demandeId (ou id) = la demande source.
-    if (action === "devis_from_demande") {
-      const demandeId = String(body.demandeId || body.id || "");
-      if (!demandeId) return NextResponse.json({ error: "Demande manquante." }, { status: 400 });
-      const { data: dm, error: dErr } = await from("demandes")
-        .select("id, titre, client_id, site_id, description")
-        .eq("tenant_id", tenantId)
-        .eq("id", demandeId)
-        .single();
-      if (dErr || !dm) return NextResponse.json({ error: "Demande introuvable." }, { status: 404 });
-
-      const { data: dejaDevis } = await from("devis")
-        .select("*").eq("tenant_id", tenantId).eq("demande_id", demandeId).limit(1);
-      if (Array.isArray(dejaDevis) && dejaDevis[0]) return NextResponse.json({ data: dejaDevis[0] });
-
-      // Numéro D-AAAA-NNN unique par entreprise (base = max de l'année).
-      const year = new Date().getFullYear();
-      const pre = `D-${year}-`;
-      const { data: nums } = await from("devis").select("numero").eq("tenant_id", tenantId).ilike("numero", `${pre}%`);
-      let seq = 0;
-      for (const r of (nums ?? []) as { numero: string | null }[]) {
-        const val = parseInt(String(r.numero || "").slice(pre.length), 10);
-        if (Number.isFinite(val) && val > seq) seq = val;
-      }
-      const today = new Date();
-      const dateDevis = today.toISOString().slice(0, 10);
-      const dateValidite = new Date(today.getTime() + 30 * 86_400_000).toISOString().slice(0, 10);
-
-      let devis: Record<string, unknown> | null = null;
-      let insErr: unknown = null;
-      for (let attempt = 1; attempt <= 6; attempt++) {
-        const numero = `${pre}${String(seq + attempt).padStart(3, "0")}`;
-        const { data: ins, error } = await from("devis")
-          .insert({
-            tenant_id: tenantId,
-            numero,
-            client_id: dm.client_id ?? null,
-            site_id: dm.site_id ?? null,
-            demande_id: demandeId,
-            statut: "brouillon",
-            date_devis: dateDevis,
-            date_validite: dateValidite,
-            montant_ht: 0,
-            montant_tva: 0,
-            montant_ttc: 0,
-            notes: dm.description || dm.titre || null,
-          })
-          .select()
-          .single();
-        if (!error) { devis = ins as Record<string, unknown>; break; }
-        insErr = error;
-        if ((error as { code?: string }).code !== "23505") break;
-      }
-      if (!devis) throw insErr || new Error("Création du devis impossible.");
-
-      // La demande passe « en cours » (best-effort, ne bloque pas la réponse).
-      await from("demandes").update({ statut: "en_cours" }).eq("tenant_id", tenantId).eq("id", demandeId);
-      await log("create", `${ENTITIES.devis.label} ${devis.numero} — ébauché depuis la demande « ${dm.titre ?? ""} »`.trim(), (devis.id as string) ?? null);
-      return NextResponse.json({ data: devis });
-    }
-
-    // ── NOTE → TÂCHE / RÉSERVE ── transforme une note terrain en action suivie,
-    // en reprenant ses rattachements (chantier, intervention, auteur). Appelé avec
-    // entity="tasks" (task_from_note) ou entity="reserves" (reserve_from_note),
-    // noteId (ou id) = la note source.
-    if (action === "task_from_note" || action === "reserve_from_note") {
-      const noteId = String(body.noteId || body.id || "");
-      if (!noteId) return NextResponse.json({ error: "Note manquante." }, { status: 400 });
-      const { data: nt, error: nErr } = await from("notes")
-        .select("id, titre, contenu, chantier_id, client_id, intervention_id, auteur_id")
-        .eq("tenant_id", tenantId)
-        .eq("id", noteId)
-        .single();
-      if (nErr || !nt) return NextResponse.json({ error: "Note introuvable." }, { status: 404 });
-
-      const titre = String(nt.titre || nt.contenu || "").trim().slice(0, 120) || "Note";
-      if (action === "task_from_note") {
-        const { data: task, error: insErr } = await from("tasks")
-          .insert({
-            tenant_id: tenantId,
-            title: titre,
-            description: nt.contenu || null,
-            status: "todo",
-            priority: "normal",
-            chantier_id: nt.chantier_id ?? null,
-            assignee_id: nt.auteur_id ?? null,
-          })
-          .select()
-          .single();
-        if (insErr || !task) throw insErr || new Error("Création de la tâche impossible.");
-        await log("create", `${ENTITIES.tasks.label} « ${titre} » — créée depuis une note`, (task.id as string) ?? null);
-        return NextResponse.json({ data: task });
-      }
-      const { data: reserve, error: insErr } = await from("reserves")
-        .insert({
-          tenant_id: tenantId,
-          titre,
-          description: nt.contenu || null,
-          type: "reserve",
-          gravite: "normale",
-          statut: "ouverte",
-          chantier_id: nt.chantier_id ?? null,
-          client_id: nt.client_id ?? null,
-          intervention_id: nt.intervention_id ?? null,
-          assignee_id: nt.auteur_id ?? null,
-          date_constat: new Date().toISOString().slice(0, 10),
-        })
-        .select()
-        .single();
-      if (insErr || !reserve) throw insErr || new Error("Création de la réserve impossible.");
-      await log("create", `${ENTITIES.reserves.label} « ${titre} » — créée depuis une note`, (reserve.id as string) ?? null);
-      return NextResponse.json({ data: reserve });
-    }
-
-    return NextResponse.json({ error: `Action inconnue : ${action}` }, { status: 400 });
+    return NextResponse.json(
+      { error: pick(locale, `Action inconnue : ${action}`, `Unknown action: ${action}`) },
+      { status: 400 }
+    );
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Erreur base de données.";
+    const msg =
+      err instanceof Error ? err.message : pick(locale, "Erreur base de données.", "Database error.");
     return NextResponse.json({ error: msg }, { status: 400 });
   }
 }

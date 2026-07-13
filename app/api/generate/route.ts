@@ -8,6 +8,8 @@ import { readAgenda, createEvent } from "@/lib/gcal";
 import { loadPlannedInterventions, findFreeSlots, formatSlotFr } from "@/lib/planning-slots";
 import { classifyQuestionTopic } from "@/lib/question-topics";
 import { buildDocumentSystemPrompt, injectDocumentRuntime } from "@/lib/document-generator";
+import { injectDocumentBrand } from "@/lib/documents/doc-brand";
+import { getBrandKit } from "@/lib/brand";
 import { assessDocumentReadiness } from "@/lib/document-context";
 import { retrieveContext, buildSourcesBlock } from "@/lib/rag";
 import { detectConnectedEntities, buildDataModeBlock, buildEntityBindingCatalog, ENTITIES, ALLOWED_ENTITIES, recordLabel } from "@/lib/data-entities";
@@ -19,6 +21,11 @@ import {
 } from "@/lib/user-preferences";
 import { injectBiltiaSDK } from "@/lib/biltia-sdk";
 import { injectChartEngine } from "@/lib/app-charts";
+import { injectComponentEngine } from "@/lib/app-components";
+import { extractSpecBlock, buildSpecInstruction, deriveAppSpecFromHtml } from "@/lib/app-spec";
+import { diffAppSpec } from "@/lib/app-spec-patch";
+import { listCustomEntities, buildCustomEntityBlock } from "@/lib/custom-entities";
+import { validateApp, buildCorrectionInstruction, type AppValidationResult } from "@/lib/app-validation";
 import { getWorkspaceContext, buildWorkspaceBlock, buildPilotageSnapshot } from "@/lib/workspace-context";
 import { createClient } from "@/lib/supabase-server";
 import { createAdminClient } from "@/lib/supabase-admin";
@@ -26,7 +33,7 @@ import { trackAiUsage, reconcileCredits } from "@/lib/ai-usage";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
 import { can } from "@/lib/permissions";
 import { enforceRateLimit, LIMITS } from "@/lib/rate-limit";
-import { getEntitlementsForTenant, FROZEN_MESSAGE } from "@/lib/entitlements";
+import { getEntitlementsForTenant, FROZEN_MESSAGE, frozenMessage } from "@/lib/entitlements";
 import { isFounderEmail } from "@/lib/founder";
 import { logActivity } from "@/lib/activity";
 import { sendPushToUser } from "@/lib/push";
@@ -34,8 +41,11 @@ import { createAgentRule } from "@/lib/agent-rules";
 import { connectorForCapability } from "@/lib/connectors";
 import { runAgentLoop, buildWorkspaceToolsSystem } from "@/lib/agent-tools";
 import { canSendOutbound } from "@/lib/outbound-email";
-import { resolveAudience, isTaskAudience, AUDIENCE_LABELS, SEND_CAP } from "@/lib/task-now";
+import { resolveAudience, isTaskAudience, audienceLabels, SEND_CAP } from "@/lib/task-now";
+import { pick } from "@/lib/i18n/config";
 import { TIER_SIMPLE, TIER_MEDIUM, TIER_COMPLEX } from "@/lib/models";
+import { getLocale } from "@/lib/i18n/server";
+import { withLocale, localeInstruction } from "@/lib/i18n/llm";
 
 const client = new Anthropic();
 
@@ -187,6 +197,15 @@ Un moteur de graphiques (interactif + animé, zéro dépendance) est PRÉ-INJECT
 - Au SURVOL : repère vertical + point/barre en avant + infobulle + le readout \`#rd-ca\` se met à jour. À l'affichage : la courbe se trace, les barres montent. C'est L'EFFET SIGNATURE que l'utilisateur adore.
 - Monte le graphique APRÈS avoir injecté le HTML de la vue (l'élément \`#ch-ca\` doit exister), dans un \`try/catch\`. Re-dessine au \`resize\` (throttlé) pour rester net.
 - DOSAGE : 1 à 2 graphiques par vue qui en a besoin (métrique dans le temps, répartition par chantier/poste). Jamais un mur ; une petite app peut n'en avoir aucun.
+
+## COMPOSANTS FIABLES — RUNTIME DÉJÀ CHARGÉ (window.biltiaUI — tu APPELLES, tu n'écris PAS la plomberie)
+Pour les briques CRITIQUES branchées aux données (tableau, formulaire, kanban, KPI), un runtime déterministe est PRÉ-INJECTÉ : \`window.biltiaUI\`. PRÉFÈRE-LE à ta propre implémentation dès qu'une brique lit/écrit une entité du workspace — il garantit la liaison \`window.biltia\`, le CRUD, la recherche/tri, le glisser-déposer QUI PERSISTE et les selects relationnels (là où une implémentation maison casse souvent). Tu poses un conteneur \`<div id="…"></div>\` puis tu appelles, APRÈS avoir injecté le HTML de la vue, dans un try/catch :
+- \`biltiaUI.table('host', { entity:'chantiers', columns:[{key:'nom',label:'Nom'},{key:'statut',label:'Statut'},{key:'budget',label:'Budget',type:'currency'}], search:true, onRowClick:function(row){…}, rowActions:[{label:'Voir',onClick:function(row){…}}] })\` → tableau réel (recherche, tri au clic d'en-tête, clic ligne), câblé et rechargé depuis le workspace, avec état vide propre.
+- \`biltiaUI.form('host', { entity:'clients', fields:[{key:'nom',label:'Nom',type:'text',required:true},{key:'chantier_id',label:'Chantier',type:'relation',relation:'chantiers'},{key:'statut',type:'select',options:['actif','inactif']}], record:ficheAModifier, onSaved:function(row){…} })\` → formulaire qui CRÉE/MET À JOUR via \`window.biltia\`, selects relationnels peuplés automatiquement, validation des requis.
+- \`biltiaUI.kanban('host', { entity:'tasks', statusField:'status', columns:[{value:'todo',label:'À faire'},{value:'doing',label:'En cours'},{value:'done',label:'Terminé'}], cardTitle:function(r){return r.title;}, cardMeta:function(r){return r.due_date||'';}, onCardClick:function(r){…} })\` → kanban dont le glisser-déposer PERSISTE le statut (+ boutons ‹ › au tap mobile).
+- \`biltiaUI.kpi('host', { entity:'factures', label:'Encaissé', compute:'sum', field:'montant_paye', type:'currency' })\` → KPI calculé en direct (\`compute\` = 'count' | 'sum' | 'avg').
+- \`biltiaUI.format(valeur, 'currency'|'date'|'percentage'|'number'|'boolean')\` → formatage FR partagé.
+Types de champ reconnus (form/table) : text, long_text, number, currency, percentage, boolean, date, datetime, email, phone, url, select, status, relation. Ces composants réutilisent le design system (\`.table-wrap\`, \`.btn\`, \`.kpi\`, \`.card\`, \`.modal\`) → intégration visuelle native. Tu restes LIBRE pour la mise en page, le hero/cockpit, les sections d'ambiance : n'utilise \`biltiaUI\` QUE pour les briques de données critiques, jamais pour tout figer.
 
 ## PLANNING / CALENDRIER — SIMPLE ET BEAU (ne le surcharge JAMAIS)
 Le planning est ce que tu surcharges le plus — arrête. Un calendrier doit être ÉPURÉ et lisible d'un coup d'œil, comme un vrai agenda propre :
@@ -612,17 +631,68 @@ Réponds UNIQUEMENT avec le code HTML complet. Aucune explication, aucun texte a
   ].join("\n\n");
 }
 
-// Consigne de REMPLISSAGE : quand un document est joint (image/PDF), on ne
-// génère pas « à partir de rien » — on REPRODUIT proprement le document fourni
-// en le COMPLÉTANT avec ce qu'on sait (entreprise, workspace, réponses).
-const DOC_FILL_MODE = `# TU REMPLIS UN DOCUMENT FOURNI (un fichier est joint : image ou PDF)
-L'utilisateur t'a joint un document et te demande de le COMPLÉTER. Ta mission :
-1. LIS le document joint : identifie sa NATURE (devis, facture, attestation, courrier, bon, formulaire…) et TOUTES ses rubriques/champs.
-2. REPRODUIS-le PROPREMENT en HTML (même type de document, mêmes sections, même esprit) — une belle feuille A4 lisible, PAS une photo ni une copie pixel par pixel.
-3. REMPLIS chaque champ avec les SOURCES DE VÉRITÉ, dans cet ordre : les réponses/contexte fournis par l'utilisateur > la FICHE ENTREPRISE (ton en-tête émetteur) > le WORKSPACE (le client demandé, ses coordonnées, les chantiers) > le contenu déjà présent dans le document joint.
-4. NE RECOPIE PAS les zones vides « …… » ou « [à remplir] » du document : REMPLIS-les. N'INVENTE jamais un nom de client, un montant, une quantité, une prestation ni une date : si l'info manque VRAIMENT (et n'a pas été fournie), mets un placeholder clair entre crochets « [Montant HT] » — jamais du faux définitif.
+// Consigne de RÉGÉNÉRATION : quand un document est joint (image/PDF), on ne
+// génère pas « à partir de rien » — on REPRODUIT proprement le document fourni,
+// puis on le COMPLÈTE ou on le MODIFIE selon la demande (ajouter / supprimer /
+// changer / reformuler / traduire), sans jamais toucher au reste.
+const DOC_FILL_MODE = `# TU REMPLIS OU MODIFIES UN DOCUMENT FOURNI (un fichier est joint : image ou PDF)
+L'utilisateur t'a joint un document. Ta mission :
+1. LIS le document joint EN ENTIER : identifie sa NATURE (devis, facture, attestation, courrier, contrat, formulaire, document juridique/technique/administratif…) et TOUTES ses rubriques, champs, articles, paragraphes.
+2. REPRODUIS-le PROPREMENT et FIDÈLEMENT en HTML (même type de document, mêmes sections, même ordre, même esprit, même vocabulaire) — une belle feuille A4 lisible, PAS une photo ni une copie pixel par pixel. Un document de TOUTE nature est accepté, pas seulement du BTP.
+3. APPLIQUE la demande de l'utilisateur :
+   • REMPLISSAGE / COMPLÉTER : remplis chaque champ avec les SOURCES DE VÉRITÉ, dans cet ordre : réponses/contexte de l'utilisateur > FICHE ENTREPRISE (en-tête émetteur) > WORKSPACE (client, coordonnées, chantiers) > contenu déjà présent dans le document.
+   • MODIFICATION (modifier une valeur, AJOUTER une clause/section/ligne, SUPPRIMER un passage, DÉPLACER ou RÉORDONNER des blocs — ex : « mets le texte avant le tableau » —, reformuler, corriger, traduire) : reproduis tout le document à l'identique et applique UNIQUEMENT le changement demandé. Ne supprime, ne réécris et n'omets RIEN d'autre — le reste doit rester mot pour mot identique.
+4. NE RECOPIE PAS les zones vides « …… » ou « [à remplir] » : REMPLIS-les. N'INVENTE jamais un nom, un montant, une quantité, une clause ni une date : si l'info manque VRAIMENT (et n'a pas été fournie), mets un placeholder clair entre crochets « [Montant HT] » — jamais du faux définitif.
 5. Calcule les totaux exactement (HT → TVA → TTC) si le document en comporte. Format français.
 Le résultat est un document fini, prêt à imprimer / enregistrer en PDF / signer — l'utilisateur pourra le prévisualiser et le télécharger.`;
+
+// Consigne quand on CRÉE UNE APP à partir d'un fichier joint (Excel, CSV, PDF,
+// photo d'un tableau). Sans elle, le fichier n'était qu'une « référence » vague :
+// le modèle produisait une app vide à côté des données. Ici, le fichier EST la
+// source des données de départ.
+const APP_FROM_FILES = `# LES DONNÉES DE L'APP VIENNENT DU FICHIER JOINT
+Un ou plusieurs fichiers sont joints (tableau Excel/CSV exporté en image ou PDF, liste, document). Ils ne sont PAS un simple décor : ils contiennent les DONNÉES DE DÉPART de l'application.
+
+1. LIS le fichier EN ENTIER et déduis-en la STRUCTURE réelle : quelles COLONNES / champs existent vraiment, leur type (texte, nombre, montant, date, statut), et ce que représente une LIGNE (un chantier ? un client ? une heure pointée ? un article de catalogue ?).
+2. MODÈLE L'APP SUR CETTE STRUCTURE : les champs du formulaire et les colonnes de la liste sont CEUX DU FICHIER, avec SES intitulés (son vocabulaire), pas un modèle générique inventé.
+3. PRÉ-REMPLIS l'app avec les LIGNES RÉELLES du fichier — pas des exemples fictifs. Recopie fidèlement les valeurs lues (noms, montants, dates, statuts). Si le fichier est long, intègre les lignes que tu peux lire de façon fiable ; n'invente JAMAIS une ligne ni une valeur que tu n'as pas lue.
+4. Une valeur ILLISIBLE ou absente reste VIDE — jamais une donnée inventée pour « faire joli ».
+5. Si le fichier correspond à une entité connue du workspace (clients, chantiers, devis, factures, pointages…), branche l'app sur cette entité partagée (voir le catalogue d'entités) plutôt que sur une collection isolée.
+
+L'utilisateur doit ouvrir l'app et Y RETROUVER SES DONNÉES, correctement structurées, prêtes à être complétées.
+
+# CAS PARTICULIER — LE DOCUMENT JOINT EST UN PLAN (architecte, masse, étage, coupe)
+Tu construis alors un OUTIL DE MÉTRÉ (quantitatif), PAS un visualiseur de plan.
+
+1. PIÈCES : identifie CHAQUE pièce nommée sur le plan (Séjour, Cuisine, Chambre 1, SdB, Dégagement…) → une LIGNE PRÉ-CRÉÉE par pièce. C'est le cœur de la valeur : il ne repart jamais d'une feuille blanche.
+
+2. 🔴 LES POSTES MÉTRÉS SONT CEUX DE SON MÉTIER (voir le bloc « MÉTIER DE L'UTILISATEUR » / FOCUS MÉTIER ci-dessus). C'est la règle la PLUS importante de cette section : un métré n'a de sens que dans un corps d'état. Tu métrés ce que LUI facture :
+   • ÉLECTRICIEN → points lumineux, prises, interrupteurs, circuits, tableau/disjoncteurs, longueurs de gaine et de câble par pièce.
+   • PLOMBIER / CHAUFFAGISTE → points d'eau, évacuations, radiateurs, longueurs de tube, colonnes.
+   • PEINTRE → surfaces murs et plafonds, couches, rendement.
+   • CARRELEUR / SOLIER → surfaces de sol, plinthes, chutes, calepinage.
+   • PLAQUISTE → surfaces de cloison, panneaux, rails, bandes.
+   • MENUISIER → ouvertures, linéaires, meubles.
+   • MAÇON → surfaces, volumes, linéaires de mur.
+   Un artisan multi-métiers : le métier PRINCIPAL d'abord, les secondaires en postes additionnels. NE LUI SERS JAMAIS les postes d'un corps d'état qui n'est pas le sien.
+
+3. DIMENSIONS — RÈGLE INTOUCHABLE : ne lis QUE les COTES ÉCRITES sur le plan. Ne mesure JAMAIS « à l'œil », au pixel, ni en déduisant d'une échelle. Sans cote écrite, le champ reste VIDE, marqué « à mesurer ». UNE QUANTITÉ FAUSSE = UN DEVIS FAUX = DE L'ARGENT PERDU. N'invente JAMAIS une dimension, une surface, ni un comptage.
+
+4. FORMULES VIVANTES (recalcul JS instantané dès qu'une valeur change — jamais un total figé). Les bases géométriques, valables pour tous : surface au sol = L × l ; périmètre = 2 × (L + l) ; surface des murs = périmètre × hauteur sous plafond. Puis les formules DE SON MÉTIER, par exemple :
+   • peintre : peinture (L) = surface à peindre × nb de couches ÷ rendement
+   • carreleur : sol (m²) = surface au sol × (1 + % de chute) ; plinthe = périmètre − largeur des ouvertures
+   • plaquiste : panneaux = surface des murs ÷ surface d'un panneau, ARRONDI AU SUPÉRIEUR
+   • électricien : câble/gaine ≈ Σ (distance point ↔ tableau) × (1 + % de réserve) ; nb de circuits selon les points par type
+   • budget (toujours) = Σ (quantité × prix unitaire) → HT, TVA, TTC
+   Si son métier n'est pas listé, DÉDUIS les formules justes de son corps d'état : tu connais le BTP.
+
+5. LES RATIOS SONT DES PARAMÈTRES MODIFIABLES, dans un écran « Réglages » : hauteur sous plafond (défaut 2,50 m) + les ratios propres à SON métier (rendement peinture m²/L, nb de couches, % de chute carrelage, surface d'un panneau, % de réserve de câble, prix unitaires…). JAMAIS des constantes cachées dans le code : chaque artisan a les siennes, et un ratio faux fausse tout le budget.
+
+6. VUES (onglets) : « Métré par pièce » (saisie + totaux) · « Quantités » (agrégé par poste/matériau) · « Budget » (quantités × prix → HT/TVA/TTC) · le PLAN joint, consultable.
+
+7. EXPORT Excel/CSV RÉEL (vrai Blob download) sur chaque tableau — c'est son livrable.
+
+8. HONNÊTETÉ AFFICHÉE : distingue visiblement ce qui est LU sur le plan de ce qui reste À MESURER (badge). Si des pièces sont incomplètes, ne présente JAMAIS le total comme définitif — affiche « total partiel ». Le but n'est pas de remplacer le métreur : c'est de lui éviter la feuille blanche.`;
 
 // Fiche entreprise émettrice (nom + pays + TVA + SIRET + adresse), depuis
 // tenants.company_info (migration 015). Sert à remplir l'EN-TÊTE d'un document
@@ -788,9 +858,20 @@ async function recordUnmetRequest(
 
 export async function POST(req: Request) {
   try {
+    // Langue de l'interface (cookie) : le copilote/générateur répond dans la
+    // locale de l'utilisateur (réponses de chat, questions, textes des apps et
+    // documents générés, messages d'erreur). FR = défaut → zéro impact.
+    const locale = await getLocale();
+
     if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY.startsWith("your_")) {
       return Response.json(
-        { error: "Clé API Anthropic non configurée. Ajoutez ANTHROPIC_API_KEY dans .env.local." },
+        {
+          error: pick(
+            locale,
+            "Clé API Anthropic non configurée. Ajoutez ANTHROPIC_API_KEY dans .env.local.",
+            "Anthropic API key not configured. Add ANTHROPIC_API_KEY to .env.local."
+          ),
+        },
         { status: 503 }
       );
     }
@@ -800,7 +881,10 @@ export async function POST(req: Request) {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
 
     if (authError || !user) {
-      return Response.json({ error: "Authentification requise." }, { status: 401 });
+      return Response.json(
+        { error: pick(locale, "Authentification requise.", "Authentication required.") },
+        { status: 401 }
+      );
     }
 
     // Rate limiting : rejette un flood au plus tôt (avant toute lecture DB).
@@ -811,7 +895,10 @@ export async function POST(req: Request) {
     const membership = await getActiveMembershipServer(supabase, user.id);
 
     if (!membership) {
-      return Response.json({ error: "Aucun espace de travail trouvé." }, { status: 403 });
+      return Response.json(
+        { error: pick(locale, "Aucun espace de travail trouvé.", "No workspace found.") },
+        { status: 403 }
+      );
     }
 
     const tenantId = membership.tenant_id;
@@ -822,7 +909,7 @@ export async function POST(req: Request) {
     if (!isFounderEmail(user.email)) {
       const ent = await getEntitlementsForTenant(supabase, tenantId);
       if (!ent.writable) {
-        return Response.json({ error: FROZEN_MESSAGE, frozen: true }, { status: 403 });
+        return Response.json({ error: frozenMessage(locale), frozen: true }, { status: 403 });
       }
     }
 
@@ -844,7 +931,10 @@ export async function POST(req: Request) {
     try {
       body = await req.json();
     } catch {
-      return Response.json({ error: "Corps de requête invalide." }, { status: 400 });
+      return Response.json(
+        { error: pick(locale, "Corps de requête invalide.", "Invalid request body.") },
+        { status: 400 }
+      );
     }
 
     const { prompt, previousHTML, format, isAutoFix } = body;
@@ -865,12 +955,24 @@ export async function POST(req: Request) {
       );
 
     if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
-      return Response.json({ error: "Décrivez l'application que vous souhaitez." }, { status: 400 });
+      return Response.json(
+        { error: pick(locale, "Décrivez l'application que vous souhaitez.", "Describe the application you want.") },
+        { status: 400 }
+      );
     }
 
     // Limiter la taille du prompt pour éviter les abus
     if (prompt.length > 4000) {
-      return Response.json({ error: "Description trop longue (4000 caractères max)." }, { status: 400 });
+      return Response.json(
+        {
+          error: pick(
+            locale,
+            "Description trop longue (4000 caractères max).",
+            "Description too long (4,000 characters max)."
+          ),
+        },
+        { status: 400 }
+      );
     }
 
     const isModification = typeof previousHTML === "string" && previousHTML.length > 0;
@@ -991,9 +1093,18 @@ export async function POST(req: Request) {
     if (outOfScope && !isAutoFix && !isModification) {
       await recordUnmetRequest(supabase, tenantId, user.id, "capability", oosAlternative, prompt);
       const alt = oosAlternative.trim();
+      const altTail = `${alt.charAt(0).toLowerCase() + alt.slice(1)}${/[.!?]$/.test(alt) ? "" : "."}`;
       const message = alt
-        ? `Ça, je ne peux pas le faire — ce n'est pas dans mes capacités.\n\nEn revanche, ${alt.charAt(0).toLowerCase() + alt.slice(1)}${/[.!?]$/.test(alt) ? "" : "."}\n\nTu veux que je m'en occupe ?`
-        : "Ça, je ne peux pas le faire — ce n'est pas dans mes capacités, en tout cas pas pour l'instant. J'ai noté ta demande : c'est peut-être pour bientôt.";
+        ? pick(
+            locale,
+            `Ça, je ne peux pas le faire — ce n'est pas dans mes capacités.\n\nEn revanche, ${altTail}\n\nTu veux que je m'en occupe ?`,
+            `That, I can't do — it's outside my capabilities.\n\nOn the other hand, ${altTail}\n\nWant me to take care of it?`
+          )
+        : pick(
+            locale,
+            "Ça, je ne peux pas le faire — ce n'est pas dans mes capacités, en tout cas pas pour l'instant. J'ai noté ta demande : c'est peut-être pour bientôt.",
+            "That, I can't do — it's outside my capabilities, at least for now. I've noted your request: it may be coming soon."
+          );
       return Response.json({ kind: "answer", answer: message });
     }
 
@@ -1019,8 +1130,11 @@ export async function POST(req: Request) {
       return Response.json(
         {
           kind: "answer",
-          answer:
+          answer: pick(
+            locale,
             "Vous êtes en **lecture seule** sur cet espace de travail : vous pouvez consulter les données et poser des questions, mais pas créer ni envoyer. Demandez à un administrateur de l'espace de vous accorder les droits nécessaires.",
+            "You have **read-only** access to this workspace: you can view data and ask questions, but not create or send. Ask a workspace administrator to grant you the required permissions."
+          ),
         },
         { status: 403 }
       );
@@ -1040,7 +1154,11 @@ export async function POST(req: Request) {
         return Response.json({
           kind: "email",
           status: "need_recipient",
-          message: "À qui dois-je envoyer cet email ? Donnez-moi l'adresse du destinataire.",
+          message: pick(
+            locale,
+            "À qui dois-je envoyer cet email ? Donnez-moi l'adresse du destinataire.",
+            "Who should I send this email to? Give me the recipient's address."
+          ),
         });
       }
 
@@ -1052,7 +1170,11 @@ export async function POST(req: Request) {
           // Carte de connexion inline (Bloc « étape par étape ») : l'utilisateur
           // connecte Gmail juste ici, puis je renvoie la demande et j'envoie.
           connectors: ["gmail"],
-          message: `Il me faut d'abord connecter votre **Gmail** pour l'envoyer à votre place — c'est juste ci-dessous.\n\nEn attendant, voici le message prêt à copier :\n\nÀ : ${to}\nObjet : ${subject}\n\n${bodyText}`,
+          message: pick(
+            locale,
+            `Il me faut d'abord connecter votre **Gmail** pour l'envoyer à votre place — c'est juste ci-dessous.\n\nEn attendant, voici le message prêt à copier :\n\nÀ : ${to}\nObjet : ${subject}\n\n${bodyText}`,
+            `I first need to connect your **Gmail** to send it on your behalf — it's right below.\n\nIn the meantime, here's the message ready to copy:\n\nTo: ${to}\nSubject: ${subject}\n\n${bodyText}`
+          ),
         });
       }
 
@@ -1061,17 +1183,29 @@ export async function POST(req: Request) {
         return Response.json({
           kind: "email",
           status: "sent",
-          message: `✅ Email envoyé à ${to}.\n\nObjet : ${subject}\n\n${bodyText}`,
+          message: pick(
+            locale,
+            `✅ Email envoyé à ${to}.\n\nObjet : ${subject}\n\n${bodyText}`,
+            `✅ Email sent to ${to}.\n\nSubject: ${subject}\n\n${bodyText}`
+          ),
         });
       }
       const why =
         sent.reason === "missing_scope"
-          ? "l'autorisation d'envoi Gmail n'est pas accordée — reconnectez votre compte Google"
-          : "l'envoi a échoué côté Gmail";
+          ? pick(
+              locale,
+              "l'autorisation d'envoi Gmail n'est pas accordée — reconnectez votre compte Google",
+              "the Gmail send permission is not granted — reconnect your Google account"
+            )
+          : pick(locale, "l'envoi a échoué côté Gmail", "the send failed on Gmail's side");
       return Response.json({
         kind: "email",
         status: "error",
-        message: `Je n'ai pas pu envoyer l'email (${why}). Voici le message prêt à copier :\n\nÀ : ${to}\nObjet : ${subject}\n\n${bodyText}`,
+        message: pick(
+          locale,
+          `Je n'ai pas pu envoyer l'email (${why}). Voici le message prêt à copier :\n\nÀ : ${to}\nObjet : ${subject}\n\n${bodyText}`,
+          `I couldn't send the email (${why}). Here's the message ready to copy:\n\nTo: ${to}\nSubject: ${subject}\n\n${bodyText}`
+        ),
       });
     }
 
@@ -1089,17 +1223,24 @@ export async function POST(req: Request) {
         return Response.json({
           kind: "task",
           status: "need_audience",
-          message:
+          message: pick(
+            locale,
             "À qui dois-je envoyer ce message ? Dis-moi le groupe : **tes clients**, **ton équipe** ou **tes fournisseurs**.",
+            "Who should I send this message to? Tell me the group: **your clients**, **your team** or **your suppliers**.",
+          ),
         });
       }
-      const label = AUDIENCE_LABELS[audience];
+      const label = audienceLabels(audience, locale);
 
       if (!bodyText) {
         return Response.json({
           kind: "task",
           status: "need_content",
-          message: `Que veux-tu dire à tes ${label.plural} ? Donne-moi le message et je le prépare pour validation.`,
+          message: pick(
+            locale,
+            `Que veux-tu dire à tes ${label.plural} ? Donne-moi le message et je le prépare pour validation.`,
+            `What do you want to tell your ${label.plural}? Give me the message and I'll prepare it for approval.`,
+          ),
         });
       }
 
@@ -1112,9 +1253,13 @@ export async function POST(req: Request) {
           // Carte de connexion inline : connecte Gmail ci-dessous, puis je résous
           // le groupe et je prépare l'aperçu.
           connectors: ["gmail"],
-          message:
+          message: pick(
+            locale,
             `Pour écrire à tes ${label.plural}, il me faut d'abord ta messagerie **Gmail** — connecte-la juste ci-dessous. ` +
-            `En attendant, voici le message prêt à copier :\n\nObjet : ${subject}\n\n${bodyText}`,
+              `En attendant, voici le message prêt à copier :\n\nObjet : ${subject}\n\n${bodyText}`,
+            `To write to your ${label.plural}, I first need your **Gmail** — connect it right below. ` +
+              `In the meantime, here's the message ready to copy:\n\nSubject: ${subject}\n\n${bodyText}`,
+          ),
         });
       }
 
@@ -1124,28 +1269,48 @@ export async function POST(req: Request) {
         return Response.json({
           kind: "task",
           status: "empty",
-          message: `Tu n'as aucun ${label.singular} dans ton workspace pour l'instant. Ajoute-les (ou importe-les) et je pourrai les contacter.`,
+          message: pick(
+            locale,
+            `Tu n'as aucun ${label.singular} dans ton workspace pour l'instant. Ajoute-les (ou importe-les) et je pourrai les contacter.`,
+            `You don't have any ${label.singular} in your workspace yet. Add them (or import them) and I'll be able to contact them.`,
+          ),
         });
       }
       if (resolved.recipients.length === 0) {
         return Response.json({
           kind: "task",
           status: "no_email",
-          message: `Tes ${resolved.total} ${label.plural} n'ont pas d'email renseigné dans le workspace. Complète au moins un email et je m'en occupe.`,
+          message: pick(
+            locale,
+            `Tes ${resolved.total} ${label.plural} n'ont pas d'email renseigné dans le workspace. Complète au moins un email et je m'en occupe.`,
+            `Your ${resolved.total} ${label.plural} have no email on file in the workspace. Fill in at least one email and I'll take care of it.`,
+          ),
         });
       }
 
       const count = resolved.recipients.length;
-      const cappedNote = count > SEND_CAP ? ` (j'enverrai aux ${SEND_CAP} premiers pour commencer)` : "";
+      const cappedNote = count > SEND_CAP
+        ? pick(locale, ` (j'enverrai aux ${SEND_CAP} premiers pour commencer)`, ` (I'll send to the first ${SEND_CAP} to start)`)
+        : "";
       const sample = resolved.recipients.slice(0, 3).map((r) => r.name).join(", ");
       const skippedNote = resolved.skipped.length
-        ? ` ${resolved.skipped.length} ${resolved.skipped.length > 1 ? "fiches sautées" : "fiche sautée"} (pas d'email).`
+        ? pick(
+            locale,
+            ` ${resolved.skipped.length} ${resolved.skipped.length > 1 ? "fiches sautées" : "fiche sautée"} (pas d'email).`,
+            ` ${resolved.skipped.length} ${resolved.skipped.length > 1 ? "records skipped" : "record skipped"} (no email).`,
+          )
         : "";
-      const message =
+      const message = pick(
+        locale,
         `📣 Prêt à envoyer à **${count} ${count > 1 ? label.plural : label.singular}**${cappedNote}` +
-        `${sample ? ` — ${sample}${count > 3 ? "…" : ""}` : ""}.${skippedNote}\n\n` +
-        `**Objet :** ${subject}\n\n${bodyText}\n\n` +
-        `👉 Réponds « **oui, envoie** » pour lancer, ou dis-moi quoi changer.`;
+          `${sample ? ` — ${sample}${count > 3 ? "…" : ""}` : ""}.${skippedNote}\n\n` +
+          `**Objet :** ${subject}\n\n${bodyText}\n\n` +
+          `👉 Réponds « **oui, envoie** » pour lancer, ou dis-moi quoi changer.`,
+        `📣 Ready to send to **${count} ${count > 1 ? label.plural : label.singular}**${cappedNote}` +
+          `${sample ? ` — ${sample}${count > 3 ? "…" : ""}` : ""}.${skippedNote}\n\n` +
+          `**Subject:** ${subject}\n\n${bodyText}\n\n` +
+          `👉 Reply "**yes, send**" to launch, or tell me what to change.`,
+      );
 
       return Response.json({
         kind: "task",
@@ -1181,8 +1346,11 @@ export async function POST(req: Request) {
           return Response.json({
             kind: "calendar",
             status: "ok",
-            message:
+            message: pick(
+              locale,
               "Je n'ai trouvé aucun créneau libre sur cette période d'après ton planning Biltia (heures ouvrées 8h-18h du lundi au vendredi). Élargis la fenêtre ou réduis la durée, et je regarde à nouveau.",
+              "I found no free slot in this period based on your Biltia schedule (working hours 8am-6pm, Monday to Friday). Widen the window or shorten the duration, and I'll look again."
+            ),
           });
         }
         const durH = Math.round((calIntent.durationMin / 60) * 10) / 10;
@@ -1190,9 +1358,13 @@ export async function POST(req: Request) {
         return Response.json({
           kind: "calendar",
           status: "ok",
-          message:
+          message: pick(
+            locale,
             `Voici ${slots.length} créneau${slots.length > 1 ? "x" : ""} libre${slots.length > 1 ? "s" : ""} de ${durH} h d'après ton planning Biltia :\n\n${lines}\n\n` +
-            "Dis-moi lequel te va et je crée le rendez-vous (« ajoute un RDV … le 1 »).",
+              "Dis-moi lequel te va et je crée le rendez-vous (« ajoute un RDV … le 1 »).",
+            `Here ${slots.length > 1 ? "are" : "is"} ${slots.length} free ${durH}h slot${slots.length > 1 ? "s" : ""} based on your Biltia schedule:\n\n${lines}\n\n` +
+              'Tell me which one works and I\'ll create the appointment ("add an appointment … on 1").',
+          ),
         });
       }
 
@@ -1202,8 +1374,11 @@ export async function POST(req: Request) {
           return Response.json({
             kind: "calendar",
             status: "need_info",
-            message:
+            message: pick(
+              locale,
               "Il me manque une info pour créer ce rendez-vous : donne-moi le titre et la date/heure (ex : « RDV client Morel mardi 14h »).",
+              'I\'m missing something to create this appointment: give me the title and the date/time (e.g. "client meeting Morel Tuesday 2pm").'
+            ),
           });
         }
         const created = await createEvent({
@@ -1217,16 +1392,32 @@ export async function POST(req: Request) {
           return Response.json({
             kind: "calendar",
             status: "created",
-            message: `✅ Rendez-vous ajouté à ton agenda : « ${created.summary} » le ${created.whenLabel}.`,
+            message: pick(
+              locale,
+              `✅ Rendez-vous ajouté à ton agenda : « ${created.summary} » le ${created.whenLabel}.`,
+              `✅ Appointment added to your calendar: “${created.summary}” on ${created.whenLabel}.`
+            ),
           });
         }
         const needsCalendar = created.reason === "not_connected" || created.reason === "missing_scope";
         const why =
           created.reason === "not_connected"
-            ? "Il me faut d'abord connecter ton **agenda Google** — c'est juste ci-dessous, puis j'ajoute le rendez-vous."
+            ? pick(
+                locale,
+                "Il me faut d'abord connecter ton **agenda Google** — c'est juste ci-dessous, puis j'ajoute le rendez-vous.",
+                "I first need to connect your **Google Calendar** — it's right below, then I'll add the appointment."
+              )
             : created.reason === "missing_scope"
-              ? "L'autorisation d'écriture de l'agenda manque : reconnecte ton **agenda Google** ci-dessous et j'ajoute le rendez-vous."
-              : "Je n'ai pas pu créer l'événement pour le moment. Réessaie dans un instant.";
+              ? pick(
+                  locale,
+                  "L'autorisation d'écriture de l'agenda manque : reconnecte ton **agenda Google** ci-dessous et j'ajoute le rendez-vous.",
+                  "The calendar write permission is missing: reconnect your **Google Calendar** below and I'll add the appointment."
+                )
+              : pick(
+                  locale,
+                  "Je n'ai pas pu créer l'événement pour le moment. Réessaie dans un instant.",
+                  "I couldn't create the event right now. Try again in a moment."
+                );
         return Response.json({
           kind: "calendar",
           status: created.reason,
@@ -1243,10 +1434,22 @@ export async function POST(req: Request) {
       const needsCalendar = cal.reason === "not_connected" || cal.reason === "missing_scope";
       const msg =
         cal.reason === "not_connected"
-          ? "Il me faut d'abord connecter ton **agenda Google** — c'est juste ci-dessous, puis je te lis ta semaine."
+          ? pick(
+              locale,
+              "Il me faut d'abord connecter ton **agenda Google** — c'est juste ci-dessous, puis je te lis ta semaine.",
+              "I first need to connect your **Google Calendar** — it's right below, then I'll read your week to you."
+            )
           : cal.reason === "missing_scope"
-            ? "L'autorisation de lecture de l'agenda manque : reconnecte ton **agenda Google** ci-dessous et je te lis ta semaine."
-            : "Je n'ai pas pu lire ton agenda pour le moment. Réessaie dans un instant.";
+            ? pick(
+                locale,
+                "L'autorisation de lecture de l'agenda manque : reconnecte ton **agenda Google** ci-dessous et je te lis ta semaine.",
+                "The calendar read permission is missing: reconnect your **Google Calendar** below and I'll read your week to you."
+              )
+            : pick(
+                locale,
+                "Je n'ai pas pu lire ton agenda pour le moment. Réessaie dans un instant.",
+                "I couldn't read your calendar right now. Try again in a moment."
+              );
       return Response.json({
         kind: "calendar",
         status: cal.reason,
@@ -1276,6 +1479,7 @@ export async function POST(req: Request) {
         userEmail: user.email ?? null,
         tenantId,
         instruction: prompt,
+        locale,
       });
       if (recruited.usage) logAuxUsage(recruited.usage, "agent_recruit");
       if (recruited.ok) {
@@ -1326,7 +1530,13 @@ export async function POST(req: Request) {
         const { data: credited } = await supabase.rpc("deduct_credits", { p_amount: DATA_HOLD });
         if (!credited) {
           return Response.json(
-            { error: "Crédits insuffisants. Rechargez votre compte pour continuer." },
+            {
+              error: pick(
+                locale,
+                "Crédits insuffisants. Rechargez votre compte pour continuer.",
+                "Not enough credits. Top up your account to continue."
+              ),
+            },
             { status: 402 }
           );
         }
@@ -1346,7 +1556,7 @@ export async function POST(req: Request) {
       try {
         const loop = await runAgentLoop({
           model: TIER_SIMPLE,
-          system: `Tu es l'OPÉRATEUR du workspace de Biltia, l'OS opérationnel du BTP. L'utilisateur te demande une opération sur SES données. Tu l'exécutes avec les outils, puis tu confirmes.
+          system: withLocale(`Tu es l'OPÉRATEUR du workspace de Biltia, l'OS opérationnel du BTP. L'utilisateur te demande une opération sur SES données. Tu l'exécutes avec les outils, puis tu confirmes.
 
 ${buildWorkspaceToolsSystem()}
 
@@ -1357,7 +1567,7 @@ Si la demande vise PLUSIEURS fiches d'un coup en SUPPRESSION ou en ÉCRASEMENT d
 - Opération faite → confirme FACTUELLEMENT ce qui a été fait, avec les valeurs clés (« ✓ Client **Jean Dupont** ajouté (06 12 34 56 78) »).
 - Ambiguïté → liste les fiches candidates et demande laquelle. Tu n'as RIEN modifié.
 - Introuvable → dis-le honnêtement et propose la création si pertinent.
-- Jamais de jargon technique (pas d'uuid, pas de nom de table) dans la réponse.`,
+- Jamais de jargon technique (pas d'uuid, pas de nom de table) dans la réponse.`, locale),
           userMessage: prompt,
           db: supabase,
           actor: { tenantId, userId: user.id, label: "Assistant" },
@@ -1384,8 +1594,11 @@ Si la demande vise PLUSIEURS fiches d'un coup en SUPPRESSION ou en ÉCRASEMENT d
           await refundDataOp();
           return Response.json({
             kind: "data",
-            message:
+            message: pick(
+              locale,
               "Je n'ai pas réussi à terminer cette opération. Reformulez (ex : « ajoute un client Jean Dupont, tel 06 12 34 56 78 ») — vos crédits ont été remboursés.",
+              'I couldn\'t complete this operation. Try rephrasing (e.g. "add a client Jean Dupont, phone 06 12 34 56 78") — your credits have been refunded.'
+            ),
             creditsUsed: 0,
           });
         }
@@ -1478,7 +1691,13 @@ Si la demande vise PLUSIEURS fiches d'un coup en SUPPRESSION ou en ÉCRASEMENT d
           // le tracking ne bloque jamais la réponse
         }
         return Response.json(
-          { error: "Crédits insuffisants. Rechargez votre compte pour continuer." },
+          {
+            error: pick(
+              locale,
+              "Crédits insuffisants. Rechargez votre compte pour continuer.",
+              "Not enough credits. Top up your account to continue."
+            ),
+          },
           { status: 402 }
         );
       }
@@ -1576,6 +1795,7 @@ HORS CAPACITÉS (physique, téléphonie, ingénierie) — Si on te demande une a
         sourcesBlock ? `\n${sourcesBlock}` : "",
         workspaceBlock ? `\n${workspaceBlock}` : "",
         pilotageBlock ? `\n${pilotageBlock}` : "",
+        localeInstruction(locale), // langue de sortie (EN si l'interface est en anglais)
       ].join("\n");
 
       // Routage coût : une question GÉNÉRALE (sans ancrage workspace ni sources)
@@ -1622,7 +1842,7 @@ HORS CAPACITÉS (physique, téléphonie, ingénierie) — Si on te demande une a
 
             if (!full.trim()) {
               await refundHold();
-              send({ type: "error", error: "La réponse a échoué. Réessayez — vos crédits ont été remboursés." });
+              send({ type: "error", error: pick(locale, "La réponse a échoué. Réessayez — vos crédits ont été remboursés.", "The answer failed. Try again — your credits have been refunded.") });
               return;
             }
 
@@ -1683,7 +1903,7 @@ HORS CAPACITÉS (physique, téléphonie, ingénierie) — Si on te demande une a
             console.error("Answer stream failed:", err);
             await refundHold();
             try {
-              send({ type: "error", error: "La réponse a échoué. Réessayez — vos crédits ont été remboursés." });
+              send({ type: "error", error: pick(locale, "La réponse a échoué. Réessayez — vos crédits ont été remboursés.", "The answer failed. Try again — your credits have been refunded.") });
             } catch {
               // Flux déjà fermé côté client.
             }
@@ -1780,6 +2000,20 @@ HORS CAPACITÉS (physique, téléphonie, ingénierie) — Si on te demande une a
       connectedEntities: effectiveEntities,
     });
 
+    // B8 : entités custom DÉJÀ définies dans ce workspace → le modèle les RÉUTILISE
+    // (même clé + mêmes champs) au lieu d'en recréer → tue le silo cross-app.
+    // Best-effort, apps non-documents seulement.
+    let customEntitiesBlock = "";
+    if (!isDocument) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const ents = await listCustomEntities({ from: (t: string) => (supabase.from as any)(t) }, tenantId);
+        customEntitiesBlock = buildCustomEntityBlock(ents);
+      } catch {
+        customEntitiesBlock = "";
+      }
+    }
+
     // Système en blocs : socle statique mis en cache (prompt caching Anthropic),
     // queue dynamique (métier, RAG, workspace, préférences) à la suite.
     const system: Anthropic.TextBlockParam[] = isDocument
@@ -1810,6 +2044,9 @@ HORS CAPACITÉS (physique, téléphonie, ingénierie) — Si on te demande une a
                 ? `# MARQUE DE L'EN-TÊTE\nLe \`.app-eyebrow\` de l'en-tête affiche « ${brandName.toUpperCase()} » (l'entreprise de l'utilisateur), PAS « Biltia ».`
                 : "",
               sourcesBlock,
+              // CRÉATION d'une app AVEC fichier(s) joint(s) → le fichier est la
+              // SOURCE DES DONNÉES (structure + lignes réelles), pas un décor.
+              !isModification && contextFiles.length ? APP_FROM_FILES : "",
               // Portée des données choisie au questionnaire (tout / sélection / import).
               dataScopeBlock,
               // SOURCE UNIQUE : catalogue des entités canoniques + règle de liaison,
@@ -1817,13 +2054,26 @@ HORS CAPACITÉS (physique, téléphonie, ingénierie) — Si on te demande une a
               // qui gère un concept du workspace l'écrit dans la vraie table partagée,
               // jamais dans une collection isolée. C'est ce qui garantit « toujours synchro ».
               buildEntityBindingCatalog(),
+              // B8 : entités custom déjà définies dans le workspace → à réutiliser.
+              customEntitiesBlock,
               // Entités détectées : schémas de champs détaillés + vraies données en live
               // via /api/data. Sinon, contexte workspace résumé (données d'exemple réelles).
               effectiveEntities.length ? buildDataModeBlock(effectiveEntities) : workspaceBlock,
+              // AppSpec V1 (Phase 1) : à la CRÉATION d'une app, le modèle émet aussi un
+              // contrat structuré (bloc BILTIA_SPEC après </html>). Pas en modification
+              // (la spec y est dérivée du HTML), pas en document.
+              !isModification ? buildSpecInstruction() : "",
               buildPreferencesBlock(preferences),
             ]),
           },
         ];
+
+    // Langue de sortie : si l'interface est en anglais, on ajoute la directive
+    // en dernier bloc (elle écrase la langue de rédaction des textes du document
+    // ou de l'app générée). FR = défaut → rien ajouté, aucun impact.
+    if (locale === "en") {
+      system.push({ type: "text", text: localeInstruction(locale) });
+    }
 
     const noun = isDocument ? "le document" : "l'application";
 
@@ -1990,6 +2240,17 @@ RATTRAPAGE RESPONSIVE (amélioration attendue, PAS un écart) : si le CSS de l'a
 
     html = stripFences(html);
 
+    // AppSpec V1 (Phase 1) : le modèle émet un bloc <!--BILTIA_SPEC …--> APRÈS
+    // </html> (création uniquement). On l'extrait AVANT toute validation/injection
+    // pour qu'il n'atteigne jamais l'app servie ; l'intention déclarée est ensuite
+    // transmise au client (done) puis persistée dans modules.app_spec.
+    let declaredSpec: unknown = null;
+    if (!isDocument) {
+      const ex = extractSpecBlock(html);
+      declaredSpec = ex.spec;
+      html = ex.cleanedHtml;
+    }
+
     if (!html.toLowerCase().includes("</html>")) {
       if (!html.toLowerCase().includes("</body>")) html += "\n</body>";
       html += "\n</html>";
@@ -2027,7 +2288,7 @@ RATTRAPAGE RESPONSIVE (amélioration attendue, PAS un écart) : si le CSS de l'a
       } catch {
         // le tracking ne bloque jamais la réponse
       }
-      send({ type: "error", error: "La génération s'est mal terminée (résultat incomplet). Réessayez — vos crédits ont été remboursés." });
+      send({ type: "error", error: pick(locale, "La génération s'est mal terminée (résultat incomplet). Réessayez — vos crédits ont été remboursés.", "The generation ended badly (incomplete result). Try again — your credits have been refunded.") });
       controller.close();
       return;
     }
@@ -2039,10 +2300,44 @@ RATTRAPAGE RESPONSIVE (amélioration attendue, PAS un écart) : si le CSS de l'a
         ? "Mon document BTP"
         : "Mon application BTP";
 
+    // ── VALIDATION POST-GÉNÉRATION (Phase 2) ── on mesure la couverture et on
+    // repère un branchement workspace manqué. Advisory : ne bloque JAMAIS la
+    // publication ; une erreur CRITIQUE déclenchera une passe corrective côté
+    // client (bornée à 1). Calculée sur le HTML du modèle (avant injection SDK).
+    let validation: AppValidationResult | null = null;
+    if (!isDocument) {
+      try {
+        validation = validateApp({ html, expectedEntities: effectiveEntities, declaredSpec, name, description: prompt });
+      } catch {
+        validation = null;
+      }
+    }
+
+    // ── MODIFICATION STRUCTURÉE (Phase 7) ── diff DÉTERMINISTE de la spec réelle
+    // (avant vs après), dérivé du HTML → « vue Kanban ajoutée · 2 actions… ».
+    let specDiffSummary: string | null = null;
+    if (isModification && !isDocument && typeof previousHTML === "string" && previousHTML) {
+      try {
+        const d = diffAppSpec(deriveAppSpecFromHtml(previousHTML), deriveAppSpecFromHtml(html));
+        specDiffSummary = d.changed ? d.summary : null;
+      } catch {
+        specDiffSummary = null;
+      }
+    }
+
     // Documents : injecter la barre « Imprimer / PDF » + les pavés de signature
     // tactiles (plomberie critique gérée serveur, jamais déléguée au LLM).
     if (isDocument) {
       html = injectDocumentRuntime(html);
+      // Le document part chez un CLIENT : il porte le logo et la couleur de
+      // l'entreprise (Réglages → Identité visuelle), jamais ceux de Biltia.
+      // Injecté ici, car une URL de logo n'a rien à faire dans un prompt.
+      try {
+        const brand = await getBrandKit(supabase, tenantId);
+        html = injectDocumentBrand(html, brand);
+      } catch {
+        /* pas d'identité visuelle → le document part tel quel */
+      }
     } else {
       // TOUTES les apps (connectées ou non) reçoivent le SDK window.biltia :
       // persistance CLOUD (entités workspace OU collection générique via app_records),
@@ -2052,6 +2347,10 @@ RATTRAPAGE RESPONSIVE (amélioration attendue, PAS un écart) : si le CSS de l'a
       // chartCountUp + classes .chart-* pré-chargés dans chaque app générée. Le
       // prompt demande au modèle de les APPELER ; ici on garantit qu'ils existent.
       html = injectChartEngine(html);
+      // Composants déterministes (Phase 8) : window.biltiaUI.table/form/kanban/kpi,
+      // câblés à window.biltia. Le modèle les APPELLE pour les briques critiques ;
+      // ici on garantit qu'ils existent (plomberie fiable, jamais réimplémentée).
+      html = injectComponentEngine(html);
     }
 
     // ── Crédits : coût réel + réconciliation du hold (best-effort) ────────────
@@ -2110,8 +2409,26 @@ RATTRAPAGE RESPONSIVE (amélioration attendue, PAS un écart) : si le CSS de l'a
           connected_entities: connectedEntities,
           rag_used: ragChunks.length > 0,
           rag_chunks: ragChunks.length,
+          // Télémétrie qualité Phase 2 (alimente aussi la Phase 10).
+          coverage_score: validation?.coverageScore ?? null,
+          validation_valid: validation?.valid ?? null,
+          validation_critical: validation?.critical ?? false,
         },
       });
+      // Événement d'usage nommé (Phase 10) : branchement workspace manqué —
+      // requêtable directement, en plus du flag dans metadata ci-dessus.
+      if (validation?.critical) {
+        await supabase.from("app_events").insert({
+          user_id: user.id,
+          tenant_id: tenantId,
+          event_type: "workspace_binding_failed",
+          metadata: {
+            source: "app",
+            coverage_score: validation.coverageScore,
+            errors: validation.errors.slice(0, 4).map((e) => e.code),
+          },
+        });
+      }
     } catch {
       // Le tracking ne bloque jamais la réponse.
     }
@@ -2152,6 +2469,23 @@ RATTRAPAGE RESPONSIVE (amélioration attendue, PAS un écart) : si le CSS de l'a
             actionFallback: kind === "action",
             dataMode: connectedEntities,
             creditsUsed: realCredits,
+            // AppSpec V1 : intention déclarée par le modèle (création) → le client
+            // la transmet à /api/modules/save qui compose la spec finale.
+            appSpec: declaredSpec ?? undefined,
+            // Validation Phase 2 : score de couverture + issues. `correctionPrompt`
+            // n'est présent que sur erreur CRITIQUE → passe corrective client.
+            validation: validation
+              ? {
+                  valid: validation.valid,
+                  critical: validation.critical,
+                  coverageScore: validation.coverageScore,
+                  errors: validation.errors.slice(0, 6).map((e) => e.message),
+                  warnings: validation.warnings.slice(0, 6).map((w) => w.message),
+                  correctionPrompt: validation.critical ? buildCorrectionInstruction(validation) : undefined,
+                }
+              : undefined,
+            // Diff structurel d'une modification (Phase 7) — résumé lisible.
+            specDiff: specDiffSummary ?? undefined,
           });
           controller.close();
         } catch (streamErr) {
@@ -2165,7 +2499,7 @@ RATTRAPAGE RESPONSIVE (amélioration attendue, PAS un écart) : si le CSS de l'a
             }
           }
           try {
-            send({ type: "error", error: "La génération a échoué. Réessayez — vos crédits ont été remboursés." });
+            send({ type: "error", error: pick(locale, "La génération a échoué. Réessayez — vos crédits ont été remboursés.", "The generation failed. Try again — your credits have been refunded.") });
           } catch {
             /* flux déjà fermé */
           }
@@ -2187,7 +2521,9 @@ RATTRAPAGE RESPONSIVE (amélioration attendue, PAS un écart) : si le CSS de l'a
   } catch (err) {
     console.error("Generation error:", err);
 
-    let msg = "Erreur de génération. Réessayez.";
+    // Locale relue ici : le `locale` du corps du handler est hors de portée du catch.
+    const locale = await getLocale();
+    let msg = pick(locale, "Erreur de génération. Réessayez.", "Generation error. Please try again.");
     let status = 500;
 
     if (err instanceof Anthropic.APIError) {
@@ -2196,15 +2532,31 @@ RATTRAPAGE RESPONSIVE (amélioration attendue, PAS un écart) : si le CSS de l'a
       status = err.status ?? 500;
 
       if (/credit balance is too low|billing/i.test(apiMsg)) {
-        msg = "Solde Anthropic insuffisant. Ajoutez des crédits sur console.anthropic.com → Plans & Billing pour activer la génération.";
+        msg = pick(
+          locale,
+          "Solde Anthropic insuffisant. Ajoutez des crédits sur console.anthropic.com → Plans & Billing pour activer la génération.",
+          "Anthropic balance too low. Add credits at console.anthropic.com → Plans & Billing to enable generation."
+        );
       } else if (err.status === 401) {
-        msg = "Clé API Anthropic invalide. Vérifiez ANTHROPIC_API_KEY dans .env.local.";
+        msg = pick(
+          locale,
+          "Clé API Anthropic invalide. Vérifiez ANTHROPIC_API_KEY dans .env.local.",
+          "Invalid Anthropic API key. Check ANTHROPIC_API_KEY in .env.local."
+        );
       } else if (err.status === 429) {
-        msg = "Trop de requêtes vers Anthropic. Patientez quelques secondes et réessayez.";
+        msg = pick(
+          locale,
+          "Trop de requêtes vers Anthropic. Patientez quelques secondes et réessayez.",
+          "Too many requests to Anthropic. Wait a few seconds and try again."
+        );
       } else if (apiMsg) {
-        msg = `Erreur Anthropic (${err.status}) : ${apiMsg}`;
+        msg = pick(locale, `Erreur Anthropic (${err.status}) : ${apiMsg}`, `Anthropic error (${err.status}): ${apiMsg}`);
       } else {
-        msg = `Erreur Anthropic (${err.status}). Vérifiez votre clé et votre facturation.`;
+        msg = pick(
+          locale,
+          `Erreur Anthropic (${err.status}). Vérifiez votre clé et votre facturation.`,
+          `Anthropic error (${err.status}). Check your API key and billing.`
+        );
       }
     }
 

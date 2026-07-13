@@ -19,7 +19,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase-server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
-import { getEntitlementsForTenant, FROZEN_MESSAGE } from "@/lib/entitlements";
+import { getEntitlementsForTenant, FROZEN_MESSAGE, frozenMessage } from "@/lib/entitlements";
 import { trackAiUsage } from "@/lib/ai-usage";
 import { logActivity } from "@/lib/activity";
 import {
@@ -34,6 +34,8 @@ import {
 } from "@/lib/agent-rules";
 import { executeRule, type AgentRuleRow } from "@/lib/agent-executor";
 import { can } from "@/lib/permissions";
+import { getLocale } from "@/lib/i18n/server";
+import { pick } from "@/lib/i18n/config";
 
 async function resolveSession() {
   const supabase = await createClient();
@@ -48,9 +50,15 @@ async function resolveSession() {
 // ── GET : liste + journal ────────────────────────────────────────────────────
 
 export async function GET() {
+  const locale = await getLocale();
   const { supabase, user, membership } = await resolveSession();
-  if (!user) return NextResponse.json({ error: "Authentification requise." }, { status: 401 });
-  if (!membership) return NextResponse.json({ error: "Aucun espace de travail." }, { status: 403 });
+  if (!user)
+    return NextResponse.json(
+      { error: pick(locale, "Authentification requise.", "Authentication required.") },
+      { status: 401 }
+    );
+  if (!membership)
+    return NextResponse.json({ error: pick(locale, "Aucun espace de travail.", "No workspace.") }, { status: 403 });
 
   // agent_outbox est une table récente (035) : cast souple le temps que les
   // types générés la connaissent (même convention que les autres tables neuves).
@@ -85,33 +93,51 @@ export async function GET() {
 // ── POST : recruter ──────────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
+  const locale = await getLocale();
   const { supabase, user, membership } = await resolveSession();
-  if (!user) return NextResponse.json({ error: "Authentification requise." }, { status: 401 });
-  if (!membership) return NextResponse.json({ error: "Aucun espace de travail." }, { status: 403 });
+  if (!user)
+    return NextResponse.json(
+      { error: pick(locale, "Authentification requise.", "Authentication required.") },
+      { status: 401 }
+    );
+  if (!membership)
+    return NextResponse.json({ error: pick(locale, "Aucun espace de travail.", "No workspace.") }, { status: 403 });
 
   // RBAC : recruter un agent autonome est réservé aux chefs d'équipe et plus
   // (owner / admin / manager). Un collaborateur ou un lecteur ne crée pas d'agent.
   if (!can(membership.role, "agents.manage")) {
     return NextResponse.json(
-      { error: "Seuls le propriétaire, un administrateur ou un chef d'équipe peuvent recruter un agent." },
+      {
+        error: pick(
+          locale,
+          "Seuls le propriétaire, un administrateur ou un chef d'équipe peuvent recruter un agent.",
+          "Only the owner, an admin or a team lead can hire an agent."
+        ),
+      },
       { status: 403 }
     );
   }
 
   const ent = await getEntitlementsForTenant(supabase, membership.tenant_id);
   if (!ent.writable) {
-    return NextResponse.json({ error: FROZEN_MESSAGE, frozen: true }, { status: 403 });
+    return NextResponse.json({ error: frozenMessage(locale), frozen: true }, { status: 403 });
   }
 
   let body: { instruction?: string };
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: "Corps de requête invalide." }, { status: 400 });
+    return NextResponse.json(
+      { error: pick(locale, "Corps de requête invalide.", "Invalid request body.") },
+      { status: 400 }
+    );
   }
   const instruction = typeof body.instruction === "string" ? body.instruction.trim() : "";
   if (!instruction) {
-    return NextResponse.json({ error: "« instruction » est requise." }, { status: 400 });
+    return NextResponse.json(
+      { error: pick(locale, "« instruction » est requise.", "“instruction” is required.") },
+      { status: 400 }
+    );
   }
 
   const result = await createAgentRule({
@@ -120,6 +146,7 @@ export async function POST(req: Request) {
     userEmail: user.email ?? null,
     tenantId: membership.tenant_id,
     instruction: instruction.slice(0, 2000),
+    locale,
   });
 
   // Coût du parsing Haiku : journalisé (jamais bloquant).
@@ -156,16 +183,28 @@ export async function POST(req: Request) {
 // ── PATCH : piloter ──────────────────────────────────────────────────────────
 
 export async function PATCH(req: Request) {
+  const locale = await getLocale();
   const { supabase, user, membership } = await resolveSession();
-  if (!user) return NextResponse.json({ error: "Authentification requise." }, { status: 401 });
-  if (!membership) return NextResponse.json({ error: "Aucun espace de travail." }, { status: 403 });
+  if (!user)
+    return NextResponse.json(
+      { error: pick(locale, "Authentification requise.", "Authentication required.") },
+      { status: 401 }
+    );
+  if (!membership)
+    return NextResponse.json({ error: pick(locale, "Aucun espace de travail.", "No workspace.") }, { status: 403 });
   const tenantId = membership.tenant_id;
 
   // RBAC : piloter un agent (pause / relance / suppression) = même droit que le
   // recrutement (owner / admin / manager).
   if (!can(membership.role, "agents.manage")) {
     return NextResponse.json(
-      { error: "Seuls le propriétaire, un administrateur ou un chef d'équipe peuvent piloter un agent." },
+      {
+        error: pick(
+          locale,
+          "Seuls le propriétaire, un administrateur ou un chef d'équipe peuvent piloter un agent.",
+          "Only the owner, an admin or a team lead can manage an agent."
+        ),
+      },
       { status: 403 }
     );
   }
@@ -174,16 +213,23 @@ export async function PATCH(req: Request) {
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: "Corps de requête invalide." }, { status: 400 });
+    return NextResponse.json(
+      { error: pick(locale, "Corps de requête invalide.", "Invalid request body.") },
+      { status: 400 }
+    );
   }
   const id = typeof body.id === "string" ? body.id : "";
   const action = typeof body.action === "string" ? body.action : "";
-  if (!id || !action) return NextResponse.json({ error: "« id » et « action » requis." }, { status: 400 });
+  if (!id || !action)
+    return NextResponse.json(
+      { error: pick(locale, "« id » et « action » requis.", "“id” and “action” are required.") },
+      { status: 400 }
+    );
 
   // Gel lecture seule : toute commande d'agent est une écriture.
   const ent = await getEntitlementsForTenant(supabase, tenantId);
   if (!ent.writable) {
-    return NextResponse.json({ error: FROZEN_MESSAGE, frozen: true }, { status: 403 });
+    return NextResponse.json({ error: frozenMessage(locale), frozen: true }, { status: 403 });
   }
 
   // La règle DOIT appartenir au tenant actif (RLS + filtre explicite).
@@ -193,7 +239,8 @@ export async function PATCH(req: Request) {
     .eq("tenant_id", tenantId)
     .eq("id", id)
     .maybeSingle();
-  if (!rule) return NextResponse.json({ error: "Agent introuvable." }, { status: 404 });
+  if (!rule)
+    return NextResponse.json({ error: pick(locale, "Agent introuvable.", "Agent not found.") }, { status: 404 });
 
   const schedule = rule.schedule as unknown as AgentSchedule;
   const isEvent = rule.trigger_type === "event";
@@ -226,7 +273,9 @@ export async function PATCH(req: Request) {
     return NextResponse.json({
       ok: true,
       status: "active",
-      message: next ? `Prochain passage : ${formatRunDate(next)}.` : null,
+      message: next
+        ? pick(locale, `Prochain passage : ${formatRunDate(next)}.`, `Next run: ${formatRunDate(next)}.`)
+        : null,
     });
   }
 
@@ -247,7 +296,11 @@ export async function PATCH(req: Request) {
     // vérification d'appartenance ci-dessus. run_key dédié : ne consomme pas
     // le créneau planifié.
     const admin = createAdminClient();
-    if (!admin) return NextResponse.json({ error: "Service role non configuré." }, { status: 503 });
+    if (!admin)
+      return NextResponse.json(
+        { error: pick(locale, "Service role non configuré.", "Service role not configured.") },
+        { status: 503 }
+      );
     const outcome = await executeRule(
       admin,
       rule as unknown as AgentRuleRow,
@@ -265,7 +318,16 @@ export async function PATCH(req: Request) {
     if (missing?.field === "content") {
       const content = typeof body.content === "string" ? body.content.trim() : "";
       if (content.length < 3) {
-        return NextResponse.json({ error: "Dites-moi quoi envoyer (message trop court)." }, { status: 400 });
+        return NextResponse.json(
+          {
+            error: pick(
+              locale,
+              "Dites-moi quoi envoyer (message trop court).",
+              "Tell me what to send (message too short)."
+            ),
+          },
+          { status: 400 }
+        );
       }
       const act = rule.action as unknown as AgentAction;
       const next = nextRunFor();
@@ -285,7 +347,11 @@ export async function PATCH(req: Request) {
       return NextResponse.json({
         ok: true,
         status: "active",
-        message: `Message enregistré, agent débloqué.${next ? ` Prochain passage : ${formatRunDate(next)}.` : ""}`,
+        message: pick(
+          locale,
+          `Message enregistré, agent débloqué.${next ? ` Prochain passage : ${formatRunDate(next)}.` : ""}`,
+          `Message saved, agent unblocked.${next ? ` Next run: ${formatRunDate(next)}.` : ""}`
+        ),
       });
     }
 
@@ -293,13 +359,16 @@ export async function PATCH(req: Request) {
     // FICHE du workspace — l'agent ET tout le reste de Biltia en profitent.
     const email = typeof body.email === "string" ? body.email.trim() : "";
     if (!email || !email.includes("@")) {
-      return NextResponse.json({ error: "Email invalide." }, { status: 400 });
+      return NextResponse.json({ error: pick(locale, "Email invalide.", "Invalid email.") }, { status: 400 });
     }
     if (!missing || missing.field !== "email" || !missing.id) {
-      return NextResponse.json({ error: "Cet agent n'attend pas d'email." }, { status: 400 });
+      return NextResponse.json(
+        { error: pick(locale, "Cet agent n'attend pas d'email.", "This agent is not waiting for an email.") },
+        { status: 400 }
+      );
     }
     if (missing.entity !== "clients" && missing.entity !== "employees") {
-      return NextResponse.json({ error: "Entité inconnue." }, { status: 400 });
+      return NextResponse.json({ error: pick(locale, "Entité inconnue.", "Unknown entity.") }, { status: 400 });
     }
 
     const { error: updErr } = await supabase
@@ -308,7 +377,10 @@ export async function PATCH(req: Request) {
       .eq("tenant_id", tenantId)
       .eq("id", missing.id);
     if (updErr) {
-      return NextResponse.json({ error: "Impossible de compléter la fiche." }, { status: 400 });
+      return NextResponse.json(
+        { error: pick(locale, "Impossible de compléter la fiche.", "Could not update the record.") },
+        { status: 400 }
+      );
     }
 
     // Re-résolution → l'agent redémarre avec le destinataire complet.
@@ -321,7 +393,16 @@ export async function PATCH(req: Request) {
       user.email ?? null
     );
     if (!resolved.ok) {
-      return NextResponse.json({ error: `Toujours bloqué : ${resolved.reason}.` }, { status: 400 });
+      return NextResponse.json(
+        {
+          error: pick(
+            locale,
+            `Toujours bloqué : ${resolved.reason}.`,
+            `Still blocked: ${resolved.reason}.`
+          ),
+        },
+        { status: 400 }
+      );
     }
 
     const next = nextRunFor();
@@ -343,9 +424,16 @@ export async function PATCH(req: Request) {
     return NextResponse.json({
       ok: true,
       status: "active",
-      message: `Fiche complétée, agent débloqué.${next ? ` Prochain passage : ${formatRunDate(next)}.` : ""}`,
+      message: pick(
+        locale,
+        `Fiche complétée, agent débloqué.${next ? ` Prochain passage : ${formatRunDate(next)}.` : ""}`,
+        `Record completed, agent unblocked.${next ? ` Next run: ${formatRunDate(next)}.` : ""}`
+      ),
     });
   }
 
-  return NextResponse.json({ error: `Action inconnue : ${action}` }, { status: 400 });
+  return NextResponse.json(
+    { error: pick(locale, `Action inconnue : ${action}`, `Unknown action: ${action}`) },
+    { status: 400 }
+  );
 }

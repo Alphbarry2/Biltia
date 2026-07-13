@@ -4,6 +4,8 @@
 // pages produit dédiées /produits/[slug].
 // ─────────────────────────────────────────────────────────────────────────────
 
+import type { Locale } from "@/lib/i18n/config";
+
 export type Product = {
   slug: string;
   name: string;
@@ -161,4 +163,141 @@ export const PRODUCTS: Product[] = [
 
 export function getProduct(slug: string): Product | undefined {
   return PRODUCTS.find((p) => p.slug === slug);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TRADUCTIONS EN — textes anglais (US) par slug. Seuls les champs texte sont
+// traduits ; slug / icon / accent restent partagés avec la source FR ci-dessus.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PRODUCT_EN: Record<
+  string,
+  {
+    name: string;
+    tagline: string;
+    hero: string;
+    sub: string;
+    features: { title: string; body: string }[];
+    examples: string[];
+  }
+> = {
+  agents: {
+    name: "Autonomous agents",
+    tagline: "AI employees that show up every single day",
+    hero: "Say it once. It gets done every day.",
+    sub: "Client follow-ups, evening checks, deadline reminders: hand over the job just once, and Biltia runs it on its own, right on time, and reports back to you.",
+    features: [
+      { title: "Hired in one sentence", body: "\"Follow up on my unanswered quotes every day at 9am.\" That's it: the agent is on the job the very next morning." },
+      { title: "Reliable and transparent", body: "Every run is recorded in a log. If it's missing a detail (an email, a number), it asks you instead of making something up." },
+      { title: "Under your control", body: "Pause, resume, or delete in one click. The cost is stated when you hire it and billed as you go, with no surprises." },
+    ],
+    examples: [
+      "Follow up with client Martin every day at noon until they reply.",
+      "Every evening at 6pm, check my unpaid invoices and give me the rundown.",
+      "Let me know the moment a subcontractor's document expires.",
+    ],
+  },
+  documents: {
+    name: "Smart documents",
+    tagline: "Change orders, sign-offs, quotes, letters, ready to sign",
+    hero: "The right document, dictated in 30 seconds.",
+    sub: "Change order, handover sign-off, quote, formal notice, certificate, letter. Biltia writes it, runs the numbers, and gets it ready to sign.",
+    features: [
+      { title: "Built for the trade", body: "Correct structure, legal wording, and net/VAT/gross calculations for each type of document." },
+      { title: "Ready to sign", body: "Print / Save as PDF button, plus signature blocks you can sign right on screen with your finger." },
+      { title: "Pre-filled", body: "Biltia pulls in your workspace data: clients, job sites, pricing." },
+    ],
+    examples: [
+      "Draw up the change order for 45 sq m of tiling approved at €42/sq m on the Villa Dumont job.",
+      "Draft a formal notice for invoice 2026-014, unpaid for 45 days.",
+      "Handover sign-off for the completed work on the rue Neuve job, with no outstanding items.",
+    ],
+  },
+  applications: {
+    name: "Custom applications",
+    tagline: "Business tools generated in seconds",
+    hero: "Your tool, exactly the way you want it.",
+    sub: "Job tracking, timesheets, inventory, scheduling. Describe what you need and Biltia builds the app, ready to use from the job site.",
+    features: [
+      { title: "In just seconds", body: "A plain-English description is all it takes. No menus, no setup." },
+      { title: "Editable by voice", body: "Add a column, an alert, a signature. Just say it, and it's done." },
+      { title: "Wired to your workspace", body: "Your apps share the same clients, job sites, and crews." },
+    ],
+    examples: [
+      "I want a job tracker with the client, percent complete, and amount left to invoice.",
+      "A timesheet by worker and by job site, with overtime.",
+      "An inventory of my equipment with condition, assigned job site, and next inspection.",
+    ],
+  },
+  automatisations: {
+    name: "Automations",
+    tagline: "Checks, reconciliations, workflows",
+    hero: "The repetitive grunt work, on autopilot.",
+    sub: "Price checks, delivery-note reconciliation, follow-ups. Biltia processes your batches of files and flags whatever's off.",
+    features: [
+      { title: "Batch processing", body: "Drop in your delivery notes or invoices, and Biltia checks them all at once." },
+      { title: "Discrepancy detection", body: "Off prices, unknown references, duplicates: nothing slips through." },
+      { title: "Triggered by a sentence", body: "No rules to program. Describe the check, and Biltia runs it." },
+    ],
+    examples: [
+      "Check the prices on these 30 delivery notes against my quotes and flag any discrepancies.",
+      "Compare these supplier invoices with my orders and spot the duplicates.",
+      "Automatically follow up on quotes with no reply for 15 days.",
+    ],
+  },
+  analyse: {
+    name: "Document analysis",
+    tagline: "Quotes, invoices, and plans, read and summarized",
+    hero: "Your documents, understood in an instant.",
+    sub: "Quotes, invoices, plans, PDFs: Biltia reads them, pulls out what matters, and answers your questions about them.",
+    features: [
+      { title: "Reliable extraction", body: "Amounts, due dates, quantities, references: the essentials surface automatically." },
+      { title: "Questions in plain language", body: "Ask whatever you need to know about a document and get the answer." },
+      { title: "Feeds the workspace", body: "The extracted data enriches your company's memory." },
+    ],
+    examples: [
+      "Analyze this supplier quote and tell me whether the prices are in line with the market.",
+      "Pull the due dates and amounts from these 12 invoices.",
+      "Summarize this technical spec (CCTP) and list the line items to price.",
+    ],
+  },
+  copilote: {
+    name: "Copilot & answers",
+    tagline: "Answers your questions about your data",
+    hero: "Got a question? An answer, right away.",
+    sub: "Which jobs are behind schedule? How much does this client owe me? Biltia queries your workspace and answers, sourced from your real data.",
+    features: [
+      { title: "Grounded in your data", body: "Answers come from your workspace, not a generic model." },
+      { title: "Native to the building trade", body: "DOE (as-builts), progress billing, retention, RGE: Biltia speaks your language." },
+      { title: "Always current", body: "Every request draws on what you logged the day before." },
+    ],
+    examples: [
+      "Which jobs are behind schedule this week and which ones are over budget?",
+      "How much does the Résidence des Prés client still owe me?",
+      "Which of my subcontractors' certificates expire within the month?",
+    ],
+  },
+  workspace: {
+    name: "Unified workspace",
+    tagline: "Your company's memory",
+    hero: "Your company's irreplaceable memory.",
+    sub: "Clients, job sites, documents, crews, applications, and history, all in one place. The more you use Biltia, the better it understands your business.",
+    features: [
+      { title: "Everything connected", body: "A client, their job sites, their documents, and their invoices, all linked together." },
+      { title: "Secure and isolated", body: "Your data is hosted in France and strictly isolated per company." },
+      { title: "Grows with you", body: "Every task you resolve enriches the memory and makes Biltia more relevant." },
+    ],
+    examples: [
+      "Show me the full history of the Villa Dumont job.",
+      "Add this new client and link the rue Neuve job to them.",
+      "Which documents are missing on the École Bellevue job?",
+    ],
+  },
+};
+
+/** Produit avec ses textes traduits si l'interface est en anglais. */
+export function localizeProduct(p: Product, locale: Locale): Product {
+  if (locale !== "en") return p;
+  const en = PRODUCT_EN[p.slug];
+  return en ? { ...p, ...en } : p;
 }

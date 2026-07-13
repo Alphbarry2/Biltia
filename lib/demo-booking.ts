@@ -13,6 +13,8 @@
 //   • Modification possible tant qu'on n'est pas à moins de 24 h du rendez-vous.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import type { Locale } from "@/lib/i18n/config";
+
 export const BOOKING_TZ = "Europe/Brussels";
 export const TZ_LABEL = "heure de Belgique";
 export const OPEN_HOUR = 10; // premier créneau
@@ -119,6 +121,11 @@ const MONTHS = [
   "janvier", "février", "mars", "avril", "mai", "juin",
   "juillet", "août", "septembre", "octobre", "novembre", "décembre",
 ];
+const WEEKDAYS_EN = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const MONTHS_EN = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
 export function formatDateFr(iso: string): string {
   if (!isValidIsoDate(iso)) return iso;
   const d = new Date(iso + "T00:00:00Z");
@@ -126,6 +133,19 @@ export function formatDateFr(iso: string): string {
 }
 export function formatSlotFr(iso: string, time: string): string {
   return `${formatDateFr(iso)} à ${time} (${TZ_LABEL})`;
+}
+
+// ── Formatage locale-aware (interface FR/EN) ──────────────────────────────────
+export const tzLabel = (locale: Locale) => (locale === "en" ? "Belgium time" : TZ_LABEL);
+export function formatDate(iso: string, locale: Locale): string {
+  if (locale !== "en") return formatDateFr(iso);
+  if (!isValidIsoDate(iso)) return iso;
+  const d = new Date(iso + "T00:00:00Z");
+  return `${WEEKDAYS_EN[d.getUTCDay()]}, ${MONTHS_EN[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
+}
+export function formatSlot(iso: string, time: string, locale: Locale): string {
+  if (locale !== "en") return formatSlotFr(iso, time);
+  return `${formatDate(iso, locale)} at ${time} (${tzLabel(locale)})`;
 }
 
 // ── Options du formulaire (partagées : modale, validation, emails) ────────────
@@ -139,6 +159,14 @@ export const HEADCOUNT_OPTIONS: Option[] = [
   { value: "51-200", label: "51 à 200 personnes" },
   { value: "200+", label: "Plus de 200 personnes" },
 ];
+const HEADCOUNT_OPTIONS_EN: Option[] = [
+  { value: "solo", label: "Self-employed (just me)" },
+  { value: "2-5", label: "2 to 5 people" },
+  { value: "6-10", label: "6 to 10 people" },
+  { value: "11-50", label: "11 to 50 people" },
+  { value: "51-200", label: "51 to 200 people" },
+  { value: "200+", label: "More than 200 people" },
+];
 
 export const LOOKING_FOR_OPTIONS: Option[] = [
   { value: "devis-factures", label: "Digitaliser mes devis & factures" },
@@ -148,6 +176,19 @@ export const LOOKING_FOR_OPTIONS: Option[] = [
   { value: "equipe", label: "Équiper toute mon équipe" },
   { value: "decouvrir", label: "Découvrir Biltia / autre" },
 ];
+const LOOKING_FOR_OPTIONS_EN: Option[] = [
+  { value: "devis-factures", label: "Digitize my quotes & invoices" },
+  { value: "agents", label: "Automate tasks (AI agents)" },
+  { value: "chantiers", label: "Manage job sites & jobs" },
+  { value: "remplacer-outils", label: "Replace several tools" },
+  { value: "equipe", label: "Equip my whole team" },
+  { value: "decouvrir", label: "Discover Biltia / other" },
+];
+
+/** Options d'effectif traduites si l'interface est en anglais. */
+export const headcountOptions = (locale: Locale) => (locale === "en" ? HEADCOUNT_OPTIONS_EN : HEADCOUNT_OPTIONS);
+/** Options « ce que je cherche » traduites si l'interface est en anglais. */
+export const lookingForOptions = (locale: Locale) => (locale === "en" ? LOOKING_FOR_OPTIONS_EN : LOOKING_FOR_OPTIONS);
 
 export function labelOf(options: Option[], value: string | null | undefined): string {
   if (!value) return "—";

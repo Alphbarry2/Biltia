@@ -16,11 +16,14 @@ import { createClient } from "@/lib/supabase-server";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
 import { can } from "@/lib/permissions";
 import { enforceRateLimit, LIMITS } from "@/lib/rate-limit";
-import { getEntitlementsForTenant, FROZEN_MESSAGE } from "@/lib/entitlements";
+import { getEntitlementsForTenant, FROZEN_MESSAGE, frozenMessage } from "@/lib/entitlements";
 import { logActivity } from "@/lib/activity";
 import { resolveAudience, sendTaskEmails, isTaskAudience, AUDIENCE_LABELS } from "@/lib/task-now";
+import { getLocale } from "@/lib/i18n/server";
+import { pick } from "@/lib/i18n/config";
 
 export async function POST(req: Request) {
+  const locale = await getLocale();
   try {
     const supabase = await createClient();
     const {
@@ -28,7 +31,10 @@ export async function POST(req: Request) {
       error: authError,
     } = await supabase.auth.getUser();
     if (authError || !user) {
-      return Response.json({ error: "Authentification requise." }, { status: 401 });
+      return Response.json(
+        { error: pick(locale, "Authentification requise.", "Authentication required.") },
+        { status: 401 }
+      );
     }
 
     // Anti-spam : borne les envois groupés avant toute lecture DB.
@@ -37,14 +43,23 @@ export async function POST(req: Request) {
 
     const membership = await getActiveMembershipServer(supabase, user.id);
     if (!membership) {
-      return Response.json({ error: "Aucun espace de travail trouvé." }, { status: 403 });
+      return Response.json(
+        { error: pick(locale, "Aucun espace de travail trouvé.", "No workspace found.") },
+        { status: 403 }
+      );
     }
     const tenantId = membership.tenant_id;
 
     // RBAC : envoyer au nom de l'entreprise = agir → réservé aux rôles créateurs.
     if (!can(membership.role, "ai.create")) {
       return Response.json(
-        { error: "Vous êtes en lecture seule sur cet espace. Demandez les droits nécessaires pour envoyer." },
+        {
+          error: pick(
+            locale,
+            "Vous êtes en lecture seule sur cet espace. Demandez les droits nécessaires pour envoyer.",
+            "You have read-only access to this workspace. Ask for the rights needed to send."
+          ),
+        },
         { status: 403 }
       );
     }
@@ -52,24 +67,30 @@ export async function POST(req: Request) {
     // Gel lecture seule : un abonnement expiré ne peut plus envoyer.
     const ent = await getEntitlementsForTenant(supabase, tenantId);
     if (!ent.writable) {
-      return Response.json({ error: FROZEN_MESSAGE, frozen: true }, { status: 403 });
+      return Response.json({ error: frozenMessage(locale), frozen: true }, { status: 403 });
     }
 
     let body: { audience?: string; subject?: string; body?: string };
     try {
       body = await req.json();
     } catch {
-      return Response.json({ error: "Corps de requête invalide." }, { status: 400 });
+      return Response.json(
+        { error: pick(locale, "Corps de requête invalide.", "Invalid request body.") },
+        { status: 400 }
+      );
     }
 
     const audience = (body.audience ?? "").trim();
     const subject = (body.subject ?? "").trim() || "Message de votre part";
     const text = (body.body ?? "").trim();
     if (!isTaskAudience(audience)) {
-      return Response.json({ error: "Groupe destinataire invalide." }, { status: 400 });
+      return Response.json(
+        { error: pick(locale, "Groupe destinataire invalide.", "Invalid recipient group.") },
+        { status: 400 }
+      );
     }
     if (!text) {
-      return Response.json({ error: "Message vide." }, { status: 400 });
+      return Response.json({ error: pick(locale, "Message vide.", "Empty message.") }, { status: 400 });
     }
     const label = AUDIENCE_LABELS[audience];
 
@@ -78,7 +99,11 @@ export async function POST(req: Request) {
     if (resolved.recipients.length === 0) {
       return Response.json({
         status: "no_recipient",
-        message: `Aucun ${label.singular} avec un email dans ton workspace — rien n'a été envoyé.`,
+        message: pick(
+          locale,
+          `Aucun ${label.singular} avec un email dans ton workspace — rien n'a été envoyé.`,
+          "No recipient with an email address in your workspace — nothing was sent."
+        ),
       });
     }
 
@@ -104,15 +129,37 @@ export async function POST(req: Request) {
     // Rapport honnête : envoyés, sautés (pas d'email), échecs, report (au-delà du cap).
     const parts: string[] = [];
     if (result.sent > 0) {
-      const via = result.via === "gmail" ? " depuis ton Gmail" : result.via === "resend" ? " via Biltia" : "";
-      parts.push(`✅ ${result.sent} message(s) envoyé(s)${via}`);
+      const via =
+        result.via === "gmail"
+          ? pick(locale, " depuis ton Gmail", " from your Gmail")
+          : result.via === "resend"
+            ? pick(locale, " via Biltia", " via Biltia")
+            : "";
+      parts.push(
+        pick(locale, `✅ ${result.sent} message(s) envoyé(s)${via}`, `✅ ${result.sent} message(s) sent${via}`)
+      );
     }
-    if (result.failed > 0) parts.push(`${result.failed} échec(s)`);
-    if (result.skippedNoEmail > 0) parts.push(`${result.skippedNoEmail} sans email (sautés)`);
-    if (result.deferred > 0) parts.push(`${result.deferred} en attente (renvoie « continue » pour la suite)`);
+    if (result.failed > 0)
+      parts.push(pick(locale, `${result.failed} échec(s)`, `${result.failed} failure(s)`));
+    if (result.skippedNoEmail > 0)
+      parts.push(
+        pick(locale, `${result.skippedNoEmail} sans email (sautés)`, `${result.skippedNoEmail} skipped (no email)`)
+      );
+    if (result.deferred > 0)
+      parts.push(
+        pick(
+          locale,
+          `${result.deferred} en attente (renvoie « continue » pour la suite)`,
+          `${result.deferred} pending (send “continue” for the rest)`
+        )
+      );
     const message = parts.length
       ? parts.join(" · ") + "."
-      : "Rien n'a pu être envoyé — réessaie dans un instant.";
+      : pick(
+          locale,
+          "Rien n'a pu être envoyé — réessaie dans un instant.",
+          "Nothing could be sent — try again in a moment."
+        );
 
     return Response.json({
       status: result.sent > 0 ? "sent" : "failed",
@@ -124,6 +171,9 @@ export async function POST(req: Request) {
     });
   } catch (err) {
     console.error("Task execute error:", err);
-    return Response.json({ error: "Erreur d'envoi. Réessaie." }, { status: 500 });
+    return Response.json(
+      { error: pick(locale, "Erreur d'envoi. Réessaie.", "Sending failed. Please try again.") },
+      { status: 500 }
+    );
   }
 }

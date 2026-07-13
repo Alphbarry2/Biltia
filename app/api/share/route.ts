@@ -15,8 +15,10 @@ import { getActiveMembershipServer } from "@/lib/tenant-server";
 import { can } from "@/lib/permissions";
 import { publicBaseUrl, shareLinkUrl, resolveClientScope, type ShareLink } from "@/lib/share";
 import { enforceRateLimit, LIMITS } from "@/lib/rate-limit";
-import { getEntitlementsForTenant, canCollaborate, EQUIPE_UPGRADE_MESSAGE } from "@/lib/entitlements";
+import { getEntitlementsForTenant, canCollaborate, equipeUpgradeMessage } from "@/lib/entitlements";
 import { isFounderEmail } from "@/lib/founder";
+import { getLocale } from "@/lib/i18n/server";
+import { pick } from "@/lib/i18n/config";
 
 // app_share_links n'est pas (encore) dans database.types.ts → accès non typé,
 // comme demo_bookings / ai_usage ailleurs dans le code.
@@ -41,13 +43,33 @@ async function resolveSession() {
 
 // ── POST : créer un lien ──────────────────────────────────────────────────────
 export async function POST(req: Request) {
+  const locale = await getLocale();
   const { supabase, user, membership } = await resolveSession();
-  if (!user) return Response.json({ error: "Authentification requise." }, { status: 401 });
-  if (!membership) return Response.json({ error: "Aucun espace de travail actif." }, { status: 403 });
+  if (!user) {
+    return Response.json(
+      { error: pick(locale, "Authentification requise.", "Authentication required.") },
+      { status: 401 }
+    );
+  }
+  if (!membership) {
+    return Response.json(
+      { error: pick(locale, "Aucun espace de travail actif.", "No active workspace.") },
+      { status: 403 }
+    );
+  }
   // Partager une app = un acte de création : réservé à qui peut créer/modifier
   // (owner/admin/manager/member). Un lecteur ne partage pas vers l'extérieur.
   if (!can(membership.role, "ai.create")) {
-    return Response.json({ error: "Votre rôle ne permet pas de partager une application." }, { status: 403 });
+    return Response.json(
+      {
+        error: pick(
+          locale,
+          "Votre rôle ne permet pas de partager une application.",
+          "Your role does not allow sharing an app."
+        ),
+      },
+      { status: 403 }
+    );
   }
 
   const limited = await enforceRateLimit("share", user.id, LIMITS.share);
@@ -61,7 +83,9 @@ export async function POST(req: Request) {
     scope?: unknown;
   };
   const appId = body.appId;
-  if (!appId) return Response.json({ error: "appId manquant." }, { status: 400 });
+  if (!appId) {
+    return Response.json({ error: pick(locale, "appId manquant.", "Missing appId.") }, { status: 400 });
+  }
 
   // Vérifie que l'app appartient bien au tenant actif. On force `.eq("tenant_id")`
   // EN PLUS de la RLS : une policy `apps_public_select` rend lisibles les modules
@@ -73,7 +97,12 @@ export async function POST(req: Request) {
     .eq("id", appId)
     .eq("tenant_id", membership.tenant_id)
     .maybeSingle();
-  if (!mod) return Response.json({ error: "Application introuvable ou accès refusé." }, { status: 404 });
+  if (!mod) {
+    return Response.json(
+      { error: pick(locale, "Application introuvable ou accès refusé.", "App not found or access denied.") },
+      { status: 404 }
+    );
+  }
 
   // Type de lien : 'preview' (défaut, aperçu) ou 'client' (portail scopé à UN
   // chantier). Pour un lien client, le scope doit être valide ET le chantier doit
@@ -87,17 +116,27 @@ export async function POST(req: Request) {
     if (!isFounderEmail(user.email)) {
       const ent = await getEntitlementsForTenant(supabase, membership.tenant_id);
       if (!canCollaborate(ent)) {
-        return Response.json({ error: EQUIPE_UPGRADE_MESSAGE, upgrade: true }, { status: 403 });
+        return Response.json({ error: equipeUpgradeMessage(locale), upgrade: true }, { status: 403 });
       }
     }
     const parsed = resolveClientScope(body.scope);
-    if (!parsed) return Response.json({ error: "Chantier à partager invalide." }, { status: 400 });
+    if (!parsed) {
+      return Response.json(
+        { error: pick(locale, "Chantier à partager invalide.", "Invalid project to share.") },
+        { status: 400 }
+      );
+    }
     const { data: chantier } = await (supabase as unknown as LooseClient)
       .from("chantiers")
       .select("id")
       .eq("id", parsed.record_id)
       .maybeSingle();
-    if (!chantier) return Response.json({ error: "Chantier introuvable ou accès refusé." }, { status: 404 });
+    if (!chantier) {
+      return Response.json(
+        { error: pick(locale, "Chantier introuvable ou accès refusé.", "Project not found or access denied.") },
+        { status: 404 }
+      );
+    }
     scope = { entity: parsed.entity, record_id: parsed.record_id };
   }
 
@@ -122,7 +161,10 @@ export async function POST(req: Request) {
     .single();
 
   if (error || !link) {
-    return Response.json({ error: "Impossible de créer le lien de partage." }, { status: 500 });
+    return Response.json(
+      { error: pick(locale, "Impossible de créer le lien de partage.", "Could not create the share link.") },
+      { status: 500 }
+    );
   }
 
   return Response.json({ link: withUrl(req, link as ShareLink) });
@@ -130,12 +172,25 @@ export async function POST(req: Request) {
 
 // ── GET : lister les liens vivants d'une app ─────────────────────────────────
 export async function GET(req: Request) {
+  const locale = await getLocale();
   const { supabase, user, membership } = await resolveSession();
-  if (!user) return Response.json({ error: "Authentification requise." }, { status: 401 });
-  if (!membership) return Response.json({ error: "Aucun espace de travail actif." }, { status: 403 });
+  if (!user) {
+    return Response.json(
+      { error: pick(locale, "Authentification requise.", "Authentication required.") },
+      { status: 401 }
+    );
+  }
+  if (!membership) {
+    return Response.json(
+      { error: pick(locale, "Aucun espace de travail actif.", "No active workspace.") },
+      { status: 403 }
+    );
+  }
 
   const appId = new URL(req.url).searchParams.get("appId");
-  if (!appId) return Response.json({ error: "appId manquant." }, { status: 400 });
+  if (!appId) {
+    return Response.json({ error: pick(locale, "appId manquant.", "Missing appId.") }, { status: 400 });
+  }
 
   // RLS limite déjà aux liens du tenant ; on filtre les révoqués.
   const { data } = await (supabase as unknown as LooseClient)
@@ -151,13 +206,26 @@ export async function GET(req: Request) {
 
 // ── DELETE : révoquer un lien ────────────────────────────────────────────────
 export async function DELETE(req: Request) {
+  const locale = await getLocale();
   const { supabase, user, membership } = await resolveSession();
-  if (!user) return Response.json({ error: "Authentification requise." }, { status: 401 });
-  if (!membership) return Response.json({ error: "Aucun espace de travail actif." }, { status: 403 });
+  if (!user) {
+    return Response.json(
+      { error: pick(locale, "Authentification requise.", "Authentication required.") },
+      { status: 401 }
+    );
+  }
+  if (!membership) {
+    return Response.json(
+      { error: pick(locale, "Aucun espace de travail actif.", "No active workspace.") },
+      { status: 403 }
+    );
+  }
 
   const body = (await req.json().catch(() => ({}))) as { linkId?: string };
   const linkId = body.linkId ?? new URL(req.url).searchParams.get("linkId") ?? undefined;
-  if (!linkId) return Response.json({ error: "linkId manquant." }, { status: 400 });
+  if (!linkId) {
+    return Response.json({ error: pick(locale, "linkId manquant.", "Missing linkId.") }, { status: 400 });
+  }
 
   // Update gardé par RLS (my_tenant_role) → un lien d'un autre tenant n'est pas
   // révocable. On pose revoked_at (jamais de suppression : piste d'audit).
@@ -167,6 +235,11 @@ export async function DELETE(req: Request) {
     .eq("id", linkId)
     .is("revoked_at", null);
 
-  if (error) return Response.json({ error: "Impossible de révoquer le lien." }, { status: 500 });
+  if (error) {
+    return Response.json(
+      { error: pick(locale, "Impossible de révoquer le lien.", "Could not revoke the link.") },
+      { status: 500 }
+    );
+  }
   return Response.json({ ok: true });
 }

@@ -13,6 +13,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { createAdminClient } from "./supabase-admin";
+import { getLocale } from "./i18n/server";
+import { pick } from "./i18n/config";
 
 export type RateLimitResult = {
   ok: boolean;
@@ -67,11 +69,13 @@ export async function rateLimit(
   }
 }
 
-/** Réponse 429 standard, avec en-tête Retry-After (secondes). */
-export function tooManyRequests(retryAfter: number): Response {
+/** Réponse 429 standard, avec en-tête Retry-After (secondes). Le message suit la
+ *  langue de l'interface (cookie) : ce texte s'affiche en toast à l'utilisateur. */
+export async function tooManyRequests(retryAfter: number): Promise<Response> {
+  const locale = await getLocale();
   return Response.json(
     {
-      error: "Trop de requêtes. Réessayez dans un instant.",
+      error: pick(locale, "Trop de requêtes. Réessayez dans un instant.", "Too many requests. Try again in a moment."),
       retryAfter,
     },
     {
@@ -94,7 +98,7 @@ export async function enforceRateLimit(
   opts: { limit: number; windowSec: number }
 ): Promise<Response | null> {
   const res = await rateLimit(name, identity, opts);
-  return res.ok ? null : tooManyRequests(res.retryAfter);
+  return res.ok ? null : await tooManyRequests(res.retryAfter);
 }
 
 // ── Barèmes par route (bornes larges : viser l'ABUS, pas l'usage normal) ───────

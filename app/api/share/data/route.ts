@@ -17,6 +17,8 @@ import { createAdminClient } from "@/lib/supabase-admin";
 import { isShareToken, isLinkLive, resolveClientScope, CLIENT_CHILD_ENTITIES, clientReadableColumns } from "@/lib/share";
 import { ENTITIES } from "@/lib/data-entities";
 import { enforceRateLimit, LIMITS } from "@/lib/rate-limit";
+import { getLocale } from "@/lib/i18n/server";
+import { pick } from "@/lib/i18n/config";
 
 // app_share_links + tables métier atteintes par nom dynamique → client non typé.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -25,6 +27,7 @@ type LooseClient = { from: (table: string) => any };
 const CHILD = new Set<string>(CLIENT_CHILD_ENTITIES);
 
 export async function POST(req: Request) {
+  const locale = await getLocale();
   const body = (await req.json().catch(() => ({}))) as {
     token?: string;
     entity?: string;
@@ -44,7 +47,12 @@ export async function POST(req: Request) {
   if (limited) return limited;
 
   const admin = createAdminClient();
-  if (!admin) return Response.json({ error: "Service indisponible." }, { status: 503 });
+  if (!admin) {
+    return Response.json(
+      { error: pick(locale, "Service indisponible.", "Service unavailable.") },
+      { status: 503 }
+    );
+  }
   const db = admin as unknown as LooseClient;
 
   // 1) Résout le token → lien vivant, de type 'client', avec un scope valide.
@@ -62,7 +70,10 @@ export async function POST(req: Request) {
   // 2) Écriture interdite : ce lien est en lecture seule (défense en profondeur ;
   //    le bridge côté page bloque déjà tout ce qui n'est pas list/get).
   if (body.action && body.action !== "list" && body.action !== "get") {
-    return Response.json({ error: "Ce lien est en lecture seule." }, { status: 403 });
+    return Response.json(
+      { error: pick(locale, "Ce lien est en lecture seule.", "This link is read-only.") },
+      { status: 403 }
+    );
   }
 
   // 3) Périmètre : seul le chantier racine + ses enfants directs sont lisibles.

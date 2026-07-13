@@ -23,8 +23,11 @@ import { createAdminClient } from "@/lib/supabase-admin";
 import { trackAiUsage, reconcileCredits } from "@/lib/ai-usage";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
 import { enforceRateLimit, LIMITS } from "@/lib/rate-limit";
-import { getEntitlementsForTenant, FROZEN_MESSAGE } from "@/lib/entitlements";
+import { getEntitlementsForTenant, FROZEN_MESSAGE, frozenMessage } from "@/lib/entitlements";
 import { isFounderEmail } from "@/lib/founder";
+import { getLocale } from "@/lib/i18n/server";
+import { pick } from "@/lib/i18n/config";
+import { withLocale } from "@/lib/i18n/llm";
 import { ENTITIES, ALLOWED_ENTITIES } from "@/lib/data-entities";
 import { listAppCollections, listAppRecords } from "@/lib/app-records";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -178,9 +181,13 @@ function dedupeSources(chunks: RetrievedChunk[]) {
 }
 
 export async function POST(req: Request) {
+  const locale = await getLocale();
   try {
     if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY.startsWith("your_")) {
-      return Response.json({ error: "Clé API Anthropic non configurée." }, { status: 503 });
+      return Response.json(
+        { error: pick(locale, "Clé API Anthropic non configurée.", "Anthropic API key not configured.") },
+        { status: 503 }
+      );
     }
 
     const supabase = await createClient();
@@ -189,7 +196,10 @@ export async function POST(req: Request) {
       error: authError,
     } = await supabase.auth.getUser();
     if (authError || !user) {
-      return Response.json({ error: "Authentification requise." }, { status: 401 });
+      return Response.json(
+        { error: pick(locale, "Authentification requise.", "Authentication required.") },
+        { status: 401 }
+      );
     }
 
     // Rate limiting : rejette un flood au plus tôt (avant toute lecture DB).
@@ -198,29 +208,44 @@ export async function POST(req: Request) {
 
     const membership = await getActiveMembershipServer(supabase, user.id);
     if (!membership) {
-      return Response.json({ error: "Aucun espace de travail trouvé." }, { status: 403 });
+      return Response.json(
+        { error: pick(locale, "Aucun espace de travail trouvé.", "No workspace found.") },
+        { status: 403 }
+      );
     }
     const tenantId = membership.tenant_id;
 
     // GEL LECTURE SEULE : un abonnement expiré ne peut plus interroger l'IA.
     const ent = await getEntitlementsForTenant(supabase, tenantId);
     if (!ent.writable) {
-      return Response.json({ error: FROZEN_MESSAGE, frozen: true }, { status: 403 });
+      return Response.json({ error: frozenMessage(locale), frozen: true }, { status: 403 });
     }
 
     let body: { question?: string };
     try {
       body = await req.json();
     } catch {
-      return Response.json({ error: "Corps de requête invalide." }, { status: 400 });
+      return Response.json(
+        { error: pick(locale, "Corps de requête invalide.", "Invalid request body.") },
+        { status: 400 }
+      );
     }
 
     const question = typeof body.question === "string" ? body.question.trim() : "";
     if (!question) {
-      return Response.json({ error: "Posez une question." }, { status: 400 });
+      return Response.json({ error: pick(locale, "Posez une question.", "Ask a question.") }, { status: 400 });
     }
     if (question.length > 2000) {
-      return Response.json({ error: "Question trop longue (2000 caractères max)." }, { status: 400 });
+      return Response.json(
+        {
+          error: pick(
+            locale,
+            "Question trop longue (2000 caractères max).",
+            "Question too long (2000 characters max)."
+          ),
+        },
+        { status: 400 }
+      );
     }
 
     // Pré-autorisation (hold), réconciliée au coût réel après la réponse.
@@ -244,7 +269,13 @@ export async function POST(req: Request) {
           // le tracking ne bloque jamais la réponse
         }
         return Response.json(
-          { error: "Crédits insuffisants. Rechargez votre compte pour continuer." },
+          {
+            error: pick(
+              locale,
+              "Crédits insuffisants. Rechargez votre compte pour continuer.",
+              "Not enough credits. Top up your account to continue."
+            ),
+          },
           { status: 402 }
         );
       }
@@ -292,7 +323,7 @@ export async function POST(req: Request) {
     const chunks = await retrieveContext({ supabase, tenantId, prompt: question, tradeIds, limit: 6 });
 
     const today = new Date().toISOString().slice(0, 10);
-    const system = buildSystemPrompt(chunks, today);
+    const system = withLocale(buildSystemPrompt(chunks, today), locale);
 
     const messages: Anthropic.MessageParam[] = [{ role: "user", content: question }];
     const queried = new Set<string>();
@@ -363,7 +394,13 @@ export async function POST(req: Request) {
     if (!answer) {
       await refund();
       return Response.json(
-        { error: "Réponse vide. Réessayez — votre crédit a été remboursé." },
+        {
+          error: pick(
+            locale,
+            "Réponse vide. Réessayez — votre crédit a été remboursé.",
+            "Empty answer. Please try again — your credit has been refunded."
+          ),
+        },
         { status: 502 }
       );
     }
@@ -417,12 +454,13 @@ export async function POST(req: Request) {
     });
   } catch (err) {
     console.error("Ask error:", err);
-    let msg = "Erreur. Réessayez.";
+    let msg = pick(locale, "Erreur. Réessayez.", "Something went wrong. Please try again.");
     let status = 500;
     if (err instanceof Anthropic.APIError) {
       status = err.status ?? 500;
-      if (err.status === 429) msg = "Trop de requêtes. Patientez quelques secondes.";
-      else msg = `Erreur Anthropic (${err.status}).`;
+      if (err.status === 429)
+        msg = pick(locale, "Trop de requêtes. Patientez quelques secondes.", "Too many requests. Wait a few seconds.");
+      else msg = pick(locale, `Erreur Anthropic (${err.status}).`, `Anthropic error (${err.status}).`);
     }
     return Response.json({ error: msg }, { status });
   }

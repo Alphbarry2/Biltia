@@ -19,6 +19,8 @@ import { createClient } from "@/lib/supabase-server";
 import { ENTITIES, ALLOWED_ENTITIES } from "@/lib/data-entities";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
 import { can } from "@/lib/permissions";
+import { getLocale } from "@/lib/i18n/server";
+import { pick } from "@/lib/i18n/config";
 import { logActivity } from "@/lib/activity";
 import {
   buildSheet,
@@ -36,18 +38,22 @@ export async function GET(req: Request) {
   const entityParam = url.searchParams.get("entity") ?? "";
   const format = (url.searchParams.get("format") ?? "csv").toLowerCase();
 
+  const locale = await getLocale();
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) {
-    return NextResponse.json({ error: "Authentification requise." }, { status: 401 });
+    return NextResponse.json(
+      { error: pick(locale, "Authentification requise.", "Authentication required.") },
+      { status: 401 }
+    );
   }
 
   const membership = await getActiveMembershipServer(supabase, user.id);
 
   if (!membership) {
-    return NextResponse.json({ error: "Aucun espace de travail." }, { status: 403 });
+    return NextResponse.json({ error: pick(locale, "Aucun espace de travail.", "No workspace.") }, { status: 403 });
   }
   const tenantId = membership.tenant_id;
 
@@ -55,7 +61,13 @@ export async function GET(req: Request) {
   // (owner / admin / manager) — un employé ou un lecteur n'exfiltre pas la base.
   if (!can(membership.role, "export.data")) {
     return NextResponse.json(
-      { error: "Vous n'avez pas les droits pour exporter les données de cet espace." },
+      {
+        error: pick(
+          locale,
+          "Vous n'avez pas les droits pour exporter les données de cet espace.",
+          "You don't have permission to export this workspace's data."
+        ),
+      },
       { status: 403 }
     );
   }
@@ -63,7 +75,10 @@ export async function GET(req: Request) {
   // Cible : une entité précise, ou tout le workspace.
   const isAll = entityParam === "all";
   if (!isAll && !ALLOWED_ENTITIES.includes(entityParam)) {
-    return NextResponse.json({ error: `Entité non autorisée : ${entityParam}` }, { status: 400 });
+    return NextResponse.json(
+      { error: pick(locale, `Entité non autorisée : ${entityParam}`, `Entity not allowed: ${entityParam}`) },
+      { status: 400 }
+    );
   }
   const entities = isAll ? ALLOWED_ENTITIES : [entityParam];
 
@@ -125,13 +140,13 @@ export async function GET(req: Request) {
       const rows = await fetchRows(entity);
       // En mode « tout », on ignore les entités vides pour ne pas noyer le fichier.
       if (isAll && rows.length === 0) continue;
-      XLSX.utils.book_append_sheet(wb, buildSheet(XLSX, entity, rows, lookups), sheetName(entity));
+      XLSX.utils.book_append_sheet(wb, buildSheet(XLSX, entity, rows, lookups, locale), sheetName(entity, locale));
       added++;
     }
 
     // Garantir au moins une feuille (modèle vide si tout est vide).
     if (added === 0) {
-      XLSX.utils.book_append_sheet(wb, buildSheet(XLSX, entities[0], [], lookups), sheetName(entities[0]));
+      XLSX.utils.book_append_sheet(wb, buildSheet(XLSX, entities[0], [], lookups, locale), sheetName(entities[0], locale));
     }
 
     const now = new Date();
@@ -170,7 +185,7 @@ export async function GET(req: Request) {
       },
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Erreur lors de l'export.";
+    const msg = err instanceof Error ? err.message : pick(locale, "Erreur lors de l'export.", "Export failed.");
     return NextResponse.json({ error: msg }, { status: 400 });
   }
 }

@@ -6,6 +6,8 @@
 // La génération n'assemble QUE les blocs des sous-métiers sélectionnés.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import type { Locale } from "@/lib/i18n/config";
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export type SubTrade = {
@@ -492,6 +494,116 @@ export const CATEGORIES: Category[] = [
     ],
   },
 ];
+
+// ── Traduction EN des libellés ────────────────────────────────────────────────
+// Les libellés FR ci-dessus restent la SOURCE (utilisés côté serveur dans les
+// prompts). Cette table n'ajoute qu'une couche d'affichage pour l'interface EN :
+// chaque libellé FR unique (catégories + sous-métiers + types d'activité) est
+// mappé vers son équivalent naturel dans le vocabulaire du bâtiment US.
+
+const CATEGORY_LABEL_EN: Record<string, string> = {
+  // Catégories
+  "Gros œuvre": "Structural work",
+  "Terrassement & VRD": "Earthworks & site utilities",
+  "Structure bois & Toiture": "Timber structure & Roofing",
+  "Électricité": "Electrical",
+  "Plomberie & CVC": "Plumbing & HVAC",
+  "Fermetures & Menuiserie": "Windows, doors & Joinery",
+  "Isolation & Cloisons": "Insulation & Partitions",
+  "Revêtements & Finitions": "Coverings & Finishes",
+  "Façades & Étanchéité": "Facades & Waterproofing",
+  "Aménagements extérieurs": "Outdoor works",
+  "Maintenance & Services": "Maintenance & Services",
+  "Entreprise générale": "General contracting",
+
+  // Gros œuvre
+  "Maçonnerie": "Masonry",
+  "Béton armé": "Reinforced concrete",
+  "Coffrage": "Formwork",
+  "Ferraillage": "Rebar",
+  "Démolition / Désamiantage": "Demolition / Asbestos removal",
+
+  // Terrassement & VRD
+  "Terrassement": "Earthworks",
+  "VRD / Voirie": "Roads & utilities",
+  "Assainissement": "Drainage / Sewerage",
+  "Réseaux enterrés": "Underground utilities",
+  "Génie civil léger": "Light civil engineering",
+
+  // Structure bois & Toiture
+  "Charpente": "Framing / Roof structure",
+  "Couverture": "Roofing",
+  "Zinguerie": "Sheet-metal roofing",
+  "Ossature bois / CLT": "Timber frame / CLT",
+
+  // Électricité
+  "Électricité générale": "General electrical",
+  "Courants faibles / Réseaux": "Low-voltage / Data networks",
+  "Domotique / Alarme": "Home automation / Alarm",
+  "Photovoltaïque": "Solar PV",
+  "Bornes IRVE": "EV charging stations",
+
+  // Plomberie & CVC
+  "Plomberie / Sanitaire": "Plumbing / Sanitary",
+  "Chauffage": "Heating",
+  "Climatisation / Froid": "Air conditioning / Refrigeration",
+  "Ventilation / VMC": "Ventilation",
+  "Pompe à chaleur": "Heat pump",
+
+  // Fermetures & Menuiserie
+  "Menuiserie extérieure": "Exterior joinery",
+  "Menuiserie intérieure": "Interior joinery",
+  "Serrurerie": "Locksmithing",
+  "Métallerie": "Metalwork",
+  "Vérandas / Pergolas": "Sunrooms / Pergolas",
+
+  // Isolation & Cloisons
+  "Plâtrerie": "Plastering / Drywall",
+  "Isolation intérieure (ITI)": "Interior insulation",
+  "Faux plafonds": "Suspended ceilings",
+  "Cloisons / Doublages": "Partitions / Wall linings",
+
+  // Revêtements & Finitions
+  "Carrelage / Faïence": "Tiling",
+  "Sols souples / Moquette": "Resilient flooring / Carpet",
+  "Parquet": "Wood flooring",
+  "Peinture": "Painting",
+  "Papier peint / Décoration": "Wallpaper / Decoration",
+
+  // Façades & Étanchéité
+  "Ravalement de façade": "Facade renovation",
+  "ITE / Isolation extérieure": "External insulation (EIFS)",
+  "Étanchéité": "Waterproofing",
+  "Bardage": "Cladding",
+
+  // Aménagements extérieurs
+  "Paysagisme / Espaces verts": "Landscaping / Green spaces",
+  "Clôtures / Portails": "Fencing / Gates",
+  "Pavage / Terrasses": "Paving / Patios",
+  "Piscines / Spa": "Pools / Spa",
+
+  // Maintenance & Services
+  "Dépannage / SAV": "Repairs / After-sales",
+  "Maintenance / Contrats": "Maintenance / Service contracts",
+  "Nettoyage de chantier": "Site cleanup",
+
+  // Entreprise générale
+  "Tous Corps d'État (TCE)": "All trades (general contractor)",
+  "Contractant général": "General contractor (design-build)",
+  "Rénovation globale / BBC": "Whole-home renovation / Low-energy",
+
+  // Types d'activité
+  "Construction neuve": "New construction",
+  "Rénovation": "Renovation",
+  "Dépannage / Urgences": "Repairs / Emergencies",
+  "Marchés publics": "Public contracts",
+  "Mixte / Plusieurs activités": "Mixed / Multiple activities",
+};
+
+/** Libellé d'un métier/catégorie traduit si l'interface est en anglais. */
+export function catLabel(label: string, locale: Locale): string {
+  return locale === "en" ? (CATEGORY_LABEL_EN[label] ?? label) : label;
+}
 
 // ── Index rapide ──────────────────────────────────────────────────────────────
 

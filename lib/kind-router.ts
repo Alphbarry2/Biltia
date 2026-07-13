@@ -387,3 +387,103 @@ Réponds uniquement via l'outil plan_calendar.`,
 export function coerceKind(value: unknown): BiltiaKind | null {
   return value === "document" || value === "action" || value === "module" ? value : null;
 }
+
+// ── AIGUILLAGE D'UN FICHIER JOINT (dédié) ────────────────────────────────────
+// Quand l'utilisateur JOINT un fichier, quatre destinations sont possibles. Le
+// choix se faisait par REGEX côté client (verbe d'édition + petit mot comme
+// « le »/« ce ») — d'où le bug : « CRÉE-moi une app à partir de CE fichier »
+// cochait « verbe d'édition + anaphore » et partait en régénération de PDF. Pire,
+// AUCUN chemin ne menait au générateur d'app avec un fichier joint.
+// Ici, comme pour l'agenda : appel FOCALISÉ (tool simple, non surchargé), bien
+// plus fiable que le classifieur généraliste. Repli client sur les regex si KO.
+export type FileIntent = "analyze" | "annotate" | "document" | "module";
+
+export type FileIntentResult = {
+  intent: FileIntent;
+  confidence: number;
+  usage?: { model: string; inputTokens: number; outputTokens: number };
+};
+
+const FILE_INTENT_TOOL = {
+  name: "route_file_request",
+  description: "Choisit ce que Biltia doit faire du/des fichier(s) joint(s) par l'utilisateur.",
+  strict: true,
+  input_schema: {
+    type: "object",
+    properties: {
+      intent: {
+        type: "string",
+        enum: ["analyze", "annotate", "document", "module"],
+        description: "La destination du fichier joint.",
+      },
+      confidence: { type: "number", description: "Confiance de 0 à 1." },
+    },
+    required: ["intent", "confidence"],
+    additionalProperties: false,
+  },
+} as Anthropic.Tool;
+
+const FILE_INTENT_SYSTEM = `Un artisan du BTP a JOINT un ou plusieurs fichiers (photo, plan, PDF, Excel, CSV) dans le chat de Biltia, avec une consigne. Tu choisis ce que Biltia doit en faire. Tu ne fais rien toi-même : tu aiguilles.
+
+LES 4 DESTINATIONS :
+- "analyze" — il veut COMPRENDRE / VÉRIFIER / EXTRAIRE ce que contient le fichier, sans rien produire de nouveau : « résume ce document », « c'est quoi ce devis ? », « combien d'heures dans ce pointage ? », « vérifie les prix vs mon devis », « compare ces factures », « détecte les erreurs ». C'est le DÉFAUT.
+- "annotate" — il veut POSER DES REPÈRES SUR l'image / le plan : « annote ce plan », « numérote les pièces », « entoure les défauts », « repère les fenêtres », « montre-moi où sont les réserves ».
+- "document" — il veut UNE FEUILLE FINIE à imprimer / envoyer / signer, construite À PARTIR du fichier joint : le REMPLIR (« complète ce devis pour le client Morel »), le MODIFIER (« ajoute une clause », « supprime ce paragraphe », « corrige le montant »), le traduire, ou le refaire proprement. Résultat = un document A4, PAS un outil.
+- "module" — il veut une APPLICATION / un OUTIL de gestion, dont les DONNÉES viennent du fichier joint : « crée une app de suivi de chantiers à partir de ce fichier », « fais-moi un outil pour gérer ce catalogue Excel », « transforme ce tableau en application », « importe ce CSV dans une app de pointage ». Indice décisif : il parle d'une APP / APPLICATION / OUTIL / TABLEAU DE BORD qu'il rouvrira et alimentera DANS LA DURÉE.
+
+RÈGLE DE DÉPARTAGE :
+- Une FEUILLE qu'on imprime/signe une fois = "document". Un OUTIL qu'on rouvre et qu'on alimente = "module".
+- « complète ce devis » = document. « fais une app pour gérer mes devis à partir de ce fichier » = module.
+- S'il demande seulement de LIRE / vérifier / résumer / compter / comparer → "analyze".
+- Consigne vide ou purement descriptive → "analyze".
+- En cas de DOUTE RÉEL → "analyze" : c'est la lecture seule, on ne produit jamais rien à tort.
+
+Réponds UNIQUEMENT en appelant l'outil route_file_request.`;
+
+/**
+ * Aiguille une demande AVEC fichier(s) joint(s) vers analyze / annotate /
+ * document / module. Retourne null si le LLM est indisponible ou échoue — le
+ * client retombe alors sur ses heuristiques regex (jamais d'exception propagée).
+ */
+export async function classifyFileIntent(
+  prompt: string,
+  sectorBlock?: string
+): Promise<FileIntentResult | null> {
+  const hasKey =
+    !!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.startsWith("your_");
+  if (!hasKey || !prompt.trim()) return null;
+
+  try {
+    const client = new Anthropic();
+    const message = await client.messages.create({
+      model: KIND_MODEL,
+      max_tokens: 128,
+      system: sectorBlock ? `${FILE_INTENT_SYSTEM}\n\n${sectorBlock}` : FILE_INTENT_SYSTEM,
+      tools: [FILE_INTENT_TOOL],
+      tool_choice: { type: "tool", name: "route_file_request" },
+      messages: [{ role: "user", content: `Consigne de l'utilisateur : « ${prompt} »` }],
+    });
+    const block = message.content.find((b) => b.type === "tool_use");
+    if (!block || block.type !== "tool_use") return null;
+    const input = block.input as { intent?: string; confidence?: number };
+    if (
+      input.intent !== "analyze" &&
+      input.intent !== "annotate" &&
+      input.intent !== "document" &&
+      input.intent !== "module"
+    ) {
+      return null;
+    }
+    return {
+      intent: input.intent,
+      confidence: typeof input.confidence === "number" ? input.confidence : 0.7,
+      usage: {
+        model: KIND_MODEL,
+        inputTokens: message.usage.input_tokens,
+        outputTokens: message.usage.output_tokens,
+      },
+    };
+  } catch {
+    return null; // repli silencieux : le client garde ses regex
+  }
+}

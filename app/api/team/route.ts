@@ -25,6 +25,8 @@ import { getEntitlementsForTenant, canInviteTeam } from "@/lib/entitlements";
 import { isFounderEmail } from "@/lib/founder";
 import { logActivity } from "@/lib/activity";
 import { sendEmail } from "@/lib/mailer";
+import { getLocale } from "@/lib/i18n/server";
+import { pick } from "@/lib/i18n/config";
 
 const ASSIGNABLE_ROLES = ["admin", "manager", "member", "viewer"] as const;
 const MANAGER_ROLES = ["owner", "admin"];
@@ -56,34 +58,55 @@ type MemberRow = {
 };
 
 async function requireContext() {
+  // La langue d'interface est lue une fois ici : tous les handlers la réutilisent
+  // (ctx.locale) pour leurs messages d'erreur.
+  const locale = await getLocale();
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return { error: NextResponse.json({ error: "Authentification requise." }, { status: 401 }) };
+  if (!user) {
+    return {
+      error: NextResponse.json(
+        { error: pick(locale, "Authentification requise.", "Authentication required.") },
+        { status: 401 }
+      ),
+    };
+  }
 
   const membership = await getActiveMembershipServer(supabase, user.id);
   if (!membership) {
-    return { error: NextResponse.json({ error: "Aucun espace de travail." }, { status: 403 }) };
+    return {
+      error: NextResponse.json(
+        { error: pick(locale, "Aucun espace de travail.", "No workspace found.") },
+        { status: 403 }
+      ),
+    };
   }
 
   const admin = createAdminClient();
   if (!admin) {
     return {
       error: NextResponse.json(
-        { error: "Gestion d'équipe indisponible (configuration serveur incomplète)." },
+        {
+          error: pick(
+            locale,
+            "Gestion d'équipe indisponible (configuration serveur incomplète).",
+            "Team management is unavailable (incomplete server configuration)."
+          ),
+        },
         { status: 503 }
       ),
     };
   }
 
-  return { supabase, user, membership, admin };
+  return { supabase, user, membership, admin, locale };
 }
 
 export async function GET() {
   const ctx = await requireContext();
   if ("error" in ctx) return ctx.error;
-  const { user, membership, admin } = ctx;
+  const { user, membership, admin, locale } = ctx;
 
   const { data, error } = await admin
     .from("tenant_members")
@@ -92,7 +115,10 @@ export async function GET() {
     .order("created_at", { ascending: true });
 
   if (error) {
-    return NextResponse.json({ error: "Lecture de l'équipe impossible." }, { status: 500 });
+    return NextResponse.json(
+      { error: pick(locale, "Lecture de l'équipe impossible.", "Unable to load the team.") },
+      { status: 500 }
+    );
   }
 
   const rows = (data ?? []) as MemberRow[];
@@ -149,20 +175,37 @@ export async function GET() {
 export async function PATCH(req: Request) {
   const ctx = await requireContext();
   if ("error" in ctx) return ctx.error;
-  const { membership, admin } = ctx;
+  const { membership, admin, locale } = ctx;
 
   if (!MANAGER_ROLES.includes(membership.role)) {
-    return NextResponse.json({ error: "Seuls le propriétaire ou un administrateur peuvent gérer l'équipe." }, { status: 403 });
+    return NextResponse.json(
+      {
+        error: pick(
+          locale,
+          "Seuls le propriétaire ou un administrateur peuvent gérer l'équipe.",
+          "Only the owner or an admin can manage the team."
+        ),
+      },
+      { status: 403 }
+    );
   }
 
   let body: { memberUserId?: string; employeeId?: string | null };
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: "Corps de requête invalide." }, { status: 400 });
+    return NextResponse.json(
+      { error: pick(locale, "Corps de requête invalide.", "Invalid request body.") },
+      { status: 400 }
+    );
   }
   const memberUserId = body.memberUserId;
-  if (!memberUserId) return NextResponse.json({ error: "memberUserId manquant." }, { status: 400 });
+  if (!memberUserId) {
+    return NextResponse.json(
+      { error: pick(locale, "memberUserId manquant.", "Missing memberUserId.") },
+      { status: 400 }
+    );
+  }
 
   const tenantId = membership.tenant_id;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -178,7 +221,12 @@ export async function PATCH(req: Request) {
       .update({ user_id: memberUserId })
       .eq("tenant_id", tenantId)
       .eq("id", body.employeeId);
-    if (error) return NextResponse.json({ error: "Liaison impossible." }, { status: 500 });
+    if (error) {
+      return NextResponse.json(
+        { error: pick(locale, "Liaison impossible.", "Unable to link the account.") },
+        { status: 500 }
+      );
+    }
   }
 
   return NextResponse.json({ ok: true, employeeId: body.employeeId ?? null });
@@ -187,11 +235,17 @@ export async function PATCH(req: Request) {
 export async function POST(req: Request) {
   const ctx = await requireContext();
   if ("error" in ctx) return ctx.error;
-  const { supabase, user, membership, admin } = ctx;
+  const { supabase, user, membership, admin, locale } = ctx;
 
   if (!MANAGER_ROLES.includes(membership.role)) {
     return NextResponse.json(
-      { error: "Seul le propriétaire ou un admin peut inviter des collaborateurs." },
+      {
+        error: pick(
+          locale,
+          "Seul le propriétaire ou un admin peut inviter des collaborateurs.",
+          "Only the owner or an admin can invite collaborators."
+        ),
+      },
       { status: 403 }
     );
   }
@@ -204,8 +258,11 @@ export async function POST(req: Request) {
     if (!canInviteTeam(ent)) {
       return NextResponse.json(
         {
-          error:
+          error: pick(
+            locale,
             "L'invitation de collaborateurs fait partie du plan Équipe. Ajoutez la collaboration (+50 €/mois) dans Paramètres → Facturation pour constituer votre équipe.",
+            "Inviting collaborators is part of the Team plan. Add collaboration (+€50/month) in Settings → Billing to build your team."
+          ),
           upgrade: true,
         },
         { status: 403 }
@@ -217,12 +274,18 @@ export async function POST(req: Request) {
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: "Corps de requête invalide." }, { status: 400 });
+    return NextResponse.json(
+      { error: pick(locale, "Corps de requête invalide.", "Invalid request body.") },
+      { status: 400 }
+    );
   }
 
   const email = (body.email ?? "").trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
-    return NextResponse.json({ error: "Adresse email invalide." }, { status: 400 });
+    return NextResponse.json(
+      { error: pick(locale, "Adresse email invalide.", "Invalid email address.") },
+      { status: 400 }
+    );
   }
   const role = (ASSIGNABLE_ROLES as readonly string[]).includes(body.role ?? "")
     ? (body.role as string)
@@ -234,7 +297,10 @@ export async function POST(req: Request) {
   });
   if (lookupError) {
     console.error("[team] lookup error:", lookupError);
-    return NextResponse.json({ error: "Recherche du compte impossible." }, { status: 500 });
+    return NextResponse.json(
+      { error: pick(locale, "Recherche du compte impossible.", "Unable to look up the account.") },
+      { status: 500 }
+    );
   }
   // Pas encore de compte ? On INVITE par lien magique — AUCUNE étape « confirmez
   // votre email » : le collaborateur clique le lien, choisit son mot de passe, et
@@ -257,13 +323,31 @@ export async function POST(req: Request) {
     });
     if (inviteError || !invited?.user) {
       console.error("[team] invite error:", inviteError);
-      return NextResponse.json({ error: "Invitation impossible. Réessayez dans un instant." }, { status: 500 });
+      return NextResponse.json(
+        {
+          error: pick(
+            locale,
+            "Invitation impossible. Réessayez dans un instant.",
+            "Invitation failed. Please try again in a moment."
+          ),
+        },
+        { status: 500 }
+      );
     }
     memberUserId = invited.user.id;
     invitedNew = true;
   }
   if (memberUserId === user.id) {
-    return NextResponse.json({ error: "Vous faites déjà partie de cet espace." }, { status: 400 });
+    return NextResponse.json(
+      {
+        error: pick(
+          locale,
+          "Vous faites déjà partie de cet espace.",
+          "You are already a member of this workspace."
+        ),
+      },
+      { status: 400 }
+    );
   }
 
   // Déjà membre ?
@@ -274,7 +358,16 @@ export async function POST(req: Request) {
     .eq("user_id", memberUserId)
     .maybeSingle();
   if (existing) {
-    return NextResponse.json({ error: "Ce collaborateur fait déjà partie de l'équipe." }, { status: 409 });
+    return NextResponse.json(
+      {
+        error: pick(
+          locale,
+          "Ce collaborateur fait déjà partie de l'équipe.",
+          "This collaborator is already on the team."
+        ),
+      },
+      { status: 409 }
+    );
   }
 
   const { data: created, error: insertError } = await admin
@@ -292,7 +385,10 @@ export async function POST(req: Request) {
 
   if (insertError || !created) {
     console.error("[team] insert error:", insertError);
-    return NextResponse.json({ error: "Ajout impossible. Réessayez." }, { status: 500 });
+    return NextResponse.json(
+      { error: pick(locale, "Ajout impossible. Réessayez.", "Could not add the member. Please try again.") },
+      { status: 500 }
+    );
   }
 
   // ── EMAIL ── Un NOUVEL invité reçoit déjà l'email d'invitation Supabase
@@ -364,11 +460,17 @@ export async function POST(req: Request) {
 export async function DELETE(req: Request) {
   const ctx = await requireContext();
   if ("error" in ctx) return ctx.error;
-  const { supabase, user, membership, admin } = ctx;
+  const { supabase, user, membership, admin, locale } = ctx;
 
   if (!MANAGER_ROLES.includes(membership.role)) {
     return NextResponse.json(
-      { error: "Seul le propriétaire ou un admin peut retirer des membres." },
+      {
+        error: pick(
+          locale,
+          "Seul le propriétaire ou un admin peut retirer des membres.",
+          "Only the owner or an admin can remove members."
+        ),
+      },
       { status: 403 }
     );
   }
@@ -377,10 +479,16 @@ export async function DELETE(req: Request) {
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: "Corps de requête invalide." }, { status: 400 });
+    return NextResponse.json(
+      { error: pick(locale, "Corps de requête invalide.", "Invalid request body.") },
+      { status: 400 }
+    );
   }
   if (!body.memberId) {
-    return NextResponse.json({ error: "memberId requis." }, { status: 400 });
+    return NextResponse.json(
+      { error: pick(locale, "memberId requis.", "memberId is required.") },
+      { status: 400 }
+    );
   }
 
   // La ligne doit appartenir au tenant actif (jamais de suppression cross-tenant).
@@ -392,10 +500,22 @@ export async function DELETE(req: Request) {
     .maybeSingle();
 
   if (!target) {
-    return NextResponse.json({ error: "Membre introuvable." }, { status: 404 });
+    return NextResponse.json(
+      { error: pick(locale, "Membre introuvable.", "Member not found.") },
+      { status: 404 }
+    );
   }
   if (target.role === "owner") {
-    return NextResponse.json({ error: "Le propriétaire de l'espace ne peut pas être retiré." }, { status: 400 });
+    return NextResponse.json(
+      {
+        error: pick(
+          locale,
+          "Le propriétaire de l'espace ne peut pas être retiré.",
+          "The workspace owner cannot be removed."
+        ),
+      },
+      { status: 400 }
+    );
   }
 
   const { error: deleteError } = await admin
@@ -405,7 +525,16 @@ export async function DELETE(req: Request) {
     .eq("tenant_id", membership.tenant_id);
 
   if (deleteError) {
-    return NextResponse.json({ error: "Retrait impossible. Réessayez." }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: pick(
+          locale,
+          "Retrait impossible. Réessayez.",
+          "Could not remove the member. Please try again."
+        ),
+      },
+      { status: 500 }
+    );
   }
 
   // ── NETTOYAGE ── Si le retiré était un invité qui n'a JAMAIS accepté (jamais

@@ -1588,6 +1588,132 @@ export const BLOG_POSTS: BlogPost[] = [
     relatedProduct: "copilote",
     cta: "Quelles factures sont en retard, de combien, et prépare une relance polie pour les plus anciennes.",
   },
+  // 16 ──────────────────────────────────────────────────────────────────────
+  {
+    slug: "rentabilite-marge-chantier",
+    title:
+      "Rentabilité de chantier : calculer sa vraie marge et arrêter de travailler à perte",
+    description:
+      "Un chantier peut sembler rentable et vous coûter de l'argent. Voici comment calculer la vraie marge d'un chantier et repérer ceux qui vous font travailler à perte.",
+    category: "Pilotage",
+    date: "2026-07-12",
+    readingMinutes: 9,
+    keywords: [
+      "rentabilité chantier",
+      "calculer la marge d'un chantier",
+      "coût de revient chantier BTP",
+      "marge nette artisan bâtiment",
+      "suivi rentabilité par chantier",
+    ],
+    excerpt:
+      "Beaucoup d'artisans travaillent beaucoup et gagnent peu. Souvent, c'est un ou deux chantiers à perte qui mangent la marge de tous les autres.",
+    intro:
+      "Vous enchaînez les chantiers, le carnet est plein, et pourtant le compte en banque ne suit pas. C'est le paradoxe le plus courant du bâtiment : une entreprise très occupée peut gagner très peu. La raison tient presque toujours à un ou deux chantiers qui coûtent plus qu'ils ne rapportent, sans que personne ne s'en aperçoive. Calculer la vraie marge de chaque chantier, c'est reprendre la main sur ce qui reste vraiment dans la poche.",
+    sections: [
+      {
+        heading: "Le piège du chiffre d'affaires qui monte",
+        body: [
+          "Un carnet plein rassure, mais le chiffre d'affaires n'est pas de l'argent gagné. Vous pouvez facturer beaucoup et ne rien garder si les coûts montent au même rythme que les factures.",
+          "La seule question qui compte n'est pas combien vous avez facturé, mais combien il vous reste une fois tout payé. Un chantier de 40 000 euros qui vous en coûte 41 000 vous appauvrit, même s'il fait gonfler le chiffre d'affaires et donne l'impression d'une bonne année.",
+        ],
+      },
+      {
+        heading: "Chiffre d'affaires, marge, bénéfice : ne pas confondre",
+        body: [
+          "Trois mots reviennent sans arrêt et sont souvent mélangés. Les distinguer clairement est le point de départ de tout pilotage.",
+        ],
+        list: [
+          "Le chiffre d'affaires, c'est ce que le client vous paie",
+          "Le coût de revient, c'est ce que le chantier vous coûte vraiment : matériaux, heures, sous-traitance, location",
+          "La marge, c'est la différence entre les deux",
+          "Le bénéfice, c'est ce qu'il reste une fois retirés vos frais généraux",
+        ],
+      },
+      {
+        heading: "Le vrai coût d'un chantier, poste par poste",
+        body: [
+          "On sous-estime presque toujours le coût réel, parce qu'on ne compte que ce qui sort visiblement du compte en banque. Le vrai coût est plus large.",
+        ],
+        list: [
+          "Les matériaux et fournitures, faciles à chiffrer",
+          "Les heures de main-d'oeuvre, à leur coût réel chargé, pas au taux affiché sur le devis",
+          "La sous-traitance et l'intérim",
+          "Les locations de matériel, la benne, l'échafaudage",
+          "Les déplacements, le carburant et le temps de trajet",
+          "Les reprises et les heures non prévues, oubliées du devis",
+        ],
+      },
+      {
+        heading: "Pourquoi les heures sont le poste le plus dangereux",
+        body: [
+          "Un devis est calculé sur un nombre d'heures estimé. Sur le terrain, la réalité déborde souvent : intempéries, imprévus, client qui change d'avis, reprises à refaire. Chaque heure passée en plus est une heure payée par vous, pas par le client.",
+          "C'est le poste qui transforme un chantier prévu rentable en chantier à perte, sans bruit, parce qu'une heure supplémentaire ne laisse aucune facture derrière elle. Suivre les heures réellement passées par chantier n'est pas de la surveillance, c'est la seule façon de savoir si votre prix tient encore une fois le chantier terminé.",
+        ],
+      },
+      {
+        heading: "Calculer la marge d'un chantier, simplement",
+        body: [
+          "Pas besoin d'un logiciel de comptabilité pour commencer. La formule tient en une ligne : le montant facturé, moins les matériaux, moins les heures réelles à leur coût chargé, moins la sous-traitance et les locations.",
+          "Le résultat vous donne la marge en euros et en pourcentage. Comparez-la ensuite à ce que vous aviez prévu au devis : l'écart raconte tout. Un chantier prévu à 25 pour cent de marge qui finit à 5 pour cent vous apprend plus sur votre chiffrage que n'importe quel bilan de fin d'année.",
+        ],
+      },
+      {
+        heading: "Repérer le chantier qui mange la marge des autres",
+        body: [
+          "Quand vous calculez la marge chantier par chantier, un schéma apparaît vite : la plupart sont corrects, et un ou deux tirent tout le résultat vers le bas. Ce sont souvent les mêmes profils qui reviennent.",
+          "Le client trop bavard qui multiplie les allers-retours, le type de travaux mal maîtrisé, le devis fait trop vite un soir de fatigue. Les identifier, c'est pouvoir dire non la prochaine fois, ou ajuster le prix. Le but n'est pas de fliquer chaque euro, mais de savoir quels chantiers et quels clients vous font gagner votre vie, et lesquels vous la font perdre.",
+        ],
+      },
+      {
+        heading: "Corriger le tir sur les prochains devis",
+        body: [
+          "La rentabilité passée ne sert à rien si elle ne change pas vos futurs devis. Chaque chantier terminé est une leçon de chiffrage, à condition de la lire.",
+        ],
+        list: [
+          "Rehaussez votre taux horaire si vos heures réelles dépassent toujours le devis",
+          "Ajoutez une ligne d'imprévus sur les chantiers à risque",
+          "Refusez ou surfacturez les types de travaux qui finissent systématiquement à perte",
+          "Demandez un acompte pour ne pas financer le chantier à la place du client",
+        ],
+      },
+      {
+        heading: "Suivre la rentabilité sans y passer ses soirées",
+        body: [
+          "Tout ceci suppose de croiser des chiffres qui vivent d'habitude à des endroits différents : le devis, les factures fournisseurs, les heures pointées. C'est justement ce croisement qui décourage la plupart des artisans, et qui repousse le calcul de la marge à la fin de l'année, quand il est trop tard pour corriger.",
+          "Avec Biltia, la rentabilité se calcule à partir de vos données déjà présentes : le montant facturé du chantier, les heures pointées par vos équipes et les achats qui lui sont rattachés. Vous demandez en une phrase quels chantiers sont rentables et lesquels ne le sont pas, et vous obtenez la réponse, chiffres à l'appui.",
+          "Comme un chantier, son client, ses heures et ses factures vivent dans le même espace, la marge cesse d'être un calcul de fin d'année : elle devient une information disponible en continu, pendant que le chantier tourne encore.",
+        ],
+      },
+    ],
+    takeaways: [
+      "Un carnet plein ne veut pas dire une entreprise rentable : le chiffre d'affaires n'est pas du bénéfice.",
+      "Le coût réel d'un chantier inclut les heures au coût chargé, les reprises et les imprévus, pas seulement les matériaux.",
+      "Les heures dépassées sont le poste qui fait basculer un chantier dans le rouge, sans laisser de facture.",
+      "Calculer la marge chantier par chantier révèle vite le ou les deux qui mangent le résultat des autres.",
+      "Chaque chantier terminé est une leçon de chiffrage pour vos prochains devis.",
+      "Croiser devis, achats et heures pointées permet de suivre la rentabilité en continu, pas une fois par an.",
+    ],
+    faq: [
+      {
+        q: "Comment calculer la rentabilité d'un chantier ?",
+        a: "Prenez le montant facturé du chantier et retirez son coût réel : matériaux, heures de main-d'oeuvre à leur coût chargé, sous-traitance et locations. La différence est votre marge, en euros et en pourcentage. Comparez-la ensuite à la marge prévue au devis pour repérer les écarts.",
+      },
+      {
+        q: "Pourquoi un chantier peut-il ne pas être rentable malgré un bon prix ?",
+        a: "Le plus souvent à cause des heures. Un devis est calculé sur un temps estimé, et chaque heure passée en plus est payée par vous, pas par le client. Les reprises et les imprévus non chiffrés suffisent à effacer la marge d'un chantier pourtant bien vendu.",
+      },
+      {
+        q: "Quelle marge viser sur un chantier dans le BTP ?",
+        a: "Il n'existe pas de chiffre universel : il dépend de votre métier et de vos frais généraux. Le plus utile n'est pas de viser un pourcentage théorique, mais de comparer la marge réelle de chaque chantier à celle prévue au devis, et de corriger votre chiffrage quand le même écart se répète.",
+      },
+      {
+        q: "Comment suivre la rentabilité de ses chantiers sans comptable ?",
+        a: "En croisant trois chiffres que vous avez déjà : le montant facturé, les achats rattachés au chantier et les heures pointées. Avec Biltia, ce calcul se fait à partir de vos données et vous demandez en une phrase quels chantiers sont rentables, sans attendre le bilan.",
+      },
+    ],
+    relatedProduct: "copilote",
+    cta: "Calcule la marge réelle de chaque chantier à partir des montants facturés, des achats et des heures pointées, et dis-moi lesquels sont dans le rouge.",
+  },
 ];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

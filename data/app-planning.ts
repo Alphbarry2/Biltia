@@ -73,6 +73,22 @@ input.invalid,select.invalid{border-color:#E11D48;box-shadow:0 0 0 3px rgba(225,
 .spin{width:26px;height:26px;border:3px solid var(--line);border-top-color:var(--vio);border-radius:50%;animation:sp .7s linear infinite;margin:60px auto}
 @keyframes sp{to{transform:rotate(360deg)}}
 .mini-av{width:26px;height:26px;border-radius:8px;font-size:10px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;flex-shrink:0}
+/* ── Copilote planning (bandeau IA) ── */
+.ai-bar{border:1px solid var(--tintline);background:linear-gradient(180deg,var(--tint),#fff);border-radius:16px;padding:13px 15px;margin-bottom:14px;box-shadow:var(--shadow)}
+.ai-bar.warn{border-color:#FDE68A;background:linear-gradient(180deg,#FFFBEB,#fff)}
+.ai-bar-hd{display:flex;align-items:center;gap:11px}
+.ai-spark{width:30px;height:30px;border-radius:9px;background:var(--grad);color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;box-shadow:0 4px 12px rgba(var(--glow),.28)}
+.ai-bar.warn .ai-spark{background:#F59E0B;box-shadow:0 4px 12px rgba(245,158,11,.28)}
+.ai-eyebrow{display:block;font-size:10px;font-weight:700;color:var(--vio);text-transform:uppercase;letter-spacing:.1em;line-height:1.2}
+.ai-bar.warn .ai-eyebrow{color:#B45309}
+.ai-line{font-size:13.5px;font-weight:700;line-height:1.35;display:block}
+.ai-chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
+.ai-chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:6px 11px;border-radius:9999px;border:1px solid var(--line);background:#fff;color:var(--mut);font-family:inherit;line-height:1.3;text-align:left}
+button.ai-chip{cursor:pointer}
+button.ai-chip:active{transform:scale(.97)}
+.ai-chip.ai-warn{background:#FFF1F2;color:#E11D48;border-color:#FECDD3}
+.ai-chip.ai-ok{background:#ECFDF5;color:#059669;border-color:#A7F3D0}
+.ai-chip.ai-mut{background:var(--soft)}
 /* ── Barre semaine ── */
 .wk-nav{display:flex;align-items:center;gap:10px;margin-bottom:14px}
 .wk-btn{width:36px;height:36px;border-radius:10px;border:1px solid var(--line);background:#fff;cursor:pointer;font-size:18px;color:var(--ink);flex-shrink:0}
@@ -226,6 +242,40 @@ function render(){
 }
 function emptyState(ico,title,sub,onclick,btn){return '<div class="empty"><div class="empty-ico">'+ico+'</div><div class="empty-title">'+title+'</div><div class="empty-sub">'+sub+'</div><button class="btn btn-primary" onclick="'+onclick+'">'+btn+'</button></div>';}
 
+/* ── Copilote planning : bandeau IA calculé CÔTÉ CLIENT à partir de la grille.
+   Il ne prétend jamais qu'un agent « tourne » (l'app ne peut pas le vérifier) : il
+   montre l'ÉTAT — semaine prête, non planifiés, et surtout QUI ne recevra pas son
+   planning faute d'email. C'est exactement l'entrée dont l'agent d'envoi a besoin. ── */
+function validEmail(s){ return String(s||"").indexOf("@")>0; }
+function planningInsights(){
+  var days=weekDays(S.weekStart), keys={}; days.forEach(function(d){keys[d.key]=1;});
+  var emps=activeEmps(), activeSet={}; emps.forEach(function(e){activeSet[e.id]=1;});
+  var assigned={}, affect=0;
+  S.planning.forEach(function(p){ var dk=String(p.date).slice(0,10); if(keys[dk]&&p.employee_id&&activeSet[p.employee_id]){ assigned[p.employee_id]=1; affect++; } });
+  var nonPlanifies=emps.filter(function(e){return !assigned[e.id];});
+  var sansEmail=emps.filter(function(e){return assigned[e.id] && !validEmail(e.email);});
+  return { total:emps.length, affect:affect, planned:Object.keys(assigned).length, nonPlanifies:nonPlanifies, sansEmail:sansEmail };
+}
+function insightsBar(){
+  var ins=planningInsights();
+  if(!ins.total) return "";
+  var tone=ins.affect===0?"warn":"ok", head;
+  if(ins.affect===0){ head="Semaine à planifier — "+ins.total+" équipier"+(ins.total>1?"s":"")+" en attente d\\'affectation"; }
+  else { head="Semaine prête · "+ins.affect+" affectation"+(ins.affect>1?"s":"")+" · "+ins.planned+"/"+ins.total+" équipiers planifiés"; }
+  var chips="";
+  if(ins.sansEmail.length){
+    var names=ins.sansEmail.slice(0,2).map(function(e){return empName(e.id);}).filter(Boolean).join(", ")+(ins.sansEmail.length>2?" +"+(ins.sansEmail.length-2):"");
+    chips+='<button class="ai-chip ai-warn" onclick="openEmp(\\''+ins.sansEmail[0].id+'\\')">⚠ '+ins.sansEmail.length+' sans email — n\\'auront pas leur planning'+(names?' ('+esc(names)+')':'')+'</button>';
+  }
+  if(ins.nonPlanifies.length){
+    chips+='<span class="ai-chip ai-mut">'+ins.nonPlanifies.length+' non planifié'+(ins.nonPlanifies.length>1?"s":"")+' cette semaine</span>';
+  }
+  if(ins.affect>0 && !ins.sansEmail.length && !ins.nonPlanifies.length){
+    chips+='<span class="ai-chip ai-ok">✓ Toute l\\'équipe est planifiée et joignable</span>';
+  }
+  return '<div class="ai-bar '+tone+'"><div class="ai-bar-hd"><span class="ai-spark">✦</span><div style="min-width:0"><span class="ai-eyebrow">Copilote planning</span><b class="ai-line">'+esc(head)+'</b></div></div>'+(chips?'<div class="ai-chips">'+chips+'</div>':'')+'</div>';
+}
+
 /* ── Vue : Planning (grille) ── */
 function shiftWeek(n){ var d=new Date(S.weekStart);d.setDate(d.getDate()+n*7);S.weekStart=d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate());renderPlanning(); }
 function prevWeek(){shiftWeek(-1);} function nextWeek(){shiftWeek(1);} function thisWeek(){S.weekStart=mondayOf(todayISO());renderPlanning();}
@@ -233,6 +283,7 @@ function renderPlanning(){
   var days=weekDays(S.weekStart), emps=activeEmps(), today=todayISO();
   var h='<div class="view-pad">';
   h+='<div class="wk-nav"><button class="wk-btn" onclick="prevWeek()" aria-label="Semaine précédente">‹</button><div class="wk-lbl"><b>Semaine du '+days[0].dm+'</b><span>au '+days[6].dm+'</span></div><button class="wk-btn" onclick="nextWeek()" aria-label="Semaine suivante">›</button><button class="btn btn-ghost btn-sm" onclick="thisWeek()">Cette semaine</button></div>';
+  h+=insightsBar();
   h+='<div class="chart-card" style="margin-bottom:14px"><div class="chart-hd"><b>Occupation de l\\'équipe</b><span class="rd" id="rd-occ">—</span></div><div class="chart-host" id="ch-occ"></div></div>';
   if(!emps.length){ h+=emptyState("📅","Aucun équipier","Ajoutez des équipiers pour construire votre planning de la semaine.","openEmp(null)","+ Ajouter un équipier")+'</div>'; $("view").innerHTML=h; return; }
   h+='<div class="pl-wrap"><div class="pl-grid" style="grid-template-columns:132px repeat(7,minmax(102px,1fr))">';
@@ -284,7 +335,7 @@ function renderEquipe(){
     var dots=weekDots(e.id), nbj=dots.reduce(function(s,x){return s+x;},0);
     return '<button class="mcard" onclick="openEmp(\\''+e.id+'\\')"><div style="display:flex;align-items:center;gap:12px"><span class="avatar" style="background:'+avc(nm)+'">'+esc(initials(nm))+'</span><div style="min-width:0;flex:1"><div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(nm)+'</div><div style="color:var(--mut);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(role)+'</div></div><span class="badge '+st.b+'">'+st.l+'</span></div>'
       +'<div class="wk-dots">'+dots.map(function(x){return '<span class="wk-dot'+(x?" on":"")+'"></span>';}).join("")+'</div>'
-      +'<div style="font-size:12px;color:var(--mut)">'+nbj+' jour'+(nbj>1?"s":"")+' planifié'+(nbj>1?"s":"")+' cette semaine</div></button>'; }).join("")+'</div>';
+      +'<div style="font-size:12px;color:var(--mut)">'+nbj+(nbj>1?" jours planifiés":" jour planifié")+' cette semaine</div></button>'; }).join("")+'</div>';
   h+='</div>'; $("view").innerHTML=h;
 }
 
@@ -327,16 +378,16 @@ function openEmp(id){
   var h='<div class="modal-h"><div><div class="modal-title">'+(id?"Modifier l\\'équipier":"Nouvel équipier")+'</div></div><button class="x" onclick="closeModal()">✕</button></div>';
   h+='<div class="form-row"><div class="fg"><label class="fl">Prénom</label><input id="e-prenom" value="'+esc(e.prenom||"")+'"></div><div class="fg"><label class="fl">Nom *</label><input id="e-nom" value="'+esc(e.nom||"")+'"></div></div>';
   h+='<div class="form-row"><div class="fg"><label class="fl">Rôle</label><input id="e-role" value="'+esc(e.role||"")+'" placeholder="Chef d\\'équipe…"></div><div class="fg"><label class="fl">Corps de métier</label><input id="e-metier" value="'+esc(e.corps_metier||"")+'" placeholder="Maçon…"></div></div>';
-  h+='<div class="fg"><label class="fl">Téléphone</label><input id="e-tel" inputmode="tel" value="'+esc(e.tel||"")+'"></div>';
+  h+='<div class="form-row"><div class="fg"><label class="fl">Téléphone</label><input id="e-tel" inputmode="tel" value="'+esc(e.tel||"")+'"></div><div class="fg"><label class="fl">Email</label><input id="e-email" type="email" inputmode="email" value="'+esc(e.email||"")+'" placeholder="Pour recevoir son planning"></div></div>';
   h+='<div class="fg"><label class="fl">Disponibilité</label><div class="seg" id="e-seg">'+[["actif","Disponible"],["arret","En arrêt"],["inactif","Inactif"]].map(function(o){return '<button type="button" onclick="empStatut(\\''+o[0]+'\\')" class="'+(e.statut===o[0]?"on":"")+'" style="'+(e.statut===o[0]?"background:var(--vio)":"")+'">'+o[1]+'</button>';}).join("")+'</div></div>';
   h+='<div class="modal-actions"><button class="btn btn-primary" id="e-save" onclick="empSave()">'+(id?"Enregistrer":"Ajouter")+'</button>'+(id?'<button class="btn btn-danger" style="flex:0 0 auto" onclick="empDel(\\''+id+'\\')">Retirer</button>':'')+'</div>';
   openModal(h);
 }
 function empStatut(k){ S.edit.statut=k; document.querySelectorAll("#e-seg button").forEach(function(b){b.className="";b.style.background="";}); var ks=["actif","arret","inactif"],i=ks.indexOf(k),btns=document.querySelectorAll("#e-seg button"); if(btns[i]){btns[i].className="on";btns[i].style.background="var(--vio)";} }
 async function empSave(){
-  var e=S.edit; ["prenom","nom","role","tel"].forEach(function(f){var el=$("e-"+f);if(el)e[f]=el.value;}); var em=$("e-metier"); if(em)e.corps_metier=em.value;
+  var e=S.edit; ["prenom","nom","role","tel","email"].forEach(function(f){var el=$("e-"+f);if(el)e[f]=el.value;}); var em=$("e-metier"); if(em)e.corps_metier=em.value;
   if(!String(e.nom||"").trim()){ var el=$("e-nom"); if(el){el.classList.add("invalid");el.focus();} return; }
-  var payload={ prenom:e.prenom||null, nom:String(e.nom).trim(), role:e.role||null, corps_metier:e.corps_metier||null, tel:e.tel||null, statut:e.statut||"actif" };
+  var payload={ prenom:e.prenom||null, nom:String(e.nom).trim(), role:e.role||null, corps_metier:e.corps_metier||null, tel:e.tel||null, email:e.email||null, statut:e.statut||"actif" };
   var b=$("e-save"); if(b){b.disabled=true;b.textContent="Enregistrement…";}
   try{
     if(e.id){ var up=await biltia.update("employees",e.id,payload); for(var i=0;i<S.employees.length;i++)if(S.employees[i].id===e.id)S.employees[i]=up; biltia.notify("Équipier enregistré"); }

@@ -240,7 +240,9 @@ body.biltia-has-toolbar{padding-top:58px}
     pads.forEach(setupPad);
     bar.querySelector('.bd-print').addEventListener('click',function(){ window.print(); });
     bar.querySelector('.bd-wa').addEventListener('click',function(){
-      var t=(document.title||'Document')+' — préparé avec Biltia. Enregistrez-le en PDF (bouton Imprimer) pour le joindre.';
+      /* Le message part chez le CLIENT de l'artisan : il ne porte pas la marque
+         Biltia (règle : Biltia sur l'interface, jamais sur un document commercial). */
+      var t=(document.title||'Document')+' — enregistrez-le en PDF (bouton Imprimer) pour le joindre.';
       if(navigator.share){ navigator.share({ title: document.title||'Document', text: t }).catch(function(){}); return; }
       window.open('https://wa.me/?text='+encodeURIComponent(t),'_blank');
     });

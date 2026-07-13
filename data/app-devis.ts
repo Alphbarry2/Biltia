@@ -605,27 +605,21 @@ async function delDevis(id){ var d=findDevis(id); if(!d)return; if(!confirm("Sup
   try{ var rows=await biltia.list("lignes",{match:{devis_id:id},limit:400}).catch(function(){return[];}); for(var i=0;i<(rows||[]).length;i++){ try{ await biltia.remove("lignes",rows[i].id); }catch(e){} }
     await biltia.remove("devis",id); S.devis=S.devis.filter(function(x){return x.id!==id;}); biltia.notify("Devis supprimé"); closeModal(); render(); }catch(e){ biltia.notify("Suppression impossible"); }
 }
-function devisEmailBody(d,lignes,cl){
-  var t=lignes.length?totals(lignes):{ht:num(d.montant_ht),tva:num(d.montant_tva),ttc:num(d.montant_ttc)};
-  var who=(cl&&cl.nom)?cl.nom:"Madame, Monsieur";
-  var L="Bonjour "+who+",\\n\\nVeuillez trouver ci-dessous notre devis "+(d.numero||"")+(d.chantier_id?" pour "+chantierName(d.chantier_id):"")+" :\\n\\n";
-  lignes.forEach(function(l){ L+="- "+(l.designation||"")+" : "+(l.quantite!=null?l.quantite:1)+" "+(l.unite||"u")+" x "+money(l.prix_unitaire_ht)+" = "+money(lineTot(l))+" HT\\n"; });
-  L+="\\nTotal HT : "+money(t.ht)+"\\nTVA : "+money(t.tva)+"\\nTotal TTC : "+money(t.ttc)+"\\n";
-  if(d.date_validite) L+="\\nDevis valable jusqu\\'au "+fmtDate(d.date_validite)+".";
-  if(d.conditions) L+="\\n"+d.conditions;
-  L+="\\n\\nBien cordialement,\\n"+(S.entreprise||"");
-  return L;
-}
+/* Envoi du devis. L\\'app ne rédige PLUS le corps du mail : elle désigne la FICHE.
+   Le serveur produit le PDF au logo et aux couleurs de l\\'entreprise (Réglages →
+   Identité visuelle), le joint au message, et ajoute un lien « Voir et accepter »
+   où le client signe son bon pour accord. Le statut passe à « envoyé » côté
+   serveur — on relit la fiche pour rester en phase. */
 async function sendDevis(id){
   var d=findDevis(id); if(!d)return; var cl=findClient(d.client_id);
-  if(!cl||!String(cl.email||"").trim()){ biltia.notify("Ajoutez l\\'email du client pour l\\'envoyer"); if(cl)openClient(cl.id); return; }
-  var rows=await biltia.list("lignes",{match:{devis_id:id},order:"position",ascending:true}).catch(function(){return[];});
-  biltia.notify("Envoi en cours…");
+  if(!cl||!String(cl.email||"").trim()){ biltia.notify("Ajoutez l\\'email du client pour lui envoyer le devis"); if(cl)openClient(cl.id); return; }
+  biltia.notify("Préparation du devis en PDF…");
   try{
-    await biltia.sendEmail({ to:cl.email, subject:"Votre devis "+(d.numero||"")+" — "+(S.entreprise||""), body:devisEmailBody(d,rows||[],cl) });
-    biltia.notify("Devis envoyé à "+cl.email);
-    if(d.statut==="brouillon"){ try{ var up=await biltia.update("devis",id,{statut:"envoye"}); replaceDevis(up); }catch(e){} closeModal(); render(); }
-  }catch(e){ biltia.notify("Envoi impossible pour le moment"); }
+    await biltia.sendDocument({ kind:"devis", id:id });
+    biltia.notify("Devis envoyé à "+cl.email+" · PDF joint");
+    try{ var up=await biltia.get("devis",id); if(up)replaceDevis(up); }catch(e){}
+    closeModal(); render();
+  }catch(e){ /* le SDK a déjà affiché le motif exact (pas d\\'email, plan, canal…) */ }
 }
 /* ── Devis accepté → facture (un clic, sans re-saisie) ── */
 async function facturer(id,mode){

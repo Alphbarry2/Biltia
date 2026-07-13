@@ -9,6 +9,8 @@
 // Tarifs validés le 2026-07-02.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import type { Locale } from "@/lib/i18n/config";
+
 export type PlanId = "free" | "pro" | "equipe";
 
 /** Un palier de crédits mensuels pour un plan payant. */
@@ -337,6 +339,97 @@ export function groupTiers(tiers: CreditTier[]): { label: string; tiers: CreditT
       return { label: s.label, tiers: tiers.filter((t) => t.credits > min && t.credits <= s.maxCredits) };
     })
     .filter((g) => g.tiers.length > 0);
+}
+
+// ── i18n : textes des plans en anglais ───────────────────────────────────────
+// Le contenu FR (name/tagline/audience/features) reste la source ; on surcharge
+// avec l'anglais quand l'interface est en EN. Les prix/limites/ids ne changent pas.
+type PlanText = { name: string; tagline: string; audience: string; features: string[] };
+const PLAN_EN: Record<string, PlanText> = {
+  free: {
+    name: "Free",
+    tagline: "The guided tour",
+    audience: "To try Biltia, no credit card",
+    features: [
+      "300 free credits to explore (non-renewable)",
+      "Create your first app",
+      "Generate a real quote or document",
+      "1 user, 1 app",
+      "No monthly credits, no publishing",
+    ],
+  },
+  pro: {
+    name: "Pro",
+    tagline: "The complete tool, no feature limits",
+    audience: "For freelancers, tradespeople and small businesses",
+    features: [
+      "The whole tool, nothing held back",
+      "Apps, quotes, questions and agents, per your AI credits",
+      "Voice commands and offline mode",
+      "Shared workspace, seats included",
+      "Accounting connectors included",
+      "Credits renewed every month",
+    ],
+  },
+  equipe: {
+    name: "Team",
+    tagline: "Put your staff, clients and subcontractors to work inside Biltia.",
+    audience: "Tradespeople with staff, SMBs",
+    features: [
+      "The whole Pro plan, for the whole team",
+      "Invite your teammates: roles and permissions",
+      "Employee accounts: each sees only their own job sites",
+      "Client and subcontractor portal, secure sharing",
+      "Agents that assign, follow up and report back",
+      "Priority support",
+    ],
+  },
+  enterprise: {
+    name: "Enterprise",
+    tagline: "Custom quote",
+    audience: "For large accounts and the public sector",
+    features: [
+      "Custom AI capacity, at the best rate",
+      "White-label and custom URL",
+      "Multi-trade (several activities)",
+      "SSO and account provisioning",
+      "Contract, DPA and dedicated hosting",
+      "Dedicated SLA, support and onboarding",
+    ],
+  },
+};
+
+const TIER_SEGMENT_EN: Record<string, string> = {
+  "Solo / TPE": "Solo / Small biz",
+  "Business": "Business",
+};
+
+/** Plan (free/pro/equipe) avec textes EN si l'interface est en anglais. */
+export function localizePlan<T extends { id: PlanId; name: string; tagline: string; audience: string; features: string[] }>(plan: T, locale: Locale): T {
+  if (locale !== "en") return plan;
+  const en = PLAN_EN[plan.id];
+  return en ? { ...plan, ...en } : plan;
+}
+// ENTERPRISE et EQUIPE sont figés `as const` (types littéraux en lecture seule) :
+// on ne peut pas y réinjecter des chaînes EN sans élargir le type de retour.
+export type LocalizedOffer = {
+  name: string;
+  tagline: string;
+  audience: string;
+  features: readonly string[];
+};
+
+/** Offre Entreprise (sur devis) avec textes EN. */
+export function localizeEnterprise(locale: Locale): LocalizedOffer & { contactEmail: string } {
+  return locale === "en" ? { ...ENTERPRISE, ...PLAN_EN.enterprise } : ENTERPRISE;
+}
+/** Offre Équipe (page tarifs) avec textes EN. */
+export function localizeEquipe(locale: Locale): LocalizedOffer & { tiers: CreditTier[] } {
+  return locale === "en" ? { ...EQUIPE, ...PLAN_EN.equipe } : EQUIPE;
+}
+/** Libellé de segment de crédits (Solo / TPE · Business) traduit si EN. */
+export function tierSegmentLabel(label: string, locale: Locale): string {
+  return locale === "en" ? TIER_SEGMENT_EN[label] ?? label : label;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

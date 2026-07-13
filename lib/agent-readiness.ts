@@ -21,6 +21,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getCapabilityStatuses, type CapabilityId } from "./agent-capabilities";
 import type { AgentActionType, AgentRecipientKind } from "./agent-rules";
 import type { WatcherKey } from "./agent-watchers";
+import { pick, type Locale } from "./i18n/config";
 
 /** Un moyen/une donnée qui manque pour que l'agent travaille vraiment. */
 export type CapabilityGap = {
@@ -65,7 +66,7 @@ type Requirement = {
   detail: string;
 };
 
-function requiredCapabilities(plan: AgentReadinessPlan): Requirement[] {
+function requiredCapabilities(plan: AgentReadinessPlan, locale: Locale): Requirement[] {
   const reqs: Requirement[] = [];
 
   // Écrire à un client / à l'équipe → il faut un canal d'envoi. Pas de repli : block.
@@ -73,9 +74,12 @@ function requiredCapabilities(plan: AgentReadinessPlan): Requirement[] {
     reqs.push({
       cap: "email_send",
       severity: "block",
-      title: "Aucun moyen d'envoyer des emails",
-      detail:
+      title: pick(locale, "Aucun moyen d'envoyer des emails", "No way to send emails"),
+      detail: pick(
+        locale,
         "Cet agent écrit à votre place, mais aucune boîte d'envoi n'est branchée. Connectez votre Gmail pour qu'il envoie depuis votre adresse.",
+        "This agent writes on your behalf, but no outbox is connected. Connect your Gmail so it can send from your address."
+      ),
     });
   }
 
@@ -85,9 +89,12 @@ function requiredCapabilities(plan: AgentReadinessPlan): Requirement[] {
     reqs.push({
       cap: "calendar_read",
       severity: "warn",
-      title: "Google Calendar non connecté",
-      detail:
+      title: pick(locale, "Google Calendar non connecté", "Google Calendar not connected"),
+      detail: pick(
+        locale,
         "Sans agenda branché, Biltia transmettra les interventions planifiées de votre Workspace. Connectez Google Calendar pour envoyer votre vrai planning.",
+        "Without a connected calendar, Biltia will send the jobs scheduled in your Workspace. Connect Google Calendar to send your real schedule."
+      ),
     });
   }
 
@@ -100,9 +107,12 @@ function requiredCapabilities(plan: AgentReadinessPlan): Requirement[] {
     reqs.push({
       cap: "push_notify",
       severity: "warn",
-      title: "Notifications non activées",
-      detail:
+      title: pick(locale, "Notifications non activées", "Notifications are off"),
+      detail: pick(
+        locale,
         "Cet agent vous prévient par notification. Activez-les pour être alerté en direct — en attendant, chaque alerte reste consultable dans Agents.",
+        "This agent alerts you by notification. Turn them on to be warned in real time — in the meantime, every alert stays available under Agents."
+      ),
     });
   }
 
@@ -120,17 +130,19 @@ export async function checkAgentReadiness(opts: {
   userId: string | null;
   userEmail: string | null;
   plan: AgentReadinessPlan;
+  /** Langue de l'interface (les manques sont affichés tels quels). Défaut FR. */
+  locale?: Locale;
 }): Promise<ReadinessResult> {
-  const { supabase, tenantId, userId, plan } = opts;
+  const { supabase, tenantId, userId, plan, locale = "fr" } = opts;
   const gaps: CapabilityGap[] = [];
 
   // ── ÉTAPE 3 : pour chaque outil requis, l'ai-je (supported) et est-il branché
   //    (connected) ? Une seule photographie du registre pour tous les besoins. ──
-  const reqs = requiredCapabilities(plan);
+  const reqs = requiredCapabilities(plan, locale);
   if (reqs.length > 0) {
     let statuses: Awaited<ReturnType<typeof getCapabilityStatuses>> | null = null;
     try {
-      statuses = await getCapabilityStatuses({ supabase, tenantId, userId });
+      statuses = await getCapabilityStatuses({ supabase, tenantId, userId, locale });
     } catch {
       statuses = null; // registre indisponible → on ne bloque pas (fail-open)
     }
@@ -143,8 +155,12 @@ export async function checkAgentReadiness(opts: {
           gaps.push({
             code: req.cap,
             severity: "block",
-            title: `${st.label} : pas encore disponible`,
-            detail: `Biltia ne sait pas encore ${st.label} automatiquement pour un agent. Cette mission n'est pas dans mes capacités pour l'instant.`,
+            title: pick(locale, `${st.label} : pas encore disponible`, `${st.label}: not available yet`),
+            detail: pick(
+              locale,
+              `Biltia ne sait pas encore ${st.label} automatiquement pour un agent. Cette mission n'est pas dans mes capacités pour l'instant.`,
+              `Biltia can't handle ${st.label} automatically for an agent yet. This mission is outside my capabilities for now.`
+            ),
           });
         } else if (!st.connected) {
           // L'outil existe mais n'est pas branché → on dit quoi connecter.
@@ -178,19 +194,25 @@ export async function checkAgentReadiness(opts: {
         gaps.push({
           code: "team_empty",
           severity: "block",
-          title: "Aucun employé dans votre espace",
-          detail:
+          title: pick(locale, "Aucun employé dans votre espace", "No employees in your workspace"),
+          detail: pick(
+            locale,
             "Cet agent envoie le planning à votre équipe, mais aucun employé n'est enregistré. Ajoutez vos employés dans le Workspace.",
-          fix: { label: "Ajouter mon équipe", href: HREF_WORKSPACE },
+            "This agent sends the schedule to your team, but no employee is on file. Add your employees in the Workspace."
+          ),
+          fix: { label: pick(locale, "Ajouter mon équipe", "Add my team"), href: HREF_WORKSPACE },
         });
       } else if (withEmail.length === 0) {
         gaps.push({
           code: "team_email",
           severity: "block",
-          title: "Aucun employé n'a d'email",
-          detail:
+          title: pick(locale, "Aucun employé n'a d'email", "No employee has an email address"),
+          detail: pick(
+            locale,
             "Vos employés sont enregistrés mais aucun n'a d'adresse email : impossible de leur transmettre le planning. Complétez leurs fiches.",
-          fix: { label: "Compléter les fiches", href: HREF_WORKSPACE },
+            "Your employees are on file but none has an email address, so the schedule can't reach them. Complete their records."
+          ),
+          fix: { label: pick(locale, "Compléter les fiches", "Complete the records"), href: HREF_WORKSPACE },
         });
       }
     } catch {
@@ -211,10 +233,13 @@ export async function checkAgentReadiness(opts: {
         gaps.push({
           code: "stock_seuil",
           severity: "warn",
-          title: "Aucun seuil d'alerte défini",
-          detail:
+          title: pick(locale, "Aucun seuil d'alerte défini", "No alert threshold set"),
+          detail: pick(
+            locale,
             "L'agent surveille les matériaux passés sous leur seuil d'alerte, mais aucun matériau n'a de seuil. Définissez-en dans le Workspace pour qu'il se déclenche.",
-          fix: { label: "Définir un seuil", href: HREF_WORKSPACE },
+            "The agent watches for materials dropping below their alert threshold, but no material has one. Set thresholds in the Workspace so it can fire."
+          ),
+          fix: { label: pick(locale, "Définir un seuil", "Set a threshold"), href: HREF_WORKSPACE },
         });
       }
     } catch {

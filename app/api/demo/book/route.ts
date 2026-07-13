@@ -18,8 +18,11 @@ import {
 } from "@/lib/demo-booking";
 import { demoDb, clientIp, siteBaseUrl, notifyNewBooking } from "@/lib/demo-server";
 import type { DemoBooking } from "@/lib/demo-emails";
+import { getLocale } from "@/lib/i18n/server";
+import { pick } from "@/lib/i18n/config";
 
 export async function POST(req: Request) {
+  const locale = await getLocale();
   const ip = clientIp(req);
   const limited = await enforceRateLimit("demo_book", ip, { limit: 5, windowSec: 3600 });
   if (limited) return limited;
@@ -45,15 +48,36 @@ export async function POST(req: Request) {
 
   // Email plausible + créneau réellement réservable (revalidation serveur).
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.contact_email)) {
-    return Response.json({ error: "Email invalide." }, { status: 400 });
+    return Response.json(
+      { error: pick(locale, "Email invalide.", "Invalid email address.") },
+      { status: 400 }
+    );
   }
   if (!isValidIsoDate(f.date) || !/^\d{2}:00$/.test(f.time) || !isSlotBookable(f.date, f.time)) {
-    return Response.json({ error: "Ce créneau n'est plus disponible. Choisissez-en un autre." }, { status: 409 });
+    return Response.json(
+      {
+        error: pick(
+          locale,
+          "Ce créneau n'est plus disponible. Choisissez-en un autre.",
+          "This time slot is no longer available. Please pick another one."
+        ),
+      },
+      { status: 409 }
+    );
   }
 
   const db = demoDb();
   if (!db) {
-    return Response.json({ error: "Réservation temporairement indisponible." }, { status: 503 });
+    return Response.json(
+      {
+        error: pick(
+          locale,
+          "Réservation temporairement indisponible.",
+          "Booking is temporarily unavailable."
+        ),
+      },
+      { status: 503 }
+    );
   }
 
   const { data, error } = await db
@@ -76,7 +100,16 @@ export async function POST(req: Request) {
 
   if (error || !data) {
     console.error("demo/book insert error:", error);
-    return Response.json({ error: "Impossible d'enregistrer la demande. Réessayez." }, { status: 500 });
+    return Response.json(
+      {
+        error: pick(
+          locale,
+          "Impossible d'enregistrer la demande. Réessayez.",
+          "Could not save your request. Please try again."
+        ),
+      },
+      { status: 500 }
+    );
   }
 
   // Emails best-effort — ne bloquent jamais la réponse.

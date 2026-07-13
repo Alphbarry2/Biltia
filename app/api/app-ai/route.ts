@@ -17,10 +17,12 @@ import { createClient } from "@/lib/supabase-server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
 import { enforceRateLimit, LIMITS } from "@/lib/rate-limit";
-import { getEntitlementsForTenant, FROZEN_MESSAGE } from "@/lib/entitlements";
+import { getEntitlementsForTenant, FROZEN_MESSAGE, frozenMessage } from "@/lib/entitlements";
 import { isFounderEmail } from "@/lib/founder";
 import { VISION_MODEL, buildFileBlocks, validateFiles, ValidationError } from "@/lib/vision";
 import { transcribeBlob } from "@/lib/transcribe-core";
+import { getLocale } from "@/lib/i18n/server";
+import { pick, type Locale } from "@/lib/i18n/config";
 
 const client = new Anthropic();
 const MAX_TOKENS = 2000;
@@ -29,7 +31,8 @@ const MAX_TOKENS = 2000;
 // (vide si absent). Sans champs → dictionnaire libre dans "donnees".
 async function runExtraction(
   content: Anthropic.MessageParam["content"],
-  fields: string[]
+  fields: string[],
+  locale: Locale
 ): Promise<{ data: Record<string, unknown> } | { error: string; status: number }> {
   const properties: Record<string, unknown> = {};
   if (fields.length) {
@@ -55,10 +58,11 @@ async function runExtraction(
       messages: [{ role: "user", content }],
     });
   } catch {
-    return { error: "Extraction indisponible.", status: 502 };
+    return { error: pick(locale, "Extraction indisponible.", "Extraction unavailable."), status: 502 };
   }
   const tb = message.content.find((b) => b.type === "tool_use");
-  if (!tb || tb.type !== "tool_use") return { error: "Extraction vide.", status: 502 };
+  if (!tb || tb.type !== "tool_use")
+    return { error: pick(locale, "Extraction vide.", "Extraction returned nothing."), status: 502 };
   const input = tb.input as Record<string, unknown>;
   return { data: (fields.length ? input : (input.donnees ?? input)) as Record<string, unknown> };
 }
@@ -83,7 +87,10 @@ type ParsedDevis = {
 
 // Découpe une dictée libre en un TABLEAU de devis (un par client/affaire évoquée),
 // chacun avec ses lignes chiffrées. N'invente jamais un prix : 0 si non dicté.
-async function runDevisParse(text: string): Promise<{ devis: ParsedDevis[] } | { error: string; status: number }> {
+async function runDevisParse(
+  text: string,
+  locale: Locale
+): Promise<{ devis: ParsedDevis[] } | { error: string; status: number }> {
   const tool = {
     name: "enregistrer_devis",
     description: "Enregistre un ou plusieurs devis reconstitués à partir de la dictée de l'artisan.",
@@ -143,17 +150,22 @@ async function runDevisParse(text: string): Promise<{ devis: ParsedDevis[] } | {
       messages: [{ role: "user", content: `Dictée à transformer en devis :\n\n« ${text} »` }],
     });
   } catch {
-    return { error: "Structuration des devis indisponible.", status: 502 };
+    return {
+      error: pick(locale, "Structuration des devis indisponible.", "Quote structuring unavailable."),
+      status: 502,
+    };
   }
+  const noQuote = pick(locale, "Aucun devis reconnu dans la dictée.", "No quote recognized in the dictation.");
   const tb = message.content.find((b) => b.type === "tool_use");
-  if (!tb || tb.type !== "tool_use") return { error: "Aucun devis reconnu dans la dictée.", status: 502 };
+  if (!tb || tb.type !== "tool_use") return { error: noQuote, status: 502 };
   const input = tb.input as { devis?: unknown };
   const list = Array.isArray(input.devis) ? (input.devis as ParsedDevis[]) : [];
-  if (!list.length) return { error: "Aucun devis reconnu dans la dictée.", status: 502 };
+  if (!list.length) return { error: noQuote, status: 502 };
   return { devis: list };
 }
 
 export async function POST(req: Request) {
+  const locale = await getLocale();
   try {
     const supabase = await createClient();
     const {
@@ -161,7 +173,10 @@ export async function POST(req: Request) {
       error: authError,
     } = await supabase.auth.getUser();
     if (authError || !user) {
-      return Response.json({ error: "Authentification requise." }, { status: 401 });
+      return Response.json(
+        { error: pick(locale, "Authentification requise.", "Authentication required.") },
+        { status: 401 }
+      );
     }
     const userId = user.id;
 
@@ -170,25 +185,31 @@ export async function POST(req: Request) {
 
     const membership = await getActiveMembershipServer(supabase, user.id);
     if (!membership) {
-      return Response.json({ error: "Aucun espace de travail trouvé." }, { status: 403 });
+      return Response.json(
+        { error: pick(locale, "Aucun espace de travail trouvé.", "No workspace found.") },
+        { status: 403 }
+      );
     }
     const tenantId = membership.tenant_id;
 
     const ent = await getEntitlementsForTenant(supabase, tenantId);
     if (!ent.writable) {
-      return Response.json({ error: FROZEN_MESSAGE, frozen: true }, { status: 403 });
+      return Response.json({ error: frozenMessage(locale), frozen: true }, { status: 403 });
     }
 
     let body: { action?: string; image?: unknown; audio?: { mediaType?: string; data?: string }; fields?: unknown; question?: string };
     try {
       body = await req.json();
     } catch {
-      return Response.json({ error: "Requête invalide." }, { status: 400 });
+      return Response.json({ error: pick(locale, "Requête invalide.", "Invalid request.") }, { status: 400 });
     }
 
     const action = body.action;
     if (action !== "extract" && action !== "transcribe" && action !== "parse_devis") {
-      return Response.json({ error: "Action IA non supportée." }, { status: 400 });
+      return Response.json(
+        { error: pick(locale, "Action IA non supportée.", "Unsupported AI action.") },
+        { status: 400 }
+      );
     }
 
     const fields = Array.isArray(body.fields)
@@ -197,13 +218,34 @@ export async function POST(req: Request) {
     const question = typeof body.question === "string" ? body.question.trim().slice(0, 1000) : "";
 
     const founder = isFounderEmail(user.email);
-    // Tarif à plat, prévisible : extraction photo 25 ; dictée→devis 30 (transcription
-    // + structuration lourde en tableau) ; dictée 10 (+15 si structuration en champs).
-    const HOLD = founder ? 0 : action === "extract" ? 25 : action === "parse_devis" ? 30 : fields.length ? 25 : 10;
+    // Tarif à plat, prévisible : extraction photo 25 ; dictée→devis 10 ; dictée 10
+    // (+15 si structuration en champs).
+    //
+    // Pourquoi 10 pour dictée→devis (et non 30) : c'est la fonction phare de l'app
+    // Devis, on la veut BON MARCHÉ pour qu'elle soit utilisée à chaque chantier, pas
+    // rationnée. Marge visée : 80 % (sous le plancher structurel ~85 % de
+    // CREDIT_COST_EUR, assumé sur cette action seule).
+    //   coût réel = transcription (gpt-4o-transcribe, 0,006 $/min)
+    //             + 1 passe Sonnet 5 (3 $/M in, 15 $/M out, sortie = tableau de devis)
+    //   dictée 2 min / 1-2 devis  ≈ 0,025 $ ≈ 0,023 €
+    //   dictée 3 min / 3 devis    ≈ 0,040 $ ≈ 0,037 €  ← cas dimensionnant
+    //   crédit le moins cher (Pro 2000/49 €) = 0,0245 € TTC ≈ 0,0198 € net (TVA+Stripe)
+    //   marge 80 % ⇒ budget coût = 0,20 × 0,0198 ≈ 0,004 €/crédit ⇒ 0,037/0,004 ≈ 10.
+    // Une dictée peut contenir PLUSIEURS devis : 10 crédits couvre le lot, pas l'unité.
+    const HOLD = founder ? 0 : action === "extract" ? 25 : action === "parse_devis" ? 10 : fields.length ? 25 : 10;
     if (HOLD > 0) {
       const { data: credited } = await supabase.rpc("deduct_credits", { p_amount: HOLD });
       if (!credited) {
-        return Response.json({ error: "Crédits insuffisants. Rechargez votre compte pour continuer." }, { status: 402 });
+        return Response.json(
+          {
+            error: pick(
+              locale,
+              "Crédits insuffisants. Rechargez votre compte pour continuer.",
+              "Not enough credits. Top up your account to continue."
+            ),
+          },
+          { status: 402 }
+        );
       }
     }
     const refund = async () => {
@@ -220,7 +262,7 @@ export async function POST(req: Request) {
     if (action === "extract") {
       let files;
       try {
-        files = validateFiles(body.image ? [body.image] : []);
+        files = validateFiles(body.image ? [body.image] : [], locale);
       } catch (e) {
         await refund();
         if (e instanceof ValidationError) return Response.json({ error: e.message }, { status: 400 });
@@ -233,10 +275,13 @@ export async function POST(req: Request) {
           ? `Extrais du document ces informations : ${fields.join(", ")}.${question ? " " + question : ""}`
           : question || "Extrais toutes les informations lisibles du document.",
       });
-      const out = await runExtraction(content, fields);
+      const out = await runExtraction(content, fields, locale);
       if ("error" in out) {
         await refund();
-        return Response.json({ error: `${out.error} Vos crédits ont été remboursés.` }, { status: out.status });
+        return Response.json(
+          { error: `${out.error} ${pick(locale, "Vos crédits ont été remboursés.", "Your credits have been refunded.")}` },
+          { status: out.status }
+        );
       }
       return Response.json({ data: out.data });
     }
@@ -245,14 +290,14 @@ export async function POST(req: Request) {
     const audio = body.audio;
     if (!audio?.data) {
       await refund();
-      return Response.json({ error: "Aucun audio fourni." }, { status: 400 });
+      return Response.json({ error: pick(locale, "Aucun audio fourni.", "No audio provided.") }, { status: 400 });
     }
     let blob: Blob;
     try {
       blob = new Blob([Buffer.from(audio.data, "base64")], { type: audio.mediaType || "audio/webm" });
     } catch {
       await refund();
-      return Response.json({ error: "Audio invalide." }, { status: 400 });
+      return Response.json({ error: pick(locale, "Audio invalide.", "Invalid audio.") }, { status: 400 });
     }
     const t = await transcribeBlob(blob);
     if ("error" in t) {
@@ -264,12 +309,27 @@ export async function POST(req: Request) {
     if (action === "parse_devis") {
       if (!t.text) {
         await refund();
-        return Response.json({ error: "Dictée vide — rien à transformer en devis. Vos crédits ont été remboursés.", fallback: true }, { status: 502 });
+        return Response.json(
+          {
+            error: pick(
+              locale,
+              "Dictée vide — rien à transformer en devis. Vos crédits ont été remboursés.",
+              "Empty dictation — nothing to turn into a quote. Your credits have been refunded."
+            ),
+            fallback: true,
+          },
+          { status: 502 }
+        );
       }
-      const parsed = await runDevisParse(t.text);
+      const parsed = await runDevisParse(t.text, locale);
       if ("error" in parsed) {
         await refund();
-        return Response.json({ error: `${parsed.error} Vos crédits ont été remboursés.` }, { status: parsed.status });
+        return Response.json(
+          {
+            error: `${parsed.error} ${pick(locale, "Vos crédits ont été remboursés.", "Your credits have been refunded.")}`,
+          },
+          { status: parsed.status }
+        );
       }
       return Response.json({ text: t.text, devis: parsed.devis });
     }
@@ -279,12 +339,16 @@ export async function POST(req: Request) {
     if (fields.length && t.text) {
       const out = await runExtraction(
         [{ type: "text", text: `Voici une dictée à structurer : « ${t.text} ». Extrais : ${fields.join(", ")}.${question ? " " + question : ""}` }],
-        fields
+        fields,
+        locale
       );
       if (!("error" in out)) data = out.data;
     }
     return Response.json({ text: t.text, data });
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Erreur IA." }, { status: 500 });
+    return Response.json(
+      { error: e instanceof Error ? e.message : pick(locale, "Erreur IA.", "AI error.") },
+      { status: 500 }
+    );
   }
 }

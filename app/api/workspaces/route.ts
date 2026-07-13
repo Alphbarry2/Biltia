@@ -22,6 +22,8 @@ import { createClient } from "@/lib/supabase-server";
 import { listWorkspaces, ACTIVE_TENANT_COOKIE } from "@/lib/tenant";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
 import { logActivity } from "@/lib/activity";
+import { getLocale } from "@/lib/i18n/server";
+import { pick } from "@/lib/i18n/config";
 
 const MANAGER_ROLES = ["owner", "admin"];
 
@@ -33,14 +35,21 @@ function cleanName(raw: unknown): string | null {
 }
 
 async function requireUserContext() {
+  // Langue d'interface lue une fois ici ; les handlers la réutilisent (ctx.locale).
+  const locale = await getLocale();
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) {
-    return { error: NextResponse.json({ error: "Authentification requise." }, { status: 401 }) };
+    return {
+      error: NextResponse.json(
+        { error: pick(locale, "Authentification requise.", "Authentication required.") },
+        { status: 401 }
+      ),
+    };
   }
-  return { supabase, user };
+  return { supabase, user, locale };
 }
 
 export async function GET() {
@@ -66,13 +75,19 @@ export async function GET() {
 export async function POST(request: Request) {
   const ctx = await requireUserContext();
   if ("error" in ctx) return ctx.error;
-  const { supabase } = ctx;
+  const { supabase, locale } = ctx;
 
   const body = await request.json().catch(() => ({}));
   const name = cleanName(body?.name);
   if (!name) {
     return NextResponse.json(
-      { error: "Nom d'entreprise invalide (2 à 60 caractères)." },
+      {
+        error: pick(
+          locale,
+          "Nom d'entreprise invalide (2 à 60 caractères).",
+          "Invalid company name (2 to 60 characters)."
+        ),
+      },
       { status: 400 }
     );
   }
@@ -87,11 +102,14 @@ export async function POST(request: Request) {
     const msg = error?.message ?? "";
     if (msg.includes("workspace limit")) {
       return NextResponse.json(
-        { error: "Limite atteinte (10 espaces possédés)." },
+        { error: pick(locale, "Limite atteinte (10 espaces possédés).", "Limit reached (10 owned workspaces).") },
         { status: 403 }
       );
     }
-    return NextResponse.json({ error: "Création de l'espace impossible." }, { status: 500 });
+    return NextResponse.json(
+      { error: pick(locale, "Création de l'espace impossible.", "Could not create the workspace.") },
+      { status: 500 }
+    );
   }
 
   const res = NextResponse.json({
@@ -109,14 +127,20 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const ctx = await requireUserContext();
   if ("error" in ctx) return ctx.error;
-  const { supabase, user } = ctx;
+  const { supabase, user, locale } = ctx;
 
   const body = await request.json().catch(() => ({}));
   const name = cleanName(body?.name);
   const tenantId = typeof body?.tenantId === "string" ? body.tenantId : null;
   if (!name || !tenantId) {
     return NextResponse.json(
-      { error: "Nom d'entreprise invalide (2 à 60 caractères)." },
+      {
+        error: pick(
+          locale,
+          "Nom d'entreprise invalide (2 à 60 caractères).",
+          "Invalid company name (2 to 60 characters)."
+        ),
+      },
       { status: 400 }
     );
   }
@@ -129,7 +153,13 @@ export async function PATCH(request: Request) {
     .maybeSingle();
   if (!member?.accepted_at || !MANAGER_ROLES.includes(member.role)) {
     return NextResponse.json(
-      { error: "Seul un propriétaire ou admin peut renommer l'espace." },
+      {
+        error: pick(
+          locale,
+          "Seul un propriétaire ou admin peut renommer l'espace.",
+          "Only an owner or admin can rename the workspace."
+        ),
+      },
       { status: 403 }
     );
   }
@@ -137,7 +167,10 @@ export async function PATCH(request: Request) {
   // Client utilisateur → la policy RLS tenant_update_admin s'applique aussi.
   const { error } = await supabase.from("tenants").update({ name }).eq("id", tenantId);
   if (error) {
-    return NextResponse.json({ error: "Renommage impossible." }, { status: 500 });
+    return NextResponse.json(
+      { error: pick(locale, "Renommage impossible.", "Rename failed.") },
+      { status: 500 }
+    );
   }
 
   await logActivity(supabase, {

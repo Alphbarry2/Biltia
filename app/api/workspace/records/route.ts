@@ -14,7 +14,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase-server";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
-import { ENTITIES, recordLabel } from "@/lib/data-entities";
+import { ENTITIES, recordLabel, entityLabel } from "@/lib/data-entities";
+import { getLocale } from "@/lib/i18n/server";
+import { pick } from "@/lib/i18n/config";
 
 // Entités qu'il est pertinent de « choisir » pour bâtir une app autour (dans un
 // ordre utile). On exclut les sous-tables (lignes) et les entités trop
@@ -49,8 +51,10 @@ function sameOrigin(req: Request): boolean {
 }
 
 export async function POST(req: Request) {
+  const locale = await getLocale(); // nom des entités traduit si interface EN
+
   if (!sameOrigin(req)) {
-    return NextResponse.json({ error: "Origine non autorisée." }, { status: 403 });
+    return NextResponse.json({ error: pick(locale, "Origine non autorisée.", "Origin not allowed.") }, { status: 403 });
   }
 
   const supabase = await createClient();
@@ -58,12 +62,12 @@ export async function POST(req: Request) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) {
-    return NextResponse.json({ error: "Authentification requise." }, { status: 401 });
+    return NextResponse.json({ error: pick(locale, "Authentification requise.", "Authentication required.") }, { status: 401 });
   }
 
   const membership = await getActiveMembershipServer(supabase, user.id);
   if (!membership) {
-    return NextResponse.json({ error: "Aucun espace de travail." }, { status: 403 });
+    return NextResponse.json({ error: pick(locale, "Aucun espace de travail.", "No workspace.") }, { status: 403 });
   }
   const tenantId = membership.tenant_id;
 
@@ -93,7 +97,7 @@ export async function POST(req: Request) {
       if (!rows.length) continue;
       entities.push({
         key,
-        label: def.label,
+        label: entityLabel(key, locale),
         count: rows.length,
         records: rows
           .filter((r) => r && r.id != null)

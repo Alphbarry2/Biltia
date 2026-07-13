@@ -12,6 +12,8 @@
 // remontent en `ValidationError` explicite pour un 400 propre côté route.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { pick, type Locale } from "./i18n/config";
+
 import type Anthropic from "@anthropic-ai/sdk";
 import { TIER_MEDIUM } from "./models";
 
@@ -72,29 +74,51 @@ type CleanFile = { name: string; mediaType: AllowedMediaType; data: string };
  * (→ 400) si quelque chose cloche : trop de fichiers, type non supporté, vide,
  * ou au-dessus du plafond de taille.
  */
-export function validateFiles(input: unknown): CleanFile[] {
+export function validateFiles(input: unknown, locale: Locale = "fr"): CleanFile[] {
   if (!Array.isArray(input) || input.length === 0) {
-    throw new ValidationError("Joignez au moins un fichier (PDF ou image).");
+    throw new ValidationError(
+      pick(locale, "Joignez au moins un fichier (PDF ou image).", "Attach at least one file (PDF or image).")
+    );
   }
   if (input.length > MAX_FILES) {
-    throw new ValidationError(`Trop de fichiers : ${MAX_FILES} maximum par analyse.`);
+    throw new ValidationError(
+      pick(
+        locale,
+        `Trop de fichiers : ${MAX_FILES} maximum par analyse.`,
+        `Too many files: ${MAX_FILES} maximum per analysis.`
+      )
+    );
   }
 
   return input.map((raw, i) => {
     const f = raw as Partial<UploadedFile>;
-    const name = typeof f.name === "string" && f.name.trim() ? f.name.trim() : `fichier-${i + 1}`;
+    const fallbackName = pick(locale, `fichier-${i + 1}`, `file-${i + 1}`);
+    const name = typeof f.name === "string" && f.name.trim() ? f.name.trim() : fallbackName;
     const mediaType = typeof f.mediaType === "string" ? f.mediaType.trim() : "";
     if (!isAllowed(mediaType)) {
       throw new ValidationError(
-        `Type non supporté (${name}) : acceptés = PDF, PNG, JPEG, WebP.`
+        pick(
+          locale,
+          `Type non supporté (${name}) : acceptés = PDF, PNG, JPEG, WebP.`,
+          `Unsupported type (${name}): accepted = PDF, PNG, JPEG, WebP.`
+        )
       );
     }
     const data = typeof f.data === "string" ? stripDataUrl(f.data) : "";
-    if (!data) throw new ValidationError(`Fichier vide ou illisible : ${name}.`);
+    if (!data) {
+      throw new ValidationError(
+        pick(locale, `Fichier vide ou illisible : ${name}.`, `Empty or unreadable file: ${name}.`)
+      );
+    }
     const bytes = base64Bytes(data);
     if (bytes > MAX_FILE_BYTES) {
+      const mb = (MAX_FILE_BYTES / 1024 / 1024).toFixed(1);
       throw new ValidationError(
-        `Fichier trop lourd (${name}) : ${(MAX_FILE_BYTES / 1024 / 1024).toFixed(1)} Mo maximum.`
+        pick(
+          locale,
+          `Fichier trop lourd (${name}) : ${mb} Mo maximum.`,
+          `File too large (${name}): ${mb} MB maximum.`
+        )
       );
     }
     return { name, mediaType, data };

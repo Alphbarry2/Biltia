@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase-server";
 import { getEntitlements, canDeployLive } from "@/lib/entitlements";
 import { enforceRateLimit, LIMITS } from "@/lib/rate-limit";
+import { getLocale } from "@/lib/i18n/server";
+import { pick } from "@/lib/i18n/config";
 
 const VERCEL_API = "https://api.vercel.com";
 
@@ -95,9 +97,17 @@ async function deployHtml(projectName: string, html: string): Promise<string> {
 
 export async function POST(req: Request) {
   try {
+    const locale = await getLocale();
+
     if (!process.env.VERCEL_TOKEN) {
       return Response.json(
-        { error: "Déploiement Vercel non configuré (VERCEL_TOKEN manquant)." },
+        {
+          error: pick(
+            locale,
+            "Déploiement Vercel non configuré (VERCEL_TOKEN manquant).",
+            "Vercel deployment is not configured (VERCEL_TOKEN missing)."
+          ),
+        },
         { status: 503 }
       );
     }
@@ -109,7 +119,10 @@ export async function POST(req: Request) {
       error: authError,
     } = await supabase.auth.getUser();
     if (authError || !user) {
-      return Response.json({ error: "Authentification requise." }, { status: 401 });
+      return Response.json(
+        { error: pick(locale, "Authentification requise.", "Authentication required.") },
+        { status: 401 }
+      );
     }
 
     // Rate limiting : rejette un flood au plus tôt.
@@ -121,8 +134,11 @@ export async function POST(req: Request) {
     if (!canDeployLive(ent)) {
       return Response.json(
         {
-          error:
+          error: pick(
+            locale,
             "Le déploiement Live nécessite un plan Pro. Passez à un plan payant depuis vos paramètres.",
+            "Live deployment requires a Pro plan. Upgrade to a paid plan from your settings."
+          ),
           upgrade: true,
         },
         { status: 403 }
@@ -134,12 +150,15 @@ export async function POST(req: Request) {
     try {
       body = await req.json();
     } catch {
-      return Response.json({ error: "Corps de requête invalide." }, { status: 400 });
+      return Response.json(
+        { error: pick(locale, "Corps de requête invalide.", "Invalid request body.") },
+        { status: 400 }
+      );
     }
 
     const { appId } = body;
     if (!appId) {
-      return Response.json({ error: "appId requis." }, { status: 400 });
+      return Response.json({ error: pick(locale, "appId requis.", "appId is required.") }, { status: 400 });
     }
 
     // Fetch app — RLS ensures ownership
@@ -151,7 +170,10 @@ export async function POST(req: Request) {
       .single();
 
     if (appError || !app) {
-      return Response.json({ error: "Application introuvable ou accès refusé." }, { status: 404 });
+      return Response.json(
+        { error: pick(locale, "Application introuvable ou accès refusé.", "Application not found or access denied.") },
+        { status: 404 }
+      );
     }
 
     // Les applications CONNECTÉES (SDK window.biltia → /api/data) exigent une
@@ -161,8 +183,11 @@ export async function POST(req: Request) {
     if (app.html_content.includes("window.biltia")) {
       return Response.json(
         {
-          error:
+          error: pick(
+            locale,
             "Cette application est connectée aux données de votre workspace : elle fonctionne dans Biltia (votre équipe y accède via la Bibliothèque, connectée). Le déploiement externe est réservé aux applications autonomes.",
+            "This application is connected to your workspace data: it runs inside Biltia (your team accesses it from the Library, already connected). External deployment is reserved for standalone applications."
+          ),
         },
         { status: 400 }
       );
@@ -187,7 +212,9 @@ export async function POST(req: Request) {
     return Response.json({ url: deploymentUrl });
   } catch (err) {
     console.error("Deploy error:", err);
-    const msg = err instanceof Error ? err.message : "Erreur de déploiement.";
+    const locale = await getLocale();
+    const msg =
+      err instanceof Error ? err.message : pick(locale, "Erreur de déploiement.", "Deployment error.");
     return Response.json({ error: msg }, { status: 500 });
   }
 }

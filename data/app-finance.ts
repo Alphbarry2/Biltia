@@ -578,13 +578,22 @@ async function saveFacturePatch(id,patch){ var f=findFacture(id); if(!f)return; 
 async function encaisserSolde(id){ var f=findFacture(id); if(!f)return; f.montant_paye=num(f.montant_ttc); f.statut="payee"; await saveFacturePatch(id,{montant_paye:num(f.montant_ttc),statut:"payee"}); biltia.notify("Facture soldée · "+money(f.montant_ttc)); openFactureDetail(id); render(); }
 async function encaisserPartiel(id){ var f=findFacture(id); if(!f)return; var v=prompt("Montant encaissé (€) :",String(Math.round(reste(f)))); if(v==null)return; var add=num(v); if(add<=0)return; var paye=Math.min(num(f.montant_ttc),num(f.montant_paye)+add),statut=paye>=num(f.montant_ttc)?"payee":"partiellement_payee"; f.montant_paye=paye; f.statut=statut; await saveFacturePatch(id,{montant_paye:paye,statut:statut}); biltia.notify("Encaissement enregistré · "+money(add)); openFactureDetail(id); render(); }
 async function fdStatut(id,k){ var f=findFacture(id); if(!f)return; var prev=f.statut; f.statut=k; if(k==="payee")f.montant_paye=num(f.montant_ttc); segOn("fd-seg",["brouillon","envoyee","payee","partiellement_payee","en_retard","annulee"],k,FST[k].c); try{ var patch={statut:k}; if(k==="payee")patch.montant_paye=num(f.montant_ttc); var up=await biltia.update("factures",id,patch); replaceFacture(up); biltia.notify("Statut mis à jour"); render(); }catch(e){ f.statut=prev; } }
+/* Relance d\\'impayé. La facture PART AVEC : un client relancé sans la pièce doit
+   fouiller ses mails pour retrouver ce qu\\'on lui réclame. Le PDF (logo + couleurs
+   de l\\'entreprise) et le lien de consultation sont produits côté serveur. */
 async function relanceEmail(id){
   var f=findFacture(id); if(!f)return; var cl=findClient(f.client_id);
   if(!cl||!String(cl.email||"").trim()){ biltia.notify("Ajoutez l\\'email du client pour le relancer"); return; }
-  var over=isOverdue(f),who=cl.nom||"Madame, Monsieur";
-  var body="Bonjour "+who+",\\n\\nSauf erreur de notre part, la facture "+(f.numero||"")+" d\\'un montant de "+money(f.montant_ttc)+" TTC (échéance le "+fmtDate(f.date_echeance)+") reste à régler pour "+money(reste(f))+".\\n\\n"+(over?"Nous vous remercions de bien vouloir procéder au règlement dans les meilleurs délais.":"Nous vous en souhaitons bonne réception.")+"\\n\\nBien cordialement,\\n"+(S.entreprise||"");
+  var over=isOverdue(f);
+  var intro="Sauf erreur de notre part, la facture "+(f.numero||"")+" d\\'un montant de "+money(f.montant_ttc)+" TTC (échéance le "+fmtDate(f.date_echeance)+") reste à régler pour "+money(reste(f))+".";
+  var mot=over?"Nous vous remercions de bien vouloir procéder au règlement dans les meilleurs délais.":"Nous vous en souhaitons bonne réception.";
   biltia.notify("Envoi de la relance…");
-  try{ await biltia.sendEmail({ to:cl.email, subject:"Relance facture "+(f.numero||"")+" — "+(S.entreprise||""), body:body }); biltia.notify("Relance envoyée à "+cl.email); if(f.statut==="brouillon"){ f.statut="envoyee"; await saveFacturePatch(id,{statut:"envoyee"}); openFactureDetail(id); render(); } }catch(e){ biltia.notify("Envoi impossible pour le moment"); }
+  try{
+    await biltia.sendDocument({ kind:"facture", id:id, intro:intro, message:mot, subjectLabel:"Relance facture" });
+    biltia.notify("Relance envoyée à "+cl.email+" · PDF joint");
+    try{ var up=await biltia.get("factures",id); if(up)replaceFacture(up); }catch(e){}
+    openFactureDetail(id); render();
+  }catch(e){ /* le SDK a déjà affiché le motif exact */ }
 }
 
 /* Éditeur de budget (chantier) */

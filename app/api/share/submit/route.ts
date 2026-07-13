@@ -13,6 +13,8 @@
 import { createAdminClient } from "@/lib/supabase-admin";
 import { isShareToken, isLinkLive } from "@/lib/share";
 import { enforceRateLimit, LIMITS } from "@/lib/rate-limit";
+import { getLocale } from "@/lib/i18n/server";
+import { pick } from "@/lib/i18n/config";
 
 // app_share_links + form_submissions atteintes via service_role → client non typé.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -40,6 +42,7 @@ function cleanPayload(raw: unknown): Record<string, string> {
 }
 
 export async function POST(req: Request) {
+  const locale = await getLocale();
   const body = (await req.json().catch(() => ({}))) as {
     token?: string;
     payload?: Record<string, unknown>;
@@ -48,7 +51,7 @@ export async function POST(req: Request) {
 
   const token = body.token;
   if (!token || !isShareToken(token)) {
-    return Response.json({ error: "Lien invalide." }, { status: 400 });
+    return Response.json({ error: pick(locale, "Lien invalide.", "Invalid link.") }, { status: 400 });
   }
 
   // Honeypot : un bot remplit ce champ caché → on ACCEPTE en silence (200) sans
@@ -65,11 +68,19 @@ export async function POST(req: Request) {
   // Il faut au moins un moyen de recontact ou un message : sinon la soumission
   // n'a aucune valeur (et c'est probablement du bruit).
   if (!payload.email && !payload.tel && !payload.message && !payload.nom) {
-    return Response.json({ error: "Formulaire incomplet." }, { status: 400 });
+    return Response.json(
+      { error: pick(locale, "Formulaire incomplet.", "Incomplete form.") },
+      { status: 400 }
+    );
   }
 
   const admin = createAdminClient();
-  if (!admin) return Response.json({ error: "Service indisponible." }, { status: 503 });
+  if (!admin) {
+    return Response.json(
+      { error: pick(locale, "Service indisponible.", "Service unavailable.") },
+      { status: 503 }
+    );
+  }
   const db = admin as unknown as LooseClient;
 
   // Résout le token → lien vivant de type 'form' (jamais 'preview'/'client').
@@ -80,7 +91,10 @@ export async function POST(req: Request) {
     .maybeSingle();
 
   if (!link || !isLinkLive(link, Date.now()) || link.kind !== "form") {
-    return Response.json({ error: "Formulaire indisponible." }, { status: 404 });
+    return Response.json(
+      { error: pick(locale, "Formulaire indisponible.", "This form is unavailable.") },
+      { status: 404 }
+    );
   }
 
   // Insertion scopée au tenant DU LIEN (jamais du corps). status='new' → le
@@ -92,7 +106,10 @@ export async function POST(req: Request) {
     status: "new",
   });
   if (error) {
-    return Response.json({ error: "Envoi impossible pour le moment." }, { status: 500 });
+    return Response.json(
+      { error: pick(locale, "Envoi impossible pour le moment.", "Submission failed. Please try again.") },
+      { status: 500 }
+    );
   }
 
   return Response.json({ ok: true });

@@ -8,32 +8,50 @@
 import { createClient } from "@/lib/supabase-server";
 import { getStripe } from "@/lib/stripe";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
+import { getLocale } from "@/lib/i18n/server";
+import { pick } from "@/lib/i18n/config";
 
 export const runtime = "nodejs";
 
 export async function POST() {
+  const locale = await getLocale();
   const supabase = await createClient();
   const {
     data: { user },
     error: authError,
   } = await supabase.auth.getUser();
   if (authError || !user) {
-    return Response.json({ error: "Authentification requise." }, { status: 401 });
+    return Response.json(
+      { error: pick(locale, "Authentification requise.", "Authentication required.") },
+      { status: 401 }
+    );
   }
 
   const stripe = getStripe();
   if (!stripe) {
-    return Response.json({ error: "Paiement non configuré." }, { status: 503 });
+    return Response.json(
+      { error: pick(locale, "Paiement non configuré.", "Payments are not configured.") },
+      { status: 503 }
+    );
   }
 
   const membership = await getActiveMembershipServer(supabase, user.id);
   if (!membership?.tenant_id) {
-    return Response.json({ error: "Aucun espace de travail." }, { status: 403 });
+    return Response.json(
+      { error: pick(locale, "Aucun espace de travail.", "No workspace found.") },
+      { status: 403 }
+    );
   }
   // Seul le propriétaire du workspace peut résilier.
   if (membership.role !== "owner") {
     return Response.json(
-      { error: "Seul le propriétaire du workspace peut résilier l'abonnement." },
+      {
+        error: pick(
+          locale,
+          "Seul le propriétaire du workspace peut résilier l'abonnement.",
+          "Only the workspace owner can cancel the subscription."
+        ),
+      },
       { status: 403 }
     );
   }
@@ -45,7 +63,10 @@ export async function POST() {
     .maybeSingle();
   const subId: string | undefined = sub?.stripe_subscription_id ?? undefined;
   if (!subId) {
-    return Response.json({ error: "Aucun abonnement actif à résilier." }, { status: 400 });
+    return Response.json(
+      { error: pick(locale, "Aucun abonnement actif à résilier.", "No active subscription to cancel.") },
+      { status: 400 }
+    );
   }
 
   try {
@@ -65,7 +86,8 @@ export async function POST() {
     });
   } catch (err) {
     console.error("[billing/cancel]", err);
-    const msg = err instanceof Error ? err.message : "Erreur de résiliation.";
+    const msg =
+      err instanceof Error ? err.message : pick(locale, "Erreur de résiliation.", "Cancellation failed.");
     return Response.json({ error: msg }, { status: 500 });
   }
 }

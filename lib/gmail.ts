@@ -7,8 +7,10 @@
 // l'agent puisse réagir (envoyé / pas connecté / scope manquant / échec).
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { randomUUID } from "node:crypto";
 import { createAdminClient } from "./supabase-admin";
 import { refreshAccessToken } from "./oauth";
+import { attachmentsTooBig, type EmailAttachment } from "./mailer";
 
 export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 
@@ -93,6 +95,98 @@ function base64url(buf: Buffer): string {
   return buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
+/** Base64 découpé en lignes de 76 caractères (RFC 2045). Un base64 d'un seul tenant
+ *  sur des dizaines de milliers de caractères fait rejeter le message par certains
+ *  serveurs SMTP intermédiaires. */
+function base64Lines(buf: Buffer): string {
+  return (buf.toString("base64").match(/.{1,76}/g) ?? []).join("\r\n");
+}
+
+/** Frontière MIME : doit être IMPOSSIBLE à croiser dans le contenu (sinon le corps
+ *  est tronqué là où la chaîne apparaît). D'où l'aléa. */
+function boundary(tag: string): string {
+  return `__biltia_${tag}_${randomUUID().replace(/-/g, "")}__`;
+}
+
+/** Construit le MIME. Trois formes, de la plus simple à la plus riche :
+ *   • texte seul                    → text/plain          (comportement historique)
+ *   • texte + HTML                  → multipart/alternative
+ *   • texte + HTML + pièces jointes → multipart/mixed englobant l'alternative
+ *
+ *  C'est ce dernier cas qui débloque le devis en PDF : jusqu'ici le MIME était
+ *  codé en dur en text/plain mono-part, donc AUCUNE pièce jointe n'était possible,
+ *  quel que soit l'appelant.
+ *
+ *  Exporté (fonction pure) pour être vérifiable : un MIME mal formé ne se voit
+ *  pas à la compilation, il se voit chez le client sous forme de mail illisible. */
+export function buildMime(opts: {
+  to: string;
+  subject: string;
+  body: string;
+  html?: string;
+  attachments?: EmailAttachment[];
+}): string {
+  const subjectEncoded = `=?UTF-8?B?${Buffer.from(opts.subject, "utf8").toString("base64")}?=`;
+  const headers = [`To: ${opts.to}`, `Subject: ${subjectEncoded}`, "MIME-Version: 1.0"];
+  const attachments = opts.attachments ?? [];
+
+  // Corps en base64 : le 8bit avec des accents survit mal aux relais SMTP anciens.
+  const textPart = (ct: string, content: string) =>
+    [
+      `Content-Type: ${ct}; charset="UTF-8"`,
+      "Content-Transfer-Encoding: base64",
+      "",
+      base64Lines(Buffer.from(content, "utf8")),
+    ].join("\r\n");
+
+  // ── Cas 1 : texte seul ──────────────────────────────────────────────────────
+  if (!opts.html && attachments.length === 0) {
+    return [...headers, textPart("text/plain", opts.body)].join("\r\n");
+  }
+
+  // ── Le duo texte/HTML, que le client mail choisit selon ses capacités ────────
+  const alt = boundary("alt");
+  const alternative = [
+    `Content-Type: multipart/alternative; boundary="${alt}"`,
+    "",
+    `--${alt}`,
+    textPart("text/plain", opts.body),
+    `--${alt}`,
+    textPart("text/html", opts.html ?? ""),
+    `--${alt}--`,
+  ].join("\r\n");
+
+  // ── Cas 2 : texte + HTML, sans pièce jointe ─────────────────────────────────
+  if (attachments.length === 0) {
+    return [...headers, alternative].join("\r\n");
+  }
+
+  // ── Cas 3 : avec pièces jointes → multipart/mixed ───────────────────────────
+  const mixed = boundary("mixed");
+  const parts = [
+    ...headers,
+    `Content-Type: multipart/mixed; boundary="${mixed}"`,
+    "",
+    `--${mixed}`,
+    alternative,
+  ];
+  for (const a of attachments) {
+    // Nom de fichier réduit à l'ASCII : les accents en clair dans un en-tête MIME
+    // s'affichent en charabia sur une partie des clients mail.
+    const safeName = a.filename.replace(/[^\w.\- ]+/g, "_");
+    parts.push(
+      `--${mixed}`,
+      `Content-Type: ${a.contentType}; name="${safeName}"`,
+      `Content-Disposition: attachment; filename="${safeName}"`,
+      "Content-Transfer-Encoding: base64",
+      "",
+      base64Lines(a.content)
+    );
+  }
+  parts.push(`--${mixed}--`);
+  return parts.join("\r\n");
+}
+
 /** Envoie un email via l'API Gmail au nom de l'utilisateur. Ne throw jamais. */
 export async function sendGmail(opts: {
   tenantId: string;
@@ -100,23 +194,28 @@ export async function sendGmail(opts: {
   to: string;
   subject: string;
   body: string;
+  html?: string;
+  attachments?: EmailAttachment[];
 }): Promise<GmailSendResult> {
   const tok = await getValidGoogleToken(opts.tenantId, opts.userId);
   if (!tok.ok) return { ok: false, reason: tok.reason, detail: tok.detail };
   if (!tok.scopes.includes(GMAIL_SEND_SCOPE)) return { ok: false, reason: "missing_scope" };
+  if (attachmentsTooBig(opts.attachments)) {
+    return { ok: false, reason: "send_failed", detail: "pièces jointes trop lourdes (15 Mo maximum)" };
+  }
 
-  // Sujet en encoded-word RFC 2047 (accents) ; corps UTF-8 base64url via le MIME.
-  const subjectEncoded = `=?UTF-8?B?${Buffer.from(opts.subject, "utf8").toString("base64")}?=`;
-  const mime = [
-    `To: ${opts.to}`,
-    `Subject: ${subjectEncoded}`,
-    "MIME-Version: 1.0",
-    'Content-Type: text/plain; charset="UTF-8"',
-    "Content-Transfer-Encoding: 8bit",
-    "",
-    opts.body,
-  ].join("\r\n");
-  const raw = base64url(Buffer.from(mime, "utf8"));
+  const raw = base64url(
+    Buffer.from(
+      buildMime({
+        to: opts.to,
+        subject: opts.subject,
+        body: opts.body,
+        html: opts.html,
+        attachments: opts.attachments,
+      }),
+      "utf8"
+    )
+  );
 
   const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
     method: "POST",

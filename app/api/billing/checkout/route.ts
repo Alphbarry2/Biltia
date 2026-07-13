@@ -7,11 +7,14 @@ import { getStripe, resolvePriceId } from "@/lib/stripe";
 import { isValidTier, type BillingCycle, type PlanId } from "@/lib/plans";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
 import { can } from "@/lib/permissions";
+import { getLocale } from "@/lib/i18n/server";
+import { pick } from "@/lib/i18n/config";
 import type Stripe from "stripe";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
+  const locale = await getLocale();
   try {
     // ── Auth ──────────────────────────────────────────────────────────────
     const supabase = await createClient();
@@ -20,7 +23,10 @@ export async function POST(req: Request) {
       error: authError,
     } = await supabase.auth.getUser();
     if (authError || !user) {
-      return Response.json({ error: "Authentification requise." }, { status: 401 });
+      return Response.json(
+        { error: pick(locale, "Authentification requise.", "Authentication required.") },
+        { status: 401 }
+      );
     }
 
     // ── Corps ─────────────────────────────────────────────────────────────
@@ -28,7 +34,10 @@ export async function POST(req: Request) {
     try {
       body = await req.json();
     } catch {
-      return Response.json({ error: "Corps de requête invalide." }, { status: 400 });
+      return Response.json(
+        { error: pick(locale, "Corps de requête invalide.", "Invalid request body.") },
+        { status: 400 }
+      );
     }
 
     const plan = body.plan as PlanId;
@@ -36,7 +45,7 @@ export async function POST(req: Request) {
     const cycle: BillingCycle = body.cycle === "annual" ? "annual" : "monthly";
     if (!isValidTier(plan, credits)) {
       return Response.json(
-        { error: "Plan ou palier de crédits invalide." },
+        { error: pick(locale, "Plan ou palier de crédits invalide.", "Invalid plan or credit tier.") },
         { status: 400 }
       );
     }
@@ -45,7 +54,13 @@ export async function POST(req: Request) {
     const stripe = getStripe();
     if (!stripe) {
       return Response.json(
-        { error: "Paiement non configuré (STRIPE_SECRET_KEY manquante)." },
+        {
+          error: pick(
+            locale,
+            "Paiement non configuré (STRIPE_SECRET_KEY manquante).",
+            "Payments are not configured (STRIPE_SECRET_KEY missing)."
+          ),
+        },
         { status: 503 }
       );
     }
@@ -53,7 +68,13 @@ export async function POST(req: Request) {
     const priceId = resolvePriceId(plan, credits, cycle);
     if (!priceId) {
       return Response.json(
-        { error: `Price Stripe non configuré pour ${plan} ${credits} crédits (${cycle}).` },
+        {
+          error: pick(
+            locale,
+            `Price Stripe non configuré pour ${plan} ${credits} crédits (${cycle}).`,
+            `No Stripe price configured for ${plan} ${credits} credits (${cycle}).`
+          ),
+        },
         { status: 503 }
       );
     }
@@ -62,13 +83,22 @@ export async function POST(req: Request) {
     const membership = await getActiveMembershipServer(supabase, user.id);
     const tenantId: string | undefined = membership?.tenant_id ?? undefined;
     if (!tenantId) {
-      return Response.json({ error: "Aucun espace de travail." }, { status: 403 });
+      return Response.json(
+        { error: pick(locale, "Aucun espace de travail.", "No workspace found.") },
+        { status: 403 }
+      );
     }
 
     // RBAC : seul le propriétaire gère la facturation de l'espace.
     if (!can(membership?.role, "billing.manage")) {
       return Response.json(
-        { error: "Seul le propriétaire de l'espace peut gérer l'abonnement." },
+        {
+          error: pick(
+            locale,
+            "Seul le propriétaire de l'espace peut gérer l'abonnement.",
+            "Only the workspace owner can manage the subscription."
+          ),
+        },
         { status: 403 }
       );
     }
@@ -105,7 +135,8 @@ export async function POST(req: Request) {
     return Response.json({ url: session.url });
   } catch (err) {
     console.error("[billing/checkout]", err);
-    const msg = err instanceof Error ? err.message : "Erreur de paiement.";
+    const msg =
+      err instanceof Error ? err.message : pick(locale, "Erreur de paiement.", "Payment error.");
     return Response.json({ error: msg }, { status: 500 });
   }
 }

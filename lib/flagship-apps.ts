@@ -21,6 +21,8 @@ import { APP_CRM_HTML } from "@/data/app-crm";
 import { APP_SAV_HTML } from "@/data/app-sav";
 import { APP_STOCK_HTML } from "@/data/app-stock";
 import { DEMO_BILTIA_SCRIPT } from "@/lib/demo-biltia";
+import { localizeAppHtml } from "@/lib/app-html-i18n";
+import type { Locale } from "@/lib/i18n/config";
 
 export type FlagshipApp = {
   id: string;
@@ -130,6 +132,58 @@ export const FLAGSHIP_APPS: Record<string, FlagshipApp> = {
 
 export const FLAGSHIP_IDS = Object.keys(FLAGSHIP_APPS);
 
+// ── i18n : nom + description EN affichés dans la galerie de modèles. Le HTML de
+// l'app (contenu métier) reste une traduction à part (gros chantier dédié).
+const FLAGSHIP_EN: Record<string, { name: string; description: string }> = {
+  suivi_chantiers: {
+    name: "Job-site tracking",
+    description: "Steer your job sites: dashboard (progress, budget, priority to-dos), a page per site, assigned team and equipment. Everything updates live.",
+  },
+  devis_factures: {
+    name: "Quotes",
+    description: "Create your quotes by voice: dictate them, Biltia writes them up, computes the totals and prepares the email. Price catalog, clients and job sites linked.",
+  },
+  finance_budgets: {
+    name: "Finance & collections",
+    description: "Steer your cash: DSO cockpit (cash locked up, score, aging), interactive collection charts, follow-ups and escalation, margin per job site. Your invoices and budgets, live.",
+  },
+  equipes_taches: {
+    name: "Teams & tasks",
+    description: "A full-screen kanban (to do / in progress / done): drag tasks, assign them to your team members, track everyone's workload and progress live.",
+  },
+  planning_chantier: {
+    name: "Job-site schedule",
+    description: "A weekly calendar grid: assign each team member to a job site day by day, move week to week, and see who's where today.",
+  },
+  pointage_equipes: {
+    name: "Time tracking",
+    description: "A day-focused timesheet: log each team member's hours in one gesture (−/+ stepper), approve with a tick, and get the week's recap and labor hours per job site.",
+  },
+  sous_traitants: {
+    name: "Subcontracting & compliance",
+    description: "Keep your subcontractors compliant: compliance cockpit (compliant / to renew / non-compliant), alerts 30 days before liability insurance expires, email follow-ups, partner register and schedule.",
+  },
+  crm_clients: {
+    name: "CRM — Sales pipeline",
+    description: "Steer your sales: pipeline cockpit (open value, conversion rate), funnel by stage, interactive won-deals chart, client records with history and follow-ups you won't forget.",
+  },
+  sav_maintenance: {
+    name: "After-sales & maintenance",
+    description: "Steer your repairs and maintenance contracts: job queue (overdue / today / upcoming), interactive curve of closed jobs, recurring contract revenue, upcoming visits and the installed base at your clients (boilers, heat pumps, ventilation…).",
+  },
+  stock_achats: {
+    name: "Stock & purchasing",
+    description: "Steer your material stock: stock-value cockpit, interactive chart by category, inventory cards with reorder threshold and one-gesture adjustment (−/+), stockout alerts, and reordering grouped by supplier (email order).",
+  },
+};
+
+/** Nom d'un modèle traduit si l'interface est en anglais. */
+export const flagshipName = (app: FlagshipApp, locale: Locale) =>
+  locale === "en" ? FLAGSHIP_EN[app.id]?.name ?? app.name : app.name;
+/** Description d'un modèle traduite si l'interface est en anglais. */
+export const flagshipDescription = (app: FlagshipApp, locale: Locale) =>
+  locale === "en" ? FLAGSHIP_EN[app.id]?.description ?? app.description : app.description;
+
 /** Entité workspace que remplit un IMPORT de fichier pour chaque app phare
  *  (la liste principale de l'app). Sert au mode « Importer un fichier ». */
 export const IMPORT_TARGETS: Record<string, string> = {
@@ -153,18 +207,20 @@ export function getFlagshipApp(id: string): FlagshipApp | undefined {
   return FLAGSHIP_APPS[id];
 }
 
-/** Prépare le HTML final : substitue le nom d'entreprise (le SDK est injecté
- *  séparément par l'appelant, avec injectBiltiaSDK). */
-export function renderFlagshipHtml(app: FlagshipApp, entreprise: string): string {
-  const safe = (entreprise || "Mon entreprise").replace(/[<>]/g, "").slice(0, 80);
-  return app.html.split("__ENTREPRISE__").join(safe);
+/** Prépare le HTML final : traduit l'app si l'utilisateur est en anglais, PUIS
+ *  substitue le nom d'entreprise (dans cet ordre : le nom est une donnée, il ne
+ *  doit jamais traverser le dictionnaire). Le SDK est injecté séparément par
+ *  l'appelant, avec injectBiltiaSDK. */
+export function renderFlagshipHtml(app: FlagshipApp, entreprise: string, locale: Locale = "fr"): string {
+  const safe = (entreprise || (locale === "en" ? "My company" : "Mon entreprise")).replace(/[<>]/g, "").slice(0, 80);
+  return localizeAppHtml(app.html, locale).split("__ENTREPRISE__").join(safe);
 }
 
 /** APERÇU (marketing, non authentifié) : le VRAI HTML de l'app + un window.biltia
  *  de démo (données BTP locales, interactif). Injecté dans le <head> pour être
  *  défini AVANT le script de l'app. Sert /t/[id] pour la landing + la galerie. */
-export function renderFlagshipPreview(app: FlagshipApp): string {
-  const html = renderFlagshipHtml(app, "Bâtisseurs du Sud");
+export function renderFlagshipPreview(app: FlagshipApp, locale: Locale = "fr"): string {
+  const html = renderFlagshipHtml(app, "Bâtisseurs du Sud", locale);
   if (/<head[^>]*>/i.test(html)) {
     return html.replace(/<head[^>]*>/i, (m) => m + "\n" + DEMO_BILTIA_SCRIPT);
   }
