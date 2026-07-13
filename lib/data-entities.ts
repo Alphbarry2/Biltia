@@ -1157,7 +1157,7 @@ ${catalog}
 
 ## Règles de liaison (obligatoires)
 1. Rattache TOUJOURS à l'entité canonique la plus proche : « suivi de mes affaires » → \`chantiers\` ; « mon équipe » → \`employees\` ; « ce qu'on me doit » → \`factures\` ; « mes clients » → \`clients\`.
-2. Relations = vrais liens : un chantier référence son client (\`client_id\`) ; ajouter un chantier à un client via \`biltia.create('chantiers', { client_id, … })\` fait apparaître ce chantier chez CE client partout, à l'instant. Les champs \`*_id\` se remplissent par un \`<select>\` peuplé via \`biltia.list(...)\` (+ option « + Nouveau… » qui crée la fiche liée dans le workspace).
+2. Relations = vrais liens : un chantier référence son client (\`client_id\`), et ce chantier apparaît alors chez CE client partout, à l'instant. Les champs \`*_id\` NE se construisent PAS à la main : déclare-les \`{ key:'client_id', label:'Client', type:'relation', relation:'clients' }\` dans les \`fields\` de \`biltiaUI.form\` — le select est peuplé depuis le workspace, rechargé et validé automatiquement.
 3. Pas besoin d'avoir importé quoi que ce soit au départ : ce que l'utilisateur saisit dans l'app CRÉE la donnée dans le workspace (première fiche incluse).
 4. SEULS les concepts SANS aucune entité ci-dessus vont dans une collection \`window.biltia\` libre (nom court en snake_case). En cas de doute : rattache, n'invente pas.`;
 }
@@ -1245,22 +1245,49 @@ Pour un champ optionnel laissé vide (uuid de liaison, date, nombre), envoie \`n
 (ou omets la clé) — JAMAIS une chaîne vide \`""\`.
 
 ## Règles d'implémentation (obligatoires)
-0. FILTRES / PAGINATION / FORMULES (côté serveur — Phase 9) : pour une liste qui peut être longue, filtrée ou triée, utilise \`await biltia.listPage('${primary}', { filters:{ type:'all', conditions:[{field:'statut',op:'eq',value:'en_cours'},{field:'date_fin_prevue',op:'before',value:'@today'}] }, search:'mot', searchFields:['nom'], order:'created_at', ascending:false, offset:0, limit:20 })\` → \`{ data, total, hasMore }\`. Opérateurs : eq/neq/gt/gte/lt/lte/contains/before/after/is_empty/is_not_empty/in/mine (\`mine\` = mes fiches, filtrées sur l'employé connecté). Dates relatives : \`@today\`, \`@today-7d\`. Le filtrage/tri/pagination se fait EN BASE (jamais charger 500 lignes pour filtrer en JS). Pour un CALCUL d'affichage (marge, avancement, reste à payer), utilise \`biltiaUI.compute({operation:'subtract',args:[{field:'montant_ttc'},{field:'montant_paye'}]}, fiche)\` (opérations : add/subtract/multiply/divide/sum/average/min/max/percentage/if/coalesce/date_diff) — jamais un calcul « en dur » faux. Les montants LÉGAUX (facturation) restent gérés par le serveur.
-1. Au démarrage : fonction \`async function load(){ const rows = await biltia.list('${primary}', { order:'created_at', ascending:false }); render(rows); }\` appelée dans un \`try/catch\`.
-2. Après create/update/remove : ré-appelle \`load()\` pour rafraîchir (pas de cache localStorage pour ces entités).
+0. ⛔ RÈGLE ZÉRO — LISTE, FICHE, FORMULAIRE, KANBAN, KPI D'ENTITÉ = \`biltiaUI\`, JAMAIS DU FAIT-MAIN.
+   Un \`<form>\`, un \`<table>\` ou un kanban écrit à la main pour une entité du workspace est
+   INTERDIT. C'est LA cause n°1 d'apps qui s'affichent parfaitement et n'enregistrent rien.
+   \`biltiaUI\` fait déjà, et sans bug : le chargement, le rafraîchissement après écriture,
+   les selects relationnels peuplés, la validation des requis, la recherche/le tri, le
+   glisser-déposer qui PERSISTE. Il réutilise TES classes CSS → rendu identique.
+   Le squelette d'une vue de données, c'est exactement ça :
+   \`\`\`html
+   <div class="card"><div id="liste"></div></div>
+   <script>
+     biltiaUI.table('liste', {
+       entity: '${primary}',
+       columns: [{ key:'nom', label:'Nom' }, { key:'statut', label:'Statut', type:'status' }],
+       search: true,
+       onRowClick: function(row){ ouvrirFiche(row); },
+       rowActions: [{ label:'Modifier', onClick: function(row){ editer(row); } }]
+     });
+     function editer(row){
+       biltiaUI.form('modal-host', {
+         entity: '${primary}',
+         fields: [ /* key/label/type — type:'relation' pour un champ *_id */ ],
+         record: row,                                   // absent = création
+         onSaved: function(){ biltiaUI.table('liste', { entity:'${primary}' }); } // recharge
+       });
+     }
+   <\/script>
+   \`\`\`
+   Tu n'appelles \`biltia.list/create/update/remove\` À LA MAIN que pour ce que \`biltiaUI\`
+   ne couvre pas (un calcul d'agrégat maison, un import en lot, une action métier ponctuelle).
+1. FILTRES / PAGINATION / FORMULES (côté serveur) : pour une liste longue ou filtrée, \`biltiaUI.table\`
+   fait déjà la recherche et le tri. Si tu as besoin d'un filtrage serveur précis, utilise
+   \`await biltia.listPage('${primary}', { filters:{ type:'all', conditions:[{field:'statut',op:'eq',value:'en_cours'}] }, search:'mot', searchFields:['nom'], order:'created_at', ascending:false, offset:0, limit:20 })\` → \`{ data, total, hasMore }\`. Opérateurs : eq/neq/gt/gte/lt/lte/contains/before/after/is_empty/is_not_empty/in/mine. Dates relatives : \`@today\`, \`@today-7d\`. Le filtrage se fait EN BASE (jamais charger 500 lignes pour filtrer en JS).
+   Pour un CALCUL d'affichage (marge, avancement, reste à payer) : \`biltiaUI.compute({operation:'subtract',args:[{field:'montant_ttc'},{field:'montant_paye'}]}, fiche)\` (add/subtract/multiply/divide/sum/average/min/max/percentage/if/coalesce/date_diff) — jamais un calcul « en dur » faux. Les montants LÉGAUX (facturation) restent gérés par le serveur.
+2. Un KPI branché sur une entité = \`biltiaUI.kpi(...)\`, pas un compteur calculé à la main.
 3. Affiche un état de chargement et un état d'erreur clair si l'API échoue
    (ex : « Connexion au workspace impossible »). NE BASCULE PAS sur localStorage pour ces entités.
 4. NE PRÉ-REMPLIS PAS de fausses données pour ces entités : les vraies données viennent du workspace.
-5. SUGGESTIONS PARTOUT (synchronisation constante) : chaque champ relationnel
-   (\`client_id\`, \`chantier_id\`, \`chef_chantier_id\`, \`assignee_id\`, \`equipment_id\`…)
-   est un \`<select>\` peuplé via \`biltia.list(...)\` (affiche \`nom\` / \`prenom nom\`,
-   stocke \`id\`), RECHARGÉ à chaque ouverture de la modal — jamais de saisie libre
-   d'un nom qui existe déjà dans le workspace.
-6. OPTION « + Nouveau… » dans chaque \`<select>\` relationnel : si l'élément n'existe
-   pas encore (nouveau client, nouvel employé…), l'utilisateur le crée SANS quitter
-   le formulaire — mini-invite (prompt ou champ inline) → \`biltia.create(...)\` dans
-   le workspace → le \`<select>\` se recharge et sélectionne le nouvel \`id\`. Tout ce
-   qui est créé dans l'app EST créé dans le workspace, immédiatement.
+5. CHAMPS RELATIONNELS : déclare-les \`type:'relation', relation:'clients'\` dans les \`fields\`
+   de \`biltiaUI.form\` — le select est peuplé, rechargé et validé TOUT SEUL. Ne construis
+   jamais un \`<select>\` relationnel à la main : c'est là que les implémentations maison
+   cassent (select vide, id non stocké, pas de rechargement).
+6. Jamais de saisie libre d'un nom qui existe déjà dans le workspace : on choisit une fiche
+   existante (select relationnel), on ne retape pas « Dupont » à la main.
 7. Respecte STRICTEMENT les noms de champs et les valeurs d'enum listés ci-dessus.
    Champ optionnel laissé vide → \`null\`, jamais \`""\`.
 8. PHOTO D'UN DOCUMENT (bon de livraison, facture, plan…) → EXTRACTION AUTOMATIQUE :

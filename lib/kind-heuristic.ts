@@ -5,7 +5,7 @@
 // La partie LLM (Haiku) vit dans kind-router.ts (serveur uniquement).
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type BiltiaKind = "answer" | "document" | "action" | "module" | "rule" | "data" | "email" | "calendar" | "task";
+export type BiltiaKind = "answer" | "document" | "action" | "module" | "rule" | "data" | "email" | "calendar" | "task" | "image";
 
 export type KindMethod = "llm" | "heuristic" | "default";
 

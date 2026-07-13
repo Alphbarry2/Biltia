@@ -13,6 +13,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import Anthropic from "@anthropic-ai/sdk";
+import { client, hasKeyFor } from "@/lib/llm";
 import { TIER_MEDIUM } from "@/lib/models";
 import { routeRequest } from "@/lib/router";
 import { classifyQuestionTopic } from "@/lib/question-topics";
@@ -31,8 +32,8 @@ import { withLocale } from "@/lib/i18n/llm";
 import { ENTITIES, ALLOWED_ENTITIES } from "@/lib/data-entities";
 import { listAppCollections, listAppRecords } from "@/lib/app-records";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { ACTION_CREDITS } from "@/lib/plans";
 
-const client = new Anthropic();
 const MODEL = TIER_MEDIUM;
 const MAX_TOKENS = 1500;
 const MAX_TURNS = 5;
@@ -180,12 +181,20 @@ function dedupeSources(chunks: RetrievedChunk[]) {
   return out;
 }
 
+// DURÉE MAXIMALE — explicite. Sans borne déclarée, la limite venait du réglage
+// projet Vercel (invisible depuis le dépôt). Une fonction tuée par le timeout
+// n'exécute PAS son `catch` de remboursement : le hold de crédits est perdu sans
+// que l'utilisateur en soit informé. On fige donc la valeur.
+export const maxDuration = 120;
+
 export async function POST(req: Request) {
   const locale = await getLocale();
   try {
-    if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY.startsWith("your_")) {
+    // Clé du fournisseur RÉELLEMENT appelé (cf. lib/llm.ts) : contrôler « la clé
+    // Anthropic » ici mettait le copilote en 503 dès qu'on retirait cette clé morte.
+    if (!hasKeyFor(MODEL)) {
       return Response.json(
-        { error: pick(locale, "Clé API Anthropic non configurée.", "Anthropic API key not configured.") },
+        { error: pick(locale, "Aucune clé IA configurée.", "No AI key configured.") },
         { status: 503 }
       );
     }
@@ -253,7 +262,7 @@ export async function POST(req: Request) {
     const founder = isFounderEmail(user.email);
     // Pré-autorisation basse : une question coûte réellement ~1 à 10 crédits
     // (réconcilié au coût réel après la réponse). On ne « réserve » pas 15.
-    const HOLD = founder ? 0 : 5;
+    const HOLD = founder ? 0 : ACTION_CREDITS.question;
     if (HOLD > 0) {
       const { data: credited } = await supabase.rpc("deduct_credits", { p_amount: HOLD });
       if (!credited) {
@@ -418,11 +427,12 @@ export async function POST(req: Request) {
         outputTokens: outTok,
         agent: route.agent,
         sector: sector ?? undefined,
+        billedCredits: HOLD, // la GRILLE, pas le coût du modèle
       });
       if (founder) {
         creditsUsed = 0; // journalisé pour le suivi des coûts, jamais débité
       } else {
-        await reconcileCredits(supabase, createAdminClient(), user.id, HOLD, realCredits);
+        // Plus de réconciliation à la BAISSE : le client paie la grille.
         creditsUsed = realCredits;
       }
     } catch {

@@ -22,6 +22,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import Anthropic from "@anthropic-ai/sdk";
+import { client, type LlmClient, hasAnyLlmKey } from "@/lib/llm";
 import { TIER_SIMPLE } from "./models";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { embedTexts, hasEmbeddingKey } from "./embeddings";
@@ -197,7 +198,7 @@ function cheapHash(s: string): string {
 }
 
 async function synthesize(
-  client: Anthropic,
+  client: LlmClient,
   signalType: string,
   contexts: string[]
 ): Promise<{ title: string; insights: string[] } | null> {
@@ -262,7 +263,7 @@ export async function promoteInsights(
     summary.note = "Vectorisation non configurée (OPENAI_API_KEY) — promotion suspendue.";
     return summary;
   }
-  if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY.startsWith("your_")) {
+  if (!hasAnyLlmKey()) {
     summary.note = "Clé Anthropic absente — promotion suspendue.";
     return summary;
   }
@@ -291,7 +292,6 @@ export async function promoteInsights(
   }
   summary.groups = groups.size;
 
-  const client = new Anthropic();
   let processedGroups = 0;
 
   for (const [signalType, rows] of groups) {

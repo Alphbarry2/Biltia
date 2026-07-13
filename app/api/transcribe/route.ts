@@ -21,8 +21,12 @@ import { createClient } from "@/lib/supabase-server";
 import { enforceRateLimit, LIMITS } from "@/lib/rate-limit";
 import { getLocale } from "@/lib/i18n/server";
 import { pick, type Locale } from "@/lib/i18n/config";
+import { MAX_AUDIO_BYTES } from "@/lib/transcribe-core";
 
-const MAX_BYTES = 25 * 1024 * 1024; // limite OpenAI/Groq
+// Plafond partagé avec la dictée EN APP (lib/transcribe-core.ts) : la transcription
+// est facturée à la minute, et 25 Mo laissaient passer ~100 minutes d'audio (0,60 $)
+// sur un chemin entièrement GRATUIT pour l'utilisateur. Voir MAX_AUDIO_BYTES.
+const MAX_BYTES = MAX_AUDIO_BYTES;
 
 // Biais de vocabulaire : « cale » le modèle sur le jargon BTP + franglais du
 // métier pour qu'il arrête de massacrer les termes rares. gpt-4o-transcribe et
@@ -123,7 +127,13 @@ export async function POST(req: Request) {
     if (file.size === 0) return Response.json({ text: "" });
     if (file.size > MAX_BYTES) {
       return Response.json(
-        { error: pick(locale, "Audio trop long (25 Mo max).", "Audio too long (25 MB max).") },
+        {
+          error: pick(
+            locale,
+            "Enregistrement trop long (environ 8 minutes maximum). Découpez-le en plusieurs dictées.",
+            "Recording too long (about 8 minutes max). Split it into several dictations."
+          ),
+        },
         { status: 413 }
       );
     }

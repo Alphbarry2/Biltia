@@ -73,8 +73,14 @@ export async function GET() {
       .order("created_at", { ascending: false })
       .limit(100),
     supabase
+      // `output` porte le LIVRABLE de l'agent : le corps du rapport, de la
+      // synthèse, du compte rendu. Il n'était pas sélectionné — donc jamais
+      // affiché. L'artisan payait un « rapport quotidien » en crédits, voyait la
+      // ligne de journal « Contrôle effectué », et ne lisait JAMAIS le rapport.
+      // (lib/agent-readiness.ts promet pourtant « chaque alerte reste consultable
+      // dans Agents ».) Seule la notification push en transportait 240 caractères.
       .from("agent_runs")
-      .select("id, rule_id, run_key, status, summary, error, credits_used, created_at, finished_at")
+      .select("id, rule_id, run_key, status, summary, output, error, credits_used, created_at, finished_at")
       .eq("tenant_id", membership.tenant_id)
       .order("created_at", { ascending: false })
       .limit(50),

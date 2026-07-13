@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { TIER_MEDIUM } from "@/lib/models";
+import { client, hasKeyFor } from "@/lib/llm";
+import { TIER_SIMPLE } from "@/lib/models";
 import { createClient } from "@/lib/supabase-server";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
 import { enforceRateLimit, LIMITS } from "@/lib/rate-limit";
@@ -31,8 +32,14 @@ import { getSectorContext } from "@/lib/sector-context";
 // rédigées par Sonnet 5 (pas Haiku) et on lui laisse le temps de réfléchir
 // (12 s). Des questions pertinentes valent mieux que des questions rapides mais
 // génériques — le repli statique reste là si le modèle dépasse le délai.
-const CLARIFY_MODEL = TIER_MEDIUM;
-const LLM_TIMEOUT_MS = 12000;
+// La clarification est une tâche COURTE et structurée (un appel d'outil, 900 tokens).
+// Elle n'a rien à faire sur le palier lourd : mesuré, DeepSeek Pro met 12,0 s et perd
+// la course contre le chronomètre → repli statique → questions génériques. Le palier
+// SIMPLE répond en ~5 s avec des questions tout aussi pertinentes.
+const CLARIFY_MODEL = TIER_SIMPLE;
+// Marge de sécurité : un dépassement ne casse rien, il DÉGRADE en silence (questions
+// figées). Mieux vaut 1 s d'attente de plus qu'un questionnaire hors sujet.
+const LLM_TIMEOUT_MS = 20000;
 
 const PLAN_TOOL = {
   name: "plan_clarification",
@@ -138,7 +145,9 @@ export async function POST(req: Request) {
     prompt = typeof body.prompt === "string" ? body.prompt.slice(0, 2000) : "";
   } catch { /* corps vide toléré */ }
 
-  const hasKey = !!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.startsWith("your_");
+  // La clé du fournisseur RÉELLEMENT appelé (cf. lib/llm.ts). Contrôler « la clé
+  // Anthropic » ici ramenait les questions génériques dès qu'on la retirait.
+  const hasKey = hasKeyFor(CLARIFY_MODEL);
 
   // ── AIGUILLAGE D'ABORD ──────────────────────────────────────────────────────
   // Le questionnaire « quel support / quelles colonnes » ne vaut QUE pour une
@@ -187,7 +196,6 @@ export async function POST(req: Request) {
 
   if (prompt && hasKey) {
     try {
-      const client = new Anthropic();
       // Course LLM vs délai : au-delà du timeout, on tombe sur le repli statique.
       const message = await Promise.race([
         client.messages.create({
@@ -236,7 +244,19 @@ export async function POST(req: Request) {
         // les 2 questions génériques du repli quand il juge la demande claire.
         specific = qs;
       }
-    } catch { /* timeout ou API indisponible → repli statique silencieux */ }
+    } catch (e) {
+      // NE JAMAIS ÉCHOUER EN SILENCE. Ce repli sert des questions ÉCRITES EN DUR
+      // (« M'organiser au quotidien », « Perdre du temps en paperasse »…) qui n'ont
+      // aucun rapport avec la demande. Quand il se déclenche, l'utilisateur croit
+      // juger l'IA alors qu'il regarde un formulaire figé — et personne ne le sait.
+      // Cause n°1 observée : le modèle dépasse LLM_TIMEOUT_MS (12 s), ou l'API est
+      // sans crédit. Ça doit hurler dans les logs.
+      const why = e instanceof Error ? e.message : String(e);
+      console.error(
+        `[clarify] ⚠️ REPLI STATIQUE — l'IA n'a pas répondu, l'utilisateur va voir les questions génériques.\n` +
+          `          modèle=${CLARIFY_MODEL} · délai=${LLM_TIMEOUT_MS}ms · cause=${why}`
+      );
+    }
   }
 
   // Tracking best-effort du coût du questionnaire (Haiku) : appel API réel qui

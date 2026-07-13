@@ -7,6 +7,7 @@
 
 import { ScanLine, Zap, Check, CheckCircle, Loader2, Save, FileText, LayoutGrid } from "lucide-react";
 import { useT } from "@/lib/i18n/context";
+import { ACTION_CREDITS } from "@/lib/plans";
 
 export type ExtractionLine = {
   designation: string;
@@ -33,8 +34,9 @@ export type Comptage = { libelle: string; quantite: number; confiance: Confiance
 export type Incertitude = { libelle: string; raison: string };
 /** Ce que Biltia sait TIRER du document, une fois lu : une app de métré depuis un
  *  plan, une app de gestion depuis un tableau, un document depuis un courrier.
- *  Rendu en cartes cliquables sous l'analyse — l'action ne part qu'au CLIC (une
- *  app coûte 300 crédits : jamais de dépense par surprise sur un dépôt de fichier). */
+ *  Rendu en cartes cliquables sous l'analyse — l'action ne part qu'au CLIC (créer
+ *  une app est l'action la plus chère du produit : jamais de dépense par surprise
+ *  sur un simple dépôt de fichier). Le prix affiché vient de lib/plans.ts. */
 export type Proposition = {
   titre: string;
   description: string;
@@ -100,16 +102,30 @@ export function AnalysisView({
 }) {
   const t = useT();
   const ex = analysis.extraction;
-  const fields: { label: string; value: string }[] = [
-    { label: t("Émetteur", "Issuer"), value: ex.emetteur ?? "—" },
-    { label: t("Client", "Client"), value: ex.client ?? "—" },
-    { label: t("Référence", "Reference"), value: ex.reference ?? "—" },
-    { label: t("Date", "Date"), value: ex.date ?? "—" },
-    { label: t("Échéance", "Due date"), value: ex.echeance ?? "—" },
-    { label: t("Montant HT", "Amount excl. tax"), value: fmtEur(ex.montant_ht) },
-    { label: t("TVA", "VAT"), value: fmtEur(ex.montant_tva) },
-    { label: t("Montant TTC", "Amount incl. tax"), value: fmtEur(ex.montant_ttc) },
+
+  // ── ON MONTRE CE QU'IL Y A, PAS UN FORMULAIRE À TROUS ──────────────────────
+  // Ces 8 cases étaient TOUJOURS affichées, remplies de « — » quand le document
+  // ne les contenait pas. Résultat : un plan électrique s'affichait avec
+  // « Montant TTC : — », « Échéance : — », « TVA : — »… huit cases vides qui
+  // n'ont AUCUN sens pour un plan, et qui donnaient l'impression que l'analyse
+  // avait échoué — alors qu'elle avait parfaitement lu 12 prises et 8 interrupteurs.
+  //
+  // L'analyse doit partir DU DOCUMENT, pas d'un gabarit de facture. Une case sans
+  // valeur ne se montre pas : elle n'existe pas dans ce document, point.
+  const champsPossibles: { label: string; value: string | null }[] = [
+    { label: t("Émetteur", "Issuer"), value: ex.emetteur },
+    { label: t("Client", "Client"), value: ex.client },
+    { label: t("Référence", "Reference"), value: ex.reference },
+    { label: t("Date", "Date"), value: ex.date },
+    { label: t("Échéance", "Due date"), value: ex.echeance },
+    { label: t("Montant HT", "Amount excl. tax"), value: ex.montant_ht != null ? fmtEur(ex.montant_ht) : null },
+    { label: t("TVA", "VAT"), value: ex.montant_tva != null ? fmtEur(ex.montant_tva) : null },
+    { label: t("Montant TTC", "Amount incl. tax"), value: ex.montant_ttc != null ? fmtEur(ex.montant_ttc) : null },
   ];
+  const fields = champsPossibles.filter(
+    (f): f is { label: string; value: string } =>
+      typeof f.value === "string" && f.value.trim() !== "" && f.value !== "—"
+  );
   return (
     <div className="h-full overflow-y-auto p-5 sm:p-6">
       <div className="max-w-2xl mx-auto">
@@ -164,18 +180,20 @@ export function AnalysisView({
           </div>
         )}
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
-          {fields.map((f) => (
-            <div key={f.label} className="p-3 rounded-xl bg-white border border-[#ECECF2]">
-              <p className="text-[10px] font-bold text-[#6E6E6C] uppercase tracking-[0.1em] mb-1 truncate">
-                {f.label}
-              </p>
-              <p className="text-sm font-semibold text-[#0A0A0A] truncate" title={f.value}>
-                {f.value}
-              </p>
-            </div>
-          ))}
-        </div>
+        {fields.length > 0 && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+            {fields.map((f) => (
+              <div key={f.label} className="p-3 rounded-xl bg-white border border-[#ECECF2]">
+                <p className="text-[10px] font-bold text-[#6E6E6C] uppercase tracking-[0.1em] mb-1 truncate">
+                  {f.label}
+                </p>
+                <p className="text-sm font-semibold text-[#0A0A0A] truncate" title={f.value}>
+                  {f.value}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
 
         {ex.lignes.length > 0 && (
           <div className="mb-4 rounded-xl border border-[#ECECF2] overflow-hidden">
@@ -237,7 +255,7 @@ export function AnalysisView({
 
         {/* CE QUE BILTIA PEUT EN TIRER — propositions déduites de la LECTURE du
             document (plan → app de métré, tableau → app de gestion…). Rien ne
-            part sans un clic : une app coûte 300 crédits. */}
+            part sans un clic : créer une app est l'action la plus chère du produit. */}
         {onPropose && analysis.propositions && analysis.propositions.length > 0 && (
           <div className="mt-6 pt-5 border-t border-[#EDEDEC]">
             <p className="text-sm font-semibold text-[#0A0A0A] mb-1">
@@ -269,7 +287,13 @@ export function AnalysisView({
                   )}
                   {p.action === "module" && (
                     <span className="block text-[11px] text-[#8A8A88] mt-1.5">
-                      {t("Création d'application · 300 crédits", "App creation · 300 credits")}
+                      {/* Prix LU dans la grille, jamais réécrit à la main : cette
+                          étiquette annonçait 300 crédits pendant que le serveur en
+                          débitait 250. Un prix affiché en dur ment tôt ou tard. */}
+                      {t(
+                        `Création d'application · ${ACTION_CREDITS.application} crédits`,
+                        `App creation · ${ACTION_CREDITS.application} credits`
+                      )}
                     </span>
                   )}
                 </button>

@@ -21,6 +21,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import Anthropic from "@anthropic-ai/sdk";
+import { client, hasAnyLlmKey } from "@/lib/llm";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { computeNextRun, type AgentAction, type AgentSchedule, type AgentTrigger, type TeamFilter } from "./agent-rules";
 import { getEntitlementsForTenant } from "./entitlements";
@@ -43,6 +44,7 @@ import { logActivity } from "./activity";
 import { isFounderEmail } from "./founder";
 import { TIER_SIMPLE, TIER_MEDIUM, TIER_COMPLEX } from "./models";
 import { brandAgentEmail } from "./documents/agent-attachment";
+import { ACTION_CREDITS } from "./plans";
 
 // MODÈLE PAR MISSION (règle user 2026-07-05) : figé au recrutement selon la
 // complexité (simple=Haiku, medium=Sonnet, complex=Opus), whitelisté ici —
@@ -164,7 +166,7 @@ async function compose(opts: {
   usage: { inputTokens: number; outputTokens: number };
 } | null> {
   const hasKey =
-    !!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.startsWith("your_");
+    hasAnyLlmKey();
   if (!hasKey) return null;
 
   const execModel = opts.model;
@@ -353,7 +355,7 @@ async function composeRelance(opts: {
   /** À qui s'adresse la relance : un CLIENT (défaut) ou un FOURNISSEUR/sous-traitant. */
   audience?: "client" | "supplier";
 }): Promise<{ subject: string; body: string; usage: { inputTokens: number; outputTokens: number } } | null> {
-  const hasKey = !!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.startsWith("your_");
+  const hasKey = hasAnyLlmKey();
   if (!hasKey) return null;
   const level = Math.max(1, Math.floor(opts.relanceLevel) || 1);
   const isSupplier = opts.audience === "supplier";
@@ -373,7 +375,6 @@ async function composeRelance(opts: {
         ? "DEUXIÈME relance : ton courtois mais plus direct. Rappelle poliment qu'un premier message est resté sans réponse et que le règlement/la réponse se fait attendre."
         : `RELANCE DE NIVEAU ${level} : plusieurs relances sont restées sans suite. Ton PROFESSIONNEL et FERME (jamais agressif ni insultant) : rappelle l'échéance dépassée et le montant dû, invite à régulariser SANS DÉLAI, et indique qu'à défaut de réponse tu seras contraint d'envisager les suites prévues (pénalités de retard, procédure de recouvrement). Reste correct, factuel et signe proprement.`;
   const destinataire = opts.match.contactName || (isSupplier ? "ce fournisseur / sous-traitant" : "un client");
-  const client = new Anthropic();
   const system = `Tu es un agent de Biltia (OS opérationnel du BTP). Tu écris UN email de relance AU NOM de l'entreprise « ${opts.companyName} », adressé à ${destinataire} (${isSupplier ? "un FOURNISSEUR / SOUS-TRAITANT de l'entreprise" : "un CLIENT de l'entreprise"}).
 
 SUJET DE LA RELANCE : ${opts.watcher.watching}.
@@ -421,7 +422,7 @@ async function composeAgentEmailV2(opts: {
   ficheLabel?: string | null;
   record?: { fields?: Record<string, unknown> };
 }): Promise<{ subject: string; body: string; usage: { inputTokens: number; outputTokens: number } } | null> {
-  const hasKey = !!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.startsWith("your_");
+  const hasKey = hasAnyLlmKey();
   if (!hasKey) return null;
   const dest = opts.recipientName?.trim() || "le destinataire";
   const fields = opts.record?.fields ?? {};
@@ -446,7 +447,6 @@ CONSIGNE DU PATRON : « ${opts.instruction} ».
 ${facts ? `FAITS (seule source ; n'invente RIEN au-delà) :\n${facts}\n` : ""}Règles : français professionnel, 3 à 6 phrases, signe au nom de « ${opts.companyName} ». N'invente AUCUN montant, date ni référence absent des faits ci-dessus. Aucun placeholder ([nom], XXX) : si une donnée manque, formule sans elle.
 Termine en appelant l'outil compose (objet + corps prêts à envoyer).`;
   try {
-    const client = new Anthropic();
     const msg = await client.messages.create({
       model: opts.model,
       max_tokens: 800,
@@ -482,7 +482,7 @@ async function judgeMatches(opts: {
   companyName: string;
   matches: WatcherMatch[];
 }): Promise<{ kept: WatcherMatch[]; usage: { inputTokens: number; outputTokens: number } } | null> {
-  const hasKey = !!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.startsWith("your_");
+  const hasKey = hasAnyLlmKey();
   if (!hasKey || opts.matches.length === 0) return null;
   const list = opts.matches.map((m, i) => `[${i}] ${m.label} — ${m.detail}`).join("\n");
   const tool: Anthropic.Tool = {
@@ -503,7 +503,6 @@ async function judgeMatches(opts: {
   };
   const system = `Tu tries une liste d'éléments pour l'entreprise « ${opts.companyName} ». Ne RETIENS que ceux qui remplissent STRICTEMENT ce critère :\n${opts.criterion}\n\nDans le doute, N'EXCLUS (il vaut mieux rater un cas limite que déclencher une fausse alerte). Réponds UNIQUEMENT en appelant l'outil flag avec les indices retenus.`;
   try {
-    const client = new Anthropic();
     const msg = await client.messages.create({
       model: opts.model,
       max_tokens: 400,
@@ -535,7 +534,7 @@ async function composeCompteRendu(opts: {
   companyName: string;
   match: WatcherMatch;
 }): Promise<{ title: string; html: string; usage: { inputTokens: number; outputTokens: number } } | null> {
-  const hasKey = !!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.startsWith("your_");
+  const hasKey = hasAnyLlmKey();
   if (!hasKey) return null;
   const r = opts.match.raw ?? {};
   const line = (label: string, v: unknown) => (v != null && String(v).trim() !== "" ? `${label} : ${String(v).trim()}` : "");
@@ -558,7 +557,6 @@ async function composeCompteRendu(opts: {
     sources: `# DONNÉES DE LA VISITE (SEULE SOURCE DE VÉRITÉ — n'invente rien au-delà)\n${dataBlock}`,
   });
   try {
-    const client = new Anthropic();
     const msg = await client.messages.create({
       model: opts.model,
       max_tokens: 3200,
@@ -612,7 +610,7 @@ async function composeAct(opts: {
   match: WatcherMatch;
   allowEmail: boolean;
 }): Promise<{ summary: string; traces: ToolTrace[]; usage: { inputTokens: number; outputTokens: number } } | null> {
-  const hasKey = !!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.startsWith("your_");
+  const hasKey = hasAnyLlmKey();
   if (!hasKey) return null;
 
   const m = opts.match;
@@ -1089,6 +1087,8 @@ async function executeEventRule(
             model: TIER_SIMPLE,
             inputTokens: judged.usage.inputTokens,
             outputTokens: judged.usage.outputTokens,
+            // La GRILLE décide (lib/plans.ts), pas le coût du modèle.
+            billedCredits: ACTION_CREDITS.agent_passage,
           });
           if (!founder) {
             const { data: debited } = await admin.rpc("deduct_credits_for_user", {
@@ -1202,6 +1202,10 @@ async function executeEventRule(
             model: execModel,
             inputTokens: inTok,
             outputTokens: outTok,
+            // Un agent qui RÉDIGE (relance, e-mail, rapport) : tarif plein.
+            // La GRILLE décide (lib/plans.ts → ACTION_CREDITS), pas le coût du modèle :
+            // sinon un moteur 8× moins cher brade l'offre au lieu d'améliorer la marge.
+            billedCredits: ACTION_CREDITS.agent_redaction,
           });
           if (!founder) {
             const { data: debited } = await admin.rpc("deduct_credits_for_user", {
@@ -1303,6 +1307,10 @@ async function executeEventRule(
             model: execModel,
             inputTokens: inTok,
             outputTokens: outTok,
+            // Un agent qui RÉDIGE (relance, e-mail, rapport) : tarif plein.
+            // La GRILLE décide (lib/plans.ts → ACTION_CREDITS), pas le coût du modèle :
+            // sinon un moteur 8× moins cher brade l'offre au lieu d'améliorer la marge.
+            billedCredits: ACTION_CREDITS.agent_redaction,
           });
           if (!founder) {
             const { data: debited } = await admin.rpc("deduct_credits_for_user", {
@@ -1485,6 +1493,10 @@ async function executeEventRule(
             model: relanceModel,
             inputTokens: inTok,
             outputTokens: outTok,
+            // Un agent qui RÉDIGE (relance, e-mail, rapport) : tarif plein.
+            // La GRILLE décide (lib/plans.ts → ACTION_CREDITS), pas le coût du modèle :
+            // sinon un moteur 8× moins cher brade l'offre au lieu d'améliorer la marge.
+            billedCredits: ACTION_CREDITS.agent_redaction,
           });
           if (!founder) {
             const { data: debited } = await admin.rpc("deduct_credits_for_user", {
@@ -1829,6 +1841,10 @@ async function executeV2Rule(
           model: emailModel,
           inputTokens: emailUsage.inTok,
           outputTokens: emailUsage.outTok,
+          // Un agent qui RÉDIGE (relance, e-mail, rapport) : tarif plein.
+          // La GRILLE décide (lib/plans.ts → ACTION_CREDITS), pas le coût du modèle :
+          // sinon un moteur 8× moins cher brade l'offre au lieu d'améliorer la marge.
+          billedCredits: ACTION_CREDITS.agent_redaction,
         });
         if (!isFounderEmail(creatorEmail)) {
           const { data: debited } = await admin.rpc("deduct_credits_for_user", {
@@ -2165,12 +2181,17 @@ export async function executeRule(
       return { status: "failed", summary: "rédaction impossible" };
     }
 
-    // ── DÉBIT ADAPTATIF (décision user 2026-07-05) : chaque passage est
-    // journalisé (ai_usage) ET débité à son COÛT RÉEL — un rappel Haiku ≈ 5 cr,
-    // une analyse Sonnet/Opus ≈ 20-65 cr. Fondateur : journalisé, jamais débité.
-    // Solde insuffisant : le travail de CE passage est déjà livré (~qq centimes,
-    // assumé) ; l'agent est mis en PAUSE pour la suite + notification — jamais
-    // de solde négatif, jamais d'échec silencieux.
+    // ── DÉBIT — la GRILLE décide (lib/plans.ts → ACTION_CREDITS), pas le coût du
+    // modèle : sinon un moteur 8× moins cher brade l'offre au lieu d'améliorer la
+    // marge. Le tarif suit ce que l'agent FAIT, et c'est exactement ce qui lui a
+    // été ANNONCÉ au recrutement (agent-rules.ts → estimateCreditsPerRun).
+    //   • `act` = boucle agentique (outils workspace, jusqu'à 10 itérations × 4
+    //     fiches) : 0,165 $ de coût réel au plafond, ~10× une simple relance. À
+    //     25 crédits la marge tombait à 75 %, sous la cible.
+    //   • tout le reste ici RÉDIGE (relance, compte-rendu, rapport) : tarif plein.
+    // Fondateur : journalisé, jamais débité. Solde insuffisant : le travail de CE
+    // passage est déjà livré (quelques centimes, assumés) ; l'agent passe en PAUSE
+    // pour la suite + notification — jamais de solde négatif, jamais d'échec muet.
     let creditsUsed = 0;
     if (rule.created_by) {
       try {
@@ -2182,6 +2203,10 @@ export async function executeRule(
           model: execModel,
           inputTokens: composed.usage.inputTokens,
           outputTokens: composed.usage.outputTokens,
+          billedCredits:
+            action.type === "act"
+              ? ACTION_CREDITS.agent_action
+              : ACTION_CREDITS.agent_redaction,
         });
         if (!founder) {
           const { data: debited } = await admin.rpc("deduct_credits_for_user", {
@@ -2291,6 +2316,14 @@ export type TickMetrics = {
   limit: number;
   tenantsServed: number;
   byStatus: Record<string, number>;
+  /**
+   * Runs zombies clos et règles replanifiées par le reaper à ce tick. Doit rester
+   * à 0 en régime normal : une valeur non nulle signale des invocations tuées en
+   * plein vol (timeout, redéploiement). C'est le seul témoin de ce mode d'échec —
+   * il est INVISIBLE partout ailleurs (pg_cron dit « succeeded » car le POST HTTP
+   * a réussi, et l'UI continue d'afficher l'agent « Actif »).
+   */
+  reaped: number;
 };
 
 const clampInt = (v: unknown, min: number, max: number, dflt: number): number => {
@@ -2340,6 +2373,86 @@ async function runBounded<T, R>(items: T[], concurrency: number, fn: (item: T) =
 }
 
 /**
+ * Délai au-delà duquel un run resté « running » est considéré comme MORT.
+ * Généreux : la borne dure de l'invocation est `maxDuration = 300 s` sur
+ * /api/agents/run. 15 minutes ne peuvent donc correspondre qu'à une invocation
+ * tuée, jamais à un run réellement en cours.
+ */
+const STALE_RUN_MS = 15 * 60_000;
+
+/**
+ * REAPER — répare les agents tués en plein vol.
+ *
+ * LE PROBLÈME. `executeRule` insère son run avec `status:"running"` AVANT de
+ * travailler, puis avance `next_run_at` à la fin. Si l'invocation est tuée entre
+ * les deux (timeout plateforme, redéploiement, OOM) :
+ *
+ *   • le run reste « running » POUR TOUJOURS ;
+ *   • `next_run_at` n'est JAMAIS avancé.
+ *
+ * Au tick suivant, la règle est de nouveau due, avec le MÊME `run_key`
+ * (run_key = rule.next_run_at). L'insert viole alors l'unicité (rule_id, run_key)
+ * → « créneau déjà exécuté (idempotence) » → `skipped`. Et ainsi à CHAQUE tick,
+ * pour l'éternité. L'agent est mort ; l'interface affiche « Actif », le prochain
+ * passage est figé dans le passé, le journal reste muet. C'est le pire mode
+ * d'échec possible pour un produit qui promet « Biltia s'en occupe seul ».
+ *
+ * LE CORRECTIF. Avant de sélectionner les règles dues, on clôt les runs zombies
+ * (« failed ») ET — c'est le point essentiel — on REPLANIFIE leur règle. Sans la
+ * replanification, le `run_key` resterait identique et l'insert continuerait de
+ * buter sur la contrainte d'unicité : marquer le run « failed » ne suffit pas.
+ *
+ * Best-effort : ne doit jamais faire échouer le tick.
+ */
+async function reapStaleRuns(admin: SupabaseClient, nowMs: number): Promise<number> {
+  const cutoff = new Date(nowMs - STALE_RUN_MS).toISOString();
+
+  const { data: stale } = await admin
+    .from("agent_runs")
+    .select("id, rule_id")
+    .eq("status", "running")
+    .lt("created_at", cutoff)
+    .limit(100);
+
+  const rows = (stale ?? []) as { id: string; rule_id: string }[];
+  if (!rows.length) return 0;
+
+  await admin
+    .from("agent_runs")
+    .update({
+      status: "failed",
+      summary: "Interrompu : le passage a été coupé avant la fin (délai dépassé).",
+      error: "stale_run_reaped",
+      finished_at: new Date(nowMs).toISOString(),
+    })
+    .in(
+      "id",
+      rows.map((r) => r.id)
+    );
+
+  // Replanifier les règles concernées : sans cela, `run_key` ne changerait pas et
+  // la règle resterait « skipped » à chaque tick — l'agent resterait mort.
+  const ruleIds = [...new Set(rows.map((r) => r.rule_id))];
+  const { data: rules } = await admin
+    .from("agent_rules")
+    .select("id, schedule, trigger_type, trigger, status")
+    .in("id", ruleIds);
+
+  for (const r of (rules ?? []) as AgentRuleRow[]) {
+    if (r.status !== "active") continue; // en pause / bloqué → on ne réveille rien
+    const isEvent = r.trigger_type === "event";
+    const cadence = Math.min(1440, Math.max(5, Number(r.trigger?.scanEveryMinutes) || 60));
+    const next = isEvent ? new Date(nowMs + cadence * 60_000) : computeNextRun(r.schedule);
+    await admin
+      .from("agent_rules")
+      .update({ next_run_at: next ? next.toISOString() : null, updated_at: new Date(nowMs).toISOString() })
+      .eq("id", r.id);
+  }
+
+  return rows.length;
+}
+
+/**
  * Balaye les règles dues (status active, next_run_at ≤ maintenant) et les
  * exécute. Appelé par le cron. Équité inter-tenant + parallélisme borné (chaque
  * règle reste verrouillée par son run_key → l'idempotence est intacte, deux
@@ -2352,6 +2465,18 @@ export async function runDueRules(
 ): Promise<{ scanned: number; results: { ruleId: string; title: string; outcome: RunOutcome }[]; metrics: TickMetrics }> {
   const t0 = Date.now();
   const nowIso = new Date().toISOString();
+
+  // AVANT TOUT : ressusciter les agents tués en plein vol lors d'un tick
+  // précédent. Sans ce passage, une règle dont le run est resté « running » est
+  // « skipped » à chaque tick, indéfiniment, sans le moindre signal. Cf.
+  // reapStaleRuns().
+  let reaped = 0;
+  try {
+    reaped = await reapStaleRuns(admin, t0);
+  } catch {
+    /* jamais bloquant pour le tick */
+  }
+
   // Consomme l'outbox d'événements (câble Phase 5→6) AVANT de sélectionner les
   // règles dues : les règles-événement dont l'entité a bougé sont avancées à
   // « maintenant » → elles réagissent dès ce tick. 100 % additif, best-effort.
@@ -2413,6 +2538,7 @@ export async function runDueRules(
     limit,
     tenantsServed: new Set(picked.map((r) => r.tenant_id)).size,
     byStatus,
+    reaped,
   };
   return { scanned: picked.length, results, metrics };
 }

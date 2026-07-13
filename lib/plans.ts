@@ -71,9 +71,95 @@ export const UNLIMITED = Number.POSITIVE_INFINITY;
  */
 export const CREDIT_COST_EUR = 0.003;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// LE TARIF D'UNE ACTION — SOURCE UNIQUE DE VÉRITÉ (code ET page /tarifs).
+//
+// ⚠️ Le crédit est un PRIX, pas un compteur de coût.
+//
+// Avant, le produit débitait au COÛT RÉEL de l'IA : il réservait 250 crédits pour
+// une app, puis remboursait tout ce qui dépassait la facture du modèle. Tant que
+// le moteur tournait chez Anthropic, ça donnait ~97 crédits par app — proche de la
+// grille. Mais en basculant sur OpenRouter (8× moins cher), la même app est tombée
+// à 15 crédits : un abonné à 49 € pouvait générer **133 applications**.
+//
+// Conséquence : le palier d'entrée couvrait les besoins de TOUT LE MONDE. Plus
+// personne ne monte, l'ARPU s'écrase sur 49 €, et les paliers supérieurs ne servent
+// plus à rien. Un prix d'entrée qui suffit à tous n'est pas un prix d'entrée, c'est
+// un plafond.
+//
+// Donc : le tarif est FIXE, indépendant du modèle et de son coût. Baisser le coût
+// améliore la marge — ça ne brade pas l'offre. Le coût réel reste journalisé dans
+// `ai_usage.cost_usd` pour surveiller la marge (console admin), mais il ne pilote
+// PLUS le débit.
+//
+// ── LE PRIX SUIT LA VALEUR, PAS LE COÛT (décision user 2026-07-14) ───────────
+//
+// Une fois le débit détaché du coût, il restait à décider ce que vaut une action.
+// Le coût ne peut pas répondre : à 98-99 % de marge, TOUTES les réponses sont
+// rentables. Un crédit se vend 0,0196 € net (49 € TTC / 2 000 cr, hors TVA 21 % et
+// Stripe) ; une app coûte 0,02 à 0,15 € à produire. Le vrai critère, c'est donc :
+// qu'est-ce qui fait monter un client de palier ?
+//
+// Deux architectures étaient possibles : plafonner (N apps, N agents par plan) ou
+// compter (crédits seuls). Le user a tranché pour LES CRÉDITS SEULS : « tout est
+// inclus, seul le volume change » — aucune fonctionnalité bridée, aucun quota. Le
+// compteur est donc le SEUL levier, ce qui l'oblige à dire la vérité sur la valeur :
+//
+//   • une app sur mesure vaut 600 cr (14,70 € au tarif d'entrée). Une agence la
+//     facturerait 2 000 €. À 250 cr elle était bradée, et le forfait 49 € en offrait
+//     8 par mois — soit bien plus que ce dont un artisan a besoin dans une vie.
+//   • une question reste à 3 cr : quasi gratuite. C'est elle qui crée l'habitude,
+//     elle ne doit JAMAIS faire hésiter.
+//
+// Ces valeurs sont exactement celles annoncées sur /tarifs (MONTH_MIX) : le panier
+// affiché y est recalculé depuis cette constante et tombe PILE sur le volume vendu.
+// ─────────────────────────────────────────────────────────────────────────────
+export const ACTION_CREDITS = {
+  /** Une question au copilote (réponse texte). */
+  question: 3,
+  /** Une écriture directe dans le workspace (« ajoute un client Jean »). */
+  donnee: 5,
+  /** Lire une photo / un document (OCR), PAR FICHIER. */
+  lecture_fichier: 10,
+  /** Une dictée vocale transformée en devis structuré. */
+  dictee_devis: 15,
+  /** Annoter / transformer un document existant. */
+  annotation: 15,
+  /** Un livrable officiel : devis PDF, facture, courrier, PV, attestation. */
+  document: 30,
+  /** Un passage d'agent (veille simple, sans rédaction IA). */
+  agent_passage: 10,
+  /** Un passage d'agent qui RÉDIGE (relance, e-mail, rapport). */
+  agent_redaction: 25,
+  /** Un passage d'agent qui AGIT : boucle agentique (outils workspace, jusqu'à 10
+   *  itérations × 4 fiches). Coût réel au plafond : 0,165 $ ≈ 0,15 € — 10× une simple
+   *  relance. À 25 crédits la marge tombait à 75 %, sous la cible de 85-88 %. C'est
+   *  aussi l'action la plus VALUABLE du produit (« occupe-t'en » : l'agent fait le
+   *  travail, pas seulement l'alerte) : 50 crédits ≈ 1,22 € → marge ~88 %. */
+  agent_action: 50,
+  /** Un rendu client (« voilà à quoi ressemblera votre salle de bain »), joint au devis.
+   *  Coût réel MESURÉ : 0,0388 $ ≈ 0,036 € — de loin l'action la plus CHÈRE du produit
+   *  hors génération d'app (une question au copilote coûte 0,003 $, soit 13× moins).
+   *  40 crédits ≈ 0,98 € au tarif d'entrée → marge ~96 %, et le prix reste juste : un
+   *  artisan qui MONTRE le résultat gagne le chantier. Ça vaut plus qu'un document. */
+  rendu_client: 40,
+  /** Modifier une application existante (≈ 1/4 du prix d'une création). */
+  modification_app: 150,
+  /** Créer une application sur mesure. LE livrable phare du produit — voir l'en-tête. */
+  application: 600,
+} as const;
+
+export type ActionCredit = keyof typeof ACTION_CREDITS;
+
 /** Crédits offerts à la création d'un compte Free (miroir de handle_new_user).
- *  300 = de quoi créer 1 app (hold 300, réconcilié au réel) + du courant ensuite. */
-export const SIGNUP_FREE_CREDITS = 300;
+ *
+ *  DOIT rester ≥ ACTION_CREDITS.application : le plan Free promet « Créez votre
+ *  première application », et le hold est prélevé d'AVANCE. À 300 crédits pour une
+ *  app à 600, l'essai gratuit se serait heurté à un mur « crédits insuffisants »
+ *  avant d'avoir rien produit — la pire première impression possible.
+ *  700 = 1 app (600) + de quoi poser quelques questions ensuite.
+ *  ⚠️ Miroir SQL : supabase/migrations/052_signup_credits_700.sql. */
+export const SIGNUP_FREE_CREDITS = 700;
 
 // ── Paliers de crédits ───────────────────────────────────────────────────────
 // Un seul plan payant en self-service (Pro). Toutes les fonctionnalités produit
@@ -98,6 +184,26 @@ const PRO_TIERS: CreditTier[] = [
   { credits: 3000, priceEur: 89 }, //  0,0297 €/cr — leurre → pousse vers 5000 (~88 %)
   { credits: 5000, priceEur: 129 }, // 0,0258 €/cr — RECOMMANDÉ (~86 %)
 ];
+
+// ── Traduire des crédits en euros / en mois d'agent ──────────────────────────
+// Source UNIQUE de ces deux conversions. Elles étaient jusqu'ici recopiées à la
+// main dans la landing et la page tarifs, où elles ont fini par mentir : la
+// landing annonçait « un agent ≈ 300 crédits/mois » alors qu'il en consomme 550.
+
+/** Jours ouvrés retenus pour annoncer le coût MENSUEL d'un agent quotidien. */
+export const AGENT_WORKING_DAYS_PER_MONTH = 22;
+
+/** Ce que consomme un agent qui RÉDIGE (relance, compte-rendu) chaque jour ouvré. */
+export const AGENT_CREDITS_PER_MONTH =
+  ACTION_CREDITS.agent_redaction * AGENT_WORKING_DAYS_PER_MONTH;
+
+/** Ce que « vaut » un crédit au palier d'ENTRÉE, c'est-à-dire le TARIF LE PLUS CHER
+ *  (49 € / 2 000 cr = 0,0245 €). On annonce toujours au prix le plus cher : un client
+ *  qui monte de palier paiera MOINS que ce qu'on lui a promis, jamais l'inverse. */
+export function creditsToEur(credits: number): number {
+  const entry = PRO_TIERS[0];
+  return (credits * entry.priceEur) / entry.credits;
+}
 
 // Paliers ÉQUIPE (Pro + collaboration). Grille FINALE user 2026-07-10. 5000 = Pro
 // 5000 (129) + 50 € d'add-on collaboration = 179 ; 10000/25000 propres à Équipe.
@@ -144,7 +250,7 @@ export const PLANS: Record<PlanId, Plan> = {
     tiers: [],
     signupCredits: SIGNUP_FREE_CREDITS,
     features: [
-      "300 crédits offerts pour découvrir (non renouvelables)",
+      `${SIGNUP_FREE_CREDITS} crédits offerts pour découvrir (non renouvelables)`,
       "Créez votre première application",
       "Générez un vrai devis ou document",
       "1 utilisateur, 1 application",
@@ -351,7 +457,7 @@ const PLAN_EN: Record<string, PlanText> = {
     tagline: "The guided tour",
     audience: "To try Biltia, no credit card",
     features: [
-      "300 free credits to explore (non-renewable)",
+      `${SIGNUP_FREE_CREDITS} free credits to explore (non-renewable)`,
       "Create your first app",
       "Generate a real quote or document",
       "1 user, 1 app",

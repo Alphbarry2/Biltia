@@ -19,6 +19,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import Anthropic from "@anthropic-ai/sdk";
+import { client } from "@/lib/llm";
 import { ENTITIES, ALLOWED_ENTITIES } from "./data-entities";
 import {
   runWorkspaceTransform,
@@ -466,7 +467,7 @@ export async function runAgentTool(
     if (!to.length || !bodyText) return { error: "SMS incomplet : au moins un numéro et un message requis." };
     const sent = await sendSms({ to, body: bodyText });
     if (!sent.ok) return { error: sent.reason };
-    const desc = `SMS → ${to.join(", ")} (${sent.sent} envoyé${sent.sent > 1 ? "s" : ""}${sent.failed ? `, ${sent.failed} échec` : ""})`;
+    const desc = `SMS → ${to.join(", ")} (${sent.sent} envoyé${sent.sent > 1 ? "s" : ""}${sent.failed ? `, ${sent.failed} échec` : ""})${sent.note ? ` — ${sent.note}` : ""}`;
     traces.push({ action: "sms", description: desc });
     await logActivity(db, {
       tenantId: actor.tenantId,
@@ -475,7 +476,9 @@ export async function runAgentTool(
       entityType: "sms",
       description: `${actor.label} — ${desc}`,
     });
-    return { ok: true, sent: sent.sent, failed: sent.failed };
+    // `note` remonte au modèle : s'il a été plafonné, il doit le DIRE dans son
+    // compte-rendu plutôt que d'affirmer avoir prévenu tout le monde.
+    return { ok: true, sent: sent.sent, failed: sent.failed, note: sent.note };
   }
 
   // ── Transformation atomique (devis→chantier, demande→devis, note→tâche/réserve) ──
@@ -557,7 +560,6 @@ export async function runAgentLoop(opts: {
 }): Promise<AgentLoopResult> {
   const { model, system, userMessage, db, actor, finishTool, allowEmail = false, allowSms = false, allowDelete = true, maxIterations = 6, maxTokens = 1500, maxDestructiveWrites = Infinity } = opts;
 
-  const client = new Anthropic();
   const tools: Anthropic.Tool[] = [
     ...(allowDelete ? WORKSPACE_TOOLS : WORKSPACE_TOOLS.filter((t) => t.name !== "workspace_delete")),
     ...APP_DATA_TOOLS,

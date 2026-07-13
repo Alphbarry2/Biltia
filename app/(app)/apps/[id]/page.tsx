@@ -32,6 +32,11 @@ export default function AppViewerPage() {
   const [deploymentUrl, setDeploymentUrl] = useState<string | null>(null);
   const [deployCopied, setDeployCopied] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  // L'app est rendue dans DEUX iframes distinctes selon le mode (normal / plein
+  // écran). Le pont doit reconnaître les deux comme légitimes : sans cette
+  // seconde référence, la garde de provenance rejetterait tous les appels faits
+  // depuis le plein écran et l'app y serait muette.
+  const fsIframeRef = useRef<HTMLIFrameElement>(null);
 
   // ── Partage : lien de consultation (lecture seule, révocable) ──────────────
   const [shareOpen, setShareOpen] = useState(false);
@@ -181,16 +186,29 @@ export default function AppViewerPage() {
   }, [id]);
 
   // Pont app↔serveur : window.biltia (données + IA) doit fonctionner dans une app
-  // OUVERTE/DÉPLOYÉE, pas seulement dans le générateur. L'iframe (origin:null) ne
-  // peut pas fetch → elle envoie BILTIA_API_CALL, on proxifie en same-origin
+  // OUVERTE/DÉPLOYÉE, pas seulement dans le générateur. L'iframe ne fait jamais
+  // fetch elle-même → elle envoie BILTIA_API_CALL, on proxifie en same-origin
   // (cookies = auth, RLS = isolation du tenant). Route vers /api/app-ai pour l'IA.
   useEffect(() => {
     const handler = (event: MessageEvent) => {
+      // GARDE DE PROVENANCE — ne PAS retirer. Ce pont proxifie /api/* avec les
+      // cookies de session : n'accepter que les messages émis par l'une de NOS
+      // deux iframes (normale ou plein écran). Sans ce contrôle, tout site tiers
+      // capable de nous poster un message pilotait l'API au nom de l'utilisateur.
+      const source = event.source as Window | null;
+      const frame =
+        source && source === iframeRef.current?.contentWindow
+          ? iframeRef.current.contentWindow
+          : source && source === fsIframeRef.current?.contentWindow
+            ? fsIframeRef.current.contentWindow
+            : null;
+      if (!frame) return;
+
       if (event.data?.type !== "BILTIA_API_CALL") return;
       const { id: callId, body } = event.data as { id: string; body: unknown };
+      // Cible explicite (jamais '*') : on répond à l'iframe vérifiée ci-dessus.
       const reply = (payload: Record<string, unknown>) => {
-        const target = (event.source as Window | null) ?? iframeRef.current?.contentWindow ?? null;
-        target?.postMessage({ type: "BILTIA_API_RESPONSE", id: callId, ...payload }, "*");
+        frame.postMessage({ type: "BILTIA_API_RESPONSE", id: callId, ...payload }, window.location.origin);
       };
       const ep = (body as { __endpoint?: string } | null)?.__endpoint;
       const apiUrl =
@@ -263,6 +281,7 @@ export default function AppViewerPage() {
           </button>
         </div>
         <iframe
+          ref={fsIframeRef}
           srcDoc={app.html_content}
           sandbox="allow-scripts allow-forms allow-same-origin allow-modals"
           allow="camera; microphone; geolocation; clipboard-write"

@@ -12,7 +12,7 @@
 //   • customer.subscription.updated                 → sync (plan, statut, période).
 //   • customer.subscription.deleted                 → retour au plan Free (gel).
 //
-// Bonus d'inscription : 300 crédits sont TOUJOURS accordés à la création du
+// Bonus d'inscription : SIGNUP_FREE_CREDITS sont TOUJOURS accordés à la création du
 // compte (trigger DB handle_new_user), même si l'utilisateur passe Pro dans la
 // foulée ; la 1ʳᵉ souscription les préserve (forfait + 300).
 
@@ -151,7 +151,7 @@ async function freezeTenant(
  *   • "none"    → on ne touche pas au solde (sync abo uniquement).
  *   • "reset"   → solde = crédits du palier (renouvellement mensuel).
  *   • "welcome" → solde = crédits du palier + BONUS d'inscription (1ʳᵉ
- *                 souscription : on PRÉSERVE les 300 crédits offerts).
+ *                 souscription : on PRÉSERVE les crédits offerts à l'inscription).
  */
 type CreditMode = "none" | "reset" | "welcome";
 

@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState } from "react";
+import { SIGNUP_FREE_CREDITS } from "@/lib/plans";
 import { createClient } from "@/lib/supabase";
 import { useTypewriter } from "@/components/site";
 import { useT, useLocale } from "@/lib/i18n/context";
@@ -115,7 +116,7 @@ export function AuthScene() {
 
       {/* Pastilles flottantes (réparties dans les 4 coins, dégagées du centre) */}
       <span className="glass animate-float absolute left-[5%] top-[9%] z-10 inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[12px] font-semibold text-[#4A4A56]">
-        <span className="h-1.5 w-1.5 rounded-full bg-gradient-to-br from-indigo-500 to-violet-500" /> {t("300 crédits offerts", "300 free credits")}
+        <span className="h-1.5 w-1.5 rounded-full bg-gradient-to-br from-indigo-500 to-violet-500" /> {t(`${SIGNUP_FREE_CREDITS} crédits offerts`, `${SIGNUP_FREE_CREDITS} free credits`)}
       </span>
       <span className="glass animate-float delay-300 absolute right-[5%] top-[8%] z-10 inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[12px] font-semibold text-[#4A4A56]">
         <span className="h-1.5 w-1.5 rounded-full bg-gradient-to-br from-pink-500 to-rose-500" /> {t("Devis PDF en 2 min", "PDF quote in 2 min")}

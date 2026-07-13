@@ -10,6 +10,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import Anthropic from "@anthropic-ai/sdk";
+import { client, hasAnyLlmKey } from "@/lib/llm";
 import { TIER_SIMPLE } from "./models";
 import { AGENTS, AGENT_LIST } from "./agents";
 import type { AgentKey } from "./sectors";
@@ -152,7 +153,6 @@ async function routeWithLLM(
   prompt: string,
   sector?: string | null
 ): Promise<RouteResult | null> {
-  const client = new Anthropic();
 
   const userContent = sector
     ? `Secteur déclaré du client : ${sector}\n\nDemande : « ${prompt} »`
@@ -207,7 +207,7 @@ export async function routeRequest(opts: {
   const heuristic = routeHeuristic(prompt, sector);
 
   const hasKey =
-    !!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.startsWith("your_");
+    hasAnyLlmKey();
 
   if (useLLM && hasKey && heuristic.confidence < 0.8) {
     try {

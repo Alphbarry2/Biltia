@@ -26,7 +26,36 @@ type LooseClient = { from: (table: string) => any };
 
 const CHILD = new Set<string>(CLIENT_CHILD_ENTITIES);
 
+// CORS — indispensable depuis que le HTML de tenant est servi en ORIGINE OPAQUE
+// (cf. TENANT_HTML_CSP dans lib/security-headers.ts). Le portail client appelle cette
+// route depuis un document sandboxé : sa requête part avec `Origin: null` et le
+// navigateur exige donc une autorisation CORS explicite, sinon le portail affiche
+// des listes vides.
+//
+// `*` est SANS DANGER ici : la route n'utilise aucun cookie (le JETON est la
+// capacité, cf. en-tête de fichier) et on ne renvoie jamais
+// Access-Control-Allow-Credentials. Un site tiers qui appellerait cette route
+// devrait déjà posséder le token — ce qu'il ne peut pas deviner.
+const CORS: Record<string, string> = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "POST, OPTIONS",
+  "access-control-allow-headers": "content-type",
+  "access-control-max-age": "86400",
+};
+
+// Le fetch du bridge envoie Content-Type: application/json → requête « non
+// simple » → le navigateur fait un préflight OPTIONS avant le POST.
+export async function OPTIONS() {
+  return new Response(null, { status: 204, headers: CORS });
+}
+
 export async function POST(req: Request) {
+  const res = await handlePost(req);
+  for (const [key, value] of Object.entries(CORS)) res.headers.set(key, value);
+  return res;
+}
+
+async function handlePost(req: Request) {
   const locale = await getLocale();
   const body = (await req.json().catch(() => ({}))) as {
     token?: string;

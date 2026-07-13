@@ -20,6 +20,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import Anthropic from "@anthropic-ai/sdk";
+import { client, hasAnyLlmKey } from "@/lib/llm";
 import {
   type ModelCapability,
   type ModelEntry,
@@ -203,7 +204,6 @@ async function selectCapabilityWithLLM(
   prompt: string,
   sector?: string | null
 ): Promise<{ capability: ModelCapability; confidence: number } | null> {
-  const client = new Anthropic();
 
   const userContent = sector
     ? `Secteur du prospect : ${sector}\n\nProblème : « ${prompt} »`
@@ -285,7 +285,7 @@ export async function selectModel(opts: {
   }
 
   const hasKey =
-    !!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.startsWith("your_");
+    hasAnyLlmKey();
 
   if (useLLM && hasKey) {
     try {

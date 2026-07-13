@@ -16,6 +16,7 @@ import {
   Reveal, Spot, InteractiveMesh, SiteNav, SiteFooter, TemplateCarousel,
 } from "@/components/site";
 import { useT, useLocale } from "@/lib/i18n/context";
+import { AGENT_CREDITS_PER_MONTH, creditsToEur } from "@/lib/plans";
 
 // ── Héros ────────────────────────────────────────────────────────────────────
 
@@ -460,7 +461,13 @@ function AgentsSection() {
             ))}
           </ul>
           <p className="text-[13.5px] text-[#8B8B96] leading-relaxed mb-6 max-w-md">
-            {t("Un agent qui relance vos clients chaque matin utilise environ 300 crédits par mois : l'équivalent de 15 € de votre forfait. Un salarié pour la même corvée : 4 000 €.", "An agent that chases your clients every morning uses about 300 credits a month: the equivalent of €15 of your plan. An employee for the same chore: €4,000.")}
+            {/* Chiffres LUS dans la grille (lib/plans.ts). Écrits en dur, ils annonçaient
+                300 crédits pour un agent qui en consomme 550 : la promesse d’accueil
+                se serait démentie au premier relevé de compte. */}
+            {t(
+              `Un agent qui relance vos clients chaque matin utilise environ ${AGENT_CREDITS_PER_MONTH} crédits par mois : l'équivalent de ${Math.round(creditsToEur(AGENT_CREDITS_PER_MONTH))} € de votre forfait. Un salarié pour la même corvée : 4 000 €.`,
+              `An agent that chases your clients every morning uses about ${AGENT_CREDITS_PER_MONTH} credits a month: the equivalent of €${Math.round(creditsToEur(AGENT_CREDITS_PER_MONTH))} of your plan. An employee for the same chore: €4,000.`
+            )}
           </p>
           <Link href="/produits/agents" className="inline-flex items-center gap-1.5 text-[14px] font-semibold text-[#0A0A0A] hover:gap-2.5 transition-all">{t("Découvrir les agents", "Explore agents")} <ArrowRight className="w-4 h-4" /></Link>
         </Reveal>

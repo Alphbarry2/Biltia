@@ -13,6 +13,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import Anthropic from "@anthropic-ai/sdk";
+import { client, realCostOf } from "@/lib/llm";
+import { trackAiUsage } from "@/lib/ai-usage";
+import { TIER_MEDIUM } from "@/lib/models";
 import { createClient } from "@/lib/supabase-server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
@@ -23,17 +26,23 @@ import { VISION_MODEL, buildFileBlocks, validateFiles, ValidationError } from "@
 import { transcribeBlob } from "@/lib/transcribe-core";
 import { getLocale } from "@/lib/i18n/server";
 import { pick, type Locale } from "@/lib/i18n/config";
+import { ACTION_CREDITS } from "@/lib/plans";
 
-const client = new Anthropic();
 const MAX_TOKENS = 2000;
 
 // Extraction structurée : outil dynamique qui force EXACTEMENT les champs demandés
 // (vide si absent). Sans champs → dictionnaire libre dans "donnees".
+/** Jetons d'un appel, remontés jusqu'au POST pour être journalisés une seule fois.
+ *  Sans ça, TOUTE l'IA consommée À L'INTÉRIEUR des applications (extraction photo,
+ *  devis vocal) était débitée au client mais n'écrivait RIEN dans `ai_usage` : la
+ *  console de marge avait un angle mort sur cette surface entière. */
+type LlmUsage = { model: string; inTok: number; outTok: number; costUsd?: number };
+
 async function runExtraction(
   content: Anthropic.MessageParam["content"],
   fields: string[],
   locale: Locale
-): Promise<{ data: Record<string, unknown> } | { error: string; status: number }> {
+): Promise<{ data: Record<string, unknown>; usage: LlmUsage } | { error: string; status: number }> {
   const properties: Record<string, unknown> = {};
   if (fields.length) {
     for (const f of fields) properties[f] = { type: "string", description: `${f} (vide si absent)` };
@@ -64,11 +73,21 @@ async function runExtraction(
   if (!tb || tb.type !== "tool_use")
     return { error: pick(locale, "Extraction vide.", "Extraction returned nothing."), status: 502 };
   const input = tb.input as Record<string, unknown>;
-  return { data: (fields.length ? input : (input.donnees ?? input)) as Record<string, unknown> };
+  return {
+    data: (fields.length ? input : (input.donnees ?? input)) as Record<string, unknown>,
+    usage: {
+      model: VISION_MODEL,
+      inTok: message.usage.input_tokens,
+      outTok: message.usage.output_tokens,
+      costUsd: realCostOf(message.usage),
+    },
+  };
 }
 
 // Modèle de raisonnement pour découper une dictée en PLUSIEURS devis structurés.
-const DEVIS_MODEL = "claude-sonnet-5";
+// Passe par le palier MOYEN : un identifiant écrit en dur ici contournerait
+// l'aiguilleur et enverrait la dictée chez un fournisseur qu'on n'utilise plus.
+const DEVIS_MODEL = TIER_MEDIUM;
 
 type ParsedDevisLine = {
   designation: string;
@@ -90,7 +109,7 @@ type ParsedDevis = {
 async function runDevisParse(
   text: string,
   locale: Locale
-): Promise<{ devis: ParsedDevis[] } | { error: string; status: number }> {
+): Promise<{ devis: ParsedDevis[]; usage: LlmUsage } | { error: string; status: number }> {
   const tool = {
     name: "enregistrer_devis",
     description: "Enregistre un ou plusieurs devis reconstitués à partir de la dictée de l'artisan.",
@@ -161,8 +180,22 @@ async function runDevisParse(
   const input = tb.input as { devis?: unknown };
   const list = Array.isArray(input.devis) ? (input.devis as ParsedDevis[]) : [];
   if (!list.length) return { error: noQuote, status: 502 };
-  return { devis: list };
+  return {
+    devis: list,
+    usage: {
+      model: DEVIS_MODEL,
+      inTok: message.usage.input_tokens,
+      outTok: message.usage.output_tokens,
+      costUsd: realCostOf(message.usage),
+    },
+  };
 }
+
+// DURÉE MAXIMALE — explicite. Sans borne déclarée, la limite venait du réglage
+// projet Vercel (invisible depuis le dépôt). Une fonction tuée par le timeout
+// n'exécute PAS son `catch` de remboursement : le hold de crédits est perdu sans
+// que l'utilisateur en soit informé. On fige donc la valeur.
+export const maxDuration = 120;
 
 export async function POST(req: Request) {
   const locale = await getLocale();
@@ -232,7 +265,15 @@ export async function POST(req: Request) {
     //   crédit le moins cher (Pro 2000/49 €) = 0,0245 € TTC ≈ 0,0198 € net (TVA+Stripe)
     //   marge 80 % ⇒ budget coût = 0,20 × 0,0198 ≈ 0,004 €/crédit ⇒ 0,037/0,004 ≈ 10.
     // Une dictée peut contenir PLUSIEURS devis : 10 crédits couvre le lot, pas l'unité.
-    const HOLD = founder ? 0 : action === "extract" ? 25 : action === "parse_devis" ? 10 : fields.length ? 25 : 10;
+    const HOLD = founder
+      ? 0
+      : action === "extract"
+        ? ACTION_CREDITS.lecture_fichier
+        : action === "parse_devis"
+          ? ACTION_CREDITS.dictee_devis
+          : fields.length
+            ? ACTION_CREDITS.lecture_fichier
+            : ACTION_CREDITS.question;
     if (HOLD > 0) {
       const { data: credited } = await supabase.rpc("deduct_credits", { p_amount: HOLD });
       if (!credited) {
@@ -256,6 +297,24 @@ export async function POST(req: Request) {
       } catch {
         /* best-effort */
       }
+    };
+
+    // Journalise le passage IA une SEULE fois, au tarif réellement prélevé (HOLD).
+    // Le coût, lui, reste enregistré tel quel : c'est ce qui permet de surveiller
+    // la marge de cette surface sans qu'il pilote le débit. Best-effort : la
+    // facturation ne doit jamais casser la réponse rendue à l'app.
+    const meter = (usage: LlmUsage) => {
+      void trackAiUsage({
+        supabase,
+        userId,
+        tenantId,
+        action: `app_ai_${action}`,
+        model: usage.model,
+        inputTokens: usage.inTok,
+        outputTokens: usage.outTok,
+        realCostUsd: usage.costUsd,
+        billedCredits: founder ? 0 : HOLD,
+      }).catch(() => {});
     };
 
     // ── EXTRACTION PHOTO ──────────────────────────────────────────────────────
@@ -283,6 +342,7 @@ export async function POST(req: Request) {
           { status: out.status }
         );
       }
+      meter(out.usage);
       return Response.json({ data: out.data });
     }
 
@@ -331,6 +391,7 @@ export async function POST(req: Request) {
           { status: parsed.status }
         );
       }
+      meter(parsed.usage);
       return Response.json({ text: t.text, devis: parsed.devis });
     }
 
@@ -342,7 +403,10 @@ export async function POST(req: Request) {
         fields,
         locale
       );
-      if (!("error" in out)) data = out.data;
+      if (!("error" in out)) {
+        data = out.data;
+        meter(out.usage);
+      }
     }
     return Response.json({ text: t.text, data });
   } catch (e) {

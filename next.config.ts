@@ -1,5 +1,7 @@
+import { withSentryConfig } from "@sentry/nextjs";
 import type { NextConfig } from "next";
 import path from "node:path";
+import { BASELINE_HEADERS, FRAME_ANCESTORS, TENANT_HTML_CSP } from "./lib/security-headers";
 
 // Biltia n'utilise pas le temps réel Supabase : on remplace `@supabase/realtime-js`
 // par un stub no-op (lib/stubs/realtime-js.ts). Cela retire ~35 Ko de code mort
@@ -41,6 +43,73 @@ const nextConfig: NextConfig = {
     };
     return config;
   },
+  // En-têtes de sécurité. Les valeurs vivent dans lib/security-headers.ts (avec
+  // le POURQUOI de chacune). Deux régimes :
+  //
+  //   1. Tout le site        → anti-framing (protège le pont postMessage).
+  //   2. /partage/*, /app/*  → EN PLUS, origine opaque (`sandbox`) : ces URLs
+  //                            servent du HTML écrit par un modèle, il ne doit
+  //                            jamais s'exécuter avec les cookies du visiteur.
+  //
+  // ⚠️ L'ORDRE COMPTE : une règle plus tardive écrase la précédente, et une règle
+  // du config écrase l'en-tête posé par un route handler (vérifié). Les règles
+  // spécifiques doivent donc rester APRÈS la règle générale.
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          ...BASELINE_HEADERS,
+          { key: "Content-Security-Policy", value: FRAME_ANCESTORS },
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+        ],
+      },
+      {
+        source: "/partage/:token*",
+        headers: [...BASELINE_HEADERS, { key: "Content-Security-Policy", value: TENANT_HTML_CSP }],
+      },
+      {
+        source: "/app/:slug*",
+        headers: [...BASELINE_HEADERS, { key: "Content-Security-Policy", value: TENANT_HTML_CSP }],
+      },
+    ];
+  },
 };
 
-export default nextConfig;
+// Sentry. Ce qui SORT du produit (prompts, corps HTTP, cookies, variables
+// locales) est décidé dans lib/sentry-policy.ts, pas ici : ce bloc ne règle que
+// le BUILD (téléversement des sources, tunnel réseau).
+export default withSentryConfig(nextConfig, {
+  org: "biltia",
+  project: "javascript-nextjs",
+
+  // Silencieux en local, verbeux en CI : c'est en CI qu'on veut savoir pourquoi
+  // un téléversement de sources a échoué.
+  silent: !process.env.CI,
+
+  // Sans les sources, une pile de production est illisible (code minifié). Le
+  // téléversement exige SENTRY_AUTH_TOKEN : il est dans .env.sentry-build-plugin
+  // en local (ignoré par git) et DOIT être ajouté aux variables du projet Vercel,
+  // sinon le build passe mais toutes les erreurs prod arrivent illisibles.
+  widenClientFileUpload: true,
+
+  // Les bloqueurs de pub (uBlock, Brave) coupent les requêtes vers sentry.io :
+  // sans tunnel, les erreurs NAVIGATEUR de nos utilisateurs ne remontent jamais.
+  // On les fait transiter par notre propre domaine.
+  //
+  // ⚠️ /monitoring ne doit JAMAIS entrer dans le matcher de middleware.ts : le
+  // middleware redirigerait la requête vers /login et le rapport serait perdu en
+  // silence. Vérifié : le matcher actuel ne le couvre pas.
+  tunnelRoute: "/monitoring",
+
+  webpack: {
+    // `automaticVercelMonitors` resterait lettre morte : le tick des agents ne
+    // passe PAS par les crons Vercel mais par pg_cron + pg_net côté Supabase
+    // (cf. migration 022). Rien à instrumenter.
+    automaticVercelMonitors: false,
+
+    treeshake: {
+      removeDebugLogging: true,
+    },
+  },
+});

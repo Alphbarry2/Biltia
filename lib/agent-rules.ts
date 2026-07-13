@@ -20,6 +20,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import Anthropic from "@anthropic-ai/sdk";
+import { client, hasAnyLlmKey } from "@/lib/llm";
 import { TIER_SIMPLE, TIER_MEDIUM, TIER_COMPLEX } from "./models";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { matchVocabInText, matchTradeInText, vocabLabel } from "@/lib/vocabulaires";
@@ -32,6 +33,7 @@ import type { Locale } from "./i18n/config";
 import { buildSpec, coerceConditionGroup, coerceRecipientTargets, type ParsedActionStep, type ConditionGroup, type RecipientResolver } from "./agent-model";
 import { buildEventWatcherDescription } from "./watcher-parser-docs";
 import { coerceRelativeDate, RELATIVE_DATE_FIELDS, type RelativeDateConfig } from "./agent-triggers";
+import { ACTION_CREDITS } from "./plans";
 
 // COMPRÉHENSION AVANT VITESSE (2026-07-07) : le recruteur d'agents lit la mission
 // avec Sonnet 5, pas Haiku. Comprendre la vraie intention (« relance mon ami tous
@@ -68,14 +70,42 @@ export const COMPLEXITY_MODEL: Record<AgentComplexity, string> = {
   medium: TIER_MEDIUM,
   complex: TIER_COMPLEX,
 };
-// Alignées sur le DÉBIT RÉEL constaté (coût mesuré × creditsForCost, arrondi
-// au palier de 5) ET sur la page tarifs publique — annoncer 5 et débiter 10
-// serait la surprise qu'on a juré d'éviter.
-export const COMPLEXITY_ESTIMATE: Record<AgentComplexity, number> = {
-  simple: 10,   // message/rappel bref, une lecture ciblée (Haiku)
-  medium: 25,   // contrôle d'une partie du workspace + rédaction (Sonnet)
-  complex: 50,  // analyse transversale/raisonnement lourd (Opus)
-};
+// ── PRIX ANNONCÉ AU RECRUTEMENT ──────────────────────────────────────────────
+//
+// ⚠️ Ce que cette fonction renvoie DOIT être exactement ce que lib/agent-executor.ts
+// débite. C'est la seule règle qui compte ici.
+//
+// Avant, le prix était indexé sur la COMPLEXITÉ (10 / 25 / 50 selon Haiku/Sonnet/
+// Opus) alors que l'exécuteur, lui, débitait un forfait unique de 25 quoi qu'il
+// arrive. Un agent « simple » qui rédige un e-mail était donc ANNONCÉ à 10 et
+// FACTURÉ 25 : très exactement la surprise que ce fichier jurait d'éviter. Et un
+// agent « complexe » était annoncé au double de son prix réel.
+//
+// La complexité choisit encore le MODÈLE (COMPLEXITY_MODEL) — c'est son rôle. Elle
+// ne choisit plus le PRIX : le prix suit ce que l'agent FAIT, qui est un fait
+// observable, pas une classification devinée par le LLM au recrutement.
+export function estimateCreditsPerRun(
+  type: AgentActionType,
+  opts: { judged?: boolean } = {}
+): number {
+  switch (type) {
+    // Gabarits : aucun appel LLM (l'agenda / l'alerte sont déjà formatés), donc
+    // aucun token, donc l'exécuteur ne débite rien. SAUF une alerte JUGÉE par l'IA,
+    // qui lit chaque nouvelle fiche pour trancher : c'est un vrai passage.
+    case "notify":
+    case "team_planning":
+      return opts.judged ? ACTION_CREDITS.agent_passage : 0;
+    // L'agent AGIT : boucle agentique sur les outils du workspace (jusqu'à 10
+    // itérations × 4 fiches), soit ~10× le coût d'une simple relance.
+    case "act":
+      return ACTION_CREDITS.agent_action;
+    // Tout ce qui RÉDIGE : relance client, compte-rendu, rapport.
+    case "send_email":
+    case "report":
+    case "compte_rendu":
+      return ACTION_CREDITS.agent_redaction;
+  }
+}
 
 /** Passages par mois selon le planning (tous les jours = ~30). */
 export function runsPerMonth(days: number[]): number {
@@ -770,7 +800,7 @@ export function parseInstructionHeuristic(instruction: string): ParsedRule {
 /** Parse l'instruction : Haiku si clé dispo, repli heuristique sinon/en erreur. */
 export async function parseInstruction(instruction: string): Promise<ParsedRule> {
   const hasKey =
-    !!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.startsWith("your_");
+    hasAnyLlmKey();
   if (!hasKey) return parseInstructionHeuristic(instruction);
 
   // relative_date (déclencheur générique sur date) n'est proposé au parseur QUE si
@@ -779,7 +809,6 @@ export async function parseInstruction(instruction: string): Promise<ParsedRule>
   const v2On = process.env.AGENT_V2_RUNNER === "1";
 
   try {
-    const client = new Anthropic();
     const msg = await client.messages.create({
       model: PARSE_MODEL,
       max_tokens: 512,
@@ -1298,7 +1327,7 @@ export async function createAgentRule(opts: {
       dataFocus: "",
       complexity,
       model: COMPLEXITY_MODEL[complexity],
-      estimatedCreditsPerRun: evType === "notify" ? 0 : COMPLEXITY_ESTIMATE[complexity],
+      estimatedCreditsPerRun: estimateCreditsPerRun(evType),
       approval: evType === "send_email" && mentionsApprovalIntent(instruction) ? "always" : "auto",
     };
     // Trigger legacy : blob bénin (le legacy ne l'exécute jamais — runner gaté ON) ;
@@ -1421,14 +1450,9 @@ export async function createAgentRule(opts: {
         dataFocus: "",
         complexity,
         model: COMPLEXITY_MODEL[complexity],
-        // Alerte patron par gabarit = 0 crédit ; alerte JUGÉE par IA ≈ simple ;
-        // relance client / compte-rendu = IA (~medium).
-        estimatedCreditsPerRun:
-          evType === "notify"
-            ? isJudged
-              ? COMPLEXITY_ESTIMATE.simple
-              : 0
-            : COMPLEXITY_ESTIMATE[complexity],
+        // Alerte patron par gabarit = 0 crédit ; alerte JUGÉE par l'IA = un passage ;
+        // relance client / compte-rendu = rédaction.
+        estimatedCreditsPerRun: estimateCreditsPerRun(evType, { judged: isJudged }),
         // Mode brouillon (#67) : « prépare sans envoyer, je valide » → chaque
         // relance passe par l'outbox. Sinon envoi auto (les relances FERMES
         // restent quand même retenues pour validation, cf. exécuteur).
@@ -1482,7 +1506,7 @@ export async function createAgentRule(opts: {
                 : "je vous préviens aussitôt";
       // Transparence : un veilleur jugé par IA consomme un peu à chaque examen.
       const judgeNote = isJudged
-        ? ` L'analyse coûte ~${COMPLEXITY_ESTIMATE.simple} crédits par lot de nouvelles fiches (le débit réel fait foi).`
+        ? ` L'analyse coûte ~${ACTION_CREDITS.agent_passage} crédits par lot de nouvelles fiches (le débit réel fait foi).`
         : "";
       const message =
         `🤖 Agent recruté : **${title}**. Je surveille ${watcher.watching}${daysNote} en continu — ` +
@@ -1544,8 +1568,8 @@ export async function createAgentRule(opts: {
     dataFocus: parsed.dataFocus,
     complexity: parsed.complexity,
     model: COMPLEXITY_MODEL[parsed.complexity],
-    // Le planning est assemblé par gabarit (agenda déjà formaté) → 0 crédit IA.
-    estimatedCreditsPerRun: isPlanning ? 0 : COMPLEXITY_ESTIMATE[parsed.complexity],
+    // Le prix suit l'action (le planning est un gabarit → 0 crédit IA), pas la complexité.
+    estimatedCreditsPerRun: estimateCreditsPerRun(parsed.actionType),
   };
 
   const blocked = blockedReason !== null;
@@ -1747,8 +1771,8 @@ export async function activateAgentTemplate(opts: {
       dataFocus: "",
       complexity,
       model: COMPLEXITY_MODEL[complexity],
-      // Alerte patron (notify) = gabarit, 0 crédit ; relance/compte-rendu = IA.
-      estimatedCreditsPerRun: evType === "notify" ? 0 : COMPLEXITY_ESTIMATE[complexity],
+      // Alerte patron (notify) = gabarit, 0 crédit ; relance/compte-rendu = rédaction.
+      estimatedCreditsPerRun: estimateCreditsPerRun(evType),
     };
     const trigger: AgentTrigger = { watcher: watcher.key, params: { days }, scanEveryMinutes: 60 };
 
@@ -1820,8 +1844,8 @@ export async function activateAgentTemplate(opts: {
     dataFocus: template.dataFocus ?? "",
     complexity,
     model: COMPLEXITY_MODEL[complexity],
-    // Le planning est assemblé par gabarit (agenda déjà formaté) → 0 crédit IA.
-    estimatedCreditsPerRun: isPlanning ? 0 : COMPLEXITY_ESTIMATE[complexity],
+    // Le prix suit l'action (le planning est un gabarit → 0 crédit IA), pas la complexité.
+    estimatedCreditsPerRun: estimateCreditsPerRun(schedAction),
   };
 
   const blocked = blockedReason !== null;

@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { client, hasKeyFor, realCostOf } from "@/lib/llm";
 import { routeRequest } from "@/lib/router";
 import { getCategory } from "@/lib/sectors";
 import { buildKnowledgeBlock } from "@/lib/btp-catalog";
@@ -43,11 +44,25 @@ import { runAgentLoop, buildWorkspaceToolsSystem } from "@/lib/agent-tools";
 import { canSendOutbound } from "@/lib/outbound-email";
 import { resolveAudience, isTaskAudience, audienceLabels, SEND_CAP } from "@/lib/task-now";
 import { pick } from "@/lib/i18n/config";
-import { TIER_SIMPLE, TIER_MEDIUM, TIER_COMPLEX } from "@/lib/models";
+import {
+  TIER_SIMPLE,
+  TIER_MEDIUM,
+  TIER_COMPLEX,
+  MODEL_VISION,
+  MODEL_IMAGE,
+  canSeeImages,
+} from "@/lib/models";
+import { genererRendu, verifierDemandeRendu, estUnRefus } from "@/lib/image-gen";
+import {
+  lireFichiersPourLeGenerateur,
+  blocPourLeGenerateur,
+  type LectureFichiers,
+} from "@/lib/file-reading";
+import { ACTION_CREDITS } from "@/lib/plans";
+import { findBindingViolations, buildBindingRepairPrompt } from "@/lib/app-guards";
 import { getLocale } from "@/lib/i18n/server";
 import { withLocale, localeInstruction } from "@/lib/i18n/llm";
 
-const client = new Anthropic();
 
 // ── Choix du moteur de génération ─────────────────────────────────────────────
 // Sonnet 4.6 : petites apps, documents, itérations légères (équilibre coût/qualité).
@@ -62,6 +77,25 @@ const MODEL_HEAVY = TIER_COMPLEX;
 // s'en va. La réponse est streamée, donc le 1er mot arrive vite quand même.
 const ANSWER_MODEL = TIER_MEDIUM;
 const MAX_TOKENS = 16000;
+
+// ── BUDGET DE TEMPS ──────────────────────────────────────────────────────────
+// `maxDuration = 300` : passé ce délai, Vercel TUE la fonction sans exception.
+// Aucun `catch` ne s'exécute → l'app n'est pas sauvegardée ET les crédits ne sont
+// pas remboursés. L'artisan voit son app se construire en direct, puis disparaître.
+//
+// Mesuré le 2026-07-13 (8 apps réelles, réparation incluse) :
+//   génération      : 68 s à 197 s selon la taille
+//   réparation      : 59 s à 161 s — soit ~3,3 s par Ko d'application
+//   la plus lourde  : 197 + 133 = 330 s  → DÉPASSE LES 300 s, tuée.
+//
+// La réparation est un CONFORT (elle recâble des tableaux faits à la main) ;
+// l'application, elle, est le PRODUIT. On ne sacrifie jamais le produit au confort :
+// s'il ne reste pas de quoi réparer sereinement, on livre l'app telle quelle.
+const BUDGET_MS = 300_000;
+/** Finalisation après la réparation : validation, sauvegarde, versions, crédits, `done`. */
+const FINALISATION_MS = 40_000;
+/** Vitesse de la passe de réparation, MESURÉE : ~3,3 s par Ko d'app. +30 % de marge. */
+const REPAIR_MS_PAR_KO = 4_300;
 
 function pickBuildModel(opts: {
   prompt: string;
@@ -198,14 +232,20 @@ Un moteur de graphiques (interactif + animé, zéro dépendance) est PRÉ-INJECT
 - Monte le graphique APRÈS avoir injecté le HTML de la vue (l'élément \`#ch-ca\` doit exister), dans un \`try/catch\`. Re-dessine au \`resize\` (throttlé) pour rester net.
 - DOSAGE : 1 à 2 graphiques par vue qui en a besoin (métrique dans le temps, répartition par chantier/poste). Jamais un mur ; une petite app peut n'en avoir aucun.
 
-## COMPOSANTS FIABLES — RUNTIME DÉJÀ CHARGÉ (window.biltiaUI — tu APPELLES, tu n'écris PAS la plomberie)
-Pour les briques CRITIQUES branchées aux données (tableau, formulaire, kanban, KPI), un runtime déterministe est PRÉ-INJECTÉ : \`window.biltiaUI\`. PRÉFÈRE-LE à ta propre implémentation dès qu'une brique lit/écrit une entité du workspace — il garantit la liaison \`window.biltia\`, le CRUD, la recherche/tri, le glisser-déposer QUI PERSISTE et les selects relationnels (là où une implémentation maison casse souvent). Tu poses un conteneur \`<div id="…"></div>\` puis tu appelles, APRÈS avoir injecté le HTML de la vue, dans un try/catch :
+## COMPOSANTS OBLIGATOIRES POUR LES DONNÉES (window.biltiaUI — tu APPELLES, tu n'écris PAS la plomberie)
+RÈGLE NON NÉGOCIABLE : dès qu'une brique LIT ou ÉCRIT une entité du workspace (tableau, formulaire, kanban, KPI), tu DOIS passer par \`window.biltiaUI\`, un runtime déterministe PRÉ-INJECTÉ. Écrire à la main un \`<form>\`, un \`<table>\` ou un kanban branché sur une entité du workspace est INTERDIT : c'est la première cause d'apps qui s'affichent bien mais n'enregistrent RIEN (le bouton « Enregistrer » ne sauve pas, le glisser-déposer ne persiste pas, le select « Client » reste vide). \`biltiaUI\` garantit la liaison \`window.biltia\`, le CRUD, la recherche/tri, le glisser-déposer QUI PERSISTE, les selects relationnels peuplés automatiquement et la validation des requis.
+Ces composants réutilisent TON design system (\`.table-wrap\`, \`.btn\`, \`.kpi\`, \`.card\`, \`.modal\`) : le rendu est identique à ce que tu écrirais toi-même. Tu ne perds AUCUNE liberté visuelle, tu gagnes la fiabilité.
+Tu poses un conteneur \`<div id="…"></div>\` puis tu appelles, APRÈS avoir injecté le HTML de la vue, dans un try/catch :
 - \`biltiaUI.table('host', { entity:'chantiers', columns:[{key:'nom',label:'Nom'},{key:'statut',label:'Statut'},{key:'budget',label:'Budget',type:'currency'}], search:true, onRowClick:function(row){…}, rowActions:[{label:'Voir',onClick:function(row){…}}] })\` → tableau réel (recherche, tri au clic d'en-tête, clic ligne), câblé et rechargé depuis le workspace, avec état vide propre.
 - \`biltiaUI.form('host', { entity:'clients', fields:[{key:'nom',label:'Nom',type:'text',required:true},{key:'chantier_id',label:'Chantier',type:'relation',relation:'chantiers'},{key:'statut',type:'select',options:['actif','inactif']}], record:ficheAModifier, onSaved:function(row){…} })\` → formulaire qui CRÉE/MET À JOUR via \`window.biltia\`, selects relationnels peuplés automatiquement, validation des requis.
 - \`biltiaUI.kanban('host', { entity:'tasks', statusField:'status', columns:[{value:'todo',label:'À faire'},{value:'doing',label:'En cours'},{value:'done',label:'Terminé'}], cardTitle:function(r){return r.title;}, cardMeta:function(r){return r.due_date||'';}, onCardClick:function(r){…} })\` → kanban dont le glisser-déposer PERSISTE le statut (+ boutons ‹ › au tap mobile).
 - \`biltiaUI.kpi('host', { entity:'factures', label:'Encaissé', compute:'sum', field:'montant_paye', type:'currency' })\` → KPI calculé en direct (\`compute\` = 'count' | 'sum' | 'avg').
 - \`biltiaUI.format(valeur, 'currency'|'date'|'percentage'|'number'|'boolean')\` → formatage FR partagé.
-Types de champ reconnus (form/table) : text, long_text, number, currency, percentage, boolean, date, datetime, email, phone, url, select, status, relation. Ces composants réutilisent le design system (\`.table-wrap\`, \`.btn\`, \`.kpi\`, \`.card\`, \`.modal\`) → intégration visuelle native. Tu restes LIBRE pour la mise en page, le hero/cockpit, les sections d'ambiance : n'utilise \`biltiaUI\` QUE pour les briques de données critiques, jamais pour tout figer.
+Types de champ reconnus (form/table) : text, long_text, number, currency, percentage, boolean, date, datetime, email, phone, url, select, status, relation.
+PARTAGE DES RÔLES, sans ambiguïté :
+- \`biltiaUI\` = TOUTE brique de DONNÉES (liste, fiche, formulaire, kanban, KPI d'entité). OBLIGATOIRE, aucune exception.
+- TOI = TOUT le reste, et tu y es entièrement libre : mise en page, navigation, hero/cockpit, sections d'ambiance, graphiques, textes, ergonomie mobile. C'est là que se joue ton style, et tu ne te censures pas.
+Autrement dit : le CONTENANT est à toi, le CÂBLAGE DES DONNÉES est à \`biltiaUI\`.
 
 ## PLANNING / CALENDRIER — SIMPLE ET BEAU (ne le surcharge JAMAIS)
 Le planning est ce que tu surcharges le plus — arrête. Un calendrier doit être ÉPURÉ et lisible d'un coup d'œil, comme un vrai agenda propre :
@@ -728,18 +768,76 @@ async function fetchCompanyBlock(
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Retire les clôtures Markdown (```) d'une sortie de modèle.
+ *
+ * ⚠️ NE PAS se contenter du début et de la fin. Quand la génération dépasse
+ * `max_tokens`, on relance le modèle pour qu'il CONTINUE (cf. MAX_TURNS) — et il
+ * redémarre très souvent par un « ```html ». Une fois les tours recollés, la
+ * clôture se retrouve AU MILIEU du fichier : `validateHtml` la voit, rejette
+ * tout (« fence markdown résiduelle »), et l'artisan perd une application qui
+ * avait pourtant mis deux minutes à se construire. Vu en vrai le 2026-07-13.
+ *
+ * On supprime donc TOUTE ligne qui n'est qu'une clôture, où qu'elle soit. Aucun
+ * risque : `validateHtml` considère de toute façon un ``` restant comme fatal —
+ * l'enlever ne peut que sauver le fichier.
+ *
+ * Sert aussi au texte des patchs (blocs RECHERCHE/REMPLACE) : on ne touche donc
+ * QU'aux clôtures, jamais au contenu autour.
+ */
 function stripFences(html: string): string {
-  let out = html.trim();
-  if (out.startsWith("```")) {
-    out = out.replace(/^```(?:html)?\n?/, "").replace(/\n?```$/, "").trim();
+  return html
+    .replace(/^[ \t]*```[a-zA-Z]*[ \t]*$/gm, "") // clôture seule sur sa ligne, où qu'elle soit
+    .replace(/^[ \t]*```[a-zA-Z]*[ \t]*\n?/, "") // clôture ouvrante collée au tout début
+    .replace(/```[a-zA-Z]*[ \t]*$/, "") // clôture collée à la toute fin (même sans saut de ligne)
+    .trim();
+}
+
+/**
+ * Ne garde QUE le document. Tout ce que le modèle a bavardé autour est jeté.
+ *
+ * ⚠️ RÈGLE ABSOLUE DU PRODUIT : l'artisan ne doit JAMAIS voir un mot de langage
+ * développeur. Pas « Voici le code HTML complet de l'application », pas « J'ai
+ * utilisé Chart.js », rien. Il a demandé un outil, il reçoit un outil.
+ *
+ * Le prompt système l'exige déjà (« le premier caractère de ta réponse est `<` »).
+ * Le modèle l'a ignoré : le 2026-07-13, une app a été livrée avec « Voici le code
+ * HTML complet de l'application de gestion financière de chantier. » imprimé en
+ * haut de l'écran. Une consigne n'est pas une garantie — **c'est le code qui
+ * garantit.** On coupe donc avant `<!DOCTYPE`/`<html` et après `</html>`.
+ *
+ * ⚠️ NE PAS appeler sur le texte d'un PATCH (blocs RECHERCHE/REMPLACE) : il n'y a
+ * pas de document là-dedans, on effacerait tout.
+ */
+function keepDocumentOnly(html: string): string {
+  const debut = html.search(/<!doctype\s+html|<html[\s>]/i);
+  let out = debut > 0 ? html.slice(debut) : html;
+
+  // Après `</html>`, il ne reste rien de légitime SAUF le bloc <!--BILTIA_SPEC …-->
+  // (l'intention déclarée de l'app, extraite plus bas). On garde donc la queue
+  // uniquement si c'est lui ; sinon on coupe net.
+  const fin = out.toLowerCase().lastIndexOf("</html>");
+  if (fin !== -1) {
+    const corps = out.slice(0, fin + "</html>".length);
+    const queue = out.slice(fin + "</html>".length);
+    const spec = queue.match(/<!--\s*BILTIA_SPEC[\s\S]*?-->/i);
+    out = spec ? `${corps}\n${spec[0]}` : corps;
   }
-  return out;
+  return out.trim();
 }
 
 function validateHtml(html: string): string | null {
   const lower = html.toLowerCase();
   if (html.length < 300) return "trop court";
   if (!lower.includes("<!doctype") && !lower.includes("<html")) return "pas de document HTML";
+
+  // LE FILET. `includes` ne suffit pas : un document qui CONTIENT du HTML mais
+  // ne COMMENCE pas par du HTML, c'est du bavardage servi à l'artisan.
+  // C'est exactement ce qui est passé le 2026-07-13. Ce contrôle-là l'aurait vu.
+  if (!lower.startsWith("<!doctype") && !lower.startsWith("<html")) {
+    return "texte parasite avant le document (bavardage du modèle)";
+  }
+
   if (!lower.includes("</body>") || !lower.includes("</html>")) return "document non fermé";
 
   const opens = (lower.match(/<script\b/g) || []).length;
@@ -856,20 +954,45 @@ async function recordUnmetRequest(
   }
 }
 
+// DURÉE MAXIMALE — explicite, et surtout PAS implicite.
+//
+// Aucune route ne déclarait de `maxDuration` : la limite venait du réglage projet
+// Vercel, invisible depuis le dépôt et modifiable sans que personne le sache. En
+// production, une génération a réellement été TUÉE à 300 s (« Vercel Runtime
+// Timeout Error »). Quand cela arrive, le `catch` de fin de flux ne s'exécute pas
+// : les crédits tenus ne sont PAS remboursés, et le client ne reçoit jamais
+// l'événement `done`.
+//
+// On fige donc la valeur ici. Une génération enchaîne jusqu'à 4 tours de 16 000
+// jetons (cf. MAX_TURNS / MAX_TOKENS), plus une passe de repérage en mode
+// modification : 300 s est le plafond réaliste. Le client, lui, sait désormais
+// dire à l'artisan que la génération a été coupée (cf. `if (!data)` dans
+// generate/page.tsx) au lieu de rester muet.
+export const maxDuration = 300;
+
 export async function POST(req: Request) {
+  // Chronomètre de la requête. La fonction est TUÉE net à `maxDuration` (300 s) :
+  // pas d'exception, pas de `catch`, pas de remboursement — le flux SSE s'arrête
+  // au milieu et le client affiche « la génération a été interrompue ».
+  // La passe de réparation, elle, s'ajoute APRÈS une génération déjà longue :
+  // il faut donc savoir, à chaque instant, combien de temps il reste. Cf. REPAIR_*.
+  const t0 = Date.now();
   try {
     // Langue de l'interface (cookie) : le copilote/générateur répond dans la
     // locale de l'utilisateur (réponses de chat, questions, textes des apps et
     // documents générés, messages d'erreur). FR = défaut → zéro impact.
     const locale = await getLocale();
 
-    if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY.startsWith("your_")) {
+    // On vérifie la clé du fournisseur RÉELLEMENT appelé (cf. lib/llm.ts).
+    // Avant : ce contrôle portait sur ANTHROPIC_API_KEY — retirer cette clé morte
+    // éteignait TOUTE la génération, alors que plus un seul appel n'y va.
+    if (!hasKeyFor(TIER_COMPLEX) || !hasKeyFor(TIER_MEDIUM)) {
       return Response.json(
         {
           error: pick(
             locale,
-            "Clé API Anthropic non configurée. Ajoutez ANTHROPIC_API_KEY dans .env.local.",
-            "Anthropic API key not configured. Add ANTHROPIC_API_KEY to .env.local."
+            "Aucune clé IA configurée. Renseignez OPENROUTER_API_KEY (ou ANTHROPIC_API_KEY) dans .env.local.",
+            "No AI key configured. Set OPENROUTER_API_KEY (or ANTHROPIC_API_KEY) in .env.local."
           ),
         },
         { status: 503 }
@@ -927,6 +1050,13 @@ export async function POST(req: Request) {
       files?: { name?: string; mediaType?: string; data?: string }[];
       // Portée des données choisie au questionnaire (workspace / import / zéro).
       dataScope?: DataScopeInput;
+      // ── LE FIL DE LA CONVERSATION ──────────────────────────────────────────
+      // Sans lui, le copilote était AMNÉSIQUE : chaque message repartait de zéro.
+      // « réessaye », « oui », « fais-le », « et pour les factures ? » n'avaient
+      // aucun sens — le modèle recevait deux mots hors contexte et répondait
+      // « Je t'écoute. De quoi as-tu besoin ? » alors que le besoin venait d'être
+      // exprimé. Ce n'était pas un problème de modèle : on ne lui disait rien.
+      history?: { role: "user" | "assistant"; content: string }[];
     };
     try {
       body = await req.json();
@@ -938,6 +1068,25 @@ export async function POST(req: Request) {
     }
 
     const { prompt, previousHTML, format, isAutoFix } = body;
+
+    // ── MÉMOIRE DE LA CONVERSATION ─────────────────────────────────────────────
+    // Bornée volontairement : 12 tours, 1 500 caractères par message. Un fil de
+    // chat n'est pas un roman — 12 tours couvrent très largement un échange réel,
+    // et le plafond empêche qu'un message géant (une app collée, un log) fasse
+    // exploser la facture. Coût mesuré du contexte : ~1 600 tokens = $0,003.
+    // On ne garde QUE du texte (les fichiers ont leur propre canal, `files`).
+    const HISTORY_TOURS = 12;
+    const HISTORY_CHARS = 1500;
+    const history = (Array.isArray(body.history) ? body.history : [])
+      .filter(
+        (m): m is { role: "user" | "assistant"; content: string } =>
+          !!m &&
+          (m.role === "user" || m.role === "assistant") &&
+          typeof m.content === "string" &&
+          m.content.trim().length > 0
+      )
+      .slice(-HISTORY_TOURS)
+      .map((m) => ({ role: m.role, content: m.content.slice(0, HISTORY_CHARS) }));
 
     // Fichiers joints DANS L'ATELIER (capture d'écran d'un problème, document
     // de référence) : contexte multimodal de la génération/modification —
@@ -975,7 +1124,9 @@ export async function POST(req: Request) {
       );
     }
 
-    const isModification = typeof previousHTML === "string" && previousHTML.length > 0;
+    // `let` et non `const` : quand une app est ouverte mais que l'utilisateur en
+    // demande une NOUVELLE (sans rapport), on repasse en création — voir plus bas.
+    let isModification = typeof previousHTML === "string" && previousHTML.length > 0;
 
     // ── Profil : secteur (aiguillage) + préférences IA en UNE requête ─────────
     // (l'ancien code interrogeait `profiles` deux fois, séquentiellement).
@@ -1032,25 +1183,38 @@ export async function POST(req: Request) {
       kind = providedKind ?? "module";
       docType = typeof body.docType === "string" ? body.docType : null;
     } else {
-      const k = await classifyKind({ prompt, sector, hasExistingApp: isModification });
+      const k = await classifyKind({ prompt, sector, hasExistingApp: isModification, history });
       logAuxUsage(k.usage, "classify_kind");
       emailDraft = k.email;
       taskDraft = k.task;
       outOfScope = k.outOfScope === true;
       oosAlternative = k.oosAlternative ?? "";
       if (isModification) {
-        // ── APP OUVERTE : deux issues seulement — MODIFIER l'app, ou RÉPONDRE
-        // EN CHAT. Une demande qui ne VISE PAS l'app (« traduis ça », « écris un
-        // mot à mon client », « c'est quoi la RE2020 ? », « raconte une blague »)
-        // ne doit JAMAIS réécrire l'application : on répond en texte et on débite
-        // le prix d'une question, pas d'une modification. `targets_open_app`
-        // (classifieur Sonnet) tranche modification vs hors-sujet ; sans signal
-        // LLM (repli heuristique), on garde le comportement historique — tout ce
-        // qui n'est pas une pure question est une modification.
+        // ── APP OUVERTE : TROIS issues (il n'y en avait que deux, et c'était un bug).
+        //   1. MODIFIER l'app ouverte      → targets_open_app = true
+        //   2. CRÉER UNE NOUVELLE app      → kind = "module" ET targets_open_app = false
+        //   3. RÉPONDRE EN CHAT            → tout le reste
+        //
+        // Le cas 2 était IMPOSSIBLE : le code n'offrait que « modifier » ou « répondre »,
+        // donc « fais-moi un planning d'équipe » alors qu'une autre app était ouverte
+        // partait en réponse chat — et le copilote répondait « demandez à votre
+        // développeur ». Tant qu'une app était ouverte, on ne pouvait plus jamais en
+        // créer une seconde. (Constaté en prod le 2026-07-13.)
         const pureQuestion = looksLikePureQuestion(prompt);
-        const wantsAppChange =
-          typeof k.targetsOpenApp === "boolean" ? k.targetsOpenApp : !pureQuestion;
-        if (wantsAppChange && !pureQuestion) {
+
+        // NOUVELLE APP : l'utilisateur veut un OUTIL, et il ne parle pas de l'app ouverte.
+        const wantsNewApp =
+          k.kind === "module" && k.targetsOpenApp === false && !pureQuestion;
+
+        if (wantsNewApp) {
+          isModification = false; // création à neuf : l'app ouverte n'est PAS touchée
+          kind = "module";
+          kindConfidence = k.confidence;
+          kindMethod = k.method;
+        } else if (
+          (typeof k.targetsOpenApp === "boolean" ? k.targetsOpenApp : !pureQuestion) &&
+          !pureQuestion
+        ) {
           // Vraie modification de l'app ouverte : on conserve son format.
           kind = providedKind ?? "module";
           docType = providedKind ? (typeof body.docType === "string" ? body.docType : null) : null;
@@ -1138,6 +1302,96 @@ export async function POST(req: Request) {
         },
         { status: 403 }
       );
+    }
+
+    // ── RENDU CLIENT : « montre-moi à quoi ressemblera la salle de bain finie ».
+    // Un artisan qui MONTRE le résultat gagne le chantier. C'est du commercial,
+    // et c'est assumé : l'image est une ILLUSTRATION, pas un document technique.
+    //
+    // lib/image-gen.ts refuse tout seul les demandes dangereuses (plan, coupe,
+    // cotation) et les demandes de texte dans l'image (le modèle écrit avec des
+    // fautes). Un refus n'est PAS une erreur : on l'explique, et on ne débite rien.
+    if (kind === "image" && !isModification && !isAutoFix) {
+      const refusPreal = verifierDemandeRendu(prompt);
+      if (refusPreal) {
+        return Response.json({ kind: "answer", answer: refusPreal.refus, creditsUsed: 0 });
+      }
+
+      // `founder` n'est déclaré que plus bas (chemin de génération) : on résout ici.
+      const cout = isFounderEmail(user.email) ? 0 : ACTION_CREDITS.rendu_client;
+      if (cout > 0) {
+        const { data: ok } = await supabase.rpc("deduct_credits", { p_amount: cout });
+        if (!ok) {
+          return Response.json(
+            { error: pick(locale, "Crédits insuffisants.", "Not enough credits."), needCredits: cout },
+            { status: 402 }
+          );
+        }
+      }
+
+      const rendu = await genererRendu(prompt);
+
+      if (estUnRefus(rendu)) {
+        // Échec ou refus tardif → on rembourse. On ne fait jamais payer un vide.
+        if (cout > 0) {
+          const admin = createAdminClient();
+          if (admin) await admin.rpc("refund_credits", { p_user_id: user.id, p_amount: cout });
+        }
+        return Response.json({ kind: "answer", answer: rendu.refus, creditsUsed: 0 });
+      }
+
+      // Le rendu est joint à un devis, envoyé par e-mail : il doit VIVRE quelque
+      // part. Bucket `renders`, chemin <tenant>/<uuid> — inconnu, donc illisible
+      // par qui n'a pas reçu le devis (migration 052).
+      const ext = rendu.mediaType.split("/")[1];
+      const chemin = `${tenantId}/${crypto.randomUUID()}.${ext}`;
+      let urlPublique: string | null = null;
+      try {
+        const bytes = Buffer.from(rendu.base64, "base64");
+        const { error: upErr } = await supabase.storage
+          .from("renders")
+          .upload(chemin, bytes, { contentType: rendu.mediaType, upsert: false });
+        if (upErr) throw upErr;
+        urlPublique = supabase.storage.from("renders").getPublicUrl(chemin).data.publicUrl;
+
+        await supabase.from("documents").insert({
+          tenant_id: tenantId,
+          nom: prompt.slice(0, 80),
+          type: "rendu",
+          storage_path: chemin,
+          url: urlPublique,
+          statut: "actif",
+        });
+      } catch (e) {
+        // Le stockage a lâché : l'artisan garde quand même SON image (en base64).
+        // On ne lui vole pas son rendu parce que notre tuyauterie a hoqueté.
+        console.error("[rendu] stockage en échec :", e);
+      }
+
+      await trackAiUsage({
+        supabase,
+        userId: user.id,
+        tenantId,
+        action: "rendu_client",
+        model: MODEL_IMAGE,
+        inputTokens: 0,
+        outputTokens: 0,
+        realCostUsd: rendu.realCost > 0 ? rendu.realCost : undefined,
+        billedCredits: cout,
+        sector: sector ?? undefined,
+      });
+
+      return Response.json({
+        kind: "image",
+        imageUrl: urlPublique ?? `data:${rendu.mediaType};base64,${rendu.base64}`,
+        stored: urlPublique != null,
+        answer: pick(
+          locale,
+          "Voici le rendu. C'est une **illustration** destinée à montrer le résultat à votre client — pas un document technique. Vous pouvez la joindre à votre devis.",
+          "Here's the render. It's an **illustration** meant to show the result to your client — not a technical document. You can attach it to your quote."
+        ),
+        creditsUsed: cout,
+      });
     }
 
     // ── EMAIL : l'intention est comprise (destinataire + objet + corps déjà
@@ -1656,19 +1910,23 @@ Si la demande vise PLUSIEURS fiches d'un coup en SUPPRESSION ou en ÉCRASEMENT d
     // Les corrections automatiques d'erreurs ne coûtent pas de crédits.
     // Compte fondateur : jamais de hold ni de débit (usage journalisé quand même).
     const founder = isFounderEmail(user.email);
-    // Réservation alignée sur la grille tarifaire publique (page /tarifs) :
-    //   question ≈ 10 · document/devis ≈ 50 · modification ≈ 60 · application = 300.
-    // Un DOCUMENT ne doit JAMAIS être réservé au prix d'une APPLICATION.
+    // LE TARIF, pas une réservation. Grille unique : lib/plans.ts → ACTION_CREDITS,
+    // celle-là même qu'annonce la page /tarifs. Il n'est PLUS réconcilié au coût
+    // réel du modèle : un moteur moins cher améliore la MARGE, il ne brade pas
+    // l'offre. (Avant, la réconciliation ramenait une app de 250 crédits à 15 →
+    // un abonné à 49 € pouvait en générer 133, et plus personne ne montait de palier.)
+    // Un DOCUMENT ne doit JAMAIS être facturé au prix d'une APPLICATION.
+    // L'auto-correction est GRATUITE : c'est notre bug, pas le sien.
     const holdCredits =
       isAutoFix || founder
         ? 0
         : isAnswer
-          ? 10
+          ? ACTION_CREDITS.question
           : isModification
-            ? 60
+            ? ACTION_CREDITS.modification_app
             : kind === "document"
-              ? 50
-              : 300;
+              ? ACTION_CREDITS.document
+              : ACTION_CREDITS.application;
 
     if (holdCredits > 0) {
       const { data: credited } = await supabase.rpc("deduct_credits", {
@@ -1830,7 +2088,10 @@ HORS CAPACITÉS (physique, téléphonie, ingénierie) — Si on te demande une a
               model: answerModel,
               max_tokens: 800,
               system: answerSystem,
-              messages: [{ role: "user", content: prompt }],
+              // Le FIL, puis le message courant. Sans l'historique, « réessaye »
+              // arrivait ici tout seul : le modèle répondait « Je t'écoute »
+              // à quelqu'un qui venait d'expliquer son besoin en cinq lignes.
+              messages: [...history, { role: "user", content: prompt }],
             });
             for await (const event of llm) {
               if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
@@ -1859,12 +2120,12 @@ HORS CAPACITÉS (physique, téléphonie, ingénierie) — Si on te demande une a
                   outputTokens: message.usage.output_tokens,
                   agent: route.agent,
                   sector: sector ?? undefined,
+                  billedCredits: holdCredits, // la GRILLE, pas le coût
                 });
                 if (founder) {
                   realCredits = 0; // journalisé pour le suivi des coûts, jamais débité
                 } else {
-                  realCredits = tracked;
-                  await reconcileCredits(supabase, createAdminClient(), user.id, holdCredits, realCredits);
+                  realCredits = tracked; // = holdCredits, déjà débité
                 }
               } catch (meterErr) {
                 console.error("Metering failed after answer:", meterErr);
@@ -2124,28 +2385,74 @@ RATTRAPAGE RESPONSIVE (amélioration attendue, PAS un écart) : si le CSS de l'a
       `- CONSERVE la palette existante (--vio, --grad, --glow, --tint, --tintline) SAUF si l'utilisateur demande explicitement un changement de style — dans ce cas applique-le pleinement et visiblement (PRINCIPE ZÉRO).\n` +
       `- Ne produis AUCUN autre texte : ni explication, ni fence \`\`\`, UNIQUEMENT les blocs RECHERCHE/REMPLACE.`;
 
-    // Fichiers joints → blocs multimodaux AVANT le texte (captures, PDF).
-    const withFiles = (text: string): Anthropic.MessageParam["content"] =>
-      contextFiles.length
-        ? [
-            ...contextFiles.map<Anthropic.ContentBlockParam>((f) =>
-              f.mediaType === "application/pdf"
-                ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: f.data } }
-                : {
-                    type: "image",
-                    source: {
-                      type: "base64",
-                      media_type: f.mediaType as "image/png" | "image/jpeg" | "image/webp",
-                      data: f.data,
-                    },
-                  }
-            ),
-            {
-              type: "text",
-              text: `${text}\n\n(Les fichiers joints ci-dessus montrent le problème ou servent de référence : prends-les en compte dans ta réponse.)`,
-            },
-          ]
-        : text;
+    // ── LES YEUX DU GÉNÉRATEUR ─────────────────────────────────────────────────
+    // Le modèle de génération (DeepSeek V4 Pro) est AVEUGLE. Lui envoyer un plan
+    // ou une photo faisait planter la requête en 404 (« No endpoints found that
+    // support image input ») : joindre un plan et demander une app était tout
+    // simplement IMPOSSIBLE. Bug du 2026-07-13, conséquence directe de la bascule
+    // de moteur — le catalogue le disait, mais en prose, là où aucun code ne lit.
+    //
+    // On ne remplace PAS le générateur par un modèle qui voit (le meilleur codeur
+    // n'est pas le meilleur œil, et inversement) : on fait LIRE les fichiers par le
+    // modèle de VISION, et on passe sa retranscription — du texte — au générateur.
+    // Un modèle par métier. Coût : ~0,001 $, ~10 s. Et ça marche aussi le jour où
+    // le palier bascule vers un autre modèle aveugle.
+    const buildVoit = canSeeImages(buildModel) && canSeeImages(patchModel);
+
+    // Coût de la LECTURE des fichiers : elle a lieu AVANT le flux de génération,
+    // mais elle est bien à la charge de cette requête. On la reporte dans le total.
+    let inTokPre = 0;
+    let outTokPre = 0;
+    let realCostPre = 0;
+
+    // LE PASSAGE DE RELAIS (lib/file-reading.ts) : l'œil lit EN SACHANT ce que
+    // l'artisan veut construire, DÉCLARE ce qui manque, on RELIT une fois en
+    // ciblant, et le codeur reçoit du texte — plus ce que personne n'a pu voir.
+    let lecture: LectureFichiers | null = null;
+    if (contextFiles.length > 0 && !buildVoit) {
+      lecture = await lireFichiersPourLeGenerateur(contextFiles, prompt);
+      if (lecture) {
+        inTokPre += lecture.inTok;
+        outTokPre += lecture.outTok;
+        realCostPre += lecture.realCost;
+        console.log(
+          `[generate] fichiers lus par ${MODEL_VISION} : ${lecture.typeDocument}` +
+          (lecture.estUnPlan ? " (PLAN → schéma SVG demandé)" : "") +
+          (lecture.manquant.length ? ` — introuvable après 2 lectures : ${lecture.manquant.join(" ; ")}` : "")
+        );
+      }
+    }
+
+    // Fichiers joints → blocs multimodaux AVANT le texte (captures, PDF) SI le
+    // modèle voit. Sinon → la lecture faite ci-dessus, en texte.
+    const withFiles = (text: string): Anthropic.MessageParam["content"] => {
+      if (contextFiles.length === 0) return text;
+
+      if (!buildVoit) {
+        return lecture
+          ? `${blocPourLeGenerateur(lecture)}\n\n---\n\n${text}`
+          : text;
+      }
+
+      return [
+        ...contextFiles.map<Anthropic.ContentBlockParam>((f) =>
+          f.mediaType === "application/pdf"
+            ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: f.data } }
+            : {
+                type: "image",
+                source: {
+                  type: "base64",
+                  media_type: f.mediaType as "image/png" | "image/jpeg" | "image/webp",
+                  data: f.data,
+                },
+              }
+        ),
+        {
+          type: "text",
+          text: `${text}\n\n(Les fichiers joints ci-dessus montrent le problème ou servent de référence : prends-les en compte dans ta réponse.)`,
+        },
+      ];
+    };
 
     const firstUserContent = patchMode ? withFiles(patchInstruction) : withFiles(userContent);
 
@@ -2166,22 +2473,42 @@ RATTRAPAGE RESPONSIVE (amélioration attendue, PAS un écart) : si le CSS de l'a
           const runTurns = async (
             initialContent: Anthropic.MessageParam["content"],
             model: string,
-            stream: boolean
-          ): Promise<{ text: string; inTok: number; outTok: number; stopReason: string | null }> => {
+            stream: boolean,
+            // Permet d'ABANDONNER une passe en cours (réparation qui déborde du
+            // budget de temps). Sans lui, on ne peut qu'attendre — et se faire tuer.
+            signal?: AbortSignal
+          ): Promise<{ text: string; inTok: number; outTok: number; realCost: number; stopReason: string | null }> => {
             const messages: Anthropic.MessageParam[] = [{ role: "user", content: initialContent }];
             let text = "";
             let inTok = 0;
             let outTok = 0;
+            // Le RELEVÉ d'OpenRouter, cumulé sur tous les tours de continuation.
+            // C'est lui qui fait foi pour la facturation, pas le prix catalogue
+            // (le catalogue affiche le fournisseur le moins cher ; on route vers
+            // le plus rapide, qui est souvent 4× plus cher). Cf. lib/ai-usage.ts.
+            let realCost = 0;
             let stopReason: string | null = null;
             const MAX_TURNS = 4;
             for (let turn = 0; turn < MAX_TURNS; turn++) {
-              const ms = client.messages.stream({ model, max_tokens: MAX_TOKENS, system, messages });
+              if (signal?.aborted) break; // budget épuisé entre deux tours
+              const ms = client.messages.stream(
+                { model, max_tokens: MAX_TOKENS, system, messages },
+                signal ? { signal } : undefined
+              );
               let turnText = "";
               for await (const ev of ms) {
                 if (ev.type === "content_block_delta" && ev.delta.type === "text_delta") {
                   turnText += ev.delta.text;
                   text += ev.delta.text;
                   if (stream) send({ type: "html", text: ev.delta.text });
+                } else if (ev.type === "message_delta") {
+                  // ⚠️ IL FAUT LE CAPTER ICI, PAS DANS finalMessage().
+                  // OpenRouter met le montant facturé (`usage.cost`) sur l'événement
+                  // `message_delta`. Le SDK Anthropic reconstruit ensuite un objet
+                  // Message typé et JETTE ce champ, qu'il ne connaît pas : lu depuis
+                  // finalMessage(), le coût vaut toujours 0. Mesuré, et ça avait déjà
+                  // failli me faire livrer une facturation muette.
+                  realCost += realCostOf(ev.usage) ?? 0;
                 }
               }
               const finalMsg = await ms.finalMessage();
@@ -2189,24 +2516,47 @@ RATTRAPAGE RESPONSIVE (amélioration attendue, PAS un écart) : si le CSS de l'a
               outTok += finalMsg.usage.output_tokens;
               stopReason = finalMsg.stop_reason;
               if (finalMsg.stop_reason === "max_tokens") {
+                // Un tour de continuation, c'est jusqu'à 16 000 tokens de plus —
+                // soit ~60 à 90 s. En enchaîner un de trop, c'est se faire tuer par
+                // Vercel à 300 s : le flux meurt, RIEN n'est sauvegardé et les
+                // crédits ne sont PAS remboursés (le `catch` ne s'exécute jamais).
+                // Mieux vaut s'arrêter et sortir par la porte : `stop_reason` reste
+                // « max_tokens », la validation échoue, l'artisan est remboursé et
+                // prévenu. Un échec propre plutôt qu'une disparition silencieuse.
+                const resteMs = BUDGET_MS - FINALISATION_MS - (Date.now() - t0);
+                if (resteMs < 90_000) {
+                  console.warn(
+                    `[generate] continuation ABANDONNÉE au tour ${turn + 1}/${MAX_TURNS} : ` +
+                    `il ne reste que ${Math.round(resteMs / 1000)} s. On sort proprement (remboursement).`
+                  );
+                  break;
+                }
                 messages.push({ role: "assistant", content: turnText });
                 messages.push({
                   role: "user",
+                  // ⚠️ « N'ouvre AUCUN bloc de code » n'est pas cosmétique : en reprenant,
+                  // le modèle recommençait spontanément par « ```html ». Une fois les tours
+                  // recollés, cette clôture se retrouvait AU MILIEU du fichier et
+                  // `validateHtml` jetait toute l'application. Deux minutes de génération
+                  // perdues pour trois caractères.
                   content: stream
-                    ? "Continue exactement où tu t'es arrêté, sans rien répéter ni rouvrir de balise déjà fermée. Termine le fichier HTML."
-                    : "Continue exactement où tu t'es arrêté, sans rien répéter. Termine les blocs RECHERCHE/REMPLACE.",
+                    ? "Continue exactement où tu t'es arrêté, sans rien répéter ni rouvrir de balise déjà fermée. N'ouvre AUCUN bloc de code (pas de ```) : reprends directement au caractère suivant. Termine le fichier HTML."
+                    : "Continue exactement où tu t'es arrêté, sans rien répéter. N'ouvre AUCUN bloc de code (pas de ```). Termine les blocs RECHERCHE/REMPLACE.",
                 });
                 continue;
               }
               break;
             }
-            return { text, inTok, outTok, stopReason };
+            return { text, inTok, outTok, realCost, stopReason };
           };
 
           let html = "";
           let stopReason: string | null = null;
-          let inTok = 0;
-          let outTok = 0;
+          // On repart du coût de la LECTURE des fichiers (passe de vision faite en
+          // amont) : elle appartient à cette génération, elle doit être facturée avec.
+          let inTok = inTokPre;
+          let outTok = outTokPre;
+          let realCost = realCostPre; // relevé OpenRouter cumulé (0 chez Anthropic → repli catalogue)
           let usedModel = buildModel;
 
           if (patchMode) {
@@ -2214,7 +2564,10 @@ RATTRAPAGE RESPONSIVE (amélioration attendue, PAS un écart) : si le CSS de l'a
             const patchRun = await runTurns(firstUserContent, patchModel, false);
             inTok += patchRun.inTok;
             outTok += patchRun.outTok;
-            const patched = applyTargetedEdits(previousHTML, stripFences(patchRun.text));
+            realCost += patchRun.realCost;
+            // patchMode n'est atteignable qu'en modification (previousHTML non vide),
+            // mais `isModification` étant devenu mutable, TS ne peut plus le prouver.
+            const patched = applyTargetedEdits(previousHTML ?? "", stripFences(patchRun.text));
             if (patched != null) {
               html = patched;
               stopReason = patchRun.stopReason;
@@ -2225,6 +2578,7 @@ RATTRAPAGE RESPONSIVE (amélioration attendue, PAS un écart) : si le CSS de l'a
               const fullRun = await runTurns(withFiles(userContent), buildModel, true);
               inTok += fullRun.inTok;
               outTok += fullRun.outTok;
+              realCost += fullRun.realCost;
               html = fullRun.text;
               stopReason = fullRun.stopReason;
               usedModel = buildModel;
@@ -2233,12 +2587,113 @@ RATTRAPAGE RESPONSIVE (amélioration attendue, PAS un écart) : si le CSS de l'a
             const run = await runTurns(firstUserContent, buildModel, true);
             inTok += run.inTok;
             outTok += run.outTok;
+            realCost += run.realCost;
             html = run.text;
             stopReason = run.stopReason;
             usedModel = buildModel;
           }
 
-    html = stripFences(html);
+    // 1) On retire les clôtures markdown (y compris celles recollées au milieu par
+    //    un tour de continuation). 2) On ne garde QUE le document : le bavardage du
+    //    modèle avant `<!DOCTYPE` ou après `</html>` n'atteint JAMAIS l'artisan.
+    html = keepDocumentOnly(stripFences(html));
+
+    // ── GARDE-FOU DE CÂBLAGE (banc du 2026-07-13, 94 apps notées au navigateur) ──
+    // AUCUN modèle ne dépasse 38 % de conformité à biltiaUI — du plus cher au
+    // moins cher. Ce n'est donc pas un problème de modèle, c'est un problème de
+    // discipline : on ne fait pas reposer la fiabilité du produit sur la bonne
+    // volonté d'un LLM. On VÉRIFIE, et on RÉPARE.
+    //
+    // Le défaut le plus grave (`aucune_ecriture`) donne une app qui s'affiche
+    // parfaitement et n'enregistre RIEN : l'artisan croit avoir sauvegardé.
+    //
+    // Une seule passe, ciblée sur le câblage — la consigne interdit explicitement
+    // de toucher au design. Coût : un tour de plus, uniquement quand c'est cassé.
+    if (!isDocument && html.length > 0) {
+      // ── ON NE RÉPARE QUE CE QU'ON VIENT DE CASSER ──────────────────────────
+      // Une app naît souvent avec un défaut de câblage (`table_fait_main`) que la
+      // réparation n'a pas pu corriger — faute de temps, ou parce qu'elle a échoué.
+      // Ce défaut RESTE dans l'app. Si on relance la réparation à chaque
+      // modification, alors « change le titre » (5 s, 0,006 $) déclenche une
+      // RÉÉCRITURE COMPLÈTE de l'application (100 s, 0,047 $) pour un défaut que
+      // l'artisan n'a pas signalé et qui était déjà là. Mesuré le 2026-07-13 :
+      // une modification coûtait 0,062 $ et 105 s — PLUS CHER ET PLUS LENT QU'UNE
+      // CRÉATION. Absurde.
+      //
+      // Et c'est pire que du coût : réécrire toute l'app pour un défaut non demandé
+      // trahit la règle de MODIFICATION CHIRURGICALE (on ne touche QUE ce qui est
+      // demandé). Une réécriture peut changer ce que l'artisan n'a pas demandé.
+      //
+      // Donc : en modification, on ne répare QUE les défauts que la modification a
+      // INTRODUITS. Les défauts de naissance restent — ils seront corrigés le jour
+      // où l'artisan demandera cette partie-là.
+      const dejaLa = isModification && previousHTML
+        ? new Set(findBindingViolations(previousHTML).map((v) => v.kind))
+        : new Set<string>();
+      const violations = findBindingViolations(html).filter((v) => !dejaLa.has(v.kind));
+
+      // ── LE TEMPS QU'IL RESTE ─────────────────────────────────────────────
+      // Réparer est un confort. Livrer l'app est le produit. Si la réparation
+      // risque de faire dépasser les 300 s, on ne la tente PAS : mieux vaut une
+      // app au câblage imparfait qu'une app tuée en vol (et des crédits perdus).
+      const resteMs = BUDGET_MS - FINALISATION_MS - (Date.now() - t0);
+      const coutEstimeMs = Math.ceil(html.length / 1024) * REPAIR_MS_PAR_KO;
+      const tempsSuffisant = coutEstimeMs < resteMs;
+
+      if (violations.length > 0 && !tempsSuffisant) {
+        console.warn(
+          `[generate] réparation ABANDONNÉE : il reste ${Math.round(resteMs / 1000)} s, ` +
+          `elle en demanderait ~${Math.round(coutEstimeMs / 1000)} s (app de ${Math.round(html.length / 1024)} Ko). ` +
+          `On livre l'app telle quelle — un câblage imparfait vaut mieux qu'une app perdue.`
+        );
+      }
+
+      if (violations.length > 0 && tempsSuffisant) {
+        console.warn(
+          `[generate] câblage non conforme (${violations.map((v) => v.kind).join(", ")}) → passe de réparation ` +
+          `(~${Math.round(coutEstimeMs / 1000)} s estimées, ${Math.round(resteMs / 1000)} s disponibles)`
+        );
+        // Ceinture ET bretelles : même si l'estimation se trompe (opérateur lent,
+        // tour de continuation imprévu), le chrono coupe la réparation AVANT que
+        // Vercel ne coupe la fonction. On repart alors avec l'app d'origine.
+        const stop = new AbortController();
+        const minuteur = setTimeout(() => stop.abort(), resteMs);
+        try {
+          const repair = await runTurns(
+            [
+              { type: "text", text: buildBindingRepairPrompt(violations) },
+              { type: "text", text: `Voici l'application à corriger :\n\n${html}` },
+            ],
+            usedModel,
+            false, // silencieux : le client a déjà reçu l'app, on lui pousse la version réparée
+            stop.signal
+          );
+          // Même traitement : la réparation aussi peut préfixer « Voici l'application
+          // corrigée : ». Elle produit un document entier, donc keepDocumentOnly s'applique.
+          const fixed = keepDocumentOnly(stripFences(repair.text));
+          inTok += repair.inTok;
+          outTok += repair.outTok;
+          realCost += repair.realCost;
+          // On ne remplace que si la réparation a VRAIMENT amélioré les choses.
+          // Un modèle qui rend un HTML plus court ou toujours fautif a échoué :
+          // mieux vaut l'app d'origine, imparfaite mais entière.
+          if (fixed.length > html.length * 0.7 && findBindingViolations(fixed).length < violations.length) {
+            // Pas d'événement dédié : le client a déjà peint l'app fautive en direct
+            // (flux `html`), mais c'est l'événement `done` qui porte le HTML FINAL —
+            // celui qui est affiché et sauvegardé. Réassigner `html` suffit donc.
+            html = fixed;
+          } else {
+            console.warn("[generate] réparation inefficace — on garde l'app d'origine.");
+          }
+        } catch (e) {
+          // Une réparation ratée ne doit JAMAIS faire perdre l'app à l'artisan.
+          // Inclut l'abandon volontaire (AbortError) quand le chrono a coupé.
+          console.error("[generate] passe de réparation abandonnée ou en échec :", e);
+        } finally {
+          clearTimeout(minuteur);
+        }
+      }
+    }
 
     // AppSpec V1 (Phase 1) : le modèle émet un bloc <!--BILTIA_SPEC …--> APRÈS
     // </html> (création uniquement). On l'extrait AVANT toute validation/injection
@@ -2370,15 +2825,19 @@ RATTRAPAGE RESPONSIVE (amélioration attendue, PAS un écart) : si le CSS de l'a
         model: usedModel,
         inputTokens: inTok,
         outputTokens: outTok,
+        // Le RELEVÉ prime sur le catalogue : c'est ce qui garantit la marge.
+        realCostUsd: realCost > 0 ? realCost : undefined,
         agent: route.agent,
         sector: sector ?? undefined,
         promptType: isAutoFix ? "autofix" : isModification ? "modify" : "create",
+        // Le client paie la GRILLE, pas le coût du modèle. Plus de réconciliation
+        // à la baisse : c'était elle qui ramenait une app de 250 crédits à 15.
+        billedCredits: holdCredits,
       });
       if (founder) {
         realCredits = 0; // journalisé pour le suivi des coûts, jamais débité
       } else if (holdCredits > 0) {
-        realCredits = tracked;
-        await reconcileCredits(supabase, createAdminClient(), user.id, holdCredits, realCredits);
+        realCredits = tracked; // = holdCredits : déjà débité, rien à réconcilier
       } else if (isAutoFix) {
         const { data: debited } = await supabase.rpc("deduct_credits", { p_amount: tracked });
         realCredits = debited ? tracked : 0;

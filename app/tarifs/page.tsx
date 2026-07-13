@@ -5,8 +5,7 @@ import { Check, ChevronDown, ArrowRight, CalendarDays, MessageCircle, Camera, Fi
 import {
   getPlan, getTier, formatEur, ENTERPRISE, EQUIPE, SIGNUP_FREE_CREDITS,
   tierDisplayMonthlyEur, annualTotalEur, localizeEnterprise, localizeEquipe,
-  type CreditTier, type BillingCycle,
-} from "@/lib/plans";
+  type CreditTier, type BillingCycle, ACTION_CREDITS, AGENT_CREDITS_PER_MONTH } from "@/lib/plans";
 import { Reveal, Spot, InteractiveMesh, SiteNav, SiteFooter } from "@/components/site";
 import { ReserveDemoButton } from "@/components/demo-booking";
 import { useT, useLocale } from "@/lib/i18n/context";
@@ -14,8 +13,8 @@ import type { Locale } from "@/lib/i18n/config";
 
 function buildFaq(tr: (fr: string, en: string) => string): { q: string; a: string }[] {
   return [
-    { q: tr("Comment je commence ?", "How do I get started?"), a: tr("Vous créez un compte et vous utilisez Biltia gratuitement, tout de suite, avec 300 crédits offerts. Quand ils sont épuisés, vous choisissez votre forfait.", "You create an account and use Biltia for free, right away, with 300 free credits. When they run out, you pick your plan.") },
-    { q: tr("Qu'est-ce qu'un crédit ?", "What is a credit?"), a: tr("Un crédit reflète le travail réel de l'IA. Une question coûte quelques crédits ; créer une application en coûte plus. Manipuler vos apps à la main est toujours gratuit.", "A credit reflects the AI's actual work. A question costs a few credits; building an app costs more. Handling your apps by hand is always free.") },
+    { q: tr("Comment je commence ?", "How do I get started?"), a: tr(`Vous créez un compte et vous utilisez Biltia gratuitement, tout de suite, avec ${SIGNUP_FREE_CREDITS} crédits offerts. Quand ils sont épuisés, vous choisissez votre forfait.`, `You create an account and use Biltia for free, right away, with ${SIGNUP_FREE_CREDITS} free credits. When they run out, you pick your plan.`) },
+    { q: tr("Qu'est-ce qu'un crédit ?", "What is a credit?"), a: tr(`Un crédit, c'est le prix d'une action, connu d'avance et toujours le même : ${ACTION_CREDITS.question} crédits une question, ${ACTION_CREDITS.document} un devis, ${ACTION_CREDITS.application} une application sur mesure. Ce prix ne bouge pas selon la difficulté de votre demande. Et manipuler vos apps à la main est toujours gratuit.`, `A credit is the price of an action, known upfront and always the same: ${ACTION_CREDITS.question} credits for a question, ${ACTION_CREDITS.document} for a quote, ${ACTION_CREDITS.application} for a custom app. That price never changes with how hard your request is. And handling your apps by hand is always free.`) },
     { q: tr("Pro ou Équipe ?", "Pro or Team?"), a: tr("Pro, c'est Biltia pour vous : apps, devis, documents, agents personnels. Équipe ajoute tout ce qui fait entrer d'autres personnes : salariés, clients, sous-traitants, rôles et portails. Si Biltia travaille juste pour vous, c'est Pro ; s'il fait travailler d'autres personnes, c'est Équipe (Pro + 50 €/mois).", "Pro is Biltia for you: apps, quotes, documents, personal agents. Team adds everything that brings other people in: employees, clients, subcontractors, roles and portals. If Biltia works just for you, it's Pro; if it puts other people to work, it's Team (Pro + €50/month).") },
     { q: tr("Et si je dépasse mes crédits ?", "What if I run out of credits?"), a: tr("Deux options : rechargez à la carte quand vous voulez (+1 000 crédits pour 29 €, +3 000 pour 99 €, +10 000 pour 499 €), ou passez au palier supérieur. En attendant, vos agents se mettent en pause et rien n'est facturé sans votre accord.", "Two options: top up on demand whenever you want (+1,000 credits for €29, +3,000 for €99, +10,000 for €499), or move up a tier. In the meantime, your agents pause and nothing is charged without your consent.") },
     { q: tr("Puis-je revenir de Équipe à Pro ?", "Can I switch from Team back to Pro?"), a: tr("Oui, à tout moment. Vos apps, données, historique et paramètres restent intacts. Seuls les accès équipe se suspendent : comptes collaborateurs, portails client et sous-traitant, rôles avancés, agents collaboratifs. Tout se réactive si vous repassez sur Équipe.", "Yes, anytime. Your apps, data, history and settings stay intact. Only team access is suspended: collaborator accounts, client and subcontractor portals, advanced roles, collaborative agents. Everything reactivates if you go back to Team.") },
@@ -81,7 +80,8 @@ function TierSelect({ tiers, value, onChange }: { tiers: CreditTier[]; value: nu
 
 // ── Carte d'un forfait payant (Pro ou Équipe) ─────────────────────────────────
 // Petit lien repliable « 🎁 Crédits offerts » (natif <details>, aucun JS d'état) :
-// une flèche discrète, sans encadré ni couleur ; au clic → « 300 crédits offerts ».
+// une flèche discrète, sans encadré ni couleur ; au clic → « N crédits offerts »
+// (N = SIGNUP_FREE_CREDITS, jamais réécrit à la main).
 // Placé juste sous le prix, sur chaque plan SAUF Entreprise (sur devis).
 function GiftCredits() {
   const tr = useT();
@@ -172,12 +172,22 @@ function PaidCard({ name, includedLine, features, tiers, checkoutPlan, cycle, ba
 
 // ── « Projetez-vous » : ticket d'un mois type, volume au choix ────────────────
 // Panier cumulatif (les lignes s'ADDITIONNENT, la somme fait PILE le volume).
-// Coûts unitaires au bas des fourchettes : question 3 · devis 30 · app 250 ·
-// agent quotidien 300/mois. Volumes = vrais paliers Pro (prix depuis lib/plans).
-const MONTH_MIX: { vol: number; agents: number; apps: number; docs: number; questions: number }[] = [
-  { vol: 2000, agents: 1, apps: 2, docs: 30, questions: 100 },  // 300+500+900+300
-  { vol: 3000, agents: 2, apps: 3, docs: 30, questions: 250 },  // 600+750+900+750
-  { vol: 5000, agents: 3, apps: 5, docs: 45, questions: 500 },  // 900+1250+1350+1500
+//
+// ⚠️ CE PANIER DOIT DIRE LA VÉRITÉ, et la somme doit tomber PILE sur le volume
+// vendu. Tous les tarifs viennent de lib/plans.ts → ACTION_CREDITS, la source
+// unique appliquée par le serveur :
+//   question 3 · photo lue 10 · document/devis 30 · application 600
+//   agent qui RÉDIGE : 25/passage → AGENT_CREDITS_PER_MONTH sur 22 jours ouvrés
+//
+// L'ancien panier comptait l'agent à 300/mois : il promettait 2 450 crédits de
+// valeur pour un forfait de 2 000. Un client qui compte ses crédits l'aurait vu.
+const MONTH_MIX: { vol: number; agents: number; apps: number; docs: number; photos: number; questions: number }[] = [
+  // 550 + 600 + 450 + 100 + 300 = 2000
+  { vol: 2000, agents: 1, apps: 1, docs: 15, photos: 10, questions: 100 },
+  // 550 + 1200 + 750 + 200 + 300 = 3000
+  { vol: 3000, agents: 1, apps: 2, docs: 25, photos: 20, questions: 100 },
+  // 1100 + 1800 + 1200 + 300 + 600 = 5000
+  { vol: 5000, agents: 2, apps: 3, docs: 40, photos: 30, questions: 200 },
 ];
 
 function MonthTicket() {
@@ -188,10 +198,11 @@ function MonthTicket() {
   const tier = getTier("pro", vol);
   const bigPlan = vol >= 10000;
   const lines = [
-    { n: mix.agents, label: mix.agents > 1 ? tr("agents autonomes actifs chaque jour", "autonomous agents running every day") : tr("agent autonome actif chaque jour", "autonomous agent running every day"), c: mix.agents * 300 },
-    { n: mix.apps, label: bigPlan ? tr("applications ou modifications importantes", "apps or major changes") : mix.apps > 1 ? tr("applications sur mesure", "custom apps") : tr("application sur mesure", "custom app"), c: mix.apps * 250 },
-    { n: mix.docs, label: tr("devis & documents", "quotes & documents"), c: mix.docs * 30 },
-    { n: mix.questions, label: tr("questions IA", "AI questions"), c: mix.questions * 3 },
+    { n: mix.agents, label: mix.agents > 1 ? tr("agents autonomes actifs chaque jour", "autonomous agents running every day") : tr("agent autonome actif chaque jour", "autonomous agent running every day"), c: mix.agents * AGENT_CREDITS_PER_MONTH },
+    { n: mix.apps, label: bigPlan ? tr("applications ou modifications importantes", "apps or major changes") : mix.apps > 1 ? tr("applications sur mesure", "custom apps") : tr("application sur mesure", "custom app"), c: mix.apps * ACTION_CREDITS.application },
+    { n: mix.docs, label: tr("devis & documents", "quotes & documents"), c: mix.docs * ACTION_CREDITS.document },
+    { n: mix.photos, label: tr("photos & plans analysés", "photos & plans analysed"), c: mix.photos * ACTION_CREDITS.lecture_fichier },
+    { n: mix.questions, label: tr("questions IA", "AI questions"), c: mix.questions * ACTION_CREDITS.question },
   ];
   return (
     <div className="relative overflow-hidden rounded-[26px] p-6 sm:p-7 h-full text-white" style={{ background: "linear-gradient(150deg, #1E1B3A 0%, #3B2B6E 52%, #5B2B7E 100%)" }}>

@@ -15,10 +15,12 @@
 import { pick, type Locale } from "./i18n/config";
 
 import type Anthropic from "@anthropic-ai/sdk";
-import { TIER_MEDIUM } from "./models";
+import { MODEL_VISION } from "./models";
 
 /** Modèle vision par défaut (PDF + image natifs) — palier moyen (Sonnet). */
-export const VISION_MODEL = TIER_MEDIUM;
+// Modèle de VISION, pilotable par MODEL_VISION (les modèles texte bon marché
+// — DeepSeek, GLM — sont AVEUGLES ; seuls Claude et Qwen lisent une image).
+export const VISION_MODEL = MODEL_VISION;
 
 /** Types MIME acceptés. PDF → bloc `document` ; images → bloc `image`. */
 export const ALLOWED_MEDIA_TYPES = [

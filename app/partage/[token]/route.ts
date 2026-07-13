@@ -11,6 +11,11 @@
 // Même modèle de sécurité que /demo/manage/[token] et /app/[slug].
 // ─────────────────────────────────────────────────────────────────────────────
 
+// SÉCURITÉ : ce HTML de tenant est servi en ORIGINE OPAQUE (directive CSP
+// `sandbox`, sans allow-same-origin) — sinon le JS écrit par le modèle
+// s'exécuterait avec les cookies du visiteur. L'en-tête est posé par
+// next.config.ts (règle /partage/:token*), PAS ici : un en-tête de route est
+// écrasé par celui du config. Voir lib/security-headers.ts.
 import { createAdminClient } from "@/lib/supabase-admin";
 import { injectPoweredBy, publicNotFoundPage } from "@/lib/powered-by";
 import { injectShareBridge } from "@/lib/share-bridge";

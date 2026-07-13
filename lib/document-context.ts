@@ -18,6 +18,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import Anthropic from "@anthropic-ai/sdk";
+import { client, hasAnyLlmKey } from "@/lib/llm";
 import { TIER_SIMPLE } from "./models";
 
 const ASSESS_MODEL = TIER_SIMPLE;
@@ -114,11 +115,10 @@ export async function assessDocumentReadiness(opts: {
   const okFallback: DocReadiness = { ready: true, recap: "", questions: [] };
 
   const hasKey =
-    !!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.startsWith("your_");
+    hasAnyLlmKey();
   if (!hasKey) return okFallback;
 
   try {
-    const client = new Anthropic();
     const text = [
       `Type de document : ${opts.docType ?? "à déterminer d'après la demande"}`,
       `Demande du chef : « ${opts.prompt} »`,

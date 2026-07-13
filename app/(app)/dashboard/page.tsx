@@ -452,7 +452,12 @@ export default function DashboardPage() {
       <InteractiveMesh strong />
 
       {/* Accueil plein écran, tout part d'ici (positionné un peu plus bas) */}
-      <section className="relative z-10 min-h-[86dvh] flex flex-col items-center justify-center px-6 pt-[17dvh] pb-14">
+      {/* z-20 (et non z-10) : la section « Mes applications » plus bas est AUSSI en
+          z-10 et vient APRÈS dans le DOM — à égalité de plan, c'est elle qui gagne.
+          Le menu « + » de la barre de chat, tout en étant en z-30, restait donc
+          ENFERMÉ dans ce plan-ci et se faisait recouvrir : on voyait « Google Drive »
+          coupé en deux. Un z-index n'agit jamais qu'à l'intérieur de son plan. */}
+      <section className="relative z-20 min-h-[86dvh] flex flex-col items-center justify-center px-6 pt-[17dvh] pb-14">
         <div className="relative z-10 w-full max-w-[62rem] mx-auto text-center">
           <ConnectToolsBadge />
 

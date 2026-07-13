@@ -41,7 +41,28 @@ function cleanPayload(raw: unknown): Record<string, string> {
   return out;
 }
 
+// CORS — le formulaire public est servi en ORIGINE OPAQUE (cf. TENANT_HTML_CSP) :
+// sa soumission part avec `Origin: null` et exige une autorisation explicite.
+// `*` est sans danger : aucun cookie n'est lu (le JETON est la capacité) et on ne
+// renvoie jamais Access-Control-Allow-Credentials.
+const CORS: Record<string, string> = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "POST, OPTIONS",
+  "access-control-allow-headers": "content-type",
+  "access-control-max-age": "86400",
+};
+
+export async function OPTIONS() {
+  return new Response(null, { status: 204, headers: CORS });
+}
+
 export async function POST(req: Request) {
+  const res = await handlePost(req);
+  for (const [key, value] of Object.entries(CORS)) res.headers.set(key, value);
+  return res;
+}
+
+async function handlePost(req: Request) {
   const locale = await getLocale();
   const body = (await req.json().catch(() => ({}))) as {
     token?: string;

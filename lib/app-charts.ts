@@ -22,9 +22,13 @@ export const CHART_CSS = `
 .chart-hd{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:8px}
 .chart-hd b{font-size:14px;font-weight:700}
 .chart-hd .rd{font-size:12px;color:var(--faint);font-variant-numeric:tabular-nums;white-space:nowrap}
-.chart-host{touch-action:pan-y}
+.chart-host{touch-action:pan-y;overflow:hidden}
+.chart-card{overflow:hidden}
 .chart-rel{position:relative}
-.chart-rel svg{display:block;width:100%}
+/* Le viewBox est recalculé à la largeur RÉELLE du conteneur (voir _cwatch) : le SVG
+   garde donc ses proportions exactes. height:auto empêche l'étirement vertical qui
+   faisait déborder les barres hors de leur carte sur tablette et grand écran. */
+.chart-rel svg{display:block;width:100%;height:auto;max-width:100%}
 .chart-tip{position:absolute;pointer-events:none;background:var(--ink);color:#fff;border-radius:9px;padding:6px 10px;font-size:11.5px;line-height:1.25;white-space:nowrap;transition:opacity .12s;box-shadow:0 8px 20px rgba(0,0,0,.24);z-index:6}
 .chart-tip b{display:block;font-weight:800;font-variant-numeric:tabular-nums;font-size:12.5px}
 .chart-tip span{color:rgba(255,255,255,.6);font-size:10px}
@@ -61,6 +65,22 @@ function drawArea(host,series,opt){
   function hide(){ gl.style.opacity="0";dot.style.opacity="0";if(tip)tip.style.opacity="0"; if(opt.rd&&opt.rdDef!=null){var r=$(opt.rd);if(r)r.textContent=opt.rdDef;} }
   function at(cx){ if(!svgEl.getBoundingClientRect)return; var rc=svgEl.getBoundingClientRect(); var fx=(cx-rc.left)/(rc.width||g.W); show(Math.max(0,Math.min(g.n-1,Math.round(fx*(g.n-1))))); }
   if(svgEl.addEventListener){ svgEl.addEventListener("pointermove",function(e){at(e.clientX);}); svgEl.addEventListener("pointerdown",function(e){at(e.clientX);}); svgEl.addEventListener("pointerleave",hide); svgEl.addEventListener("touchmove",function(e){if(e.touches&&e.touches[0])at(e.touches[0].clientX);},{passive:true}); }
+  _cwatch(host,function(){drawArea(host,series,opt);});
+}
+/* REDESSIN À LA VOLÉE. La géométrie était figée au montage (host.clientWidth lu une
+   seule fois) : au moindre changement de largeur — tablette, rotation, sidebar qui se
+   replie, fenêtre redimensionnée — le viewBox restait périmé et le dessin débordait.
+   On observe le conteneur et on redessine à sa largeur réelle. */
+function _cwatch(host,fn){
+  if(!host||typeof ResizeObserver==="undefined")return;
+  if(host.__cro){try{host.__cro.disconnect();}catch(e){}}
+  var w=host.clientWidth,t;
+  var ro=new ResizeObserver(function(){
+    var nw=host.clientWidth;
+    if(!nw||Math.abs(nw-w)<8)return; /* ignore les micro-variations */
+    w=nw; clearTimeout(t); t=setTimeout(fn,120);
+  });
+  try{ro.observe(host);host.__cro=ro;}catch(e){}
 }
 function drawBars(host,series,opt){
   if(!host||!series||!series.length)return; opt=opt||{}; var c1=opt.color||"#6D5EF6",c2=opt.color2||"#A78BFA",fmt=opt.fmt||function(v){return Math.round(v).toLocaleString("fr-FR");},unit=opt.unit||"";
@@ -76,6 +96,7 @@ function drawBars(host,series,opt){
   function hide(){ for(var k=0;k<rs.length;k++)if(rs[k].style)rs[k].style.opacity="1"; if(tip)tip.style.opacity="0"; if(opt.rd&&opt.rdDef!=null){var r=$(opt.rd);if(r)r.textContent=opt.rdDef;} }
   function at(cx){ if(!svgEl.getBoundingClientRect)return; var rc=svgEl.getBoundingClientRect(); var fx=(cx-rc.left)/(rc.width||g.W); show(Math.max(0,Math.min(g.n-1,Math.floor(fx*g.n)))); }
   if(svgEl.addEventListener){ svgEl.addEventListener("pointermove",function(e){at(e.clientX);}); svgEl.addEventListener("pointerdown",function(e){at(e.clientX);}); svgEl.addEventListener("pointerleave",hide); svgEl.addEventListener("touchmove",function(e){if(e.touches&&e.touches[0])at(e.touches[0].clientX);},{passive:true}); }
+  _cwatch(host,function(){drawBars(host,series,opt);});
 }
 `;
 

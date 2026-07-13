@@ -7,11 +7,12 @@
 // base : le résultat est un APERÇU. L'UI propose ensuite « Enregistrer dans le
 // workspace » (→ /api/data), conformément à la décision produit.
 //
-// Coûte 1 crédit par document (remboursé si l'analyse échoue).
+// Coûte ACTION_CREDITS.lecture_fichier PAR FICHIER (remboursé si l'analyse échoue).
 // Ossature calquée sur app/api/ask/route.ts.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import Anthropic from "@anthropic-ai/sdk";
+import { client, hasAnyLlmKey, realCostOf } from "@/lib/llm";
 import { createClient } from "@/lib/supabase-server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { trackAiUsage, reconcileCredits } from "@/lib/ai-usage";
@@ -32,8 +33,8 @@ import {
   coerceExtraction,
   ValidationError,
 } from "@/lib/vision";
+import { ACTION_CREDITS } from "@/lib/plans";
 
-const client = new Anthropic();
 const MAX_TOKENS = 2000;
 
 // Outil dédié à l'analyse : l'extraction structurée (partagée avec /automate) +
@@ -170,10 +171,16 @@ RÈGLES :
 Réponds UNIQUEMENT en appelant l'outil analyze_document.`;
 }
 
+// DURÉE MAXIMALE — explicite. Sans borne déclarée, la limite venait du réglage
+// projet Vercel (invisible depuis le dépôt). Une fonction tuée par le timeout
+// n'exécute PAS son `catch` de remboursement : le hold de crédits est perdu sans
+// que l'utilisateur en soit informé. On fige donc la valeur.
+export const maxDuration = 120;
+
 export async function POST(req: Request) {
   const locale = await getLocale();
   try {
-    if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY.startsWith("your_")) {
+    if (!hasAnyLlmKey()) {
       return Response.json(
         { error: pick(locale, "Clé API Anthropic non configurée.", "Anthropic API key not configured.") },
         { status: 503 }
@@ -237,7 +244,7 @@ export async function POST(req: Request) {
     // Pré-autorisation (hold) par fichier, réconciliée au coût réel après l'analyse.
     // Compte fondateur : jamais de hold ni de débit (usage journalisé quand même).
     const founder = isFounderEmail(user.email);
-    const HOLD = founder ? 0 : 25 * files.length;
+    const HOLD = founder ? 0 : ACTION_CREDITS.lecture_fichier * files.length;
     if (HOLD > 0) {
       const { data: credited } = await supabase.rpc("deduct_credits", { p_amount: HOLD });
       if (!credited) {
@@ -339,7 +346,7 @@ export async function POST(req: Request) {
     // Propositions cliquables : ce que Biltia sait tirer de CE document, une fois
     // lu (une app de métré depuis un plan, une app de gestion depuis un tableau,
     // un document depuis un courrier…). L'app ne part QU'AU CLIC : jamais de
-    // 300 crédits dépensés par surprise sur un simple dépôt de fichier.
+    // le prix d'une app dépensé par surprise sur un simple dépôt de fichier.
     const propositions = (Array.isArray(input.propositions) ? input.propositions : [])
       .map((p) => {
         const r = (p ?? {}) as Record<string, unknown>;
@@ -360,7 +367,11 @@ export async function POST(req: Request) {
       )
       .slice(0, 3);
 
-    // Tracking + réconciliation du hold au coût réel (best-effort).
+    // Tracking (best-effort). `billedCredits` DOIT valoir le HOLD réellement
+    // prélevé : sans lui, trackAiUsage retombait sur le coût du modèle et rendait
+    // ~2 crédits là où 10 avaient été débités. On journalisait donc un chiffre, on
+    // en prélevait un autre, et `creditsUsed` (renvoyé au client, plus bas)
+    // AFFICHAIT le mauvais : le solde baissait de 10, le reçu disait 2.
     let realCredits = HOLD;
     try {
       const tracked = await trackAiUsage({
@@ -370,13 +381,17 @@ export async function POST(req: Request) {
         action: "analyze",
         model: VISION_MODEL,
         inputTokens: message.usage.input_tokens,
+        // Le RELEVÉ prime sur le catalogue (cf. lib/ai-usage.ts) : c'est lui qui
+        // permet de SURVEILLER la marge — il ne la pilote plus.
+        realCostUsd: realCostOf(message.usage),
         outputTokens: message.usage.output_tokens,
+        billedCredits: HOLD,
       });
       if (founder) {
         realCredits = 0; // journalisé pour le suivi des coûts, jamais débité
       } else {
         realCredits = tracked;
-        await reconcileCredits(supabase, createAdminClient(), user.id, HOLD, realCredits);
+        // Plus de réconciliation à la BAISSE : le client paie la grille.
       }
     } catch {
       // ignore

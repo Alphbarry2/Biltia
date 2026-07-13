@@ -21,6 +21,15 @@ import { runDueRules } from "@/lib/agent-executor";
 import { getLocale } from "@/lib/i18n/server";
 import { pick } from "@/lib/i18n/config";
 
+// DURÉE MAXIMALE — explicite. Un tick enchaîne jusqu'à 20 règles, dont certaines
+// composent un rapport avec un modèle : sans borne déclarée, la fonction pouvait
+// être tuée en plein vol par la limite implicite de la plateforme. Or un tick tué
+// laisse ses `agent_runs` en `running` POUR TOUJOURS et n'avance jamais
+// `next_run_at` → la règle est ensuite « skipped » à chaque passage, l'agent est
+// mort en silence alors que l'UI le dit « Actif ». Le reaper (cf. runDueRules)
+// répare l'état ; cette borne réduit la fréquence à laquelle il doit intervenir.
+export const maxDuration = 300;
+
 async function authorize(req: Request): Promise<boolean> {
   const secret = process.env.CRON_SECRET;
   if (secret && secret.length >= 12) {

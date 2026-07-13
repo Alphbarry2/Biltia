@@ -22,7 +22,7 @@
 // Anthropic reprennent celles déjà utilisées dans `ai-usage.ts`.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type ModelProvider = "anthropic" | "openai" | "google";
+export type ModelProvider = "anthropic" | "openai" | "google" | "openrouter";
 
 /** Cas d'usage produit — une capacité dominante par demande. */
 export type ModelCapability =
@@ -65,6 +65,17 @@ export type ModelEntry = {
   strengths: string;
   /** Nécessite un outil web / grounding pour donner sa pleine valeur. */
   needsWeb?: boolean;
+  /**
+   * CE MODÈLE A-T-IL DES YEUX ? (accepte un bloc `image` ou `document` en entrée)
+   *
+   * ⚠️ Ce n'est PAS un détail de catalogue. Envoyer une image à un modèle aveugle
+   * fait échouer l'appel en 404 (« No endpoints found that support image input »)
+   * — c'est arrivé le 2026-07-13 : joindre un plan et demander une app plantait,
+   * parce que la génération tourne sur DeepSeek V4 Pro, qui est AVEUGLE. L'info
+   * était pourtant écrite… dans le champ `strengths`, en toutes lettres, où aucun
+   * code ne pouvait la lire. Un fait dont le produit dépend doit être VÉRIFIABLE.
+   */
+  vision: boolean;
   /** Exécutable aujourd'hui dans Biltia (sinon : recommandable mais à brancher). */
   wired: boolean;
 };
@@ -84,6 +95,7 @@ export const MODELS: Record<string, ModelEntry> = {
     pricing: { input: 5, output: 25, cachedInput: 0.5 }, // réel (platform.claude.com) 2026-07
     strengths:
       "Référence pour le code et le design d'interfaces (HTML/CSS soigné) ; raisonnement adaptatif fort. Le meilleur choix câblé pour générer des apps/documents Biltia.",
+    vision: true,
     wired: true,
   },
   "claude-fable-5": {
@@ -96,6 +108,7 @@ export const MODELS: Record<string, ModelEntry> = {
     pricing: { input: 25, output: 125, cachedInput: 2.5 }, // APPROX — > tier Opus
     strengths:
       "Modèle le plus capable : réflexion profonde toujours active, horizons longs, tâches agentiques les plus dures. À réserver aux raisonnements critiques (coût élevé).",
+    vision: true,
     wired: true,
   },
   "claude-sonnet-5": {
@@ -112,6 +125,7 @@ export const MODELS: Record<string, ModelEntry> = {
     pricing: { input: 3, output: 15, cachedInput: 0.3 }, // réel (platform.claude.com) 2026-07
     strengths:
       "Successeur de Sonnet 4.6, meilleur et au même prix standard (moins cher pendant l'intro). Équilibre qualité/coût pour la rédaction, les documents, la vision et la génération courante.",
+    vision: true,
     wired: true,
   },
   "claude-sonnet-4-6": {
@@ -124,6 +138,7 @@ export const MODELS: Record<string, ModelEntry> = {
     pricing: { input: 3, output: 15, cachedInput: 0.3 },
     strengths:
       "Ancien palier moyen (remplacé par Sonnet 5). Conservé au catalogue pour le pricing de l'historique ai_usage.",
+    vision: true,
     wired: true,
   },
   "claude-haiku-4-5": {
@@ -136,6 +151,7 @@ export const MODELS: Record<string, ModelEntry> = {
     pricing: { input: 1, output: 5, cachedInput: 0.1 }, // réel (platform.claude.com) 2026-07 — l'ancien 0.8/4 était le tarif Haiku 3.5 (retiré)
     strengths:
       "Rapide et bon marché : classification, routage, extractions courtes. Déjà utilisé par les routeurs métier et polymorphe.",
+    vision: true,
     wired: true,
   },
 
@@ -151,6 +167,7 @@ export const MODELS: Record<string, ModelEntry> = {
     strengths:
       "Flagship OpenAI : code et débogage de pointe, agentique multi-outils, analyse de données et de documents, raisonnement. Excellent généraliste haut de gamme.",
     needsWeb: false,
+    vision: true,
     wired: false,
   },
   "gpt-5.5-pro": {
@@ -163,6 +180,7 @@ export const MODELS: Record<string, ModelEntry> = {
     pricing: { input: 15, output: 120, cachedInput: 1.5 }, // APPROX
     strengths:
       "Variante « Pro » : raisonnement le plus poussé d'OpenAI pour les problèmes les plus difficiles. Coût élevé, à réserver aux cas critiques.",
+    vision: true,
     wired: false,
   },
   "gpt-5.4": {
@@ -175,6 +193,7 @@ export const MODELS: Record<string, ModelEntry> = {
     pricing: { input: 2.5, output: 15, cachedInput: 0.25 }, // réel (developers.openai.com) 2026-07
     strengths:
       "Frontier « travail pro » : code, computer use, recherche d'outils, 1M de contexte. Robuste et efficient pour le volume.",
+    vision: true,
     wired: false,
   },
   "gpt-5.4-mini": {
@@ -187,6 +206,7 @@ export const MODELS: Record<string, ModelEntry> = {
     pricing: { input: 0.25, output: 2, cachedInput: 0.025 }, // APPROX
     strengths:
       "Milieu de gamme rapide et économique côté OpenAI. Bon pour les tâches courantes à fort volume.",
+    vision: true,
     wired: false,
   },
   "gpt-5.4-nano": {
@@ -199,6 +219,7 @@ export const MODELS: Record<string, ModelEntry> = {
     pricing: { input: 0.05, output: 0.4, cachedInput: 0.005 }, // APPROX
     strengths:
       "Le plus rapide et le moins cher d'OpenAI : classification et routage à très haut volume.",
+    vision: true,
     wired: false,
   },
   "gpt-image-2": {
@@ -211,6 +232,7 @@ export const MODELS: Record<string, ModelEntry> = {
     pricing: { input: 0, output: 0, perImage: 0.08 }, // APPROX (varie selon taille/qualité)
     strengths:
       "Génération/édition d'images agentique : raisonne et planifie la composition avant de dessiner. Rendu et fidélité de haut niveau, entrées image haute résolution.",
+    vision: true,
     wired: false,
   },
 
@@ -226,6 +248,7 @@ export const MODELS: Record<string, ModelEntry> = {
     strengths:
       "Raisonnement adaptatif + grounding Google Search intégré, 1M de contexte. Excellent pour la recherche sourcée, l'analyse de gros volumes de données et le multimodal.",
     needsWeb: true,
+    vision: true,
     wired: false,
   },
   "gemini-3.5-flash": {
@@ -238,6 +261,7 @@ export const MODELS: Record<string, ModelEntry> = {
     pricing: { input: 0.3, output: 2.5, cachedInput: 0.075 }, // APPROX
     strengths:
       "Frontier agentique/code rapide (modèle derrière gemini-flash-latest). Très bon rapport intelligence/latence/coût pour le volume.",
+    vision: true,
     wired: false,
   },
   "gemini-3-pro-image": {
@@ -250,6 +274,7 @@ export const MODELS: Record<string, ModelEntry> = {
     pricing: { input: 0, output: 0, perImage: 0.13 }, // APPROX
     strengths:
       "Image premium : cohérence de marque, localisation, rendu de texte fiable jusqu'en 4K, contrôle créatif précis. Idéal pour du visuel de document/branding.",
+    vision: true,
     wired: false,
   },
   "gemini-3.1-flash-image": {
@@ -262,6 +287,7 @@ export const MODELS: Record<string, ModelEntry> = {
     pricing: { input: 0, output: 0, perImage: 0.04 }, // APPROX
     strengths:
       "Image « workhorse » polyvalente : 4K, connaissance du monde, rendu de texte, multi-références. Bon compromis vitesse/qualité/coût.",
+    vision: true,
     wired: false,
   },
   "gemini-3.1-flash-lite": {
@@ -274,9 +300,162 @@ export const MODELS: Record<string, ModelEntry> = {
     pricing: { input: 0.1, output: 0.4, cachedInput: 0.025 }, // APPROX
     strengths:
       "Le plus économique de la gamme Gemini : basse latence, pensé pour le très haut volume et le routage.",
+    vision: true,
     wired: false,
   },
 };
+
+// ---- OpenRouter — CÂBLÉ (SDK Anthropic pointé sur OpenRouter, voir lib/llm.ts) --
+// Tarifs relevés sur l'API OpenRouter le 2026-07-13. Ils DOIVENT être justes :
+// ai-usage.ts calcule les crédits du client à partir d'eux (un tarif absent ferait
+// retomber sur un défaut à 3 $/15 $ et surfacturerait d'un facteur ~20).
+//
+// Mesuré au banc (135 apps réellement chargées et pilotées au navigateur) :
+//   DeepSeek V4 Flash → 95 % de code sans erreur JS, 100 % des bonnes entités, 0,005 $/app
+//   DeepSeek V4 Pro   → 100 % sans erreur, 100 % des entités, 0,072 $/app (meilleure qualité)
+//   Qwen3-VL-30B      → même score que Sonnet 5 sur un devis BTP français (11/12), 15× moins cher
+//   GLM 5.2           → ÉCARTÉ : 67 % des bonnes entités, plus cher que Haiku, 10 échecs API /30
+Object.assign(MODELS, {
+  "deepseek/deepseek-v4-flash": {
+    id: "deepseek/deepseek-v4-flash",
+    provider: "openrouter",
+    label: "DeepSeek V4 Flash",
+    modality: "text",
+    capabilities: ["fast", "code", "data"],
+    contextWindow: 1_048_576,
+    pricing: { input: 0.08, output: 0.15 },
+    strengths:
+      "Le meilleur rapport qualité/prix mesuré : 16× moins cher que Haiku pour un code aussi propre. AVEUGLE (pas de vision). Idéal pour routage, classification, JSON, e-mails d'agents.",
+    vision: false,
+    wired: true,
+  },
+  "deepseek/deepseek-v4-pro": {
+    id: "deepseek/deepseek-v4-pro",
+    provider: "openrouter",
+    label: "DeepSeek V4 Pro",
+    modality: "text",
+    capabilities: ["code", "reasoning", "writing", "data"],
+    contextWindow: 1_048_576,
+    // ⚠️ 1,74 / 3,48 — PAS les 0,43 / 0,87 affichés par le catalogue OpenRouter.
+    //
+    // Ce modèle est servi par 16 opérateurs, de 0,87 $/M (DeepSeek en direct) à
+    // 3,48 $/M (Fireworks, Together, BaseTen…). Le catalogue n'affiche QUE le moins
+    // cher. Or on route par `sort:"throughput"` → vers le PLUS RAPIDE, qui est dans
+    // la tranche haute. Le prix ci-dessous est donc celui qu'on paie VRAIMENT.
+    //
+    // Vérifié par deux chemins indépendants : (1) le facteur ×4,0 déduit du montant
+    // facturé sur 30 applications réelles, (2) le relevé /endpoints d'OpenRouter.
+    // Les deux donnent 1,74 / 3,5.
+    //
+    // Ce que ça coûtait de se tromper : le crédit étant débité AU COÛT, on débitait
+    // 4 crédits au lieu de 14 par application → marge 60 % au lieu de 88 %, SOUS le
+    // plancher de 70 % de lib/plans.ts. Une fuite invisible, à chaque app.
+    //
+    // Ce prix reste un REPLI : quand le relevé réel est disponible (usage.cost via
+    // lib/llm.ts → realCostUsd), c'est LUI qui fait foi. Cf. lib/ai-usage.ts.
+    pricing: { input: 1.74, output: 3.48 },
+    strengths:
+      "Meilleure qualité de code du banc : SEUL modèle à sortir 30 apps /30 sans une erreur JS (campagne du 13/07, 124 apps notées au navigateur). Français naturel pour le copilote, 0 hallucination. AVEUGLE (pas de vision).",
+    vision: false,
+    wired: true,
+  },
+  "qwen/qwen3-vl-30b-a3b-instruct": {
+    id: "qwen/qwen3-vl-30b-a3b-instruct",
+    provider: "openrouter",
+    label: "Qwen3-VL 30B (vision)",
+    modality: "text",
+    capabilities: ["data", "fast"],
+    contextWindow: 262_144,
+    pricing: { input: 0.13, output: 0.52 },
+    strengths:
+      "VISION : même score que Sonnet 5 sur un devis BTP français (SIRET, deux taux de TVA, accents), 2× plus rapide, 15× moins cher. Non testé sur photo dégradée ni plan d'architecte.",
+    vision: true,
+    wired: true,
+  },
+  "qwen/qwen3-vl-235b-a22b-instruct": {
+    id: "qwen/qwen3-vl-235b-a22b-instruct",
+    provider: "openrouter",
+    label: "Qwen3-VL 235B (vision)",
+    modality: "text",
+    capabilities: ["data", "reasoning"],
+    contextWindow: 262_144,
+    // Mesuré : ×1,3 le prix catalogue (l'opérateur rapide est plus cher).
+    pricing: { input: 0.25, output: 1.12 },
+    strengths:
+      "VISION RETENUE. Banc du 13/07 (8 documents BTP, dont 4 photographiés de travers) : 99,1 % des champs justes, 2× plus rapide que le 30B, 0,0005 $/document. Le 30B, lui, rendait le TTC à la place du HT sur un avoir — une erreur comptable invisible.",
+    vision: true,
+    wired: true,
+  },
+  "qwen/qwen3.5-flash-02-23": {
+    id: "qwen/qwen3.5-flash-02-23",
+    provider: "openrouter",
+    label: "Qwen3.5 Flash",
+    modality: "text",
+    capabilities: ["fast", "data"],
+    contextWindow: 1_000_000,
+    pricing: { input: 0.07, output: 0.26 },
+    strengths:
+      "CLASSIFICATION RETENUE. Banc du 13/07 (40 demandes étiquetées, 3 passages) : 97,5 % de justesse, 1,7 s, et il n'a JAMAIS oublié d'appeler l'outil — là où DeepSeek Flash et Ling l'ont oublié 4 fois (repli silencieux sur l'heuristique).",
+    vision: false,
+    wired: true,
+  },
+  "mistralai/mistral-medium-3.1": {
+    id: "mistralai/mistral-medium-3.1",
+    provider: "openrouter",
+    label: "Mistral Medium 3.1",
+    modality: "text",
+    capabilities: ["writing", "data", "reasoning"],
+    contextWindow: 131_072,
+    // Mesuré : ×1,1 le prix catalogue.
+    pricing: { input: 0.43, output: 2.15 },
+    strengths:
+      "QUESTIONNAIRE RETENU. Modèle européen. Banc du 13/07 : p95 à 2,8 s contre 14,8 s pour DeepSeek Flash — c'est CE dépassement du délai de 20 s qui faisait tomber le questionnaire sur ses questions génériques. Questions vraiment métier (pour un contrat de chaudière : marque, modèle, n° de série). Voit les images.",
+    vision: true,
+    wired: true,
+  },
+  "google/gemini-2.5-flash-image": {
+    id: "google/gemini-2.5-flash-image",
+    provider: "openrouter",
+    label: "Gemini 2.5 Flash Image",
+    modality: "image",
+    capabilities: ["image"],
+    contextWindow: 32_768,
+    // MESURÉ (banc du 2026-07-13, 2 rounds, 4 sujets) : 0,0388 $/image, 8 s.
+    // Aucun de ces modèles ne PUBLIE de tarif par image — celui-ci est un relevé.
+    pricing: { input: 0.3, output: 2.5, perImage: 0.0388 },
+    strengths:
+      "RENDU CLIENT RETENU. Sur une photo (salle de bain, façade, combles) : indiscernable de Gemini 3 Pro Image, pour 3,5× moins cher et 3× plus vite. ⚠️ NE SAIT PAS ÉCRIRE : dès qu'on lui demande un mot, il sort « Isolation Thermètic par l'Extréiure ». lib/image-gen.ts lui INTERDIT donc toute image contenant du texte.",
+    vision: true,
+    wired: true,
+  },
+  "google/gemini-3-pro-image": {
+    id: "google/gemini-3-pro-image",
+    provider: "openrouter",
+    label: "Gemini 3 Pro Image",
+    modality: "image",
+    capabilities: ["image"],
+    contextWindow: 32_768,
+    // MESURÉ : 0,1374 $/image, 19 s.
+    pricing: { input: 2, output: 12, perImage: 0.1374 },
+    strengths:
+      "Le SEUL du banc qui sache écrire dans une image : coupe technique d'ITE rendue sans une faute (4 couches, étiquettes françaises, épaisseurs plausibles). Non retenu par défaut (3,5× le prix du Flash pour un écart invisible sur une photo). À activer le jour où on veut illustrer une technique AVEC ses légendes.",
+    vision: true,
+    wired: false,
+  },
+  "z-ai/glm-5.2": {
+    id: "z-ai/glm-5.2",
+    provider: "openrouter",
+    label: "GLM 5.2",
+    modality: "text",
+    capabilities: ["code"],
+    contextWindow: 1_048_576,
+    pricing: { input: 0.42, output: 1.32 },
+    strengths:
+      "ÉCARTÉ au banc : 67 % seulement des bonnes entités workspace, plus cher que Haiku, 10 générations ratées sur 30 (timeouts fournisseur).",
+    vision: false,
+    wired: true,
+  },
+} satisfies Record<string, ModelEntry>);
 
 export const MODEL_LIST: ModelEntry[] = Object.values(MODELS);
 
@@ -304,19 +483,86 @@ export const CAPABILITY_RANKING: Record<ModelCapability, string[]> = {
   fast: ["claude-haiku-4-5", "gpt-5.4-nano", "gemini-3.1-flash-lite"],
 };
 
-// ── LES 3 PALIERS OFFICIELS (décision user 2026-07-05) ───────────────────────
-// Tâche hyper simple → Haiku ; tâche moyenne/mi-complexe → Sonnet ; tâche
-// complexe → Opus. TOUJOURS les derniers modèles Anthropic : quand Anthropic
-// sort un successeur, on ne change QUE ces trois constantes (le pricing du
-// catalogue suit, ai-usage.ts calcule les crédits automatiquement).
-export const TIER_SIMPLE = "claude-haiku-4-5";
-export const TIER_MEDIUM = "claude-sonnet-5";
-export const TIER_COMPLEX = "claude-opus-4-8";
+// ── LES PALIERS ──────────────────────────────────────────────────────────────
+// Tâche hyper simple → palier SIMPLE ; moyenne → MEDIUM ; complexe → COMPLEX.
+// Deux tâches ont leur propre variable, parce qu'elles ne veulent PAS le même
+// modèle que leur palier : la VISION (il faut des yeux) et la CLASSIFICATION.
+//
+// PILOTABLES SANS DÉPLOIEMENT : on bascule un palier vers un modèle OpenRouter en
+// posant une variable d'env — l'aiguillage est transparent (lib/llm.ts).
+//
+// Campagne du 2026-07-13 — 964 mesures réelles, 12 modèles, 3 passages minimum
+// (un seul passage ne mesure pas la fiabilité, il mesure la chance) :
+//
+//   MODEL_KIND=qwen/qwen3.5-flash-02-23           # 97,5 % · 1,7 s · n'oublie jamais l'outil
+//   MODEL_TIER_SIMPLE=mistralai/mistral-medium-3.1 # questionnaire : p95 2,8 s (vs 14,8 s)
+//   MODEL_TIER_MEDIUM=deepseek/deepseek-v4-pro     # petites apps + documents + copilote
+//   MODEL_TIER_COMPLEX=deepseek/deepseek-v4-pro    # SEUL à sortir 30 apps /30 sans erreur JS
+//   MODEL_VISION=qwen/qwen3-vl-235b-a22b-instruct  # 99,1 % des champs · 0,0005 $/document
+//
+// Challengers ÉCARTÉS, et pourquoi (mesuré, pas supposé) :
+//   qwen3-coder-next  → 3,5× moins cher MAIS 1 app sur 2 plante, et 8 apps sur 30
+//                       écrivent dans localStorage : la saisie ne part JAMAIS dans
+//                       le workspace. L'app a l'air de marcher. C'est le pire bug.
+//   minimax-m2.7      → 100 % propre sur 8 apps… 70 % sur 30. Et plus cher que Pro.
+//   kimi-k2.7-code    → timeout 2 fois sur 2 sur une app complexe. Le plus cher.
+//   glm-5.2           → 67 % des bonnes entités, 10 échecs API sur 30.
+//   Les deux derniers REFUSENT `thinking:{type:"disabled"}` (HTTP 400 « Reasoning is
+//   mandatory ») que lib/llm.ts force sur chaque appel : incompatibles en l'état.
+//
+// Sans variable : on reste sur Anthropic (comportement d'origine, zéro risque).
+const env = (k: string, fallback: string) => {
+  const v = process.env[k];
+  return v && !v.startsWith("your_") ? v.trim() : fallback;
+};
+
+export const TIER_SIMPLE = env("MODEL_TIER_SIMPLE", "claude-haiku-4-5");
+export const TIER_MEDIUM = env("MODEL_TIER_MEDIUM", "claude-sonnet-5");
+export const TIER_COMPLEX = env("MODEL_TIER_COMPLEX", "claude-opus-4-8");
+
+/** Modèle de VISION (photos, plans, PDF). Séparé des paliers : tous les modèles
+ *  texte bon marché (DeepSeek, GLM) sont AVEUGLES — seuls Claude, Qwen et Mistral
+ *  lisent une image. Ne le bascule que vers un modèle réellement multimodal. */
+export const MODEL_VISION = env("MODEL_VISION", TIER_MEDIUM);
+
+/** Modèle de CLASSIFICATION (lib/kind-router.ts). Séparé du palier MEDIUM, qui
+ *  sert aussi à GÉNÉRER les petites apps : les deux tâches n'ont rien à voir.
+ *  Trier une demande en 9 cases est court, doit être JUSTE (une erreur = la
+ *  mauvaise porte : l'artisan demande une app, il reçoit un paragraphe) et
+ *  surtout RAPIDE — ça tourne à chaque message. */
+export const MODEL_KIND = env("MODEL_KIND", TIER_MEDIUM);
+
+/** Modèle de RENDU CLIENT (image générée jointe à un devis).
+ *
+ *  Banc du 2026-07-13, 2 rounds, 20 images, 5 modèles — coûts reproduits à
+ *  l'identique d'un round à l'autre :
+ *    Gemini 2.5 Flash Image  0,0388 $ ·  8 s  ← RETENU (photo : irréprochable)
+ *    GPT-5 Image mini        0,0449 $ · 47 s
+ *    Gemini 3.1 Flash Image  0,0673 $ · 12 s
+ *    Gemini 3 Pro Image      0,1374 $ · 19 s  ← le SEUL qui sache écrire
+ *    GPT-5 Image             0,2098 $ · 64 s  ← éliminé : le plus cher, le plus
+ *                                               lent, et il rate la cotation.
+ *
+ *  ⚠️ Le modèle retenu NE SAIT PAS ÉCRIRE. lib/image-gen.ts refuse donc toute
+ *  demande d'image contenant du texte, et toute image TECHNIQUE (plan, coupe,
+ *  cotation) — celle-là serait INVENTÉE, et l'artisan commande son matériel dessus. */
+export const MODEL_IMAGE = env("MODEL_IMAGE", "google/gemini-2.5-flash-image");
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 
 export function getModel(id: string): ModelEntry | undefined {
   return MODELS[id];
+}
+
+/**
+ * Ce modèle peut-il recevoir une image / un PDF ?
+ *
+ * Défaut PRUDENT : un modèle inconnu du catalogue est réputé AVEUGLE. Se tromper
+ * dans ce sens ne coûte qu'une passe de vision en plus ; se tromper dans l'autre
+ * sens fait planter la requête en 404 et l'artisan perd son travail.
+ */
+export function canSeeImages(id: string): boolean {
+  return getModel(id)?.vision === true;
 }
 
 /** Chaîne de repli complète (ordonnée) pour une capacité, résolue en entrées. */

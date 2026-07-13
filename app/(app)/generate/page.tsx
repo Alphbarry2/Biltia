@@ -66,11 +66,48 @@ import {
   Menu,
   X,
   AlertTriangle,
+  Download,
 } from "lucide-react";
 
 type Message = {
   role: "user" | "assistant";
   content: string;
+  /** Bulle d'échec : affiche un bouton « Réessayer » qui REJOUE LA DEMANDE D'ORIGINE
+   *  (avec ses fichiers, sa portée de données, son format), et non le mot « réessaye »
+   *  — qui ne veut rien dire tout seul et repartait de zéro. */
+  retryable?: boolean;
+  /** Rendu client généré : l'image s'affiche dans la bulle, avec un lien de
+   *  téléchargement pour la joindre au devis. */
+  imageUrl?: string;
+};
+
+// Portée des données transmise à /api/generate (branchement de l'app).
+// Au niveau du module : `GenOpts` s'en sert, et `GenOpts` sert au retry.
+type DataScope =
+  | { source: "workspace"; mode: "all" }
+  | { source: "workspace"; mode: "select"; records: { entity: string; id: string }[] }
+  | { source: "import" }
+  | { source: "zero" };
+
+/** Options d'une génération. Nommé pour pouvoir MÉMORISER une tentative et la rejouer. */
+type GenOpts = {
+  formatOverride?: Format;
+  files?: { name: string; mediaType: string; data: string }[];
+  // Document : contexte déjà fourni par l'utilisateur → ne pas re-poser de
+  // questions côté serveur (la porte « contexte suffisant ? » est franchie).
+  contextProvided?: boolean;
+  // Portée des données choisie au questionnaire (workspace / import / zéro).
+  dataScope?: DataScope;
+  // Remplissage d'un document joint : force kind=document côté serveur pour
+  // qu'un fichier + « complète-le » produise le document (et pas une réponse).
+  docFill?: boolean;
+  // App CONSTRUITE À PARTIR d'un fichier joint (Excel/CSV/PDF/photo) : force
+  // kind=module côté serveur, sinon « crée une app à partir de ce fichier »
+  // retombait en document ou en analyse. Les données sortent du fichier.
+  appFromFiles?: boolean;
+  // Phase 2 : cette passe est une CORRECTION automatique de branchement (ne
+  // réinitialise pas le budget anti-boucle, ne se re-corrige pas elle-même).
+  isCorrection?: boolean;
 };
 
 // Flux de connexion « étape par étape » proposé dans le fil : une intégration à
@@ -89,6 +126,48 @@ type Format = "auto" | "mobile" | "desktop";
 // délai, l'utilisateur S'EN SERT : une erreur déclenchée par un clic ne doit PLUS
 // recharger l'iframe (sinon l'app se réinitialise = « boutons qui marchent 1 fois sur 2 »).
 const AUTOFIX_WINDOW_MS = 8000;
+
+/**
+ * Lit un flux SSE de /api/generate et renvoie l'événement final.
+ *
+ * ⚠️ /api/generate répond TOUJOURS en `text/event-stream` pour une génération —
+ * il n'existe aucune branche qui renverrait du JSON contenant `html`. Faire
+ * `await res.json()` dessus lève donc SYSTÉMATIQUEMENT un SyntaxError.
+ *
+ * C'est exactement ce que faisait l'auto-correction, dans un `catch` vide :
+ * l'utilisateur lisait « correction automatique en cours (1/3)… » puis plus
+ * rien, jamais — pendant que le serveur, lui, générait la correction ET LA
+ * DÉBITAIT. Il payait une réparation qui n'arrivait pas.
+ */
+async function readGenerationDone(
+  res: Response
+): Promise<{ html?: string; error?: string; creditsUsed?: number } | null> {
+  if (!res.body) return null;
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let out: { html?: string; error?: string; creditsUsed?: number } | null = null;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split("\n\n");
+    buffer = events.pop() ?? "";
+    for (const raw of events) {
+      const line = raw.trim();
+      if (!line.startsWith("data:")) continue;
+      let evt: { type?: string; html?: string; error?: string; creditsUsed?: number };
+      try {
+        evt = JSON.parse(line.slice(5));
+      } catch {
+        continue;
+      }
+      if (evt.type === "done") out = { html: evt.html, creditsUsed: evt.creditsUsed };
+      else if (evt.type === "error" && typeof evt.error === "string") out = { error: evt.error };
+    }
+  }
+  return out;
+}
 
 // Format de sortie chirurgical décidé par l'aiguillage (cf. lib/kind-router.ts).
 type Kind = "document" | "action" | "module";
@@ -224,6 +303,21 @@ export default function GeneratePage() {
   const t = useT();
   const locale = useLocale();
   const [messages, setMessages] = useState<Message[]>([]);
+
+  // ── LA MÉMOIRE DU COPILOTE ─────────────────────────────────────────────────
+  // Le fil, en ref : `executeGeneration` doit lire les messages AU MOMENT DE
+  // L'ENVOI, pas ceux figés dans sa closure. Sans ça, le serveur ne recevait
+  // QUE le message courant — d'où « Je t'écoute. De quoi as-tu besoin ? »
+  // en réponse à « réessaye », alors que le besoin venait d'être expliqué.
+  const messagesRef = useRef<Message[]>([]);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  // La dernière demande envoyée, telle quelle (prompt + fichiers + portée).
+  // C'est elle que rejoue le bouton « Réessayer ».
+  const lastAttemptRef = useRef<{ prompt: string; opts?: GenOpts } | null>(null);
+
   // Connexions à proposer dans le fil (null = aucune en cours). Mirroir en ref
   // pour l'avancement depuis les callbacks des cartes sans closure périmée.
   const [connectFlow, setConnectFlow] = useState<ConnectFlow | null>(null);
@@ -811,28 +905,65 @@ export default function GeneratePage() {
         }),
       });
 
-      const data = await res.json();
-      if (res.ok && data.html) {
-        setGeneratedHTML(data.html);
-        setAutoFixCount(fixCount + 1);
+      // La réponse est un flux SSE, jamais du JSON. Cf. readGenerationDone().
+      const data = await readGenerationDone(res);
+
+      // Le compteur DOIT avancer même en échec. Il vivait auparavant dans la
+      // branche de succès — jamais atteinte — donc le garde-fou « 3 tentatives
+      // max » ne se déclenchait pas : chaque nouvelle erreur JS relançait une
+      // correction facturée, indéfiniment.
+      setAutoFixCount(fixCount + 1);
+
+      if (!res.ok || !data?.html) {
+        // Ne JAMAIS rester muet : la correction a été tentée (et facturée), on le
+        // dit, et on rend la main plutôt que de laisser un « en cours… » éternel.
+        const why = data?.error;
         setMessages((prev) => [
           ...prev,
-          { role: 'assistant', content: t(`✓ Correction ${fixCount + 1} appliquée. Vérification…`, `✓ Fix ${fixCount + 1} applied. Checking…`) },
+          {
+            role: 'assistant',
+            content: why
+              ? t(`Je n'ai pas pu corriger automatiquement : ${why}`, `I couldn't auto-fix this: ${why}`)
+              : t(
+                "Je n'ai pas réussi à corriger automatiquement. Dites-moi ce qui ne va pas et je m'en occupe.",
+                "I couldn't auto-fix this. Tell me what's wrong and I'll take care of it."
+              ),
+          },
         ]);
-        // L'app vit déjà dans les ateliers → la correction y part aussi (silencieux),
-        // via le chemin autoritaire : une version « autofix » est enregistrée sans
-        // toucher au nom/à la description (le garde-fou ne bloque pas un auto-fix).
-        if (savedIdRef.current) {
-          void saveModuleApi({
-            moduleId: savedIdRef.current,
-            html: data.html,
-            changeType: 'autofix',
-            sourcePrompt: 'Correction automatique',
-          });
-        }
+        return;
+      }
+
+      setGeneratedHTML(data.html);
+      setMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: t(`✓ Correction ${fixCount + 1} appliquée. Vérification…`, `✓ Fix ${fixCount + 1} applied. Checking…`) },
+      ]);
+      // L'app vit déjà dans les ateliers → la correction y part aussi (silencieux),
+      // via le chemin autoritaire : une version « autofix » est enregistrée sans
+      // toucher au nom/à la description (le garde-fou ne bloque pas un auto-fix).
+      if (savedIdRef.current) {
+        void saveModuleApi({
+          moduleId: savedIdRef.current,
+          html: data.html,
+          changeType: 'autofix',
+          sourcePrompt: 'Correction automatique',
+        });
       }
     } catch {
-      // Silencieux — ne pas bloquer l'user sur une erreur d'auto-fix
+      // Réseau coupé en plein flux : on consomme quand même une tentative et on
+      // le dit. Un échec muet laissait « correction en cours… » à l'écran pour
+      // toujours.
+      setAutoFixCount(fixCount + 1);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: t(
+            "La correction automatique n'a pas abouti (connexion interrompue). Dites-moi ce qui ne va pas.",
+            "Auto-fix didn't complete (connection lost). Tell me what's wrong."
+          ),
+        },
+      ]);
     } finally {
       autoFixInProgressRef.current = false;
       setIsAutoFixing(false);
@@ -847,16 +978,23 @@ export default function GeneratePage() {
   // ── Écouter les messages de l'iframe ─────────────────────────────────────
   useEffect(() => {
     const handler = (event: MessageEvent) => {
-      // Pont API : l'iframe (origin:null) ne peut pas faire fetch directement →
-      // elle envoie BILTIA_API_CALL, on proxifie vers /api/data en same-origin.
+      // GARDE DE PROVENANCE — ne PAS retirer.
+      // Ce pont proxifie /api/* avec les cookies de session de l'utilisateur. Sans
+      // ce contrôle, TOUTE fenêtre capable de nous poster un message (site tiers
+      // qui nous encadre, popup, opener) pilotait l'API en son nom : lecture du
+      // workspace, envoi d'emails, consommation des crédits. On n'accepte donc que
+      // les messages dont la fenêtre émettrice EST notre propre iframe.
+      const frame = iframeRef.current?.contentWindow ?? null;
+      if (!frame || event.source !== frame) return;
+
+      // Pont API : l'iframe ne fait jamais fetch elle-même → elle envoie
+      // BILTIA_API_CALL, on proxifie vers /api/data en same-origin.
       if (event.data?.type === 'BILTIA_API_CALL') {
         const { id, body } = event.data as { id: string; body: unknown };
-        // Répondre à la fenêtre émettrice ; repli sur l'iframe courante si
-        // event.source est null (iframe re-rendue) — sinon la réponse est perdue
-        // et l'app tombe en « workspace injoignable » à tort.
+        // Répondre à la fenêtre émettrice, désormais vérifiée comme étant la
+        // nôtre, et sur une cible explicite (jamais '*').
         const reply = (payload: Record<string, unknown>) => {
-          const target = (event.source as Window | null) ?? iframeRef.current?.contentWindow ?? null;
-          target?.postMessage({ type: 'BILTIA_API_RESPONSE', id, ...payload }, '*');
+          frame.postMessage({ type: 'BILTIA_API_RESPONSE', id, ...payload }, window.location.origin);
         };
         const ep = (body as { __endpoint?: string } | null)?.__endpoint;
         const apiUrl =
@@ -1213,8 +1351,9 @@ export default function GeneratePage() {
   // ── CLIC SUR UNE PROPOSITION ISSUE DE LA LECTURE DU DOCUMENT ────────────────
   // Biltia a LU le document et propose ce qu'il sait en tirer (app de métré
   // depuis un plan, app de gestion depuis un tableau, document depuis un
-  // courrier). Rien ne part sans ce clic : une app coûte 300 crédits, on ne les
-  // dépense JAMAIS par surprise sur un simple dépôt de fichier (décision 2026-07-12).
+  // courrier). Rien ne part sans ce clic : créer une app est l'action la plus chère
+  // du produit (cf. ACTION_CREDITS dans lib/plans.ts) et on ne la déclenche JAMAIS
+  // par surprise sur un simple dépôt de fichier (décision 2026-07-12).
   // Les fichiers analysés repartent avec la demande → l'app se bâtit sur le
   // document réel, jamais à vide.
   const handleProposition = async (p: Proposition) => {
@@ -1531,14 +1670,6 @@ export default function GeneratePage() {
     await executeGeneration(trimmed);
   };
 
-  // Réponses du questionnaire → prompt enrichi → génération.
-  // Portée des données transmise à /api/generate (branchement de l'app).
-  type DataScope =
-    | { source: "workspace"; mode: "all" }
-    | { source: "workspace"; mode: "select"; records: { entity: string; id: string }[] }
-    | { source: "import" }
-    | { source: "zero" };
-
   // `structured` permet de lire la réponse device pour forcer le format.
   const onClarifyDone = (answersText: string | null, structured?: Record<string, string[]>) => {
     const base = clarify?.prompt ?? "";
@@ -1639,28 +1770,12 @@ export default function GeneratePage() {
     ]);
   };
 
-  const executeGeneration = async (
-    apiPrompt: string,
-    opts?: {
-      formatOverride?: Format;
-      files?: { name: string; mediaType: string; data: string }[];
-      // Document : contexte déjà fourni par l'utilisateur → ne pas re-poser de
-      // questions côté serveur (la porte « contexte suffisant ? » est franchie).
-      contextProvided?: boolean;
-      // Portée des données choisie au questionnaire (workspace / import / zéro).
-      dataScope?: DataScope;
-      // Remplissage d'un document joint : force kind=document côté serveur pour
-      // qu'un fichier + « complète-le » produise le document (et pas une réponse).
-      docFill?: boolean;
-      // App CONSTRUITE À PARTIR d'un fichier joint (Excel/CSV/PDF/photo) : force
-      // kind=module côté serveur, sinon « crée une app à partir de ce fichier »
-      // retombait en document ou en analyse. Les données sortent du fichier.
-      appFromFiles?: boolean;
-      // Phase 2 : cette passe est une CORRECTION automatique de branchement (ne
-      // réinitialise pas le budget anti-boucle, ne se re-corrige pas elle-même).
-      isCorrection?: boolean;
-    }
-  ) => {
+  const executeGeneration = async (apiPrompt: string, opts?: GenOpts) => {
+    // MÉMORISE LA TENTATIVE. C'est ce qui rend « Réessayer » honnête : on rejoue la
+    // demande TELLE QU'ELLE ÉTAIT (fichiers joints, portée des données, format),
+    // pas une paraphrase. Les corrections automatiques ne s'auto-mémorisent pas.
+    if (!opts?.isCorrection) lastAttemptRef.current = { prompt: apiPrompt, opts };
+
     const isModification = generatedHTML.length > 0;
     const creditCost = isModification ? 60 : 300;
     // Nouvelle demande utilisateur → budget de correction workspace remis à neuf.
@@ -1700,6 +1815,16 @@ export default function GeneratePage() {
           files: opts?.files,
           // Portée des données (workspace tout/sélection, import, zéro).
           dataScope: opts?.dataScope,
+          // ── LE FIL DE LA CONVERSATION ────────────────────────────────────
+          // Le dernier message du fil EST la demande courante (elle est déjà
+          // peinte dans le chat avant l'appel) : on la retire, le serveur la
+          // rajoute lui-même. Sans ce filtre, elle partait en double.
+          history: (() => {
+            const fil = messagesRef.current.filter((m) => m.content.trim().length > 0);
+            const sansCourant =
+              fil.length > 0 && fil[fil.length - 1].role === "user" ? fil.slice(0, -1) : fil;
+            return sansCourant.slice(-12).map((m) => ({ role: m.role, content: m.content }));
+          })(),
         }),
       });
 
@@ -1718,6 +1843,7 @@ export default function GeneratePage() {
         let started = false; // stream « réponse » commencé
         let buildHtml = ""; // accumulateur du HTML généré
         let isBuild = false; // ce flux est une génération
+        let sawError = false; // un événement { type:"error" } a déjà été affiché
         let lastPaint = 0;
         const paint = (content: string) => {
           setMessages((prev) => {
@@ -1762,7 +1888,13 @@ export default function GeneratePage() {
                 const now = Date.now();
                 if (now - lastPaint > 250) {
                   lastPaint = now;
-                  setGeneratedHTML(buildHtml.replace(/^\s*```(?:html)?\s*/i, ""));
+                  // ⚠️ On ne peint QU'À PARTIR du document. Le modèle préfixe parfois
+                  // sa sortie (« Voici le code HTML complet de l'application… ») : ce
+                  // texte se retrouvait AFFICHÉ EN HAUT DE L'APP pendant les 3 minutes
+                  // de construction. L'artisan ne doit jamais voir un mot de jargon.
+                  // Tant que le document n'a pas commencé, on ne peint rien.
+                  const debut = buildHtml.search(/<!doctype\s+html|<html[\s>]/i);
+                  setGeneratedHTML(debut >= 0 ? buildHtml.slice(debut) : "");
                 }
               }
             } else if (evt.type === "done") {
@@ -1772,20 +1904,45 @@ export default function GeneratePage() {
                 updateCreditsDisplay(evt.creditsUsed ?? 10); // réponse copilote terminée
               }
             } else if (evt.type === "error" && typeof evt.error === "string") {
+              sawError = true;
               if (isBuild) {
                 if (!isModification) setGeneratedHTML("");
-                setMessages((prev) => [...prev, { role: "assistant", content: evt.error }]);
+                // `retryable` → bouton « Réessayer » sous la bulle, qui rejoue la
+                // demande d'origine avec tout son contexte.
+                setMessages((prev) => [...prev, { role: "assistant", content: evt.error, retryable: true }]);
               } else if (started) {
                 paint(evt.error);
               } else {
-                setMessages((prev) => [...prev, { role: "assistant", content: evt.error }]);
+                setMessages((prev) => [...prev, { role: "assistant", content: evt.error, retryable: true }]);
               }
             }
           }
         }
         // Réponse copilote / erreur → terminé ici. Génération réussie → on retombe
         // dans la finalisation ci-dessous avec `data` (le payload de l'événement done).
-        if (!data) return;
+        if (!data) {
+          // FLUX MORT SANS `done`. Sur une génération, cela signifie que la
+          // fonction serveur a été TUÉE en plein vol (timeout plateforme,
+          // redéploiement) : le `catch` serveur qui rembourse ne s'exécute pas.
+          // Le code faisait ici un `return` MUET : l'artisan restait avec un
+          // aperçu à moitié construit, aucun message, et ses crédits partis. Il
+          // ne pouvait même pas savoir qu'il devait réessayer.
+          if (isBuild && !sawError) {
+            if (!isModification) setGeneratedHTML("");
+            setMessages((prev) => [
+              ...prev,
+              {
+                role: "assistant",
+                content: t(
+                  "La génération a été interrompue avant la fin : elle a dépassé le temps imparti. Rien n'a été enregistré. Réessayez avec une application plus simple, ou construisez-la en deux fois (une première version, puis vous l'enrichissez).",
+                  "The build was cut short: it exceeded the time limit. Nothing was saved. Try again with a simpler app, or build it in two passes (a first version, then enrich it)."
+                ),
+                retryable: true,
+              },
+            ]);
+          }
+          return;
+        }
       }
 
       if (!data) {
@@ -1856,6 +2013,18 @@ export default function GeneratePage() {
         setMessages((prev) => [...prev, { role: "assistant", content: data.message }]);
         // Gmail/Agenda pas connecté → cartes inline, puis reprise (envoi / lecture).
         startConnectFlowFromData(data, apiPrompt);
+        return;
+      }
+
+      // RENDU CLIENT : l'image arrive, on l'affiche DANS le fil. C'est une
+      // illustration commerciale — l'artisan la montre à son client, il ne
+      // construit pas dessus. Le message qui l'accompagne le dit explicitement.
+      if (data.kind === "image" && typeof data.imageUrl === "string" && data.imageUrl) {
+        updateCreditsDisplay(data.creditsUsed ?? 0);
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: data.answer ?? "", imageUrl: data.imageUrl },
+        ]);
         return;
       }
 
@@ -1942,6 +2111,22 @@ export default function GeneratePage() {
           content = t(`✓ Application **${data.name}** générée.${saveNote} Elle est entièrement fonctionnelle : ajoutez, modifiez, supprimez des données — tout est sauvegardé. Dites-moi ce que vous voulez ajuster.`, `✓ App **${data.name}** generated.${saveNote} It's fully functional: add, edit, delete data — everything is saved. Tell me what you'd like to adjust.`);
         }
         setMessages((prev) => [...prev, { role: "assistant", content }]);
+        // Le serveur signale `truncated` quand le modèle a atteint sa limite de
+        // sortie et que le HTML a été recollé de force (</body></html> ajoutés).
+        // Ce drapeau n'était LU NULLE PART : une app amputée était enregistrée et
+        // facturée en annonçant « entièrement fonctionnelle ». On le dit.
+        if (data.truncated) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "assistant",
+              content: t(
+                "⚠️ Cette application est **incomplète** : elle était trop longue à écrire d'un seul tenant et a été coupée. Ce que vous voyez fonctionne, mais il manque probablement la fin. Demandez-moi d'ajouter ce qui manque, ou repartez d'une version plus simple.",
+                "⚠️ This app is **incomplete**: it was too long to write in one go and got cut off. What you see works, but the end is likely missing. Ask me to add what's missing, or start from a simpler version."
+              ),
+            },
+          ]);
+        }
         if (autoSaved === "declined") {
           setMessages((prev) => [
             ...prev,
@@ -2476,14 +2661,74 @@ export default function GeneratePage() {
                   <span className="text-white text-xs font-black leading-none">B</span>
                 </div>
               )}
-              <div
-                className={`max-w-[85%] whitespace-pre-wrap px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed ${
-                  msg.role === "user"
-                    ? "bg-[#0A0A0A] text-white rounded-tr-sm"
-                    : "bg-[#F6F6F9] text-[#0A0A0A] rounded-tl-sm border border-[#ECECF2]"
-                }`}
-              >
-                {msg.content}
+              <div className="max-w-[85%] flex flex-col items-start gap-2">
+                <div
+                  className={`whitespace-pre-wrap px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed ${
+                    msg.role === "user"
+                      ? "bg-[#0A0A0A] text-white rounded-tr-sm"
+                      : "bg-[#F6F6F9] text-[#0A0A0A] rounded-tl-sm border border-[#ECECF2]"
+                  }`}
+                >
+                  {msg.content}
+                </div>
+
+                {/* RENDU CLIENT — l'image est le livrable, pas une décoration :
+                    elle s'affiche en grand et se télécharge en un clic pour partir
+                    avec le devis. Le libellé rappelle que c'est une ILLUSTRATION :
+                    l'artisan la montre, il ne construit pas dessus. */}
+                {msg.imageUrl && (
+                  <figure className="w-full overflow-hidden rounded-2xl border border-[#ECECF2] bg-white">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={msg.imageUrl}
+                      alt={t("Rendu du projet fini", "Render of the finished project")}
+                      className="block w-full h-auto"
+                    />
+                    <figcaption className="flex items-center justify-between gap-3 px-3 py-2 border-t border-[#ECECF2]">
+                      <span className="text-[11px] text-[#6E6E6C]">
+                        {t("Illustration — non contractuelle", "Illustration — not contractual")}
+                      </span>
+                      <a
+                        href={msg.imageUrl}
+                        download="rendu-biltia.png"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-[#ECECF2] bg-white px-2.5 py-1 text-xs font-semibold text-[#0A0A0A] transition hover:bg-[#F6F6F9]"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        {t("Télécharger", "Download")}
+                      </a>
+                    </figcaption>
+                  </figure>
+                )}
+
+                {/* RÉESSAYER — rejoue la demande d'ORIGINE (son prompt, ses fichiers,
+                    sa portée de données), pas le mot « réessaye ». C'est toute la
+                    différence : taper « réessaye » envoyait deux mots hors contexte,
+                    et l'assistant répondait « Je t'écoute. De quoi as-tu besoin ? ».
+                    Ne s'affiche que sur la DERNIÈRE bulle : un vieil échec plus haut
+                    dans le fil n'a plus rien à rejouer. */}
+                {msg.retryable && i === messages.length - 1 && lastAttemptRef.current && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const a = lastAttemptRef.current;
+                      if (!a || isGenerating) return;
+                      // On retire la bulle d'échec : elle est remplacée par la
+                      // nouvelle tentative, pas empilée avec elle.
+                      setMessages((prev) => prev.slice(0, -1));
+                      void executeGeneration(a.prompt, a.opts);
+                    }}
+                    disabled={isGenerating}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-[#ECECF2] bg-white px-3 py-1.5 text-xs font-semibold text-[#0A0A0A] transition hover:bg-[#F6F6F9] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5" aria-hidden="true">
+                      <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+                      <path d="M3 3v5h5" />
+                    </svg>
+                    {t("Réessayer", "Try again")}
+                  </button>
+                )}
               </div>
             </div>
           ))}

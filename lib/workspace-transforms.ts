@@ -307,6 +307,28 @@ export async function invoiceFromDevis(opts: {
     }
     if (!(ht > 0)) return { error: pick(locale, "Rien à facturer : le devis est déjà entièrement facturé.", "Nothing to invoice: this quote is already fully invoiced."), status: 400 };
 
+    // PLAFOND. Seul le mode `solde` déduisait le déjà-facturé : `acompte` et
+    // `situation` calculaient un pourcentage du TOTAL sans jamais regarder ce qui
+    // était déjà parti. Cinq appels en « acompte 100 % » produisaient cinq
+    // factures pleines. On refuse ici, avec un message lisible.
+    //
+    // Ce test n'est PAS la sécurité — deux appels concurrents le franchiraient
+    // tous les deux. La garantie est le trigger `factures_guard_devis_total`
+    // (migration 051), qui verrouille le devis et fait respecter l'invariant en
+    // base. Ce test n'existe que pour dire à l'artisan CE QUI reste à facturer
+    // plutôt que de lui renvoyer une erreur Postgres.
+    const restant = round2(totalHt - invoicedHt);
+    if (ht > restant + 0.01) {
+      return {
+        error: pick(
+          locale,
+          `Ce devis est déjà facturé à hauteur de ${round2(invoicedHt)} € HT sur ${round2(totalHt)} € HT. Il reste ${restant} € HT à facturer.`,
+          `This quote is already invoiced for ${round2(invoicedHt)} € excl. tax out of ${round2(totalHt)} €. Remaining: ${restant} € excl. tax.`
+        ),
+        status: 400,
+      };
+    }
+
     // TVA proportionnelle au HT du devis (conserve le taux moyen, multi-taux inclus).
     const tvaRate = totalHt > 0 ? totalTva / totalHt : 0.2;
     const tva = round2(ht * tvaRate);
@@ -331,7 +353,15 @@ export async function invoiceFromDevis(opts: {
     const dateFacture = today.toISOString().slice(0, 10);
     const dateEcheance = new Date(today.getTime() + 30 * 86_400_000).toISOString().slice(0, 10);
 
-    // Anti-collision : l'index unique (tenant_id, numero) est la garantie légale.
+    // Anti-collision de NUMÉRO uniquement (index unique tenant_id+numero).
+    //
+    // ⚠️ Cette boucle ne doit réessayer QUE sur un conflit d'unicité (23505), et
+    // seulement parce que deux devis DIFFÉRENTS facturés en même temps peuvent
+    // viser le même numéro. Elle ne doit JAMAIS servir de rattrapage à une double
+    // facturation du même devis : c'est précisément ce qu'elle faisait avant la
+    // migration 051 (le 2ᵉ clic collisionnait sur le numéro, la boucle réessayait
+    // avec le suivant… et créait une seconde facture pleine). Le trigger renvoie
+    // désormais un 23514 (check_violation) que l'on NE réessaie pas.
     let facture: Record<string, unknown> | null = null;
     let insErr: unknown = null;
     for (let attempt = 1; attempt <= 6; attempt++) {
@@ -361,7 +391,18 @@ export async function invoiceFromDevis(opts: {
       insErr = error;
       if ((error as { code?: string }).code !== "23505") break; // pas un conflit d'unicité → stop
     }
-    if (!facture) return { error: insErr instanceof Error ? insErr.message : "Création de la facture impossible.", status: 400 };
+    if (!facture) {
+      // Une erreur Supabase est un OBJET { message, code, … }, PAS une instance de
+      // Error : le test `instanceof Error` était toujours faux et écrasait le vrai
+      // motif par un générique. On lit donc `.message` directement — c'est ainsi
+      // que le refus du garde-fou (« ce devis est déjà facturé à hauteur de… »)
+      // parvient jusqu'à l'artisan.
+      const raw = (insErr as { message?: string } | null)?.message;
+      return {
+        error: raw || pick(locale, "Création de la facture impossible.", "Could not create the invoice."),
+        status: 400,
+      };
+    }
 
     const kindLabel = factType === "acompte" ? "acompte" : factType === "situation" ? "situation" : "facture";
     await log(

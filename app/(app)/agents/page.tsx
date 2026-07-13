@@ -61,6 +61,14 @@ type AgentRun = {
   run_key: string;
   status: string;
   summary: string;
+  /**
+   * LE LIVRABLE de l'agent. `body` porte le corps du rapport / de l'alerte,
+   * `subject` son titre (cf. lib/agent-executor.ts, finishRun(..., { subject, body })).
+   * Ce champ n'était ni sélectionné par l'API ni typé ici : le rapport quotidien
+   * que l'artisan paie en crédits n'était affiché NULLE PART. Seul le push en
+   * transportait 240 caractères tronqués.
+   */
+  output: { subject?: string; body?: string } | null;
   error: string | null;
   credits_used: number;
   created_at: string;
@@ -660,10 +668,12 @@ export default function AgentsPage() {
             <div className="rounded-2xl border border-[#EDEDF2] bg-white divide-y divide-[#F4F4F2]">
               {runs.map((run) => {
                 const rule = rules.find((r) => r.id === run.rule_id);
+                // Le corps du rapport / de l'alerte, s'il y en a un.
+                const body = (run.output?.body ?? "").trim();
                 return (
                   <div key={run.id} className="flex items-start gap-2.5 px-4 py-2.5">
                     <span className="mt-0.5">{runIcon(run.status)}</span>
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p className="text-[12.5px] text-[#0A0A0A]">
                         {rule && <span className="font-semibold">{rule.title} — </span>}
                         {run.summary || run.error || run.status}
@@ -672,6 +682,21 @@ export default function AgentsPage() {
                         {formatDate(run.created_at, locale)}
                         {(run.credits_used ?? 0) > 0 && <> · {run.credits_used} {t("cr", "cr")}</>}
                       </p>
+                      {/* Le livrable enfin lisible. Sans cela, l'artisan payait un
+                          rapport qu'il ne voyait jamais : il restait enfermé dans
+                          agent_runs.output. Replié par défaut pour ne pas noyer le
+                          journal ; <details> = zéro état à gérer. */}
+                      {body && (
+                        <details className="mt-1.5 group">
+                          <summary className="cursor-pointer text-[11.5px] font-medium text-[#7C3AED] hover:text-[#6D28D9] list-none select-none">
+                            {t("Voir le rapport", "View report")}
+                            {run.output?.subject ? ` · ${run.output.subject}` : ""}
+                          </summary>
+                          <pre className="mt-2 whitespace-pre-wrap break-words rounded-lg bg-[#F8F8FB] border border-[#EDEDF2] p-3 text-[12px] leading-relaxed text-[#3F3F45] font-sans">
+                            {body}
+                          </pre>
+                        </details>
+                      )}
                     </div>
                   </div>
                 );

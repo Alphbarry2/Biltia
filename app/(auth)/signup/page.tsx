@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { SIGNUP_FREE_CREDITS } from "@/lib/plans";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase";
@@ -127,7 +128,7 @@ export default function SignupPage() {
         <h1 className="mb-2 text-[24px] font-black tracking-[-0.02em] text-[#0A0A0A]">{t("Vérifiez vos emails.", "Check your email.")}</h1>
         <p className="text-sm leading-relaxed text-[#6E6E6C]">
           {t("Un lien de confirmation vient de partir vers ", "A confirmation link was just sent to ")}<span className="font-semibold text-[#0A0A0A]">{email}</span>.
-          {t(" Cliquez dessus pour activer vos 300 crédits offerts", " Click it to activate your 300 free credits")}{invited ? t(" et vos 200 crédits bonus d'invitation", " and your 200 bonus invite credits") : ""}.
+          {t(` Cliquez dessus pour activer vos ${SIGNUP_FREE_CREDITS} crédits offerts`, ` Click it to activate your ${SIGNUP_FREE_CREDITS} free credits`)}{invited ? t(" et vos 200 crédits bonus d'invitation", " and your 200 bonus invite credits") : ""}.
         </p>
       </div>
     );
@@ -142,12 +143,12 @@ export default function SignupPage() {
           </span>
           <p className="text-[13px] leading-snug text-[#4A4A56]">
             <b className="font-semibold text-[#0A0A0A]">{t("Vous avez été invité sur Biltia.", "You've been invited to Biltia.")}</b> {t("Créez votre compte et recevez", "Create your account and get")}{" "}
-            <b className="font-semibold text-[#7C3AED]">{t("200 crédits bonus", "200 bonus credits")}</b>{t(", en plus de vos 300 crédits offerts.", ", on top of your 300 free credits.")}
+            <b className="font-semibold text-[#7C3AED]">{t("200 crédits bonus", "200 bonus credits")}</b>{t(`, en plus de vos ${SIGNUP_FREE_CREDITS} crédits offerts.`, `, on top of your ${SIGNUP_FREE_CREDITS} free credits.`)}
           </p>
         </div>
       )}
       <h1 className="mb-1.5 text-[28px] font-black tracking-[-0.03em] text-[#0A0A0A]">{t("Créez votre compte.", "Create your account.")}</h1>
-      <p className="mb-7 text-sm text-[#6E6E6C]">{t("300 crédits offerts. Sans carte bancaire.", "300 free credits. No credit card.")}</p>
+      <p className="mb-7 text-sm text-[#6E6E6C]">{t(`${SIGNUP_FREE_CREDITS} crédits offerts. Sans carte bancaire.`, `${SIGNUP_FREE_CREDITS} free credits. No credit card.`)}</p>
 
       <OAuthButtons next="/onboarding" onError={setError} disabled={!acceptedTerms} />
       <OrDivider />

@@ -13,12 +13,35 @@ const LEGACY_PRICING: Record<string, { input: number; output: number; cachedInpu
 
 const DEFAULT_PRICING = { input: 3.0, output: 15.0, cachedInput: 0.3 };
 
+/**
+ * Coût d'un appel, en USD.
+ *
+ * ⚠️ `realCostUsd` (le RELEVÉ d'OpenRouter) prime TOUJOURS sur le catalogue.
+ *
+ * Pourquoi : un même modèle est servi par des DIZAINES d'opérateurs, à des prix
+ * qui vont du simple au quadruple (DeepSeek V4 Pro : 0,87 $/M chez DeepSeek…
+ * 3,48 $/M chez Fireworks). Le catalogue OpenRouter n'affiche que le MOINS CHER.
+ * Or on route par `sort:"throughput"` — donc vers le PLUS RAPIDE, qui est souvent
+ * l'un des plus chers.
+ *
+ * Mesuré le 2026-07-13 sur 30 applications : le catalogue disait 0,0106 $/app,
+ * la facture réelle était de 0,0428 $. Comme le crédit est débité au coût, cet
+ * écart ×4 faisait débiter 4 crédits au lieu de 14 → la marge tombait de 88 % à
+ * 60 %, SOUS le plancher de 70 % fixé dans lib/plans.ts. Sans que rien ne l'alerte.
+ *
+ * Le catalogue reste le repli : Anthropic en direct, ou un relevé absent.
+ */
 function calcCost(
   model: string,
   inputTokens: number,
   outputTokens: number,
-  cachedInputTokens: number
+  cachedInputTokens: number,
+  realCostUsd?: number
 ): number {
+  if (typeof realCostUsd === "number" && Number.isFinite(realCostUsd) && realCostUsd > 0) {
+    return realCostUsd;
+  }
+
   const catalog = getModel(model)?.pricing;
   const p = catalog
     ? { input: catalog.input, output: catalog.output, cachedInput: catalog.cachedInput ?? 0 }
@@ -76,6 +99,19 @@ interface TrackUsageParams {
   inputTokens: number;
   outputTokens: number;
   cachedInputTokens?: number;
+  /** Coût RÉELLEMENT facturé par le fournisseur (OpenRouter le renvoie dans
+   *  `usage.cost`). Prime sur le catalogue — voir calcCost. Toujours le passer
+   *  quand on l'a : c'est lui qui garantit la justesse de la marge. */
+  realCostUsd?: number;
+  /** Crédits RÉELLEMENT débités au client, décidés par la GRILLE TARIFAIRE
+   *  (lib/plans.ts → ACTION_CREDITS), PAS par le coût du modèle.
+   *
+   *  C'est la correction du 2026-07-13 : le débit suivait le coût réel, si bien
+   *  qu'un moteur 8× moins cher bradait l'offre au lieu d'améliorer la marge
+   *  (une app tombée de 250 crédits facturés à 15 → 133 apps pour 49 €).
+   *  Le coût, lui, reste journalisé dans `cost_usd` : c'est ce qui permet de
+   *  SURVEILLER la marge sans qu'il la pilote. */
+  billedCredits?: number;
   agent?: string;
   sector?: string;
   promptType?: "create" | "modify" | "autofix";
@@ -94,13 +130,32 @@ export async function trackAiUsage({
   inputTokens,
   outputTokens,
   cachedInputTokens = 0,
+  realCostUsd,
+  billedCredits,
   agent,
   sector,
   promptType,
   internal = false,
 }: TrackUsageParams): Promise<number> {
-  const costUsd = calcCost(model, inputTokens, outputTokens, cachedInputTokens);
-  const credits = creditsForCost(costUsd, { internal });
+  const costUsd = calcCost(model, inputTokens, outputTokens, cachedInputTokens, realCostUsd);
+
+  // La GRILLE décide du débit. Le coût ne sert plus qu'au suivi de marge.
+  // Repli sur le coût pour la plomberie interne (routage, classification…),
+  // jamais facturée au client de toute façon.
+  const credits = typeof billedCredits === "number" ? billedCredits : creditsForCost(costUsd, { internal });
+
+  // ALARME DE MARGE : si une action coûte plus cher que ce qu'on la facture, la
+  // grille est à revoir. Silencieux jusqu'ici = fuite invisible.
+  if (typeof billedCredits === "number" && billedCredits > 0) {
+    const facture = billedCredits * CREDIT_COST_EUR;   // budget de coût alloué
+    const reel = costUsd * USD_TO_EUR;
+    if (reel > facture) {
+      console.warn(
+        `[marge] « ${action} » coûte ${reel.toFixed(4)} € mais n'est facturée que ${billedCredits} crédits ` +
+        `(budget ${facture.toFixed(4)} €). Modèle : ${model}. Revoir ACTION_CREDITS.`
+      );
+    }
+  }
 
   // La policy RLS d'ai_usage refuse l'INSERT au rôle authenticated (with_check
   // false) : l'écriture DOIT passer par service_role, sinon elle échoue en

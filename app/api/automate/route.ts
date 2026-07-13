@@ -15,6 +15,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import Anthropic from "@anthropic-ai/sdk";
+import { client, hasAnyLlmKey, realCostOf } from "@/lib/llm";
 import { createClient } from "@/lib/supabase-server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { trackAiUsage, reconcileCredits } from "@/lib/ai-usage";
@@ -29,8 +30,8 @@ import { getLocale } from "@/lib/i18n/server";
 import { getSectorContext } from "@/lib/sector-context";
 import { pick } from "@/lib/i18n/config";
 import { withLocale } from "@/lib/i18n/llm";
+import { ACTION_CREDITS } from "@/lib/plans";
 
-const client = new Anthropic();
 const MAX_TOKENS = 3000;
 
 const REPORT_TOOL: Anthropic.Tool = {
@@ -109,7 +110,7 @@ Réponds UNIQUEMENT en appelant l'outil build_report.`;
 export async function POST(req: Request) {
   const locale = await getLocale();
   try {
-    if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY.startsWith("your_")) {
+    if (!hasAnyLlmKey()) {
       return Response.json(
         { error: pick(locale, "Clé API Anthropic non configurée.", "Anthropic API key not configured.") },
         { status: 503 }
@@ -190,7 +191,7 @@ export async function POST(req: Request) {
     // Pré-autorisation (hold) par fichier, réconciliée au coût réel après le contrôle.
     // Compte fondateur : jamais de hold ni de débit (usage journalisé quand même).
     const founder = isFounderEmail(user.email);
-    const HOLD = founder ? 0 : 25 * files.length;
+    const HOLD = founder ? 0 : ACTION_CREDITS.lecture_fichier * files.length;
     if (HOLD > 0) {
       const { data: credited } = await supabase.rpc("deduct_credits", { p_amount: HOLD });
       if (!credited) {
@@ -289,6 +290,8 @@ export async function POST(req: Request) {
 
     const answer = typeof input.synthese === "string" ? input.synthese.trim() : "";
 
+    // `billedCredits: HOLD` — cf. /api/analyze : sans lui, on débitait le HOLD mais
+    // on journalisait (et on AFFICHAIT) le coût du modèle, soit un tout autre chiffre.
     let realCredits = HOLD;
     try {
       const tracked = await trackAiUsage({
@@ -298,13 +301,17 @@ export async function POST(req: Request) {
         action: "automate",
         model: VISION_MODEL,
         inputTokens: message.usage.input_tokens,
+        // Le RELEVÉ prime sur le catalogue (cf. lib/ai-usage.ts) : c'est lui qui
+        // permet de SURVEILLER la marge — il ne la pilote plus.
+        realCostUsd: realCostOf(message.usage),
         outputTokens: message.usage.output_tokens,
+        billedCredits: HOLD,
       });
       if (founder) {
         realCredits = 0; // journalisé pour le suivi des coûts, jamais débité
       } else {
         realCredits = tracked;
-        await reconcileCredits(supabase, createAdminClient(), user.id, HOLD, realCredits);
+        // Plus de réconciliation à la BAISSE : le client paie la grille.
       }
     } catch {
       // ignore

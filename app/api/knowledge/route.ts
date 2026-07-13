@@ -11,6 +11,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import Anthropic from "@anthropic-ai/sdk";
+import { client, realCostOf } from "@/lib/llm";
 import { createClient } from "@/lib/supabase-server";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
 import { getLocale } from "@/lib/i18n/server";
@@ -19,6 +20,9 @@ import { trackAiUsage } from "@/lib/ai-usage";
 import { embedTexts, hasEmbeddingKey } from "@/lib/embeddings";
 import { chunkText } from "@/lib/rag";
 import { VISION_MODEL } from "@/lib/vision";
+import { createAdminClient } from "@/lib/supabase-admin";
+import { isFounderEmail } from "@/lib/founder";
+import { ACTION_CREDITS } from "@/lib/plans";
 
 const WRITE_ROLES = ["owner", "admin", "manager"];
 
@@ -121,8 +125,38 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+
+    // Lire un PDF, c'est un appel VISION (jusqu'à 0,024 $ pour 40 pages) — c'est
+    // exactement `lecture_fichier`. C'était le dernier chemin IA du produit encore
+    // GRATUIT : on payait le modèle sans rien débiter, et rien ne l'aurait signalé.
+    // Le tarif est celui de la grille, comme partout ailleurs (lib/plans.ts).
+    const HOLD = isFounderEmail(user.email) ? 0 : ACTION_CREDITS.lecture_fichier;
+    if (HOLD > 0) {
+      const { data: credited } = await supabase.rpc("deduct_credits", { p_amount: HOLD });
+      if (!credited) {
+        return Response.json(
+          {
+            error: pick(
+              locale,
+              "Crédits insuffisants pour lire ce PDF. Rechargez votre compte.",
+              "Not enough credits to read this PDF. Top up your account."
+            ),
+          },
+          { status: 402 }
+        );
+      }
+    }
+    const refundPdf = async () => {
+      if (HOLD <= 0) return;
+      try {
+        const admin = createAdminClient();
+        if (admin) await admin.rpc("refund_credits", { p_user_id: user.id, p_amount: HOLD });
+      } catch {
+        /* best-effort */
+      }
+    };
+
     try {
-      const client = new Anthropic();
       const msg = await client.messages.create({
         model: VISION_MODEL,
         max_tokens: 8000,
@@ -144,8 +178,10 @@ export async function POST(req: Request) {
       });
       const block = msg.content[0];
       content = (block && block.type === "text" ? block.text : "").trim();
-      // Tracking best-effort de l'extraction PDF (Sonnet vision, gros inputs) :
-      // appel API réel jusqu'ici invisible dans ai_usage. Jamais bloquant.
+      // Un PDF illisible (scan vide, page blanche) ne doit rien coûter : sans ce
+      // remboursement, l'utilisateur paierait 10 crédits pour un contenu vide et
+      // se ferait renvoyer une erreur deux lignes plus bas (« title/content requis »).
+      if (!content) await refundPdf();
       void trackAiUsage({
         supabase,
         userId: user.id,
@@ -153,15 +189,20 @@ export async function POST(req: Request) {
         action: "knowledge_extract",
         model: VISION_MODEL,
         inputTokens: msg.usage.input_tokens,
+        // Le RELEVÉ prime sur le catalogue (cf. lib/ai-usage.ts) : c'est lui qui
+        // permet de SURVEILLER la marge — il ne la pilote plus.
+        realCostUsd: realCostOf(msg.usage),
         outputTokens: msg.usage.output_tokens,
+        billedCredits: content ? HOLD : 0,
       }).catch(() => {});
     } catch {
+      await refundPdf();
       return Response.json(
         {
           error: pick(
             locale,
-            "Extraction du PDF impossible. Réessayez, ou collez le texte directement.",
-            "Could not extract the PDF. Try again, or paste the text directly."
+            "Extraction du PDF impossible. Réessayez, ou collez le texte directement. Vos crédits ont été remboursés.",
+            "Could not extract the PDF. Try again, or paste the text directly. Your credits have been refunded."
           ),
         },
         { status: 502 }
