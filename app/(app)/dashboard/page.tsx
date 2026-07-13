@@ -10,6 +10,8 @@ import { InteractiveMesh, useTypewriter, TemplateGallery } from "@/components/si
 import { AgentTemplateGallery } from "@/components/agent-templates";
 import { VoiceRecorder } from "@/components/voice-recorder";
 import { ConnectToolsBadge } from "@/components/connections";
+import { useT, useLocale } from "@/lib/i18n/context";
+import type { Locale } from "@/lib/i18n/config";
 import {
   Sparkles,
   ArrowUpRight,
@@ -55,22 +57,29 @@ const QUICK_PROMPTS = [
   "Factures & acomptes",
 ];
 
-const DASH_PLACEHOLDERS = [
+const DASH_PLACEHOLDERS_FR = [
   "Sors-moi l'avenant pour le carrelage validé, 45 m²…",
   "Quels chantiers sont en retard cette semaine ?",
   "Vérifie les prix de ces 30 bons de livraison…",
   "Un suivi de mes chantiers avec l'avancement…",
   "Rédige une mise en demeure pour la facture impayée…",
 ];
+const DASH_PLACEHOLDERS_EN = [
+  "Draft the change order for the approved tiling, 45 m²…",
+  "Which job sites are behind schedule this week?",
+  "Check the prices on these 30 delivery notes…",
+  "A tracker for my job sites with progress…",
+  "Draft a formal notice for the unpaid invoice…",
+];
 
-function formatRelative(iso: string | null) {
+function formatRelative(iso: string | null, t: (fr: string, en: string) => string, locale: Locale) {
   if (!iso) return "-";
   const diff = Date.now() - new Date(iso).getTime();
   const d = Math.floor(diff / 86400000);
-  if (d === 0) return "Aujourd'hui";
-  if (d === 1) return "Hier";
-  if (d < 7) return `Il y a ${d} jours`;
-  return new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+  if (d === 0) return t("Aujourd'hui", "Today");
+  if (d === 1) return t("Hier", "Yesterday");
+  if (d < 7) return t(`Il y a ${d} jours`, `${d} days ago`);
+  return new Date(iso).toLocaleDateString(locale === "en" ? "en-US" : "fr-FR", { day: "numeric", month: "short" });
 }
 
 function AppPreviewCard({
@@ -90,6 +99,8 @@ function AppPreviewCard({
   onRename: () => void;
   onTransfer: () => void;
 }) {
+  const t = useT();
+  const locale = useLocale();
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -137,8 +148,8 @@ function AppPreviewCard({
         {/* Étoile favori — les favoris sont prioritaires dans l'affichage. */}
         <button
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggleFavorite(); }}
-          title={isFavorite ? "Retirer des favoris" : "Mettre en favori"}
-          className={`absolute top-2.5 right-2.5 z-10 grid h-8 w-8 place-items-center rounded-full bg-white/90 backdrop-blur-sm shadow-[0_2px_10px_rgba(0,0,0,0.14)] active:scale-90 transition-all ${isFavorite ? "" : "opacity-0 group-hover:opacity-100"}`}
+          title={isFavorite ? t("Retirer des favoris", "Remove from favorites") : t("Mettre en favori", "Add to favorites")}
+          className={`absolute top-2.5 right-2.5 z-10 grid h-9 w-9 place-items-center rounded-full bg-white/90 backdrop-blur-sm shadow-[0_2px_10px_rgba(0,0,0,0.14)] active:scale-90 transition-all ${isFavorite ? "" : "opacity-0 group-hover:opacity-100 show-touch"}`}
         >
           <Star className={`w-4 h-4 ${isFavorite ? "fill-amber-400 text-amber-400" : "text-[#9A9A97]"}`} />
         </button>
@@ -150,7 +161,7 @@ function AppPreviewCard({
           <h3 className="text-sm font-semibold text-[#0A0A0A] truncate">{app.name}</h3>
           <div className="flex items-center gap-1 mt-0.5">
             <Clock className="w-3 h-3 text-[#9A9A97] flex-shrink-0" />
-            <p className="text-[11px] text-[#9A9A97]">{formatRelative(app.updated_at)}</p>
+            <p className="text-[11px] text-[#9A9A97]">{formatRelative(app.updated_at, t, locale)}</p>
           </div>
         </div>
 
@@ -164,7 +175,7 @@ function AppPreviewCard({
               .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1600); })
               .catch(() => {});
           }}
-          title="Copier le lien"
+          title={t("Copier le lien", "Copy link")}
           className={`flex-shrink-0 p-1.5 rounded-lg transition-colors ${copied ? "text-emerald-600 bg-emerald-50" : "text-[#9A9A97] hover:text-[#7C3AED] hover:bg-black/[0.04]"}`}
         >
           {copied ? <Check className="w-4 h-4 animate-scale-in" /> : <Link2 className="w-4 h-4" />}
@@ -183,17 +194,17 @@ function AppPreviewCard({
               <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
               <div className="absolute bottom-full right-0 mb-1 z-20 w-56 origin-bottom-right animate-scale-in bg-white border border-[#E7E7E4] rounded-xl shadow-[0_8px_28px_rgba(0,0,0,0.1)] py-1">
                 <button onClick={() => { setMenuOpen(false); onRename(); }} className="flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-[#2A2A32] hover:bg-[#F4F4F7] transition-colors">
-                  <Pencil className="w-3.5 h-3.5 text-[#6E6E6C]" /> Renommer
+                  <Pencil className="w-3.5 h-3.5 text-[#6E6E6C]" /> {t("Renommer", "Rename")}
                 </button>
                 <button onClick={() => { setMenuOpen(false); onTransfer(); }} className="flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-[#2A2A32] hover:bg-[#F4F4F7] transition-colors">
-                  <ArrowLeftRight className="w-3.5 h-3.5 text-[#6E6E6C]" /> Transférer vers un espace
+                  <ArrowLeftRight className="w-3.5 h-3.5 text-[#6E6E6C]" /> {t("Transférer vers un espace", "Move to a workspace")}
                 </button>
                 <a href={`/apps/${app.id}`} target="_blank" rel="noopener" onClick={() => setMenuOpen(false)} className="flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-[#2A2A32] hover:bg-[#F4F4F7] transition-colors">
-                  <ExternalLink className="w-3.5 h-3.5 text-[#6E6E6C]" /> Ouvrir en plein écran
+                  <ExternalLink className="w-3.5 h-3.5 text-[#6E6E6C]" /> {t("Ouvrir en plein écran", "Open full screen")}
                 </a>
                 <div className="my-1 border-t border-[#EFEFF3]" />
                 <button onClick={() => { onDelete(); setMenuOpen(false); }} className="flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-[#D95C4A] hover:bg-[#fdf2f0] transition-colors">
-                  <Trash2 className="w-3.5 h-3.5" /> Supprimer
+                  <Trash2 className="w-3.5 h-3.5" /> {t("Supprimer", "Delete")}
                 </button>
               </div>
             </>
@@ -219,6 +230,8 @@ function SkeletonCard() {
 }
 
 export default function DashboardPage() {
+  const t = useT();
+  const locale = useLocale();
   const router = useRouter();
   const [apps, setApps] = useState<App[]>([]);
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
@@ -241,7 +254,7 @@ export default function DashboardPage() {
       if (launchTimerRef.current) clearTimeout(launchTimerRef.current);
     };
   }, []);
-  const typed = useTypewriter(DASH_PLACEHOLDERS);
+  const typed = useTypewriter(locale === "en" ? DASH_PLACEHOLDERS_EN : DASH_PLACEHOLDERS_FR);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -270,7 +283,7 @@ export default function DashboardPage() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const md = navigator.mediaDevices as any;
     if (!md?.getDisplayMedia) {
-      alert("Le partage d'écran n'est pas supporté par ce navigateur.");
+      alert(t("Le partage d'écran n'est pas supporté par ce navigateur.", "Screen sharing isn't supported by this browser."));
       return;
     }
     let stream: MediaStream | null = null;
@@ -353,15 +366,15 @@ export default function DashboardPage() {
     // en dev — sans spinner, l'envoi paraît mort.
     setLaunching(true);
     // On lance la generation directement : pas d'ecran intermediaire.
-    const note = files.length ? `\n\n[Fichiers joints : ${files.map((f) => f.name).join(", ")}]` : "";
-    sessionStorage.setItem("biltia_prompt", (trimmed || "Adapte-moi un outil à partir des fichiers joints.") + note);
+    const note = files.length ? `\n\n[${t("Fichiers joints", "Attached files")} : ${files.map((f) => f.name).join(", ")}]` : "";
+    sessionStorage.setItem("biltia_prompt", (trimmed || t("Adapte-moi un outil à partir des fichiers joints.", "Build me a tool from the attached files.")) + note);
     sessionStorage.setItem("biltia_autostart", "1");
     router.push("/generate");
     // Toujours là après 10 s = navigation en échec (serveur arrêté, réseau) →
     // on réarme le bouton et on prévient au lieu de rester muet.
     launchTimerRef.current = setTimeout(() => {
       setLaunching(false);
-      alert("Impossible d'ouvrir le générateur. Vérifiez que le serveur Biltia est bien démarré, puis réessayez.");
+      alert(t("Impossible d'ouvrir le générateur. Vérifiez que le serveur Biltia est bien démarré, puis réessayez.", "Couldn't open the generator. Check that the Biltia server is running, then try again."));
     }, 10000);
   };
 
@@ -378,7 +391,7 @@ export default function DashboardPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Supprimer cette application ?")) return;
+    if (!confirm(t("Supprimer cette application ?", "Delete this app?"))) return;
     const supabase = createClient();
     await supabase.from("modules").update({ status: "archived" }).eq("id", id);
     setApps((prev) => prev.filter((a) => a.id !== id));
@@ -395,7 +408,7 @@ export default function DashboardPage() {
   };
 
   const renameApp = async (id: string, current: string) => {
-    const name = window.prompt("Nouveau nom de l'application :", current)?.trim();
+    const name = window.prompt(t("Nouveau nom de l'application :", "New app name:"), current)?.trim();
     if (!name || name === current) return;
     await createClient().from("modules").update({ name }).eq("id", id);
     setApps((prev) => prev.map((a) => (a.id === id ? { ...a, name } : a)));
@@ -408,17 +421,17 @@ export default function DashboardPage() {
       const spaces: { id: string; name: string; active?: boolean }[] = data?.workspaces ?? [];
       const targets = spaces.filter((s) => !s.active);
       if (!targets.length) {
-        alert("Vous n'avez qu'un seul espace de travail. Créez-en un autre pour pouvoir transférer.");
+        alert(t("Vous n'avez qu'un seul espace de travail. Créez-en un autre pour pouvoir transférer.", "You only have one workspace. Create another one to be able to transfer."));
         return;
       }
       const list = targets.map((s, i) => `${i + 1}. ${s.name}`).join("\n");
-      const pick = window.prompt(`Transférer vers quel espace de travail ?\n\n${list}\n\nEntrez le numéro :`);
+      const pick = window.prompt(t(`Transférer vers quel espace de travail ?\n\n${list}\n\nEntrez le numéro :`, `Transfer to which workspace?\n\n${list}\n\nEnter the number:`));
       const idx = Number(pick) - 1;
       if (!Number.isInteger(idx) || idx < 0 || idx >= targets.length) return;
       await createClient().from("modules").update({ tenant_id: targets[idx].id }).eq("id", id);
       setApps((prev) => prev.filter((a) => a.id !== id)); // l'app quitte l'espace courant
     } catch {
-      alert("Transfert impossible. Réessayez.");
+      alert(t("Transfert impossible. Réessayez.", "Transfer failed. Try again."));
     }
   };
 
@@ -434,17 +447,17 @@ export default function DashboardPage() {
   );
 
   return (
-    <div className="relative min-h-full bg-[#FCFCFD]">
+    <div className="relative min-h-full overflow-x-clip bg-[#FCFCFD]">
       {/* Le fond maillé (quadrillage + halos) couvre toute la page : hero ET panneau */}
       <InteractiveMesh strong />
 
       {/* Accueil plein écran, tout part d'ici (positionné un peu plus bas) */}
-      <section className="relative z-10 min-h-[86vh] flex flex-col items-center justify-center px-6 pt-[17vh] pb-14">
+      <section className="relative z-10 min-h-[86dvh] flex flex-col items-center justify-center px-6 pt-[17dvh] pb-14">
         <div className="relative z-10 w-full max-w-[62rem] mx-auto text-center">
           <ConnectToolsBadge />
 
           <h1 className="text-[40px] sm:text-[58px] font-black text-[#0A0A0A] leading-[1.06] tracking-[-0.035em] mb-9 max-w-3xl mx-auto">
-            Quel problème <span className="text-gradient">réglons-nous</span>{firstName ? `, ${firstName}` : " aujourd’hui"}&nbsp;?
+            {t("Quel problème ", "What problem ")}<span className="text-gradient">{t("réglons-nous", "are we solving")}</span>{firstName ? `, ${firstName}` : t(" aujourd’hui", " today")}&nbsp;?
           </h1>
 
           {/* Barre de chat, style Gemini/Lovable : + à gauche, micro à droite, envoi à la saisie.
@@ -509,7 +522,7 @@ export default function DashboardPage() {
                             </span>
                           )}
                           <span className="text-[12px] text-[#4A4A56] truncate">{f.name}</span>
-                          <button onClick={() => removeFile(i)} aria-label="Retirer le fichier" className="text-[#9A9AA6] hover:text-[#0A0A0A] flex-shrink-0">
+                          <button onClick={() => removeFile(i)} aria-label={t("Retirer le fichier", "Remove file")} className="text-[#9A9AA6] hover:text-[#0A0A0A] flex-shrink-0">
                             <X className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -523,7 +536,7 @@ export default function DashboardPage() {
                   <div className="relative">
                     <button
                       onClick={() => setPlusOpen((v) => !v)}
-                      aria-label="Ajouter"
+                      aria-label={t("Ajouter", "Add")}
                       aria-expanded={plusOpen}
                       className={`relative w-10 h-10 flex items-center justify-center rounded-full active:scale-95 transition-all ${
                         plusOpen ? "bg-black/[0.06] text-[#0A0A0A]" : "text-[#4A4A56] hover:bg-black/[0.05]"
@@ -542,10 +555,10 @@ export default function DashboardPage() {
                         <div className="fixed inset-0 z-20" onClick={() => setPlusOpen(false)} />
                         <div className="absolute top-full left-0 mt-2 z-30 w-60 origin-top-left animate-scale-in bg-white border border-[#ECECF2] rounded-2xl shadow-[0_16px_50px_rgba(60,40,120,0.16)] p-1.5">
                           {([
-                            { icon: Upload, label: "Importer des fichiers", onClick: () => openPicker({ accept: "image/*,.pdf,.csv,.xls,.xlsx,.doc,.docx,.txt" }) },
-                            { icon: ImageIcon, label: "Importer des photos", onClick: () => openPicker({ accept: "image/*" }) },
-                            { icon: Camera, label: "Prendre une photo", onClick: () => openPicker({ accept: "image/*", capture: true }) },
-                            { icon: MonitorUp, label: "Partager l'écran", onClick: shareScreen },
+                            { icon: Upload, label: t("Importer des fichiers", "Import files"), onClick: () => openPicker({ accept: "image/*,.pdf,.csv,.xls,.xlsx,.doc,.docx,.txt" }) },
+                            { icon: ImageIcon, label: t("Importer des photos", "Import photos"), onClick: () => openPicker({ accept: "image/*" }) },
+                            { icon: Camera, label: t("Prendre une photo", "Take a photo"), onClick: () => openPicker({ accept: "image/*", capture: true }) },
+                            { icon: MonitorUp, label: t("Partager l'écran", "Share screen"), onClick: shareScreen },
                           ] as const).map(({ icon: Icon, label, onClick }) => (
                             <button
                               key={label}
@@ -573,8 +586,8 @@ export default function DashboardPage() {
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => setIsListening(true)}
-                      title="Dictée vocale"
-                      aria-label="Dictée vocale"
+                      title={t("Dictée vocale", "Voice dictation")}
+                      aria-label={t("Dictée vocale", "Voice dictation")}
                       className="w-10 h-10 flex items-center justify-center rounded-full text-[#4A4A56] hover:bg-black/[0.05] active:scale-95 transition-all"
                     >
                       <Mic className="w-[19px] h-[19px]" />
@@ -583,7 +596,7 @@ export default function DashboardPage() {
                       <button
                         onClick={handleCreate}
                         disabled={launching}
-                        aria-label="Envoyer"
+                        aria-label={t("Envoyer", "Send")}
                         className="w-10 h-10 flex items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 via-violet-500 to-pink-500 text-white shadow-[0_6px_20px_rgba(139,92,246,0.4)] hover:shadow-[0_8px_28px_rgba(139,92,246,0.55)] active:scale-95 transition-all duration-200 animate-scale-in disabled:opacity-70"
                       >
                         {launching ? (
@@ -608,7 +621,7 @@ export default function DashboardPage() {
           {/* En-tête discret : onglets + recherche */}
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
             <div className="inline-flex items-center gap-1 p-1 bg-[#F4F4F7] rounded-full self-start">
-              {([["ateliers", "Mes ateliers"], ["modeles", "Modèles"]] as const).map(([id, label]) => (
+              {([["ateliers", t("Mes ateliers", "My workspaces")], ["modeles", t("Modèles", "Templates")]] as const).map(([id, label]) => (
                 <button
                   key={id}
                   onClick={() => setTab(id)}
@@ -627,10 +640,10 @@ export default function DashboardPage() {
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={
                   tab === "ateliers"
-                    ? "Rechercher une application…"
+                    ? t("Rechercher une application…", "Search an app…")
                     : modelKind === "agents"
-                      ? "Rechercher un agent…"
-                      : "Rechercher un modèle…"
+                      ? t("Rechercher un agent…", "Search an agent…")
+                      : t("Rechercher un modèle…", "Search a template…")
                 }
                 className="bg-transparent outline-none text-sm text-[#0A0A0A] w-full placeholder:text-[#9A9AA6]"
               />
@@ -648,10 +661,10 @@ export default function DashboardPage() {
                   <Sparkles className="w-6 h-6 text-[#7C3AED]" strokeWidth={1.5} />
                 </div>
                 <h3 className="text-[15px] font-bold text-[#0A0A0A] mb-1.5 tracking-[-0.01em]">
-                  {query ? "Aucune application trouvée" : "Aucune création pour l’instant"}
+                  {query ? t("Aucune application trouvée", "No app found") : t("Aucune création pour l’instant", "Nothing created yet")}
                 </h3>
                 <p className="text-[13px] text-[#6E6E6C] max-w-xs leading-relaxed">
-                  {query ? "Essayez un autre mot-clé, ou lancez une création là-haut." : "Décrivez votre première galère là-haut : Biltia s’occupe du reste."}
+                  {query ? t("Essayez un autre mot-clé, ou lancez une création là-haut.", "Try another keyword, or start a creation above.") : t("Décrivez votre première galère là-haut : Biltia s’occupe du reste.", "Describe your first headache above: Biltia handles the rest.")}
                 </p>
               </div>
             ) : (
@@ -676,8 +689,8 @@ export default function DashboardPage() {
               <div className="inline-flex items-center gap-1 p-1 bg-[#F4F4F7] rounded-full mb-6">
                 {(
                   [
-                    ["apps", "Applications"],
-                    ["agents", "Agents IA"],
+                    ["apps", t("Applications", "Apps")],
+                    ["agents", t("Agents IA", "AI agents")],
                   ] as const
                 ).map(([id, label]) => (
                   <button
@@ -699,7 +712,7 @@ export default function DashboardPage() {
               ) : (
                 <>
                   <p className="text-[13px] text-[#6E6E6C] mb-5">
-                    Activez, l&apos;agent travaille tout seul. Les alertes sont gratuites.
+                    {t("Activez, l'agent travaille tout seul. Les alertes sont gratuites.", "Turn it on, the agent works on its own. Alerts are free.")}
                   </p>
                   <AgentTemplateGallery query={query} />
                 </>

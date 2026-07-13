@@ -12,9 +12,12 @@ import {
   FileText, LayoutGrid, Zap, ScanLine, MessageCircle, FolderKanban, Bot,
   Monitor, Tablet, Smartphone,
 } from "lucide-react";
-import { PRODUCTS } from "@/lib/products";
-import { TEMPLATE_PREVIEWS, type TemplatePreview } from "@/lib/template-previews";
+import { PRODUCTS, localizeProduct } from "@/lib/products";
+import { TEMPLATE_PREVIEWS, localizeTemplatePreview, type TemplatePreview } from "@/lib/template-previews";
 import { ReserveDemoButton } from "@/components/demo-booking";
+import { LanguageSwitcher } from "@/components/language-switcher";
+import { useT, useLocale } from "@/lib/i18n/context";
+import type { Locale } from "@/lib/i18n/config";
 
 export const EASE = [0.16, 1, 0.3, 1] as const;
 export const BLACK = "bg-[#0A0A0A] text-white hover:bg-[#222] transition-colors";
@@ -155,6 +158,11 @@ export function Mesh() {
 // ── Navigation partagée (dropdown Produits) ──────────────────────────────────
 
 export function SiteNav() {
+  const t = useT();
+  const locale = useLocale();
+  // Nom + accroche des produits dans la langue de l'interface (drop-down « Products »
+  // + menu mobile) : sans ça, la coquille est traduite mais le contenu reste FR.
+  const products = PRODUCTS.map((p) => localizeProduct(p, locale));
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
   const [menu, setMenu] = useState(false);
@@ -173,7 +181,7 @@ export function SiteNav() {
         <div className={`relative max-w-6xl mx-auto h-[66px] px-3.5 sm:px-5 flex items-center justify-between rounded-[22px] border transition-all duration-300 ${scrolled ? "bg-white/85 backdrop-blur-2xl border-white/80 shadow-[0_18px_50px_-10px_rgba(76,40,140,0.22),inset_0_1px_0_rgba(255,255,255,0.9)]" : "bg-white/65 backdrop-blur-xl border-white/70 shadow-[0_12px_38px_-12px_rgba(76,40,140,0.15),inset_0_1px_0_rgba(255,255,255,0.85)]"}`}>
           <span aria-hidden className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-violet-400/50 to-transparent" />
           <div className="flex items-center gap-2">
-            <button onClick={() => setOpen(true)} aria-label="Menu"
+            <button onClick={() => setOpen(true)} aria-label={t("Menu", "Menu")}
               className="md:hidden w-9 h-9 rounded-[11px] bg-black/[0.05] hover:bg-black/[0.09] flex items-center justify-center transition-colors">
               <Menu className="w-[18px] h-[18px] text-[#0A0A0A]" />
             </button>
@@ -185,14 +193,14 @@ export function SiteNav() {
           <div className="hidden md:flex items-center gap-1">
             <div className="relative" onMouseEnter={openMenu} onMouseLeave={scheduleClose}>
               <button className="flex items-center gap-1 px-3.5 py-2 rounded-lg text-[14px] text-[#5B5B66] hover:text-[#0A0A0A] hover:bg-black/[0.04] transition-colors font-medium">
-                Produits <ChevronDown className={`w-3.5 h-3.5 transition-transform ${menu ? "rotate-180" : ""}`} />
+                {t("Produits", "Products")} <ChevronDown className={`w-3.5 h-3.5 transition-transform ${menu ? "rotate-180" : ""}`} />
               </button>
               <AnimatePresence>
                 {menu && (
                   <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: 0.2, ease: EASE }}
                     className="absolute left-1/2 -translate-x-1/2 top-full pt-3">
                     <div className="glass rounded-[22px] p-2.5 w-[560px] grid grid-cols-2 gap-1.5 shadow-[0_30px_80px_rgba(60,40,120,0.18)]">
-                      {PRODUCTS.map((p) => {
+                      {products.map((p) => {
                         const Icon = PRODUCT_ICONS[p.icon];
                         return (
                           <Link key={p.slug} href={`/produits/${p.slug}`} onClick={() => setMenu(false)}
@@ -212,15 +220,17 @@ export function SiteNav() {
                 )}
               </AnimatePresence>
             </div>
-            <Link href="/#demo" className="px-3.5 py-2 rounded-lg text-[14px] text-[#5B5B66] hover:text-[#0A0A0A] hover:bg-black/[0.04] transition-colors font-medium">En action</Link>
-            <Link href="/blog" className="px-3.5 py-2 rounded-lg text-[14px] text-[#5B5B66] hover:text-[#0A0A0A] hover:bg-black/[0.04] transition-colors font-medium">Blog</Link>
-            <Link href="/tarifs" className="px-3.5 py-2 rounded-lg text-[14px] text-[#5B5B66] hover:text-[#0A0A0A] hover:bg-black/[0.04] transition-colors font-medium">Tarifs</Link>
+            <Link href="/#demo" className="px-3.5 py-2 rounded-lg text-[14px] text-[#5B5B66] hover:text-[#0A0A0A] hover:bg-black/[0.04] transition-colors font-medium">{t("En action", "In action")}</Link>
+            <Link href="/connecteurs" className="px-3.5 py-2 rounded-lg text-[14px] text-[#5B5B66] hover:text-[#0A0A0A] hover:bg-black/[0.04] transition-colors font-medium">{t("Connecteurs", "Connectors")}</Link>
+            <Link href="/blog" className="px-3.5 py-2 rounded-lg text-[14px] text-[#5B5B66] hover:text-[#0A0A0A] hover:bg-black/[0.04] transition-colors font-medium">{t("Blog", "Blog")}</Link>
+            <Link href="/tarifs" className="px-3.5 py-2 rounded-lg text-[14px] text-[#5B5B66] hover:text-[#0A0A0A] hover:bg-black/[0.04] transition-colors font-medium">{t("Tarifs", "Pricing")}</Link>
           </div>
 
           <div className="flex items-center gap-2">
-            <a href="/login" className="hidden sm:inline-flex px-4 py-2 text-[14px] text-[#5B5B66] hover:text-[#0A0A0A] font-medium transition-colors">Se connecter</a>
+            <LanguageSwitcher variant="nav" className="hidden sm:block" />
+            <a href="/login" className="hidden sm:inline-flex px-4 py-2 text-[14px] text-[#5B5B66] hover:text-[#0A0A0A] font-medium transition-colors">{t("Se connecter", "Sign in")}</a>
             <Magnetic>
-              <a href="/signup" className={`${BLACK} text-[14px] font-semibold px-5 py-2.5 rounded-full inline-flex items-center gap-1.5`}>Commencer</a>
+              <a href="/signup" className={`${BLACK} text-[14px] font-semibold px-5 py-2.5 rounded-full inline-flex items-center gap-1.5`}>{t("Commencer", "Get started")}</a>
             </Magnetic>
           </div>
         </div>
@@ -231,11 +241,11 @@ export function SiteNav() {
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-[60] md:hidden bg-white/90 backdrop-blur-xl overflow-y-auto">
             <Mesh />
-            <button onClick={() => setOpen(false)} aria-label="Fermer" className="absolute top-5 right-5 w-9 h-9 rounded-[11px] bg-black/[0.05] flex items-center justify-center z-10"><X className="w-[18px] h-[18px]" /></button>
+            <button onClick={() => setOpen(false)} aria-label={t("Fermer", "Close")} className="absolute top-5 right-5 w-9 h-9 rounded-[11px] bg-black/[0.05] flex items-center justify-center z-10"><X className="w-[18px] h-[18px]" /></button>
             <div className="min-h-[100dvh] flex flex-col justify-center px-6 py-20 gap-6">
-              <p className="text-[12px] font-bold uppercase tracking-wider text-[#9A9AA6]">Produits</p>
+              <p className="text-[12px] font-bold uppercase tracking-wider text-[#9A9AA6]">{t("Produits", "Products")}</p>
               <div className="grid gap-2">
-                {PRODUCTS.map((p) => {
+                {products.map((p) => {
                   const Icon = PRODUCT_ICONS[p.icon];
                   return (
                     <Link key={p.slug} href={`/produits/${p.slug}`} onClick={() => setOpen(false)} className="glass flex items-center gap-3 rounded-2xl p-3">
@@ -246,12 +256,14 @@ export function SiteNav() {
                 })}
               </div>
               <div className="flex flex-wrap items-center gap-x-5 gap-y-3 pt-2 text-[16px] font-semibold text-[#0A0A0A]">
-                <Link href="/#demo" onClick={() => setOpen(false)}>En action</Link>
-                <Link href="/blog" onClick={() => setOpen(false)}>Blog</Link>
-                <Link href="/tarifs" onClick={() => setOpen(false)}>Tarifs</Link>
-                <Link href="/login" onClick={() => setOpen(false)}>Se connecter</Link>
+                <Link href="/#demo" onClick={() => setOpen(false)}>{t("En action", "In action")}</Link>
+                <Link href="/connecteurs" onClick={() => setOpen(false)}>{t("Connecteurs", "Connectors")}</Link>
+                <Link href="/blog" onClick={() => setOpen(false)}>{t("Blog", "Blog")}</Link>
+                <Link href="/tarifs" onClick={() => setOpen(false)}>{t("Tarifs", "Pricing")}</Link>
+                <Link href="/login" onClick={() => setOpen(false)}>{t("Se connecter", "Sign in")}</Link>
               </div>
-              <a href="/signup" className={`${BLACK} font-semibold px-8 py-3.5 rounded-full text-[15px] text-center`}>Commencer</a>
+              <div className="pt-1"><LanguageSwitcher variant="nav" /></div>
+              <a href="/signup" className={`${BLACK} font-semibold px-8 py-3.5 rounded-full text-[15px] text-center`}>{t("Commencer", "Get started")}</a>
             </div>
           </motion.div>
         )}
@@ -266,8 +278,15 @@ export function SiteNav() {
 // rend l'app à une résolution de référence (desktop large / mobile étroit selon
 // la place) mise à l'échelle pour REMPLIR la largeur SANS rien rogner. Le vrai
 // design de l'app apparaît en entier, joliment cadré, quelle que soit la taille.
+// L'aperçu est mis en cache PUBLIC : la langue passe par l'URL, jamais par le
+// cookie (sinon le cache servirait l'anglais au visiteur français suivant).
+function previewSrc(id: string, locale: Locale): string {
+  return locale === "en" ? `/t/${id}?lang=en` : `/t/${id}`;
+}
+
 function ScaledPreview({ id, title, maxH }: { id: string; title: string; maxH?: number }) {
   const ref = useRef<HTMLDivElement>(null);
+  const locale = useLocale();
   const [w, setW] = useState(0);
   useEffect(() => {
     const el = ref.current;
@@ -289,7 +308,7 @@ function ScaledPreview({ id, title, maxH }: { id: string; title: string; maxH?: 
     <div ref={ref} className="relative w-full overflow-hidden" style={{ height: h, background: "#FBFBFD" }}>
       {w > 0 && (
         <iframe
-          src={`/t/${id}`}
+          src={previewSrc(id, locale)}
           title={title}
           loading="lazy"
           sandbox="allow-scripts allow-same-origin"
@@ -302,6 +321,7 @@ function ScaledPreview({ id, title, maxH }: { id: string; title: string; maxH?: 
 }
 
 function TemplateCard({ t, onActivate, ctaLabel }: { t: TemplatePreview; onActivate: (t: TemplatePreview) => void; ctaLabel: string }) {
+  const tr = useT();
   return (
     <div
       onClick={() => onActivate(t)}
@@ -316,7 +336,7 @@ function TemplateCard({ t, onActivate, ctaLabel }: { t: TemplatePreview; onActiv
         <span className="w-2.5 h-2.5 rounded-full bg-[#28C840]" />
         <span className="ml-2 flex items-center gap-1.5 text-[10.5px] font-medium text-[#9A9AA6]">
           <span className="w-1.5 h-1.5 rounded-full animate-glow-pulse" style={{ background: t.accent }} />
-          Aperçu live
+          {tr("Aperçu live", "Live preview")}
         </span>
       </div>
       <ScaledPreview id={t.id} title={t.name} />
@@ -352,14 +372,20 @@ function useVisitorDevice(): PreviewDevice {
   return device;
 }
 
-const DEVICE_META: Record<PreviewDevice, { label: string; Icon: typeof Monitor }> = {
-  desktop: { label: "Bureau", Icon: Monitor },
-  tablet: { label: "Tablette", Icon: Tablet },
-  mobile: { label: "Mobile", Icon: Smartphone },
+const DEVICE_META: Record<PreviewDevice, { Icon: typeof Monitor }> = {
+  desktop: { Icon: Monitor },
+  tablet: { Icon: Tablet },
+  mobile: { Icon: Smartphone },
 };
+
+function deviceLabel(t: (fr: string, en: string) => string, d: PreviewDevice): string {
+  return d === "desktop" ? t("Bureau", "Desktop") : d === "tablet" ? t("Tablette", "Tablet") : t("Mobile", "Mobile");
+}
 
 // Modale d'aperçu plein cadre (template interactif) + sélecteur bureau/tablette/mobile + CTA.
 function TemplatePreviewModal({ t, onClose, onUse }: { t: TemplatePreview; onClose: () => void; onUse: (t: TemplatePreview) => void }) {
+  const tr = useT();
+  const locale = useLocale();
   const visitor = useVisitorDevice();
   // Formats proposés = tous ceux ≤ l'appareil du visiteur. Bureau → 3, tablette → 2, mobile → 1.
   const options: PreviewDevice[] =
@@ -387,13 +413,15 @@ function TemplatePreviewModal({ t, onClose, onUse }: { t: TemplatePreview; onClo
           {options.length > 1 && (
             <div className="flex items-center gap-0.5 bg-[#F6F6F9] rounded-full p-0.5 flex-shrink-0">
               {options.map((d) => {
-                const { label, Icon } = DEVICE_META[d];
+                const { Icon } = DEVICE_META[d];
+                const label = deviceLabel(tr, d);
+                const previewLabel = tr(`Aperçu ${label.toLowerCase()}`, `${label} preview`);
                 return (
                   <button
                     key={d}
                     onClick={() => setDevice(d)}
-                    title={`Aperçu ${label.toLowerCase()}`}
-                    aria-label={`Aperçu ${label.toLowerCase()}`}
+                    title={previewLabel}
+                    aria-label={previewLabel}
                     aria-pressed={device === d}
                     className={`grid h-7 w-7 place-items-center rounded-full transition-colors ${device === d ? "bg-white text-[#0A0A0A] shadow-[0_1px_3px_rgba(0,0,0,0.1)]" : "text-[#9A9AA6] hover:text-[#0A0A0A]"}`}
                   >
@@ -404,7 +432,7 @@ function TemplatePreviewModal({ t, onClose, onUse }: { t: TemplatePreview; onClo
             </div>
           )}
           <div className="flex items-center justify-end flex-1">
-            <button onClick={onClose} aria-label="Fermer" className="w-9 h-9 rounded-full hover:bg-black/[0.05] flex items-center justify-center text-[#6E6E7A] flex-shrink-0"><X className="w-[18px] h-[18px]" /></button>
+            <button onClick={onClose} aria-label={tr("Fermer", "Close")} className="w-9 h-9 rounded-full hover:bg-black/[0.05] flex items-center justify-center text-[#6E6E7A] flex-shrink-0"><X className="w-[18px] h-[18px]" /></button>
           </div>
         </div>
         <div className={`relative flex-1 bg-[#FBFBFD] min-h-0 ${device === "desktop" ? "" : "flex items-center justify-center overflow-auto p-4 sm:p-6"}`}>
@@ -417,13 +445,13 @@ function TemplatePreviewModal({ t, onClose, onUse }: { t: TemplatePreview; onClo
                   : "w-[390px] max-w-full h-[844px] max-h-full flex-shrink-0 overflow-hidden rounded-[1.5rem] bg-white shadow-[0_24px_70px_rgba(60,40,120,0.2)]"
             }
           >
-            <iframe src={`/t/${t.id}`} title={t.name} sandbox="allow-scripts allow-same-origin" className="w-full h-full border-0" />
+            <iframe src={previewSrc(t.id, locale)} title={t.name} sandbox="allow-scripts allow-same-origin" className="w-full h-full border-0" />
           </div>
         </div>
         <div className="flex items-center justify-between gap-3 px-5 py-4 border-t border-[#ECECF2] flex-shrink-0">
           <p className="hidden sm:block text-[13px] text-[#5B5B66] truncate">{t.tagline}</p>
           <button onClick={() => onUse(t)} className="ml-auto inline-flex items-center gap-2 bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 text-white font-semibold px-6 py-3 rounded-full shadow-[0_12px_32px_rgba(124,58,190,0.35)] hover:brightness-105 active:scale-[0.98] transition">
-            Utiliser ce template <ArrowRight className="w-4 h-4" />
+            {tr("Utiliser ce template", "Use this template")} <ArrowRight className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -443,17 +471,22 @@ export function TemplateGallery({
   preview?: boolean;
   query?: string;
 }) {
+  const tr = useT();
+  const locale = useLocale();
   const [open, setOpen] = useState<TemplatePreview | null>(null);
   const activate = preview ? setOpen : onUse;
-  const ctaLabel = preview ? "Voir le template" : "Utiliser ce modèle";
+  const ctaLabel = preview ? tr("Voir le template", "View template") : tr("Utiliser ce modèle", "Use this template");
+  // Nom / catégorie / accroche dans la langue de l'interface → la recherche
+  // porte sur le texte réellement affiché.
+  const templates = TEMPLATE_PREVIEWS.map((tp) => localizeTemplatePreview(tp, locale));
   const q = query.trim().toLowerCase();
   const list = q
-    ? TEMPLATE_PREVIEWS.filter((t) => `${t.name} ${t.category} ${t.tagline}`.toLowerCase().includes(q))
-    : TEMPLATE_PREVIEWS;
+    ? templates.filter((t) => `${t.name} ${t.category} ${t.tagline}`.toLowerCase().includes(q))
+    : templates;
   return (
     <>
       {list.length === 0 ? (
-        <p className="text-[13px] text-[#6E6E6C] py-10 text-center">Aucun modèle ne correspond à votre recherche.</p>
+        <p className="text-[13px] text-[#6E6E6C] py-10 text-center">{tr("Aucun modèle ne correspond à votre recherche.", "No template matches your search.")}</p>
       ) : (
         <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 ${className}`}>
           {list.map((t, k) => (
@@ -471,7 +504,9 @@ export function TemplateGallery({
 // Carrousel coverflow (landing) : le modèle central s'affiche en grand, les
 // autres plus petits sur les côtés ; flèches + défilement auto lent.
 export function TemplateCarousel({ onUse }: { onUse: (t: TemplatePreview) => void }) {
-  const items = TEMPLATE_PREVIEWS;
+  const tr = useT();
+  const locale = useLocale();
+  const items = TEMPLATE_PREVIEWS.map((tp) => localizeTemplatePreview(tp, locale));
   const n = items.length;
   const [active, setActive] = useState(0);
   const [open, setOpen] = useState<TemplatePreview | null>(null);
@@ -568,12 +603,12 @@ export function TemplateCarousel({ onUse }: { onUse: (t: TemplatePreview) => voi
                   <span className="w-2.5 h-2.5 rounded-full bg-[#28C840]" />
                   <span className="ml-2 flex items-center gap-1.5 text-[10.5px] font-medium text-[#9A9AA6]">
                     <span className="w-1.5 h-1.5 rounded-full animate-glow-pulse" style={{ background: t.accent }} />
-                    Aperçu live
+                    {tr("Aperçu live", "Live preview")}
                   </span>
                 </div>
                 <div className="relative overflow-hidden" style={{ height: previewH, background: "#FBFBFD" }}>
                   <iframe
-                    src={`/t/${t.id}`}
+                    src={previewSrc(t.id, locale)}
                     title={t.name}
                     loading="lazy"
                     sandbox="allow-scripts allow-same-origin"
@@ -594,7 +629,7 @@ export function TemplateCarousel({ onUse }: { onUse: (t: TemplatePreview) => voi
                       onClick={(e) => { e.stopPropagation(); onUse(t); }}
                       className="flex-shrink-0 inline-flex items-center gap-1.5 bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 text-white text-[13px] font-semibold px-4 py-2.5 rounded-full shadow-[0_10px_26px_rgba(124,58,190,0.32)] hover:brightness-105 active:scale-[0.98] transition"
                     >
-                      Utiliser <ArrowRight className="w-3.5 h-3.5" />
+                      {tr("Utiliser", "Use")} <ArrowRight className="w-3.5 h-3.5" />
                     </button>
                   )}
                 </div>
@@ -604,10 +639,10 @@ export function TemplateCarousel({ onUse }: { onUse: (t: TemplatePreview) => voi
         })}
       </div>
 
-      <button onClick={() => go(-1)} aria-label="Modèle précédent" className="absolute left-3 sm:left-10 z-20 -translate-y-1/2 w-11 h-11 rounded-full bg-white border border-[#ECECF2] shadow-[0_10px_28px_rgba(20,20,50,0.14)] flex items-center justify-center text-[#0A0A0A] hover:scale-105 active:scale-95 transition" style={{ top: arrowTop }}>
+      <button onClick={() => go(-1)} aria-label={tr("Modèle précédent", "Previous template")} className="absolute left-3 sm:left-10 z-20 -translate-y-1/2 w-11 h-11 rounded-full bg-white border border-[#ECECF2] shadow-[0_10px_28px_rgba(20,20,50,0.14)] flex items-center justify-center text-[#0A0A0A] hover:scale-105 active:scale-95 transition" style={{ top: arrowTop }}>
         <ChevronLeft className="w-5 h-5" />
       </button>
-      <button onClick={() => go(1)} aria-label="Modèle suivant" className="absolute right-3 sm:right-10 z-20 -translate-y-1/2 w-11 h-11 rounded-full bg-white border border-[#ECECF2] shadow-[0_10px_28px_rgba(20,20,50,0.14)] flex items-center justify-center text-[#0A0A0A] hover:scale-105 active:scale-95 transition" style={{ top: arrowTop }}>
+      <button onClick={() => go(1)} aria-label={tr("Modèle suivant", "Next template")} className="absolute right-3 sm:right-10 z-20 -translate-y-1/2 w-11 h-11 rounded-full bg-white border border-[#ECECF2] shadow-[0_10px_28px_rgba(20,20,50,0.14)] flex items-center justify-center text-[#0A0A0A] hover:scale-105 active:scale-95 transition" style={{ top: arrowTop }}>
         <ChevronRight className="w-5 h-5" />
       </button>
 
@@ -623,6 +658,10 @@ export function TemplateCarousel({ onUse }: { onUse: (t: TemplatePreview) => voi
 }
 
 export function SiteFooter() {
+  const t = useT();
+  const locale = useLocale();
+  // Les noms de produits du footer viennent de lib/products.ts → à localiser.
+  const products = PRODUCTS.map((p) => localizeProduct(p, locale));
   return (
     <footer className="border-t border-[#EDEDEB] py-12 px-5 sm:px-8 bg-[#FCFCFD]">
       <div className="max-w-6xl mx-auto grid sm:grid-cols-[1.2fr_1fr_1fr] gap-8 mb-10">
@@ -630,31 +669,32 @@ export function SiteFooter() {
           <div className="flex items-center gap-2.5 mb-3">
             <BiltiaLogo className="h-6 w-auto text-[#0A0A0A]" />
           </div>
-          <p className="text-[13px] text-[#7A7A86] max-w-[240px] leading-relaxed">L&apos;OS conversationnel du BTP. Dictez votre problème, repartez avec la solution.</p>
+          <p className="text-[13px] text-[#7A7A86] max-w-[240px] leading-relaxed">{t("L'OS conversationnel du BTP. Dictez votre problème, repartez avec la solution.", "The conversational OS for construction. Describe your problem, walk away with the solution.")}</p>
         </div>
         <div>
-          <p className="text-[12px] font-bold uppercase tracking-wider text-[#9A9AA6] mb-3">Produits</p>
+          <p className="text-[12px] font-bold uppercase tracking-wider text-[#9A9AA6] mb-3">{t("Produits", "Products")}</p>
           <ul className="space-y-2">
-            {PRODUCTS.slice(0, 5).map((p) => (
+            {products.slice(0, 5).map((p) => (
               <li key={p.slug}><Link href={`/produits/${p.slug}`} className="text-[13.5px] text-[#5B5B66] hover:text-[#0A0A0A] transition-colors">{p.name}</Link></li>
             ))}
           </ul>
         </div>
         <div>
-          <p className="text-[12px] font-bold uppercase tracking-wider text-[#9A9AA6] mb-3">Entreprise</p>
+          <p className="text-[12px] font-bold uppercase tracking-wider text-[#9A9AA6] mb-3">{t("Entreprise", "Company")}</p>
           <ul className="space-y-2">
-            <li><Link href="/blog" className="text-[13.5px] text-[#5B5B66] hover:text-[#0A0A0A] transition-colors">Blog</Link></li>
-            <li><Link href="/tarifs" className="text-[13.5px] text-[#5B5B66] hover:text-[#0A0A0A] transition-colors">Tarifs</Link></li>
-            <li><Link href="/#demo" className="text-[13.5px] text-[#5B5B66] hover:text-[#0A0A0A] transition-colors">En action</Link></li>
-            <li><ReserveDemoButton className="text-[13.5px] text-[#5B5B66] hover:text-[#0A0A0A] transition-colors">Réserver une démo</ReserveDemoButton></li>
-            <li><a href="mailto:contact@biltia.com" className="text-[13.5px] text-[#5B5B66] hover:text-[#0A0A0A] transition-colors">Contact</a></li>
+            <li><Link href="/blog" className="text-[13.5px] text-[#5B5B66] hover:text-[#0A0A0A] transition-colors">{t("Blog", "Blog")}</Link></li>
+            <li><Link href="/tarifs" className="text-[13.5px] text-[#5B5B66] hover:text-[#0A0A0A] transition-colors">{t("Tarifs", "Pricing")}</Link></li>
+            <li><Link href="/connecteurs" className="text-[13.5px] text-[#5B5B66] hover:text-[#0A0A0A] transition-colors">{t("Connecteurs", "Connectors")}</Link></li>
+            <li><Link href="/#demo" className="text-[13.5px] text-[#5B5B66] hover:text-[#0A0A0A] transition-colors">{t("En action", "In action")}</Link></li>
+            <li><ReserveDemoButton className="text-[13.5px] text-[#5B5B66] hover:text-[#0A0A0A] transition-colors">{t("Réserver une démo", "Book a demo")}</ReserveDemoButton></li>
+            <li><a href="mailto:contact@biltia.com" className="text-[13.5px] text-[#5B5B66] hover:text-[#0A0A0A] transition-colors">{t("Contact", "Contact")}</a></li>
           </ul>
         </div>
       </div>
       <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 pt-6 border-t border-[#EDEDEB]">
         <span className="text-[13px] text-[#B0B0B8]">© 2026 Biltia</span>
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-          {[["Mentions légales", "/mentions-legales"], ["CGU", "/cgu"], ["CGV", "/cgv"], ["Confidentialité", "/confidentialite"]].map(([l, href]) => (<a key={l} href={href} className="text-[13px] text-[#9A9AA6] hover:text-[#0A0A0A] transition-colors">{l}</a>))}
+          {[[t("Mentions légales", "Legal notice"), "/mentions-legales"], [t("CGU", "Terms"), "/cgu"], [t("CGV", "Sales terms"), "/cgv"], [t("Confidentialité", "Privacy"), "/confidentialite"]].map(([l, href]) => (<a key={href} href={href} className="text-[13px] text-[#9A9AA6] hover:text-[#0A0A0A] transition-colors">{l}</a>))}
         </div>
       </div>
     </footer>

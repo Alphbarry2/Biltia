@@ -11,9 +11,11 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase";
 import { AUTH_INPUT, AUTH_LABEL } from "@/components/auth";
+import { useT } from "@/lib/i18n/context";
 import { Check, ArrowRight, Loader2 } from "lucide-react";
 
 export default function ResetPasswordPage() {
+  const t = useT();
   const router = useRouter();
   const [ready, setReady] = useState<"checking" | "ok" | "invalid">("checking");
   const [password, setPassword] = useState("");
@@ -39,8 +41,8 @@ export default function ResetPasswordPage() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!hasLength || !hasDigit) { setError("8 caractères minimum, dont un chiffre."); return; }
-    if (password !== confirm) { setError("Les deux mots de passe ne correspondent pas."); return; }
+    if (!hasLength || !hasDigit) { setError(t("8 caractères minimum, dont un chiffre.", "At least 8 characters, including one digit.")); return; }
+    if (password !== confirm) { setError(t("Les deux mots de passe ne correspondent pas.", "The two passwords don't match.")); return; }
     setSaving(true);
     setError("");
     const supabase = createClient();
@@ -65,12 +67,12 @@ export default function ResetPasswordPage() {
   if (ready === "invalid") {
     return (
       <div className="text-center">
-        <h1 className="mb-2 text-[24px] font-black tracking-[-0.02em] text-[#0A0A0A]">Lien expiré.</h1>
+        <h1 className="mb-2 text-[24px] font-black tracking-[-0.02em] text-[#0A0A0A]">{t("Lien expiré.", "Link expired.")}</h1>
         <p className="mb-6 text-sm leading-relaxed text-[#6E6E6C]">
-          Ce lien de réinitialisation n&apos;est plus valide. Demandez-en un nouveau depuis la page de connexion.
+          {t("Ce lien de réinitialisation n'est plus valide. Demandez-en un nouveau depuis la page de connexion.", "This reset link is no longer valid. Request a new one from the sign-in page.")}
         </p>
         <Link href="/login" className="font-semibold text-[#7C3AED] transition-colors hover:text-[#0A0A0A]">
-          Retour à la connexion
+          {t("Retour à la connexion", "Back to sign-in")}
         </Link>
       </div>
     );
@@ -78,17 +80,17 @@ export default function ResetPasswordPage() {
 
   return (
     <div className="animate-fade-in-up">
-      <h1 className="mb-1.5 text-[28px] font-black tracking-[-0.03em] text-[#0A0A0A]">Nouveau mot de passe.</h1>
-      <p className="mb-7 text-sm text-[#6E6E6C]">Choisissez-le solide, vous êtes le seul à le connaître.</p>
+      <h1 className="mb-1.5 text-[28px] font-black tracking-[-0.03em] text-[#0A0A0A]">{t("Nouveau mot de passe.", "New password.")}</h1>
+      <p className="mb-7 text-sm text-[#6E6E6C]">{t("Choisissez-le solide, vous êtes le seul à le connaître.", "Make it strong, you're the only one who knows it.")}</p>
 
       <form onSubmit={submit} className="space-y-4">
         <div>
-          <label htmlFor="rp-password" className={AUTH_LABEL}>Nouveau mot de passe</label>
+          <label htmlFor="rp-password" className={AUTH_LABEL}>{t("Nouveau mot de passe", "New password")}</label>
           <input id="rp-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)}
-            placeholder="8 caractères min., un chiffre" required autoComplete="new-password" className={AUTH_INPUT} />
+            placeholder={t("8 caractères min., un chiffre", "8 characters min., one digit")} required autoComplete="new-password" className={AUTH_INPUT} />
           {password.length > 0 && (!hasLength || !hasDigit) && (
             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-              {[{ ok: hasLength, t: "Au moins 8 caractères" }, { ok: hasDigit, t: "Un chiffre (0-9)" }].map((c) => (
+              {[{ ok: hasLength, t: t("Au moins 8 caractères", "At least 8 characters") }, { ok: hasDigit, t: t("Un chiffre (0-9)", "A digit (0-9)") }].map((c) => (
                 <span key={c.t} className={`flex items-center gap-1.5 text-[12px] ${c.ok ? "font-semibold text-emerald-600" : "text-[#9A9AA6]"}`}>
                   <span className={`grid h-3.5 w-3.5 place-items-center rounded-full ${c.ok ? "bg-emerald-500" : "bg-[#E7E7E4]"}`}>
                     <Check className="h-2 w-2 text-white" strokeWidth={4} />
@@ -100,9 +102,9 @@ export default function ResetPasswordPage() {
           )}
         </div>
         <div>
-          <label htmlFor="rp-confirm" className={AUTH_LABEL}>Confirmer</label>
+          <label htmlFor="rp-confirm" className={AUTH_LABEL}>{t("Confirmer", "Confirm")}</label>
           <input id="rp-confirm" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)}
-            placeholder="Retapez le mot de passe" required autoComplete="new-password" className={AUTH_INPUT} />
+            placeholder={t("Retapez le mot de passe", "Re-type the password")} required autoComplete="new-password" className={AUTH_INPUT} />
         </div>
 
         {error && (
@@ -114,7 +116,7 @@ export default function ResetPasswordPage() {
           {saving ? (
             <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
           ) : (
-            <>Enregistrer et continuer <ArrowRight className="h-4 w-4" /></>
+            <>{t("Enregistrer et continuer", "Save and continue")} <ArrowRight className="h-4 w-4" /></>
           )}
         </button>
       </form>

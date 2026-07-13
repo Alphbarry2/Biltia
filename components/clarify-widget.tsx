@@ -12,6 +12,7 @@
 
 import React, { useState, useEffect } from "react";
 import { ChevronLeft, ChevronRight, Check, Search } from "lucide-react";
+import { useT } from "@/lib/i18n/context";
 
 export type ClarifyOption = {
   value: string;
@@ -267,6 +268,7 @@ export function ClarifyWidget({
   questions: ClarifyQuestion[];
   onSubmit: (answersText: string | null, structured?: Record<string, string[]>) => void;
 }) {
+  const tr = useT();
   const [idx, setIdx]       = useState(0);
   const [answers, setAnswers] = useState<Record<string, Answer>>({});
 
@@ -366,9 +368,9 @@ export function ClarifyWidget({
     const a = get(qu.id);
     // Picker workspace : libellé de synthèse (les valeurs sont des jetons internes).
     if (qu.type === "workspace-picker") {
-      if (a.values.includes("__all__")) return ["Tout le workspace"];
+      if (a.values.includes("__all__")) return [tr("Tout le workspace", "The whole workspace")];
       const n = a.values.filter((v) => v !== "__choose__" && v !== "__all__").length;
-      return n ? [`${n} élément(s) sélectionné(s)`] : [];
+      return n ? [tr(`${n} élément(s) sélectionné(s)`, `${n} item(s) selected`)] : [];
     }
     const labels = a.values.map((v) => qu.options.find((o) => o.value === v)?.label ?? v);
     if (a.custom.trim()) labels.push(a.custom.trim());
@@ -402,7 +404,7 @@ export function ClarifyWidget({
       {/* En-tête */}
       <div className="flex items-start justify-between gap-3 border-b border-[#F1F1F5] px-5 py-3.5">
         <p className="text-[13.5px] font-bold leading-snug text-[#0A0A0A]">
-          {isRecap ? "Vérifiez vos réponses" : q!.question}
+          {isRecap ? tr("Vérifiez vos réponses", "Review your answers") : q!.question}
         </p>
         <span className="flex-shrink-0 rounded-full bg-[#F6F6F9] px-2 py-0.5 text-[10.5px] font-bold tabular-nums text-[#9A9AA6]">
           {Math.min(idx + 1, visible.length)}/{visible.length}
@@ -429,7 +431,7 @@ export function ClarifyWidget({
                       ))}
                     </ul>
                   ) : (
-                    <p className="text-[13px] text-[#9A9AA6]">Ignorée</p>
+                    <p className="text-[13px] text-[#9A9AA6]">{tr("Ignorée", "Skipped")}</p>
                   )}
                 </div>
               );
@@ -488,7 +490,7 @@ export function ClarifyWidget({
                   else setIdx((i) => i + 1);
                 }
               }}
-              placeholder="Ou décrivez la vôtre : « tons orangés chaleureux »…"
+              placeholder={tr("Ou décrivez la vôtre : « tons orangés chaleureux »…", "Or describe your own: “warm orange tones”…")}
               className="w-full rounded-lg border border-[#E7E7E4] bg-white px-3 py-2 text-[13px] text-[#0A0A0A] placeholder-[#9A9AA6] transition-all focus:border-[#7C3AED] focus:outline-none focus:ring-2 focus:ring-violet-500/15"
             />
           </div>
@@ -542,39 +544,39 @@ export function ClarifyWidget({
                 onClick={setWsAll}
                 className={`flex-1 rounded-xl border px-3 py-2.5 text-[13px] font-semibold transition-colors ${wsMode === "all" ? "border-violet-300 bg-[#F3EFFC] text-[#0A0A0A]" : "border-[#ECECF2] bg-white text-[#6E6E6C] hover:bg-[#F6F6F9]"}`}
               >
-                Tout le workspace
+                {tr("Tout le workspace", "The whole workspace")}
               </button>
               <button
                 type="button"
                 onClick={setWsChoose}
                 className={`flex-1 rounded-xl border px-3 py-2.5 text-[13px] font-semibold transition-colors ${wsMode === "choose" ? "border-violet-300 bg-[#F3EFFC] text-[#0A0A0A]" : "border-[#ECECF2] bg-white text-[#6E6E6C] hover:bg-[#F6F6F9]"}`}
               >
-                Choisir des éléments
+                {tr("Choisir des éléments", "Pick items")}
               </button>
             </div>
 
             {wsMode !== "choose" ? (
               <p className="px-1 py-2 text-[12.5px] leading-relaxed text-[#9A9AA6]">
                 {wsMode === "all"
-                  ? "L'application aura accès à toutes vos données du workspace (clients, chantiers, devis…)."
-                  : "« Tout le workspace » : l'app utilise l'ensemble de vos données. « Choisir » : ouvrez une catégorie et cochez les éléments voulus (les sélections se cumulent d'une catégorie à l'autre)."}
+                  ? tr("L'application aura accès à toutes vos données du workspace (clients, chantiers, devis…).", "The app will have access to all your workspace data (clients, job sites, quotes…).")
+                  : tr("« Tout le workspace » : l'app utilise l'ensemble de vos données. « Choisir » : ouvrez une catégorie et cochez les éléments voulus (les sélections se cumulent d'une catégorie à l'autre).", "“The whole workspace”: the app uses all your data. “Pick”: open a category and check the items you want (selections add up across categories).")}
               </p>
             ) : wsLoading ? (
-              <p className="px-1 py-6 text-center text-[13px] text-[#9A9AA6]">Chargement de vos données…</p>
+              <p className="px-1 py-6 text-center text-[13px] text-[#9A9AA6]">{tr("Chargement de vos données…", "Loading your data…")}</p>
             ) : wsError ? (
               <p className="px-1 py-6 text-center text-[13px] text-[#9A9AA6]">
-                Impossible de charger vos données. Vous pouvez continuer avec « Tout le workspace ».
+                {tr("Impossible de charger vos données. Vous pouvez continuer avec « Tout le workspace ».", "Couldn't load your data. You can continue with “The whole workspace”.")}
               </p>
             ) : !wsCatalog || wsCatalog.length === 0 ? (
               <p className="px-1 py-6 text-center text-[13px] text-[#9A9AA6]">
-                {"Votre workspace est encore vide. Choisissez « Tout le workspace » (l'app se remplira à l'usage)."}
+                {tr("Votre workspace est encore vide. Choisissez « Tout le workspace » (l'app se remplira à l'usage).", "Your workspace is still empty. Choose “The whole workspace” (the app will fill up as you use it).")}
               </p>
             ) : !wsOpenEnt ? (
               // ── Niveau 1 : liste des CATÉGORIES ──────────────────────────────
               <div>
                 {wsSelectedCount > 0 && (
                   <p className="px-1 pb-1.5 text-[11.5px] font-semibold text-[#7C3AED]">
-                    {wsSelectedCount} élément(s) sélectionné(s) au total
+                    {tr(`${wsSelectedCount} élément(s) sélectionné(s) au total`, `${wsSelectedCount} item(s) selected in total`)}
                   </p>
                 )}
                 <div className="max-h-[320px] space-y-1 overflow-y-auto pr-0.5">
@@ -589,11 +591,11 @@ export function ClarifyWidget({
                       >
                         <span className="min-w-0 flex-1">
                           <span className="block text-[13.5px] font-semibold text-[#2A2A32]">{ent.label}</span>
-                          <span className="block text-[11px] text-[#9A9AA6]">{ent.count} élément(s)</span>
+                          <span className="block text-[11px] text-[#9A9AA6]">{tr(`${ent.count} élément(s)`, `${ent.count} item(s)`)}</span>
                         </span>
                         {sel > 0 && (
                           <span className="flex-shrink-0 rounded-full bg-[#F3EFFC] px-2 py-0.5 text-[11px] font-bold text-[#7C3AED]">
-                            {sel} choisi(s)
+                            {tr(`${sel} choisi(s)`, `${sel} chosen`)}
                           </span>
                         )}
                         <ChevronRight className="h-4 w-4 flex-shrink-0 text-[#9A9AA6]" />
@@ -619,7 +621,7 @@ export function ClarifyWidget({
                         onClick={() => { setWsOpenKey(null); setWsSearch(""); }}
                         className="flex items-center gap-1 rounded-lg px-1.5 py-1 text-[12.5px] font-semibold text-[#6E6E6C] transition-colors hover:bg-[#F6F6F9] hover:text-[#0A0A0A]"
                       >
-                        <ChevronLeft className="h-4 w-4" /> Catégories
+                        <ChevronLeft className="h-4 w-4" /> {tr("Catégories", "Categories")}
                       </button>
                       <span className="text-[13px] font-bold text-[#0A0A0A]">{ent.label}</span>
                       <button
@@ -627,7 +629,7 @@ export function ClarifyWidget({
                         onClick={() => toggleWsEntity(ent)}
                         className="ml-auto text-[11.5px] font-semibold text-[#7C3AED] hover:underline"
                       >
-                        {allOn ? "Tout retirer" : "Tout sélectionner"}
+                        {allOn ? tr("Tout retirer", "Deselect all") : tr("Tout sélectionner", "Select all")}
                       </button>
                     </div>
 
@@ -636,20 +638,20 @@ export function ClarifyWidget({
                       <input
                         value={wsSearch}
                         onChange={(e) => setWsSearch(e.target.value)}
-                        placeholder={`Rechercher dans ${ent.label.toLowerCase()}…`}
+                        placeholder={tr(`Rechercher dans ${ent.label.toLowerCase()}…`, `Search in ${ent.label.toLowerCase()}…`)}
                         className="w-full rounded-lg border border-[#E7E7E4] bg-white py-2 pl-9 pr-3 text-[13px] text-[#0A0A0A] placeholder-[#9A9AA6] focus:border-[#7C3AED] focus:outline-none focus:ring-2 focus:ring-violet-500/15"
                       />
                     </div>
 
                     {sel > 0 && (
                       <p className="px-1 pb-1.5 text-[11.5px] font-semibold text-[#7C3AED]">
-                        {sel} sélectionné(s) dans cette catégorie
+                        {tr(`${sel} sélectionné(s) dans cette catégorie`, `${sel} selected in this category`)}
                       </p>
                     )}
 
                     <div className="max-h-[280px] space-y-0.5 overflow-y-auto pr-0.5">
                       {rows.length === 0 ? (
-                        <p className="px-1 py-6 text-center text-[13px] text-[#9A9AA6]">Aucun résultat.</p>
+                        <p className="px-1 py-6 text-center text-[13px] text-[#9A9AA6]">{tr("Aucun résultat.", "No results.")}</p>
                       ) : (
                         rows.map((r) => {
                           const token = `${ent.key}:${r.id}`;
@@ -717,7 +719,7 @@ export function ClarifyWidget({
                     else setIdx((i) => i + 1);
                   }
                 }}
-                placeholder="Rédigez la vôtre… (Entrée pour continuer)"
+                placeholder={tr("Rédigez la vôtre… (Entrée pour continuer)", "Write your own… (Enter to continue)")}
                 className="w-full rounded-lg border border-[#E7E7E4] bg-white px-3 py-2 text-[13px] text-[#0A0A0A] placeholder-[#9A9AA6] transition-all focus:border-[#7C3AED] focus:outline-none focus:ring-2 focus:ring-violet-500/15"
               />
             </div>
@@ -728,11 +730,11 @@ export function ClarifyWidget({
       {/* Pied */}
       <div className="flex items-center justify-between border-t border-[#F1F1F5] px-4 py-3">
         <div className="flex items-center gap-1">
-          <button type="button" onClick={() => setIdx((i) => Math.max(0, i - 1))} disabled={idx === 0} aria-label="Question précédente"
+          <button type="button" onClick={() => setIdx((i) => Math.max(0, i - 1))} disabled={idx === 0} aria-label={tr("Question précédente", "Previous question")}
             className="rounded-lg p-1.5 text-[#6E6E6C] transition-colors hover:bg-[#F6F6F9] hover:text-[#0A0A0A] disabled:opacity-30">
             <ChevronLeft className="h-4 w-4"/>
           </button>
-          <button type="button" onClick={() => setIdx((i) => Math.min(visible.length, i + 1))} disabled={isRecap} aria-label="Question suivante"
+          <button type="button" onClick={() => setIdx((i) => Math.min(visible.length, i + 1))} disabled={isRecap} aria-label={tr("Question suivante", "Next question")}
             className="rounded-lg p-1.5 text-[#6E6E6C] transition-colors hover:bg-[#F6F6F9] hover:text-[#0A0A0A] disabled:opacity-30">
             <ChevronRight className="h-4 w-4"/>
           </button>
@@ -740,17 +742,17 @@ export function ClarifyWidget({
         <div className="flex items-center gap-3">
           <button type="button" onClick={() => onSubmit(null)}
             className="text-[13px] font-medium text-[#9A9AA6] transition-colors hover:text-[#0A0A0A]">
-            Tout ignorer
+            {tr("Tout ignorer", "Skip all")}
           </button>
           {isRecap ? (
             <button type="button" onClick={send}
               className="rounded-full bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 px-5 py-2 text-[13px] font-semibold text-white shadow-[0_6px_18px_rgba(139,92,246,0.35)] transition-all hover:shadow-[0_8px_24px_rgba(139,92,246,0.5)] active:scale-[0.98]">
-              Envoyer
+              {tr("Envoyer", "Send")}
             </button>
           ) : (
             <button type="button" onClick={() => setIdx((i) => i + 1)}
               className="rounded-full bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 px-5 py-2 text-[13px] font-semibold text-white shadow-[0_6px_18px_rgba(139,92,246,0.35)] transition-all hover:shadow-[0_8px_24px_rgba(139,92,246,0.5)] active:scale-[0.98]">
-              {idx === visible.length - 1 ? "Réviser" : "Suivant"}
+              {idx === visible.length - 1 ? tr("Réviser", "Review") : tr("Suivant", "Next")}
             </button>
           )}
         </div>

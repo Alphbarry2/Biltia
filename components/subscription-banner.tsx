@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase";
 import { getActiveMembership } from "@/lib/tenant";
+import { useT } from "@/lib/i18n/context";
 import { AlertTriangle, Lock } from "lucide-react";
 
 const FROZEN = new Set(["canceled", "unpaid", "incomplete", "incomplete_expired", "paused"]);
@@ -20,6 +21,7 @@ const FROZEN = new Set(["canceled", "unpaid", "incomplete", "incomplete_expired"
 type BannerState = "ok" | "grace" | "frozen";
 
 export function SubscriptionBanner() {
+  const t = useT();
   const [state, setState] = useState<BannerState>("ok");
 
   useEffect(() => {
@@ -47,13 +49,13 @@ export function SubscriptionBanner() {
       <div className="flex items-center gap-2 px-4 py-2.5 bg-orange-50 border-b border-orange-200 text-orange-800 text-sm flex-shrink-0">
         <AlertTriangle className="w-4 h-4 flex-shrink-0" />
         <span className="flex-1 min-w-0">
-          Paiement refusé. Mettez à jour votre moyen de paiement sous 5 jours pour éviter le gel de vos outils.
+          {t("Paiement refusé. Mettez à jour votre moyen de paiement sous 5 jours pour éviter le gel de vos outils.", "Payment declined. Update your payment method within 5 days to avoid your tools being frozen.")}
         </span>
         <Link
           href="/settings?section=billing"
           className="font-semibold underline whitespace-nowrap hover:text-orange-950"
         >
-          Régulariser
+          {t("Régulariser", "Fix payment")}
         </Link>
       </div>
     );
@@ -63,13 +65,13 @@ export function SubscriptionBanner() {
     <div className="flex items-center gap-2 px-4 py-2.5 bg-rose-50 border-b border-rose-200 text-rose-800 text-sm flex-shrink-0">
       <Lock className="w-4 h-4 flex-shrink-0" />
       <span className="flex-1 min-w-0">
-        Espace en lecture seule : votre abonnement a expiré. Vos données restent consultables et exportables. Réactivez pour reprendre votre activité.
+        {t("Espace en lecture seule : votre abonnement a expiré. Vos données restent consultables et exportables. Réactivez pour reprendre votre activité.", "Read-only workspace: your subscription has expired. Your data stays viewable and exportable. Reactivate to resume your work.")}
       </span>
       <Link
         href="/settings?section=billing"
         className="font-semibold underline whitespace-nowrap hover:text-rose-950"
       >
-        Réactiver
+        {t("Réactiver", "Reactivate")}
       </Link>
     </div>
   );

@@ -12,8 +12,11 @@ import {
   postUrl,
 } from "@/lib/blog";
 import { getProduct } from "@/lib/products";
+import { localizePost } from "@/lib/blog-i18n";
 import { Reveal, Spot, InteractiveMesh, SiteNav, SiteFooter } from "@/components/site";
 import JsonLd from "@/components/json-ld";
+import { getLocale } from "@/lib/i18n/server";
+import { pick, type Locale } from "@/lib/i18n/config";
 
 export function generateStaticParams() {
   return BLOG_POSTS.map((p) => ({ slug: p.slug }));
@@ -25,8 +28,11 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
   const { slug } = await params;
-  const post = getPost(slug);
-  if (!post) return {};
+  const raw = getPost(slug);
+  if (!raw) return {};
+  // Titre/description d'onglet + mots-clés dans la langue du lecteur. Un robot
+  // n'a pas de cookie → il reçoit le FR (le SEO français reste la référence).
+  const post = localizePost(raw, await getLocale());
   return {
     title: post.title,
     description: post.description,
@@ -44,8 +50,8 @@ export async function generateMetadata({
   };
 }
 
-function fmtDate(iso: string): string {
-  return new Intl.DateTimeFormat("fr-FR", {
+function fmtDate(iso: string, locale: Locale): string {
+  return new Intl.DateTimeFormat(locale === "en" ? "en-US" : "fr-FR", {
     day: "numeric",
     month: "long",
     year: "numeric",
@@ -54,14 +60,17 @@ function fmtDate(iso: string): string {
 
 export default async function BlogArticle({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const post = getPost(slug);
-  if (!post) notFound();
+  const raw = getPost(slug);
+  if (!raw) notFound();
 
+  const locale = await getLocale();
+  // Corps de l'article traduit (titre, intro, sections, FAQ, points clés…).
+  const post = localizePost(raw, locale);
   const product = getProduct(post.relatedProduct);
   const grad = product
     ? `linear-gradient(135deg, ${product.accent[0]}, ${product.accent[1]})`
     : "linear-gradient(135deg, #6366F1, #EC4899)";
-  const related = relatedPosts(slug, 3);
+  const related = relatedPosts(slug, 3).map((p) => localizePost(p, locale));
 
   return (
     <main className="bg-[#FCFCFD] min-h-screen overflow-x-hidden text-[#0A0A0A]">
@@ -74,8 +83,8 @@ export default async function BlogArticle({ params }: { params: Promise<{ slug: 
           <InteractiveMesh strong />
           <div className="relative z-10 max-w-3xl mx-auto">
             {/* Fil d'Ariane */}
-            <nav aria-label="Fil d'Ariane" className="flex items-center gap-2 text-[13px] text-[#9A9AA6] mb-7">
-              <Link href="/" className="hover:text-[#0A0A0A] transition-colors">Accueil</Link>
+            <nav aria-label={pick(locale, "Fil d'Ariane", "Breadcrumb")} className="flex items-center gap-2 text-[13px] text-[#9A9AA6] mb-7">
+              <Link href="/" className="hover:text-[#0A0A0A] transition-colors">{pick(locale, "Accueil", "Home")}</Link>
               <span>/</span>
               <Link href="/blog" className="hover:text-[#0A0A0A] transition-colors">Blog</Link>
             </nav>
@@ -83,8 +92,8 @@ export default async function BlogArticle({ params }: { params: Promise<{ slug: 
               <span className="inline-flex items-center px-2.5 py-1 rounded-full grad-border font-semibold text-[#0A0A0A]">
                 {post.category}
               </span>
-              <span className="text-[#9A9AA6]">{fmtDate(post.date)}</span>
-              <span className="text-[#9A9AA6]">{post.readingMinutes} min de lecture</span>
+              <span className="text-[#9A9AA6]">{fmtDate(post.date, locale)}</span>
+              <span className="text-[#9A9AA6]">{post.readingMinutes} {pick(locale, "min de lecture", "min read")}</span>
             </div>
             <h1 className="text-[34px] sm:text-[50px] font-black tracking-[-0.04em] leading-[1.02] text-[#0A0A0A]">
               {post.title}
@@ -99,7 +108,7 @@ export default async function BlogArticle({ params }: { params: Promise<{ slug: 
             {/* À retenir */}
             <Reveal>
               <div className="glass rounded-[24px] p-6 sm:p-7 mb-12">
-                <p className="text-[12px] font-bold uppercase tracking-wider text-[#7C3AED] mb-4">À retenir</p>
+                <p className="text-[12px] font-bold uppercase tracking-wider text-[#7C3AED] mb-4">{pick(locale, "À retenir", "Key takeaways")}</p>
                 <ul className="space-y-3">
                   {post.takeaways.map((t) => (
                     <li key={t} className="flex items-start gap-3">
@@ -149,27 +158,26 @@ export default async function BlogArticle({ params }: { params: Promise<{ slug: 
                   />
                   <div className="relative z-10">
                     <div className="flex items-center gap-2 text-[12px] font-semibold text-white/60 uppercase tracking-wider mb-4">
-                      <Sparkles className="w-3.5 h-3.5" /> Avec Biltia
+                      <Sparkles className="w-3.5 h-3.5" /> {pick(locale, "Avec Biltia", "With Biltia")}
                     </div>
                     <p className="text-[19px] sm:text-[22px] font-bold leading-snug mb-2 max-w-xl">
                       « {post.cta} »
                     </p>
                     <p className="text-[14px] text-white/70 leading-relaxed mb-6 max-w-lg">
-                      Biltia bascule sur le bon produit, ici {product.name.toLowerCase()}, et livre la solution. Vous ne
-                      choisissez jamais l&apos;outil, vous décrivez le problème.
+                      {pick(locale, "Biltia bascule sur le bon produit, ici ", "Biltia switches to the right product, here ")}{product.name.toLowerCase()}{pick(locale, ", et livre la solution. Vous ne choisissez jamais l'outil, vous décrivez le problème.", ", and delivers the solution. You never pick the tool, you describe the problem.")}
                     </p>
                     <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
                       <Link
                         href="/signup?from=blog"
                         className="bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 text-white font-semibold text-[14px] px-6 py-3 rounded-full inline-flex items-center gap-1.5 shadow-[0_8px_24px_rgba(139,92,246,0.45)] hover:shadow-[0_10px_30px_rgba(139,92,246,0.6)] transition-shadow"
                       >
-                        Essayer maintenant <ArrowUpRight className="w-4 h-4" />
+                        {pick(locale, "Essayer maintenant", "Try it now")} <ArrowUpRight className="w-4 h-4" />
                       </Link>
                       <Link
                         href={`/produits/${product.slug}`}
                         className="text-[14px] font-semibold text-white/80 hover:text-white transition-colors inline-flex items-center gap-1.5"
                       >
-                        Découvrir {product.name} <ArrowRight className="w-4 h-4" />
+                        {pick(locale, "Découvrir ", "Discover ")}{product.name} <ArrowRight className="w-4 h-4" />
                       </Link>
                     </div>
                   </div>
@@ -180,7 +188,7 @@ export default async function BlogArticle({ params }: { params: Promise<{ slug: 
             {/* FAQ */}
             <section className="mt-14">
               <h2 className="text-[24px] sm:text-[30px] font-black text-[#0A0A0A] tracking-[-0.02em] mb-6">
-                Questions fréquentes
+                {pick(locale, "Questions fréquentes", "Frequently asked questions")}
               </h2>
               <div className="space-y-3">
                 {post.faq.map((f) => (
@@ -203,7 +211,7 @@ export default async function BlogArticle({ params }: { params: Promise<{ slug: 
         <div className="max-w-6xl mx-auto">
           <Reveal className="mb-8">
             <h2 className="text-[26px] sm:text-[36px] font-black text-[#0A0A0A] tracking-[-0.03em]">
-              À lire ensuite
+              {pick(locale, "À lire ensuite", "Read next")}
             </h2>
           </Reveal>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -217,7 +225,7 @@ export default async function BlogArticle({ params }: { params: Promise<{ slug: 
                     <h3 className="text-[17px] font-bold text-[#0A0A0A] mb-2 leading-snug">{p.title}</h3>
                     <p className="text-[13px] text-[#5B5B66] leading-relaxed mb-4 flex-1">{p.excerpt}</p>
                     <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-[#0A0A0A] group-hover:gap-2.5 transition-all">
-                      Lire <ArrowRight className="w-3.5 h-3.5" />
+                      {pick(locale, "Lire", "Read")} <ArrowRight className="w-3.5 h-3.5" />
                     </span>
                   </Spot>
                 </Link>

@@ -95,6 +95,82 @@ img, svg, video, canvas {
   max-width: 100%;
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   PWA installée (iOS/Android « écran d'accueil », mode standalone)
+   ──────────────────────────────────────────────────────────────────────────
+   Le layout racine active `viewport-fit=cover` (app/layout.tsx) : le contenu
+   s'étend SOUS l'encoche, la barre d'état (heure/batterie) et l'indicateur
+   « home ». Sans réserver ces zones, l'app monte sur l'heure et déborde en bas.
+   Ces variables valent 0 hors PWA → aucun effet sur le navigateur classique.
+   ══════════════════════════════════════════════════════════════════════════ */
+:root {
+  --safe-top:    env(safe-area-inset-top, 0px);
+  --safe-right:  env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left:   env(safe-area-inset-left, 0px);
+}
+
+/* Hauteur RÉELLEMENT visible. iOS Safari en standalone ment sur `100vh` (il
+   compte des barres de navigateur qui n'existent pas en PWA) → contenu coupé,
+   scroll qui « saute » et éléments coincés hors écran. `dvh` suit la zone
+   visible en direct ; on garde `vh` en repli pour les moteurs sans `dvh`. */
+html, body { min-height: 100vh; min-height: 100dvh; }
+
+/* Pas de rebond élastique iOS qui décolle le contenu de la barre d'état, ni de
+   « tirer pour recharger » qui relance l'app par accident. Comportement d'app. */
+html { overscroll-behavior: none; }
+body { overscroll-behavior-y: none; }
+
+/* ── Utilitaires safe-area (réservent la zone système correspondante) ─────── */
+.pt-safe { padding-top:    var(--safe-top); }
+.pb-safe { padding-bottom: var(--safe-bottom); }
+.pl-safe { padding-left:   var(--safe-left); }
+.pr-safe { padding-right:  var(--safe-right); }
+.mt-safe { margin-top:     var(--safe-top); }
+.mb-safe { margin-bottom:  var(--safe-bottom); }
+/* Barres fixes : padding de base + zone système (cumulé, pas remplacé). */
+.pt-bar-safe { padding-top:    calc(0.625rem + var(--safe-top)); }
+.pb-bar-safe { padding-bottom: calc(0.625rem + var(--safe-bottom)); }
+
+/* Hauteur pleine fiable en PWA — à préférer à `h-screen`/`100vh`. */
+.h-dvh     { height: 100vh;     height: 100dvh; }
+.min-h-dvh { min-height: 100vh; min-height: 100dvh; }
+
+/* Comportement « app » : pas de flash bleu au tap, pas de menu long-press sur
+   les contrôles (les zones de texte gardent la sélection normale). */
+button, a, [role="button"], label, summary {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+/* Cible tactile minimale confortable au doigt pour les icônes-boutons ronds. */
+@media (pointer: coarse) {
+  .tap-target { min-width: 2.75rem; min-height: 2.75rem; }
+}
+
+/* Texte non gonflé par iOS à la rotation (comportement d'app, pas de page web). */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
+/* Contrôles : supprime le délai de tap de 300 ms et le double-tap-zoom parasite. */
+button, a, [role="button"], input[type="button"], input[type="submit"], summary, .tab-item, .fab {
+  touch-action: manipulation;
+}
+
+/* Défilement inertiel fluide (momentum) dans toutes les zones scrollables — et
+   confine le rebond à la zone (pas de propagation au document = pas de « saut »). */
+.overflow-auto, .overflow-y-auto, .overflow-x-auto, .overflow-scroll {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+/* Boutons d'action révélés au SURVOL (opacity-0 group-hover) : sur écran tactile
+   il n'y a PAS de survol → ils restent invisibles/inutilisables au doigt. On les
+   montre TOUJOURS sur tactile. `show-touch` = variante opacité, `show-touch-grid`
+   = variante display (pour les boutons cachés en `hidden`). */
+@media (hover: none) {
+  .show-touch      { opacity: 1 !important; }
+  .show-touch-grid { display: grid !important; }
+}
+
 /* ── Typography utilities ────────────────────────────────────────────── */
 .font-display {
   font-family: 'Clash Display', 'Satoshi', sans-serif;

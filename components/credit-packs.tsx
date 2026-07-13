@@ -11,11 +11,14 @@ import { useState } from "react";
 import Link from "next/link";
 import { Zap, Plus, Loader2, X, Check } from "lucide-react";
 import { CREDIT_PACKS, formatEur } from "@/lib/plans";
+import { useT, useLocale } from "@/lib/i18n/context";
 
 // Le pack le plus « populaire » (mis en avant), au milieu de la gamme.
 const HIGHLIGHT_CREDITS = 3000;
 
 export function CreditPacksPanel({ onClose, showHeader = true }: { onClose?: () => void; showHeader?: boolean }) {
+  const t = useT();
+  const locale = useLocale();
   const [busy, setBusy] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,9 +37,9 @@ export function CreditPacksPanel({ onClose, showHeader = true }: { onClose?: () 
         window.location.href = data.url;
         return;
       }
-      setError(data.error ?? "Paiement indisponible pour le moment.");
+      setError(data.error ?? t("Paiement indisponible pour le moment.", "Payment unavailable right now."));
     } catch {
-      setError("Erreur réseau. Réessayez.");
+      setError(t("Erreur réseau. Réessayez.", "Network error. Try again."));
     }
     setBusy(null);
   };
@@ -46,16 +49,16 @@ export function CreditPacksPanel({ onClose, showHeader = true }: { onClose?: () 
       {showHeader && (
         <div className="mb-3 flex items-start justify-between gap-3">
           <div>
-            <p className="text-[15px] font-bold text-[#0A0A0A]">Recharger des crédits</p>
+            <p className="text-[15px] font-bold text-[#0A0A0A]">{t("Recharger des crédits", "Top up credits")}</p>
             <p className="text-[12.5px] text-[#6E6E6C] leading-snug">
-              Crédits ajoutés tout de suite. Ils ne périment jamais.
+              {t("Crédits ajoutés tout de suite. Ils ne périment jamais.", "Credits added instantly. They never expire.")}
             </p>
           </div>
           {onClose && (
             <button
               type="button"
               onClick={onClose}
-              aria-label="Fermer"
+              aria-label={t("Fermer", "Close")}
               className="grid h-7 w-7 flex-shrink-0 place-items-center rounded-full text-[#9A9A97] hover:bg-black/[0.05] hover:text-[#0A0A0A]"
             >
               <X className="h-4 w-4" />
@@ -87,15 +90,15 @@ export function CreditPacksPanel({ onClose, showHeader = true }: { onClose?: () 
                 <span>
                   <span className="flex items-center gap-2">
                     <span className="text-[15px] font-bold tabular-nums text-[#0A0A0A]">
-                      +{pack.credits.toLocaleString("fr-FR")}
+                      +{pack.credits.toLocaleString(locale === "en" ? "en-US" : "fr-FR")}
                     </span>
                     {highlight && (
                       <span className="rounded-full bg-[#7C3AED]/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#6D4AE0]">
-                        Populaire
+                        {t("Populaire", "Popular")}
                       </span>
                     )}
                   </span>
-                  <span className="block text-[12px] text-[#8B8B96]">crédits, sans expiration</span>
+                  <span className="block text-[12px] text-[#8B8B96]">{t("crédits, sans expiration", "credits, no expiry")}</span>
                 </span>
               </span>
               <span className="flex flex-shrink-0 items-center gap-2">
@@ -116,11 +119,11 @@ export function CreditPacksPanel({ onClose, showHeader = true }: { onClose?: () 
       <div className="mt-3 flex items-start gap-2 rounded-xl bg-[#F6F4FB] px-3 py-2.5">
         <Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-[#7C3AED]" strokeWidth={2.5} />
         <p className="text-[11.5px] leading-snug text-[#6E6E6C]">
-          Vous rechargez souvent ?{" "}
+          {t("Vous rechargez souvent ?", "Topping up often?")}{" "}
           <Link href="/tarifs" className="font-semibold text-[#6D4AE0] underline-offset-2 hover:underline">
-            Monter d&apos;un cran de forfait
+            {t("Monter d'un cran de forfait", "Moving up a plan tier")}
           </Link>{" "}
-          revient moins cher au crédit.
+          {t("revient moins cher au crédit.", "is cheaper per credit.")}
         </p>
       </div>
     </div>
@@ -129,6 +132,7 @@ export function CreditPacksPanel({ onClose, showHeader = true }: { onClose?: () 
 
 /** Fenêtre modale contenant les packs (barre latérale, upsell). */
 export function CreditPacksDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const t = useT();
   if (!open) return null;
   return (
     <div
@@ -136,11 +140,11 @@ export function CreditPacksDialog({ open, onClose }: { open: boolean; onClose: (
       onClick={onClose}
     >
       <div
-        className="w-full max-w-[420px] rounded-t-3xl border border-[#ECECF2] bg-white p-5 shadow-[0_30px_80px_rgba(60,40,120,0.28)] sm:rounded-3xl animate-scale-in"
+        className="w-full max-w-[420px] max-h-[92dvh] overflow-y-auto rounded-t-3xl border border-[#ECECF2] bg-white p-5 pb-[calc(1.25rem+var(--safe-bottom))] shadow-[0_30px_80px_rgba(60,40,120,0.28)] sm:rounded-3xl sm:pb-5 animate-scale-in"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-label="Recharger des crédits"
+        aria-label={t("Recharger des crédits", "Top up credits")}
       >
         <CreditPacksPanel onClose={onClose} />
       </div>

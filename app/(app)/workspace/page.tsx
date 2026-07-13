@@ -49,8 +49,11 @@ import {
   PenLine,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { ENTITIES, FORM_FIELDS, RELATION_DISPLAY, type FormField } from "@/lib/data-entities";
+import { ENTITIES, FORM_FIELDS, RELATION_DISPLAY, fieldLabel, fieldPlaceholder, optionLabel, type FormField } from "@/lib/data-entities";
+import { VOCABS, FIELD_VOCAB, vocabLabel, splitAutre, slugify } from "@/lib/vocabulaires";
 import { getActiveMembership } from "@/lib/tenant";
+import { useT, useLocale } from "@/lib/i18n/context";
+import type { Locale } from "@/lib/i18n/config";
 import { AddToCalendar } from "@/components/add-to-calendar";
 import { getCurrentPosition, gpsLine, type CalendarEvent } from "@/lib/integrations";
 
@@ -73,6 +76,17 @@ type EntityMeta = {
   search: (r: Row) => string;
   detailFields: string[];
 };
+
+/**
+ * Libellé d'une valeur à vocabulaire (`chef_equipe` → « Chef d'équipe »).
+ * La base stocke le canonique, l'écran montre l'humain. Sans vocabulaire sur ce
+ * champ, la valeur passe telle quelle.
+ */
+function lbl(entity: string, field: string, raw: unknown): string | null {
+  if (raw == null || String(raw).trim() === "") return null;
+  const vocabId = FIELD_VOCAB[`${entity}.${field}`];
+  return vocabId ? vocabLabel(vocabId, String(raw)) : String(raw);
+}
 
 const CHANTIER_STATUT: Record<string, { label: string; cls: string }> = {
   en_attente: { label: "En attente", cls: "bg-amber-50 text-amber-700 border-amber-200" },
@@ -108,7 +122,8 @@ const ENTITY_META: Record<string, EntityMeta> = {
     icon: UserCog,
     accent: "text-emerald-600 bg-emerald-50",
     title: (r) => joinTruthy(r.prenom, r.nom) || "Employé",
-    subtitle: (r) => joinTruthy(r.role, r.corps_metier),
+    // La valeur STOCKÉE est canonique (chef_equipe) ; on affiche toujours le libellé.
+    subtitle: (r) => joinTruthy(lbl("employees", "role", r.role), lbl("employees", "corps_metier", r.corps_metier)),
     search: (r) => joinTruthy(r.prenom, r.nom, r.role, r.corps_metier, r.email),
     detailFields: ["role", "corps_metier", "email", "tel", "date_embauche", "taux_horaire", "statut", "notes"],
   },
@@ -153,7 +168,7 @@ const ENTITY_META: Record<string, EntityMeta> = {
     icon: Truck,
     accent: "text-rose-600 bg-rose-50",
     title: (r) => r.nom ?? "Fournisseur",
-    subtitle: (r) => joinTruthy(r.categorie === "sous_traitant" ? "Sous-traitant" : r.categorie, r.specialite, r.ville),
+    subtitle: (r) => joinTruthy(lbl("suppliers", "categorie", r.categorie), lbl("suppliers", "specialite", r.specialite), r.ville),
     search: (r) => joinTruthy(r.nom, r.email, r.ville, r.siret, r.specialite),
     detailFields: ["categorie", "specialite", "type", "email", "tel", "adresse", "ville", "code_postal", "siret", "assurance_decennale", "assurance_expire", "notes"],
   },
@@ -363,9 +378,73 @@ const FIELD_LABELS: Record<string, string> = {
   date_signature: "Signé le", motif_refus: "Motif du refus",
 };
 
+// ── Traductions EN des libellés de données (FR = dicts ci-dessus, source de vérité) ──
+const CHANTIER_STATUT_EN: Record<string, string> = {
+  en_attente: "Pending", en_cours: "In progress", en_retard: "Behind", termine: "Completed", annule: "Cancelled",
+};
+const VALIDATION_TYPE_LABEL_EN: Record<string, string> = {
+  acceptation_devis: "Quote acceptance", validation_facture: "Invoice validation", signature_pv: "Report signature",
+  signature_intervention: "Job signature", approbation_document: "Document approval", validation_reserve: "Snag clearance", autre: "Validation",
+};
+const ENTITY_GROUP_TITLE_EN: Record<string, string> = {
+  "Acteurs & sites": "People & sites", "Commercial": "Sales", "Achats & dépenses": "Purchases & expenses",
+  "Service & SAV": "Service & after-sales", "Suivi & documents": "Tracking & documents",
+};
+const ENTITY_LABEL_EN: Record<string, string> = {
+  chantiers: "Job sites", clients: "Clients", employees: "Employees", documents: "Documents",
+  interventions: "Jobs", materials: "Materials", equipment: "Equipment", suppliers: "Suppliers",
+  tasks: "Tasks", catalogue: "Catalog", devis: "Quotes", factures: "Invoices", pointages: "Time tracking",
+  contrats: "Contracts", parc_installe: "Installed base", sites: "Sites / Addresses", demandes: "Requests",
+  commandes: "Orders", depenses: "Expenses", paiements: "Payments", reserves: "Snags", rappels: "Reminders",
+  messages: "Messages", notes: "Notes", validations: "Validations",
+};
+const FIELD_LABELS_EN: Record<string, string> = {
+  adresse: "Address", ville: "City", code_postal: "Postal code", budget: "Budget (€)",
+  avancement: "Progress", date_debut: "Start", date_fin_prevue: "Planned end", description: "Description",
+  type: "Type", email: "Email", tel: "Phone", siret: "SIRET", notes: "Notes",
+  role: "Role", corps_metier: "Trade", date_embauche: "Hired", taux_horaire: "Hourly rate (€)",
+  statut: "Status", status: "Status", expires_at: "Expires on", url: "Link", reference: "Reference",
+  categorie: "Category", quantite: "Quantity", unite: "Unit", date_retour: "Return due",
+  marque: "Brand", numero_serie: "Serial no.", date_achat: "Purchase", prochain_controle: "Next check",
+  date_prevue: "Planned for", date_reelle: "Done on", duree_heures: "Duration (h)", rapport: "Report",
+  priority: "Priority", due_date: "Due date", done_at: "Done on",
+  designation: "Description", prix_achat_ht: "Purchase price excl. tax (€)", prix_vente_ht: "Sale price excl. tax (€)",
+  taux_tva: "VAT (%)", numero: "Number", date_devis: "Quote date", date_validite: "Valid until",
+  montant_ht: "Amount excl. tax (€)", montant_tva: "VAT (€)", montant_ttc: "Amount incl. tax (€)",
+  montant_paye: "Paid (€)", conditions: "Terms", date_facture: "Invoice date", date_echeance: "Due date",
+  prix_unitaire_ht: "Unit excl. tax (€)", total_ht: "Total excl. tax (€)", position: "Position",
+  date_pointage: "Date", heures: "Hours", valide: "Validated",
+  montant: "Amount (€)", periodicite: "Frequency", date_fin: "End", prochaine_echeance: "Next due date",
+  modele: "Model", localisation: "Location", date_pose: "Installed on", date_garantie: "Warranty until",
+  dernier_entretien: "Last service", prochain_entretien: "Next service",
+  seuil_alerte: "Alert threshold", specialite: "Specialty",
+  assurance_decennale: "Liability insurance", assurance_expire: "Insurance expires on",
+  canal: "Channel", direction: "Direction", destinataire: "Recipient", expediteur: "Sender",
+  objet: "Subject", corps: "Message", date_message: "Date", contenu: "Note", source: "Source",
+  signataire_nom: "Signatory", signataire_email: "Signatory email", signataire_tel: "Signatory phone",
+  date_signature: "Signed on", motif_refus: "Reason for refusal",
+};
+
+// Accès locale-aware (FR = source, EN = tables ci-dessus).
+function tFieldLabel(locale: Locale, k: string): string {
+  return locale === "en" ? (FIELD_LABELS_EN[k] ?? FIELD_LABELS[k] ?? k) : (FIELD_LABELS[k] ?? k);
+}
+function tEntityLabel(locale: Locale, key: string): string {
+  return locale === "en" ? (ENTITY_LABEL_EN[key] ?? ENTITY_META[key]?.label ?? key) : (ENTITY_META[key]?.label ?? key);
+}
+function tGroupTitle(locale: Locale, title: string): string {
+  return locale === "en" ? (ENTITY_GROUP_TITLE_EN[title] ?? title) : title;
+}
+function tChantierStatut(locale: Locale, statut: string): string {
+  return locale === "en" ? (CHANTIER_STATUT_EN[statut] ?? CHANTIER_STATUT[statut]?.label ?? statut) : (CHANTIER_STATUT[statut]?.label ?? statut);
+}
+function tValidationType(locale: Locale, key: string): string {
+  return locale === "en" ? (VALIDATION_TYPE_LABEL_EN[key] ?? VALIDATION_TYPE_LABEL[key] ?? key) : (VALIDATION_TYPE_LABEL[key] ?? key);
+}
+
 const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-const fmtDate = (v: string | null) =>
-  v ? new Date(v).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }) : "—";
+const fmtDate = (v: string | null, locale: Locale = "fr") =>
+  v ? new Date(v).toLocaleDateString(locale === "en" ? "en-US" : "fr-FR", { day: "numeric", month: "short", year: "numeric" }) : "—";
 const num = (x: unknown) => (Number.isFinite(Number(x)) ? Number(x) : 0);
 const fmtEUR = (n: number) =>
   new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(num(n));
@@ -387,22 +466,24 @@ async function listEntity(entity: string): Promise<Row[]> {
 
 // ─── Petit renderer de valeur de champ ──────────────────────────────────────
 function FieldRow({ k, v }: { k: string; v: unknown }) {
+  const t = useT();
+  const locale = useLocale();
   if (v === null || v === undefined || v === "") return null;
   const isDate = /_at$|date|expire|controle|entretien|echeance|garantie|validite|pose/.test(k) && typeof v === "string" && v.length >= 8;
   let display: React.ReactNode = String(v);
   if (k === "avancement") display = `${v}%`;
-  else if (typeof v === "boolean") display = v ? "Oui" : "Non";
-  else if (isDate) display = fmtDate(String(v));
+  else if (typeof v === "boolean") display = v ? t("Oui", "Yes") : t("Non", "No");
+  else if (isDate) display = fmtDate(String(v), locale);
   else if (k === "url" && typeof v === "string") {
     display = (
       <a href={v} target="_blank" rel="noreferrer" className="text-violet-600 hover:underline break-all">
-        Ouvrir
+        {t("Ouvrir", "Open")}
       </a>
     );
   }
   return (
     <div className="flex items-start justify-between gap-4 py-2 border-b border-[#F1F1EC] last:border-0">
-      <span className="text-[12px] text-[#9A9A97] flex-shrink-0">{FIELD_LABELS[k] ?? k}</span>
+      <span className="text-[12px] text-[#9A9A97] flex-shrink-0">{tFieldLabel(locale, k)}</span>
       <span className="text-[13px] text-[#0A0A0A] text-right break-words">{display}</span>
     </div>
   );
@@ -465,11 +546,17 @@ function RelatedItem({
 function RelatedGroup({
   label, entity, rows, onOpen,
 }: { label: string; entity: string; rows: Row[]; onOpen: (entity: string, id: string) => void }) {
+  const locale = useLocale();
   if (!rows.length) return null;
+  // Le libellé passé (FR) sert de clé ; l'affichage dérive de l'entité (traduit).
+  // Cas particulier : « Chantiers dirigés » (chef de chantier) garde sa nuance.
+  const display = label === "Chantiers dirigés"
+    ? (locale === "en" ? "Managed job sites" : label)
+    : tEntityLabel(locale, entity);
   return (
     <div>
       <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9A9A97] px-3 mb-1">
-        {label} <span className="tabular-nums">({rows.length})</span>
+        {display} <span className="tabular-nums">({rows.length})</span>
       </p>
       <div className="space-y-0.5">
         {rows.map((r) => <RelatedItem key={r.id} entity={entity} row={r} onOpen={onOpen} />)}
@@ -492,6 +579,8 @@ function DetailDrawer({
   /** Ouvre le formulaire d'édition de cette fiche. */
   onEdit?: (entity: string, row: Row) => void;
 }) {
+  const t = useT();
+  const locale = useLocale();
   const meta = ENTITY_META[entity];
   const row = (data[entity] ?? []).find((r) => r.id === id);
   // Relevé GPS (interventions) : position du téléphone → rapport.
@@ -705,13 +794,13 @@ function DetailDrawer({
       if (/^\d{4}-\d{2}-\d{2}/.test(d)) ev.push({ date: d, label, kind });
     };
     (data.devis ?? []).filter((d) => d.chantier_id === row.id).forEach((d) =>
-      push(d.date_devis, `Devis ${d.numero ?? ""} ${d.statut === "accepte" ? "accepté" : d.statut === "refuse" ? "refusé" : "créé"}`.replace(/\s+/g, " ").trim(), "devis")
+      push(d.date_devis, t(`Devis ${d.numero ?? ""} ${d.statut === "accepte" ? "accepté" : d.statut === "refuse" ? "refusé" : "créé"}`, `Quote ${d.numero ?? ""} ${d.statut === "accepte" ? "accepted" : d.statut === "refuse" ? "refused" : "created"}`).replace(/\s+/g, " ").trim(), "devis")
     );
     (data.factures ?? []).filter((f) => f.chantier_id === row.id).forEach((f) =>
-      push(f.date_facture, `Facture ${f.numero ?? ""} ${f.statut === "payee" ? "payée" : "émise"}`.replace(/\s+/g, " ").trim(), "facture")
+      push(f.date_facture, t(`Facture ${f.numero ?? ""} ${f.statut === "payee" ? "payée" : "émise"}`, `Invoice ${f.numero ?? ""} ${f.statut === "payee" ? "paid" : "issued"}`).replace(/\s+/g, " ").trim(), "facture")
     );
     (data.interventions ?? []).filter((i) => i.chantier_id === row.id).forEach((i) =>
-      push(i.date_reelle || i.date_prevue, `Intervention — ${i.type ?? ""}`.trim(), "intervention")
+      push(i.date_reelle || i.date_prevue, t(`Intervention — ${i.type ?? ""}`, `Job — ${i.type ?? ""}`).trim(), "intervention")
     );
     (data.documents ?? []).filter((doc) => doc.chantier_id === row.id).forEach((doc) =>
       push(doc.created_at || doc.expires_at, `Document — ${doc.nom ?? ""}`.trim(), "document")
@@ -722,10 +811,11 @@ function DetailDrawer({
       const d = String(p.date_pointage ?? "").slice(0, 10);
       if (/^\d{4}-\d{2}-\d{2}/.test(d)) parJour.set(d, (parJour.get(d) ?? 0) + num(p.heures));
     });
-    parJour.forEach((h, d) => push(d, `Pointage — ${h} h`, "pointage"));
+    parJour.forEach((h, d) => push(d, t(`Pointage — ${h} h`, `Time log — ${h} h`), "pointage"));
 
     return ev.sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 8);
-  }, [entity, row, data]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entity, row, data, locale]);
 
   if (!row) return null;
   const Icon = meta.icon;
@@ -768,14 +858,14 @@ function DetailDrawer({
   // que le SDK/les agents : /api/data, rattachements repris, idempotentes).
   const transforms: { label: string; action: string; target: string; icon: LucideIcon }[] = [];
   if (entity === "devis" && !row.chantier_id) {
-    transforms.push({ label: "Ouvrir le chantier", action: "chantier_from_devis", target: "chantiers", icon: HardHat });
+    transforms.push({ label: t("Ouvrir le chantier", "Open the job site"), action: "chantier_from_devis", target: "chantiers", icon: HardHat });
   }
   if (entity === "demandes" && row.statut !== "converti" && row.statut !== "perdu") {
-    transforms.push({ label: "Créer le devis", action: "devis_from_demande", target: "devis", icon: FileSignature });
+    transforms.push({ label: t("Créer le devis", "Create the quote"), action: "devis_from_demande", target: "devis", icon: FileSignature });
   }
   if (entity === "notes") {
-    transforms.push({ label: "→ Tâche", action: "task_from_note", target: "tasks", icon: ListChecks });
-    transforms.push({ label: "→ Réserve", action: "reserve_from_note", target: "reserves", icon: AlertTriangle });
+    transforms.push({ label: t("→ Tâche", "→ Task"), action: "task_from_note", target: "tasks", icon: ListChecks });
+    transforms.push({ label: t("→ Réserve", "→ Snag"), action: "reserve_from_note", target: "reserves", icon: AlertTriangle });
   }
 
   const runTransform = async (action: string, target: string) => {
@@ -789,11 +879,11 @@ function DetailDrawer({
         body: JSON.stringify({ entity: target, action, id: row.id }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || "Action impossible.");
+      if (!res.ok) throw new Error(json?.error || t("Action impossible.", "Action failed."));
       onRefresh?.();
       if (json?.data?.id) onOpen(target, json.data.id as string);
     } catch (e) {
-      setTxMsg(e instanceof Error ? e.message : "Action impossible.");
+      setTxMsg(e instanceof Error ? e.message : t("Action impossible.", "Action failed."));
     } finally {
       setTxBusy(false);
     }
@@ -813,11 +903,11 @@ function DetailDrawer({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ entity: "interventions", action: "update", id: row.id, values: { rapport } }),
       });
-      if (!res.ok) throw new Error("Enregistrement impossible. Réessayez.");
+      if (!res.ok) throw new Error(t("Enregistrement impossible. Réessayez.", "Save failed. Try again."));
       onRefresh?.();
-      setGpsMsg("Position enregistrée dans le rapport.");
+      setGpsMsg(t("Position enregistrée dans le rapport.", "Position saved to the report."));
     } catch (e) {
-      setGpsMsg(e instanceof Error ? e.message : "Position impossible à relever.");
+      setGpsMsg(e instanceof Error ? e.message : t("Position impossible à relever.", "Couldn't get the position."));
     } finally {
       setGpsBusy(false);
     }
@@ -828,7 +918,7 @@ function DetailDrawer({
       <div className="flex-1 bg-black/25 backdrop-blur-[2px]" onClick={onClose} />
       <aside className="w-full max-w-[440px] h-full bg-white border-l border-[#EDEDE9] shadow-[-16px_0_50px_rgba(60,40,120,0.10)] flex flex-col animate-[slideIn_.3s_cubic-bezier(0.16,1,0.3,1)]">
         {/* Header */}
-        <div className="flex items-start gap-3 p-5 border-b border-[#EDEDE9] flex-shrink-0">
+        <div className="flex items-start gap-3 p-5 pt-[calc(1.25rem+var(--safe-top))] border-b border-[#EDEDE9] flex-shrink-0">
           <span
             className="grid h-11 w-11 flex-shrink-0 place-items-center rounded-[14px] text-white shadow-[0_8px_20px_rgba(80,50,160,0.24)]"
             style={gradStyle(entity)}
@@ -836,12 +926,12 @@ function DetailDrawer({
             <Icon className="w-5 h-5" />
           </span>
           <div className="flex-1 min-w-0">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-[#9A9A97]">{meta.label}</p>
+            <p className="text-[11px] font-medium uppercase tracking-wide text-[#9A9A97]">{tEntityLabel(locale, entity)}</p>
             <h2 className="text-lg font-bold text-[#0A0A0A] tracking-[-0.01em] leading-tight">{meta.title(row)}</h2>
             {entity === "chantiers" && (
               <div className="flex items-center gap-2 mt-1.5">
                 <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${CHANTIER_STATUT[row.statut]?.cls ?? "bg-slate-100 text-slate-600 border-slate-200"}`}>
-                  {CHANTIER_STATUT[row.statut]?.label ?? row.statut}
+                  {tChantierStatut(locale, String(row.statut))}
                 </span>
                 <span className="text-[11px] text-[#9A9A97] tabular-nums">{row.avancement ?? 0}%</span>
               </div>
@@ -852,9 +942,9 @@ function DetailDrawer({
               <button
                 onClick={() => onEdit(entity, row)}
                 className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-[#0A0A0A] text-white text-[12.5px] font-semibold hover:opacity-90 transition-opacity"
-                title="Modifier cette fiche"
+                title={t("Modifier cette fiche", "Edit this record")}
               >
-                <Pencil className="w-3.5 h-3.5" /> Modifier
+                <Pencil className="w-3.5 h-3.5" /> {t("Modifier", "Edit")}
               </button>
             )}
             <button onClick={onClose} className="w-8 h-8 rounded-lg hover:bg-black/[0.05] flex items-center justify-center text-[#9A9A97] hover:text-[#0A0A0A] transition-colors">
@@ -863,24 +953,24 @@ function DetailDrawer({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5 space-y-6">
+        <div className="flex-1 overflow-y-auto p-5 pb-[calc(1.25rem+var(--safe-bottom))] space-y-6">
           {/* Actions rapides : transformations 1-clic + agenda + relevé GPS terrain */}
           {(calendarEvent || entity === "interventions" || transforms.length > 0) && (
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                {transforms.map((t) => {
-                  const TIcon = t.icon;
+                {transforms.map((tx) => {
+                  const TIcon = tx.icon;
                   return (
                     <button
-                      key={t.action}
+                      key={tx.action}
                       type="button"
-                      onClick={() => runTransform(t.action, t.target)}
+                      onClick={() => runTransform(tx.action, tx.target)}
                       disabled={txBusy}
                       className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-[#0A0A0A] text-white text-xs font-semibold rounded-lg hover:opacity-90 transition-all disabled:opacity-60"
-                      title={`Créer ${t.label.toLowerCase()} à partir de cette fiche`}
+                      title={t(`Créer ${tx.label.toLowerCase()} à partir de cette fiche`, `Create ${tx.label.toLowerCase()} from this record`)}
                     >
                       {txBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <TIcon className="h-3.5 w-3.5" />}
-                      {t.label}
+                      {tx.label}
                     </button>
                   );
                 })}
@@ -891,10 +981,10 @@ function DetailDrawer({
                     onClick={recordPosition}
                     disabled={gpsBusy}
                     className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-[#F3EFFC] text-[#7C3AED] border border-[#E2D9F8] text-xs font-semibold rounded-lg hover:bg-[#EAE2FA] hover:border-[#C9BEF0] transition-all disabled:opacity-60"
-                    title="Ajoute la position GPS du téléphone au rapport d'intervention"
+                    title={t("Ajoute la position GPS du téléphone au rapport d'intervention", "Adds the phone's GPS position to the job report")}
                   >
                     {gpsBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MapPin className="h-3.5 w-3.5" />}
-                    Relever ma position
+                    {t("Relever ma position", "Log my position")}
                   </button>
                 )}
               </div>
@@ -916,32 +1006,32 @@ function DetailDrawer({
           {/* SYNTHÈSE FINANCIÈRE — la « vérité » du chantier, calculée en direct */}
           {entity === "chantiers" && finance?.hasMoney && (
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9A9A97] px-3 mb-2">Synthèse financière</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9A9A97] px-3 mb-2">{t("Synthèse financière", "Financial summary")}</p>
               <div className="grid grid-cols-2 gap-2">
-                <MiniStat label="Facturé" value={fmtEUR(finance.factureTTC)} sub="TTC" />
-                <MiniStat label="Encaissé" value={fmtEUR(finance.encaisse)} sub="TTC" tone={finance.encaisse > 0 ? "green" : undefined} />
-                <MiniStat label="Reste dû" value={fmtEUR(finance.resteDu)} sub="TTC" tone={finance.resteDu > 0 ? "rose" : "green"} />
+                <MiniStat label={t("Facturé", "Invoiced")} value={fmtEUR(finance.factureTTC)} sub={t("TTC", "incl. tax")} />
+                <MiniStat label={t("Encaissé", "Collected")} value={fmtEUR(finance.encaisse)} sub={t("TTC", "incl. tax")} tone={finance.encaisse > 0 ? "green" : undefined} />
+                <MiniStat label={t("Reste dû", "Outstanding")} value={fmtEUR(finance.resteDu)} sub={t("TTC", "incl. tax")} tone={finance.resteDu > 0 ? "rose" : "green"} />
                 <MiniStat
-                  label="Marge estimée"
+                  label={t("Marge estimée", "Estimated margin")}
                   value={fmtEUR(finance.marge)}
-                  sub={finance.margePct != null ? `${finance.margePct.toFixed(0)} %` : "indicatif"}
+                  sub={finance.margePct != null ? `${finance.margePct.toFixed(0)} %` : t("indicatif", "indicative")}
                   tone={finance.marge >= 0 ? "green" : "rose"}
                 />
               </div>
               <div className="mt-2.5 px-3 space-y-1.5">
-                {finance.devisAccepteHT > 0 && <SynthLine label="Devis accepté" value={`${fmtEUR(finance.devisAccepteHT)} HT`} />}
+                {finance.devisAccepteHT > 0 && <SynthLine label={t("Devis accepté", "Quote accepted")} value={t(`${fmtEUR(finance.devisAccepteHT)} HT`, `${fmtEUR(finance.devisAccepteHT)} excl. tax`)} />}
                 {finance.coutReel > 0 && (
                   <SynthLine
-                    label="Coût réel engagé"
-                    value={`${fmtEUR(finance.coutReel)} — MO ${fmtEUR(finance.coutMO)} + mat. ${fmtEUR(finance.coutMateriaux)}`}
+                    label={t("Coût réel engagé", "Actual cost incurred")}
+                    value={t(`${fmtEUR(finance.coutReel)} — MO ${fmtEUR(finance.coutMO)} + mat. ${fmtEUR(finance.coutMateriaux)}`, `${fmtEUR(finance.coutReel)} — labor ${fmtEUR(finance.coutMO)} + mat. ${fmtEUR(finance.coutMateriaux)}`)}
                   />
                 )}
-                {finance.heures > 0 && <SynthLine label="Heures pointées" value={`${finance.heures} h`} />}
+                {finance.heures > 0 && <SynthLine label={t("Heures pointées", "Logged hours")} value={`${finance.heures} h`} />}
               </div>
               {finance.budget > 0 && (
                 <div className="mt-3 px-3">
                   <div className="flex items-center justify-between text-[11.5px] mb-1">
-                    <span className="text-[#9A9A97]">Budget engagé</span>
+                    <span className="text-[#9A9A97]">{t("Budget engagé", "Budget committed")}</span>
                     <span className="tabular-nums text-[#0A0A0A]">{fmtEUR(finance.budgetEngage)} / {fmtEUR(finance.budget)}</span>
                   </div>
                   <div className="h-1.5 w-full bg-[#F1F1EC] rounded-full overflow-hidden">
@@ -958,14 +1048,14 @@ function DetailDrawer({
           {/* HISTORIQUE — timeline unifiée du chantier */}
           {entity === "chantiers" && timeline.length > 0 && (
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9A9A97] px-3 mb-2">Historique</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9A9A97] px-3 mb-2">{t("Historique", "History")}</p>
               <div className="px-3 space-y-3">
                 {timeline.map((e, i) => (
                   <div key={`${e.kind}-${e.date}-${i}`} className="flex items-start gap-3">
                     <span className={`mt-1 h-2 w-2 rounded-full flex-shrink-0 ${TIMELINE_DOT[e.kind] ?? "bg-slate-300"}`} />
                     <div className="flex-1 min-w-0">
                       <p className="text-[13px] text-[#0A0A0A] leading-snug break-words">{e.label}</p>
-                      <p className="text-[11px] text-[#9A9A97] tabular-nums">{fmtDate(e.date)}</p>
+                      <p className="text-[11px] text-[#9A9A97] tabular-nums">{fmtDate(e.date, locale)}</p>
                     </div>
                   </div>
                 ))}
@@ -977,7 +1067,7 @@ function DetailDrawer({
               Masqué quand un bloc « Acteurs » dédié couvre déjà ces liens (chantiers). */}
           {(!related || related.actors.length === 0) && ascendingLinks.length > 0 && (
             <div className="space-y-0.5">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9A9A97] px-3 mb-1">Rattaché à</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9A9A97] px-3 mb-1">{t("Rattaché à", "Linked to")}</p>
               {ascendingLinks.map((a) => (
                 <RelatedItem key={`${a.entity}-${a.row.id}`} entity={a.entity} row={a.row} onOpen={onOpen} />
               ))}
@@ -989,7 +1079,7 @@ function DetailDrawer({
             <div className="space-y-5">
               {related.actors.length > 0 && (
                 <div className="space-y-0.5">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9A9A97] px-3 mb-1">Acteurs</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9A9A97] px-3 mb-1">{t("Acteurs", "Stakeholders")}</p>
                   {related.actors.map((a) => <RelatedItem key={a.row.id} entity={a.entity} row={a.row} onOpen={onOpen} />)}
                 </div>
               )}
@@ -1001,7 +1091,7 @@ function DetailDrawer({
 
           {/* Champs bruts */}
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9A9A97] px-3 mb-1">Détails</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9A9A97] px-3 mb-1">{t("Détails", "Details")}</p>
             <div className="px-3">
               {meta.detailFields.map((k) => <FieldRow key={k} k={k} v={row[k]} />)}
             </div>
@@ -1054,6 +1144,8 @@ const gradStyle = (e: string) => {
 function EntityTile({
   entity, rows, onClick,
 }: { entity: string; rows: Row[]; onClick: () => void }) {
+  const t = useT();
+  const locale = useLocale();
   const meta = ENTITY_META[entity];
   const Icon = meta.icon;
   const n = rows.length;
@@ -1071,9 +1163,9 @@ function EntityTile({
         </span>
         <span className={`text-[19px] font-black tabular-nums tracking-[-0.03em] transition-colors ${n ? "text-[#0A0A0A]" : "text-[#D3D3DC]"}`}>{n}</span>
       </div>
-      <h3 className="text-[14px] font-semibold leading-tight tracking-[-0.01em] text-[#0A0A0A]">{meta.label}</h3>
+      <h3 className="text-[14px] font-semibold leading-tight tracking-[-0.01em] text-[#0A0A0A]">{tEntityLabel(locale, entity)}</h3>
       <p className="mt-0.5 truncate text-[11.5px] text-[#9A9AA6]">
-        {n ? rows.slice(0, 2).map((r) => meta.title(r)).join(", ") : "Vide"}
+        {n ? rows.slice(0, 2).map((r) => meta.title(r)).join(", ") : t("Vide", "Empty")}
       </p>
     </button>
   );
@@ -1239,6 +1331,8 @@ function rowsFromMapping(headers: string[], rows: XLSXRow[], mapping: Record<str
 type XLSXRow = Record<string, any>;
 
 function ImportModal({ entity, onClose, onImported }: { entity: string; onClose: () => void; onImported: () => void }) {
+  const t = useT();
+  const locale = useLocale();
   const def = ENTITIES[entity];
   const meta = ENTITY_META[entity];
   const writable = def.writable;
@@ -1265,13 +1359,13 @@ function ImportModal({ entity, onClose, onImported }: { entity: string; onClose:
       const wb = XLSX.read(buf, { type: "array" });
       const sheet = wb.Sheets[wb.SheetNames[0]];
       const json = XLSX.utils.sheet_to_json<XLSXRow>(sheet, { defval: "", raw: false });
-      if (!json.length) { setError("Le fichier semble vide."); setParsing(false); return; }
+      if (!json.length) { setError(t("Le fichier semble vide.", "The file appears to be empty.")); setParsing(false); return; }
       const hs = Object.keys(json[0]).filter((h) => h && !h.startsWith("__EMPTY"));
       setHeaders(hs);
       setRows(json);
       setMapping(autoMapColumns(hs, entity));
     } catch {
-      setError("Impossible de lire ce fichier. Formats acceptés : CSV, XLSX, XLS.");
+      setError(t("Impossible de lire ce fichier. Formats acceptés : CSV, XLSX, XLS.", "Couldn't read this file. Accepted formats: CSV, XLSX, XLS."));
     } finally {
       setParsing(false);
     }
@@ -1281,7 +1375,7 @@ function ImportModal({ entity, onClose, onImported }: { entity: string; onClose:
   const doImport = async () => {
     setImporting(true); setError(null);
     const payload = rowsFromMapping(headers, rows, mapping, entity);
-    if (!payload.length) { setError("Aucune donnée à importer (vérifiez la correspondance des colonnes)."); setImporting(false); return; }
+    if (!payload.length) { setError(t("Aucune donnée à importer (vérifiez la correspondance des colonnes).", "No data to import (check the column mapping).")); setImporting(false); return; }
     try {
       const res = await fetch("/api/data", {
         method: "POST",
@@ -1289,11 +1383,11 @@ function ImportModal({ entity, onClose, onImported }: { entity: string; onClose:
         body: JSON.stringify({ entity, action: "bulk_create", rows: payload }),
       });
       const j = await res.json();
-      if (!res.ok) throw new Error(j.error || "Échec de l'import.");
+      if (!res.ok) throw new Error(j.error || t("Échec de l'import.", "Import failed."));
       setDone(j.inserted ?? payload.length);
       onImported();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Échec de l'import.");
+      setError(err instanceof Error ? err.message : t("Échec de l'import.", "Import failed."));
     } finally {
       setImporting(false);
     }
@@ -1302,45 +1396,45 @@ function ImportModal({ entity, onClose, onImported }: { entity: string; onClose:
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center p-4" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-[#0A0A0F]/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-2xl max-h-[88vh] bg-white rounded-[24px] shadow-[0_50px_130px_rgba(20,20,50,0.4)] flex flex-col overflow-hidden">
+      <div className="relative w-full max-w-2xl max-h-[calc(100dvh-2rem-var(--safe-top)-var(--safe-bottom))] bg-white rounded-[24px] shadow-[0_50px_130px_rgba(20,20,50,0.4)] flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-6 h-16 border-b border-[#ECECF2] flex-shrink-0">
           <div className="flex items-center gap-3">
             <span className={`w-9 h-9 rounded-xl flex items-center justify-center ${meta.accent}`}><Upload className="w-5 h-5" /></span>
             <div>
-              <h3 className="font-bold text-[#0A0A0A]">Importer des {meta.label.toLowerCase()}</h3>
-              <p className="text-[12px] text-[#9A9A97]">Fichier CSV ou Excel (.xlsx, .xls)</p>
+              <h3 className="font-bold text-[#0A0A0A]">{t(`Importer des ${meta.label.toLowerCase()}`, `Import ${tEntityLabel(locale, entity).toLowerCase()}`)}</h3>
+              <p className="text-[12px] text-[#9A9A97]">{t("Fichier CSV ou Excel (.xlsx, .xls)", "CSV or Excel file (.xlsx, .xls)")}</p>
             </div>
           </div>
-          <button onClick={onClose} aria-label="Fermer" className="w-9 h-9 rounded-full hover:bg-black/[0.05] flex items-center justify-center text-[#6E6E7A]"><X className="w-[18px] h-[18px]" /></button>
+          <button onClick={onClose} aria-label={t("Fermer", "Close")} className="w-9 h-9 rounded-full hover:bg-black/[0.05] flex items-center justify-center text-[#6E6E7A]"><X className="w-[18px] h-[18px]" /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-5">
           {done !== null ? (
             <div className="flex flex-col items-center justify-center py-10 text-center">
               <span className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-4"><Check className="w-7 h-7" /></span>
-              <h4 className="text-lg font-bold text-[#0A0A0A] mb-1">{done} {meta.label.toLowerCase()} importés</h4>
-              <p className="text-sm text-[#6E6E6C] max-w-xs">Ils sont dans votre workspace, et vos applications générées les verront automatiquement.</p>
-              <button onClick={onClose} className="mt-6 px-5 py-2.5 rounded-full bg-[#0A0A0A] text-white text-sm font-semibold hover:bg-[#222] transition-colors">Terminé</button>
+              <h4 className="text-lg font-bold text-[#0A0A0A] mb-1">{t(`${done} ${meta.label.toLowerCase()} importés`, `${done} ${tEntityLabel(locale, entity).toLowerCase()} imported`)}</h4>
+              <p className="text-sm text-[#6E6E6C] max-w-xs">{t("Ils sont dans votre workspace, et vos applications générées les verront automatiquement.", "They're in your workspace, and your generated apps will see them automatically.")}</p>
+              <button onClick={onClose} className="mt-6 px-5 py-2.5 rounded-full bg-[#0A0A0A] text-white text-sm font-semibold hover:bg-[#222] transition-colors">{t("Terminé", "Done")}</button>
             </div>
           ) : headers.length === 0 ? (
             <div>
               <button onClick={() => fileRef.current?.click()} className="w-full border-2 border-dashed border-[#E2E2EA] rounded-2xl py-12 flex flex-col items-center justify-center gap-3 hover:border-violet-300 hover:bg-violet-50/40 transition-colors">
                 {parsing ? <Loader2 className="w-8 h-8 text-violet-500 animate-spin" /> : <Upload className="w-8 h-8 text-[#9A9AA6]" />}
-                <span className="text-sm font-semibold text-[#0A0A0A]">{parsing ? "Lecture du fichier…" : "Choisir un fichier"}</span>
-                <span className="text-[12px] text-[#9A9A97]">CSV, XLSX ou XLS · la 1ʳᵉ ligne doit contenir les en-têtes de colonnes</span>
+                <span className="text-sm font-semibold text-[#0A0A0A]">{parsing ? t("Lecture du fichier…", "Reading the file…") : t("Choisir un fichier", "Choose a file")}</span>
+                <span className="text-[12px] text-[#9A9A97]">{t("CSV, XLSX ou XLS · la 1ʳᵉ ligne doit contenir les en-têtes de colonnes", "CSV, XLSX or XLS · the first row must contain the column headers")}</span>
               </button>
               <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="hidden" onChange={onFile} />
               <p className="mt-5 text-[12px] text-[#9A9A97] leading-relaxed">
-                Colonnes reconnues automatiquement : {writable.map((f) => FIELD_LABELS[f] ?? f).join(", ")}.
+                {t("Colonnes reconnues automatiquement : ", "Automatically recognized columns: ")}{writable.map((f) => tFieldLabel(locale, f)).join(", ")}.
               </p>
             </div>
           ) : (
             <div>
               <div className="flex items-center justify-between mb-3">
-                <p className="text-[13px] text-[#6E6E6C]"><b className="text-[#0A0A0A] tabular-nums">{rows.length}</b> lignes · <span className="font-medium">{fileName}</span></p>
-                <button onClick={reset} className="text-[12px] font-medium text-violet-600 hover:opacity-80">Changer de fichier</button>
+                <p className="text-[13px] text-[#6E6E6C]"><b className="text-[#0A0A0A] tabular-nums">{rows.length}</b> {t("lignes", "rows")} · <span className="font-medium">{fileName}</span></p>
+                <button onClick={reset} className="text-[12px] font-medium text-violet-600 hover:opacity-80">{t("Changer de fichier", "Change file")}</button>
               </div>
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9A9A97] mb-2">Correspondance des colonnes</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9A9A97] mb-2">{t("Correspondance des colonnes", "Column mapping")}</p>
               <div className="space-y-1.5 mb-5">
                 {headers.map((h) => (
                   <div key={h} className="flex items-center gap-2.5">
@@ -1349,12 +1443,12 @@ function ImportModal({ entity, onClose, onImported }: { entity: string; onClose:
                     <Dropdown
                       value={mapping[h] ?? ""}
                       onChange={(v) => setMapping((m) => ({ ...m, [h]: v }))}
-                      ariaLabel={`Correspondance de la colonne ${h}`}
+                      ariaLabel={t(`Correspondance de la colonne ${h}`, `Mapping for column ${h}`)}
                       size="sm"
                       className="flex-1 min-w-0"
                       options={[
-                        { value: "", label: "Ignorer cette colonne" },
-                        ...writable.map((f) => ({ value: f, label: FIELD_LABELS[f] ?? f })),
+                        { value: "", label: t("Ignorer cette colonne", "Ignore this column") },
+                        ...writable.map((f) => ({ value: f, label: tFieldLabel(locale, f) })),
                       ]}
                     />
                   </div>
@@ -1362,11 +1456,11 @@ function ImportModal({ entity, onClose, onImported }: { entity: string; onClose:
               </div>
               {mappedHeaders.length > 0 && (
                 <>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9A9A97] mb-2">Aperçu</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9A9A97] mb-2">{t("Aperçu", "Preview")}</p>
                   <div className="overflow-x-auto border border-[#ECECF2] rounded-xl">
                     <table className="w-full text-[12px]">
                       <thead><tr className="bg-[#FAFAFC]">
-                        {mappedHeaders.map((h) => <th key={h} className="text-left font-semibold text-[#6E6E6C] px-3 py-2 whitespace-nowrap">{FIELD_LABELS[mapping[h]] ?? mapping[h]}</th>)}
+                        {mappedHeaders.map((h) => <th key={h} className="text-left font-semibold text-[#6E6E6C] px-3 py-2 whitespace-nowrap">{tFieldLabel(locale, mapping[h])}</th>)}
                       </tr></thead>
                       <tbody>
                         {rows.slice(0, 3).map((r, i) => (
@@ -1391,10 +1485,10 @@ function ImportModal({ entity, onClose, onImported }: { entity: string; onClose:
 
         {done === null && headers.length > 0 && (
           <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-[#ECECF2] flex-shrink-0">
-            <span className="text-[12px] text-[#9A9A97]">{mappedHeaders.length} colonne{mappedHeaders.length > 1 ? "s" : ""} mappée{mappedHeaders.length > 1 ? "s" : ""}</span>
+            <span className="text-[12px] text-[#9A9A97]">{t(`${mappedHeaders.length} colonne${mappedHeaders.length > 1 ? "s" : ""} mappée${mappedHeaders.length > 1 ? "s" : ""}`, `${mappedHeaders.length} column${mappedHeaders.length > 1 ? "s" : ""} mapped`)}</span>
             <button onClick={doImport} disabled={importing || mappedHeaders.length === 0} className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 text-white font-semibold px-6 py-2.5 rounded-full shadow-[0_10px_26px_rgba(124,58,190,0.32)] hover:brightness-105 active:scale-[0.98] transition disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none">
               {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-              Importer {rows.length} ligne{rows.length > 1 ? "s" : ""}
+              {t(`Importer ${rows.length} ligne${rows.length > 1 ? "s" : ""}`, `Import ${rows.length} row${rows.length > 1 ? "s" : ""}`)}
             </button>
           </div>
         )}
@@ -1580,6 +1674,8 @@ async function runSplitImport(plan: SheetPlan): Promise<Record<string, number>> 
 }
 
 function DispatchImportModal({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
+  const t = useT();
+  const locale = useLocale();
   const fileRef = useRef<HTMLInputElement>(null);
   const [fileNames, setFileNames] = useState<string[]>([]);
   const [parsing, setParsing] = useState(false);
@@ -1616,10 +1712,10 @@ function DispatchImportModal({ onClose, onImported }: { onClose: () => void; onI
           }
         } catch { /* skip fichier illisible */ }
       }
-      if (!allPlans.length) { setError("Aucune donnée trouvée dans les fichiers sélectionnés."); setParsing(false); return; }
+      if (!allPlans.length) { setError(t("Aucune donnée trouvée dans les fichiers sélectionnés.", "No data found in the selected files.")); setParsing(false); return; }
       setPlans(allPlans);
     } catch {
-      setError("Impossible de lire ces fichiers. Formats acceptés : CSV, XLSX, XLS.");
+      setError(t("Impossible de lire ces fichiers. Formats acceptés : CSV, XLSX, XLS.", "Couldn't read these files. Accepted formats: CSV, XLSX, XLS."));
     } finally {
       setParsing(false);
     }
@@ -1638,46 +1734,46 @@ function DispatchImportModal({ onClose, onImported }: { onClose: () => void; onI
       for (const [e, n] of Object.entries(c)) agg[e] = (agg[e] ?? 0) + n;
     }
     const arr = Object.entries(agg).filter(([, n]) => n > 0).map(([entity, count]) => ({ entity, count }));
-    if (!arr.length) { setError("Rien n'a pu être importé. Vérifiez la répartition des colonnes."); setImporting(false); return; }
+    if (!arr.length) { setError(t("Rien n'a pu être importé. Vérifiez la répartition des colonnes.", "Nothing could be imported. Check the column distribution.")); setImporting(false); return; }
     setResults(arr); onImported(); setImporting(false);
   };
 
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center p-4" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-[#0A0A0F]/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-2xl max-h-[88vh] bg-white rounded-[24px] shadow-[0_50px_130px_rgba(20,20,50,0.4)] flex flex-col overflow-hidden">
+      <div className="relative w-full max-w-2xl max-h-[calc(100dvh-2rem-var(--safe-top)-var(--safe-bottom))] bg-white rounded-[24px] shadow-[0_50px_130px_rgba(20,20,50,0.4)] flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-6 h-16 border-b border-[#ECECF2] flex-shrink-0">
           <div className="flex items-center gap-3">
             <span className="w-9 h-9 rounded-xl flex items-center justify-center bg-gradient-to-br from-violet-500/15 to-pink-500/10 text-violet-600"><Upload className="w-5 h-5" /></span>
             <div>
-              <h3 className="font-bold text-[#0A0A0A]">Importer vos données</h3>
-              <p className="text-[12px] text-[#9A9A97]">Plusieurs fichiers acceptés · répartis automatiquement</p>
+              <h3 className="font-bold text-[#0A0A0A]">{t("Importer vos données", "Import your data")}</h3>
+              <p className="text-[12px] text-[#9A9A97]">{t("Plusieurs fichiers acceptés · répartis automatiquement", "Multiple files accepted · sorted automatically")}</p>
             </div>
           </div>
-          <button onClick={onClose} aria-label="Fermer" className="w-9 h-9 rounded-full hover:bg-black/[0.05] flex items-center justify-center text-[#6E6E7A]"><X className="w-[18px] h-[18px]" /></button>
+          <button onClick={onClose} aria-label={t("Fermer", "Close")} className="w-9 h-9 rounded-full hover:bg-black/[0.05] flex items-center justify-center text-[#6E6E7A]"><X className="w-[18px] h-[18px]" /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-5">
           {results ? (
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <span className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-4"><Check className="w-7 h-7" /></span>
-              <h4 className="text-lg font-bold text-[#0A0A0A] mb-3">Import terminé</h4>
+              <h4 className="text-lg font-bold text-[#0A0A0A] mb-3">{t("Import terminé", "Import complete")}</h4>
               <div className="flex flex-wrap items-center justify-center gap-2 max-w-sm">
                 {results.map((r) => (
                   <span key={r.entity} className={`text-[13px] font-semibold px-3 py-1.5 rounded-full ${ENTITY_META[r.entity]?.accent ?? "bg-violet-50 text-violet-600"}`}>
-                    {r.count} {ENTITY_META[r.entity]?.label ?? r.entity}
+                    {r.count} {tEntityLabel(locale, r.entity)}
                   </span>
                 ))}
               </div>
-              <p className="text-sm text-[#6E6E6C] mt-4 max-w-xs">Tout est rangé et relié dans votre workspace, et vos apps le verront.</p>
-              <button onClick={onClose} className="mt-6 px-5 py-2.5 rounded-full bg-[#0A0A0A] text-white text-sm font-semibold hover:bg-[#222] transition-colors">Terminé</button>
+              <p className="text-sm text-[#6E6E6C] mt-4 max-w-xs">{t("Tout est rangé et relié dans votre workspace, et vos apps le verront.", "Everything is sorted and linked in your workspace, and your apps will see it.")}</p>
+              <button onClick={onClose} className="mt-6 px-5 py-2.5 rounded-full bg-[#0A0A0A] text-white text-sm font-semibold hover:bg-[#222] transition-colors">{t("Terminé", "Done")}</button>
             </div>
           ) : plans.length === 0 ? (
             <div>
               <button onClick={() => fileRef.current?.click()} className="w-full border-2 border-dashed border-[#E2E2EA] rounded-2xl py-12 flex flex-col items-center justify-center gap-3 hover:border-violet-300 hover:bg-violet-50/40 transition-colors">
                 {parsing ? <Loader2 className="w-8 h-8 text-violet-500 animate-spin" /> : <Upload className="w-8 h-8 text-[#9A9AA6]" />}
-                <span className="text-sm font-semibold text-[#0A0A0A]">{parsing ? "Analyse des fichiers…" : "Choisir un ou plusieurs fichiers"}</span>
-                <span className="text-[12px] text-[#9A9A97] max-w-sm text-center">CSV ou Excel · sélectionnez plusieurs fichiers en même temps. Biltia détecte chaque type de données et les répartit au bon endroit.</span>
+                <span className="text-sm font-semibold text-[#0A0A0A]">{parsing ? t("Analyse des fichiers…", "Analyzing the files…") : t("Choisir un ou plusieurs fichiers", "Choose one or more files")}</span>
+                <span className="text-[12px] text-[#9A9A97] max-w-sm text-center">{t("CSV ou Excel · sélectionnez plusieurs fichiers en même temps. Biltia détecte chaque type de données et les répartit au bon endroit.", "CSV or Excel · select several files at once. Biltia detects each data type and sorts them to the right place.")}</span>
               </button>
               <input ref={fileRef} type="file" multiple accept=".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="hidden" onChange={onFile} />
             </div>
@@ -1695,7 +1791,7 @@ function DispatchImportModal({ onClose, onImported }: { onClose: () => void; onI
                     </div>
                   )}
                 </div>
-                <button onClick={reset} className="flex-shrink-0 text-[12px] font-medium text-violet-600 hover:opacity-80">Changer</button>
+                <button onClick={reset} className="flex-shrink-0 text-[12px] font-medium text-violet-600 hover:opacity-80">{t("Changer", "Change")}</button>
               </div>
               {plans.map((plan, i) => {
                 const summary = planSummary(plan);
@@ -1704,28 +1800,28 @@ function DispatchImportModal({ onClose, onImported }: { onClose: () => void; onI
                     <div className="flex items-center justify-between gap-3 mb-3">
                       <div className="min-w-0">
                         <p className="text-[13px] font-semibold text-[#0A0A0A] truncate">{plan.name}</p>
-                        <p className="text-[11px] text-[#9A9A97]">{plan.rows.length} lignes · {plan.headers.length} colonnes</p>
+                        <p className="text-[11px] text-[#9A9A97]">{t(`${plan.rows.length} lignes · ${plan.headers.length} colonnes`, `${plan.rows.length} rows · ${plan.headers.length} columns`)}</p>
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
-                        <span className="text-[11px] text-[#9A9A97]">Type principal</span>
+                        <span className="text-[11px] text-[#9A9A97]">{t("Type principal", "Main type")}</span>
                         <Dropdown
                           value={plan.primary}
                           onChange={(v) => setPrimary(i, v)}
-                          ariaLabel="Type principal"
+                          ariaLabel={t("Type principal", "Main type")}
                           size="sm"
                           className="w-40"
-                          options={ENTITY_ORDER.map((e) => ({ value: e, label: ENTITY_META[e].label }))}
+                          options={ENTITY_ORDER.map((e) => ({ value: e, label: tEntityLabel(locale, e) }))}
                         />
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-2 mb-4">
                       {summary.map((s) => (
                         <span key={s.entity} className={`text-[12px] font-semibold px-2.5 py-1 rounded-full ${ENTITY_META[s.entity]?.accent ?? "bg-violet-50 text-violet-600"}`}>
-                          {s.count} {ENTITY_META[s.entity]?.label ?? s.entity}
+                          {s.count} {tEntityLabel(locale, s.entity)}
                         </span>
                       ))}
                     </div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9A9A97] mb-2">Répartition des colonnes</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9A9A97] mb-2">{t("Répartition des colonnes", "Column distribution")}</p>
                     <div className="space-y-1.5">
                       {plan.headers.map((h) => {
                         const sel = plan.cols[h] ?? { entity: "", field: "" };
@@ -1737,16 +1833,16 @@ function DispatchImportModal({ onClose, onImported }: { onClose: () => void; onI
                               <Dropdown
                                 value={sel.entity}
                                 onChange={(v) => setCol(i, h, v)}
-                                ariaLabel={`Entité de la colonne ${h}`}
+                                ariaLabel={t(`Entité de la colonne ${h}`, `Entity for column ${h}`)}
                                 size="sm"
                                 options={[
-                                  { value: "", label: "Ignorer" },
-                                  ...ENTITY_ORDER.map((e) => ({ value: e, label: ENTITY_META[e].label })),
+                                  { value: "", label: t("Ignorer", "Ignore") },
+                                  ...ENTITY_ORDER.map((e) => ({ value: e, label: tEntityLabel(locale, e) })),
                                 ]}
                               />
                               {sel.entity && sel.field && (
                                 <span className="block text-[10.5px] text-[#9A9A97] mt-0.5 ml-1 truncate">
-                                  {FIELD_LABELS[sel.field] ?? sel.field}{sel.entity !== plan.primary && sel.field === NAME_FIELD[sel.entity] ? " · relié" : ""}
+                                  {tFieldLabel(locale, sel.field)}{sel.entity !== plan.primary && sel.field === NAME_FIELD[sel.entity] ? t(" · relié", " · linked") : ""}
                                 </span>
                               )}
                             </div>
@@ -1768,10 +1864,10 @@ function DispatchImportModal({ onClose, onImported }: { onClose: () => void; onI
 
         {!results && plans.length > 0 && (
           <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-[#ECECF2] flex-shrink-0">
-            <span className="text-[12px] text-[#9A9A97]">{plans.length} feuille{plans.length > 1 ? "s" : ""} · {plans.reduce((s, p) => s + p.rows.length, 0)} lignes au total</span>
+            <span className="text-[12px] text-[#9A9A97]">{t(`${plans.length} feuille${plans.length > 1 ? "s" : ""} · ${plans.reduce((s, p) => s + p.rows.length, 0)} lignes au total`, `${plans.length} sheet${plans.length > 1 ? "s" : ""} · ${plans.reduce((s, p) => s + p.rows.length, 0)} rows total`)}</span>
             <button onClick={doImport} disabled={importing} className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 text-white font-semibold px-6 py-2.5 rounded-full shadow-[0_10px_26px_rgba(124,58,190,0.32)] hover:brightness-105 active:scale-[0.98] transition disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none">
               {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-              Importer et répartir
+              {t("Importer et répartir", "Import and sort")}
             </button>
           </div>
         )}
@@ -1792,18 +1888,168 @@ function downloadFile(url: string) {
   a.remove();
 }
 
+// ─── CHAMP À VOCABULAIRE : jamais de saisie libre là où un agent filtre ──────
+//
+// Court (< 12 valeurs) → liste déroulante classique.
+// Long (corps de métier : ~50 métiers) → RECHERCHE. Personne ne fait défiler
+// cinquante lignes : on tape « élec » (ou « carreleur », un nom de personne) et le
+// bon métier remonte. Le reste est groupé par famille, familles et métiers triés
+// de A à Z, pour retrouver à l'œil quand on ne sait pas quoi taper.
+// « Autre » ouvre un champ « Précisez » : on stocke `autre:carreleur_mosaiste`,
+// donc une valeur toujours canonique, jamais une chaîne libre dans la nature.
+
+const INPUT_CLS =
+  "w-full rounded-xl border border-[#E7E7EE] bg-white px-3.5 py-2.5 text-[13.5px] text-[#0A0A0A] placeholder-[#B4B8C2] focus:outline-none focus:border-violet-400 focus:ring-4 focus:ring-violet-500/10 transition-all";
+
+function VocabField({
+  vocabId,
+  value,
+  onChange,
+  locale,
+}: {
+  vocabId: string;
+  value: string;
+  onChange: (v: string) => void;
+  locale: Locale;
+}) {
+  const vocab = VOCABS[vocabId];
+  const [base, precision] = splitAutre(value || "");
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const tt = (fr: string, en: string) => (locale === "en" ? en : fr);
+
+  const groups = useMemo(() => {
+    if (!vocab?.searchable) return [];
+    const q = slugify(query);
+    const matched = vocab.options.filter((o) => {
+      if (!q) return true;
+      const keys = [o.value, o.label, ...(o.aliases ?? [])].map(slugify);
+      return keys.some((k) => k.includes(q));
+    });
+    const byGroup = new Map<string, typeof matched>();
+    for (const o of matched) {
+      const g = o.group ?? "";
+      byGroup.set(g, [...(byGroup.get(g) ?? []), o]);
+    }
+    return [...byGroup.entries()]
+      .map(([g, opts]) => ({ group: g, options: [...opts].sort((a, b) => a.label.localeCompare(b.label, "fr")) }))
+      .sort((a, b) => a.group.localeCompare(b.group, "fr"));
+  }, [vocab, query]);
+
+  if (!vocab) return null;
+
+  const precisionInput =
+    base === "autre" ? (
+      <input
+        type="text"
+        value={(precision ?? "").replace(/_/g, " ")}
+        onChange={(e) => onChange(e.target.value.trim() ? `autre:${e.target.value}` : "autre")}
+        placeholder={tt("Précisez…", "Specify…")}
+        className={`${INPUT_CLS} mt-2`}
+      />
+    ) : null;
+
+  // Liste courte : un <select> suffit, et reste le plus rapide au doigt.
+  if (!vocab.searchable) {
+    return (
+      <>
+        <select value={base} onChange={(e) => onChange(e.target.value)} className={INPUT_CLS}>
+          <option value="">—</option>
+          {vocab.options.map((o) => (
+            <option key={o.value} value={o.value}>
+              {vocabLabel(vocabId, o.value, locale)}
+            </option>
+          ))}
+        </select>
+        {precisionInput}
+      </>
+    );
+  }
+
+  // Liste longue : recherche + familles.
+  return (
+    <>
+      <div className="relative">
+        <input
+          type="text"
+          value={open ? query : base ? vocabLabel(vocabId, value, locale) : ""}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => {
+            setQuery("");
+            setOpen(true);
+          }}
+          onBlur={() => window.setTimeout(() => setOpen(false), 120)}
+          placeholder={tt("Rechercher un métier…", "Search a trade…")}
+          className={INPUT_CLS}
+        />
+        {base && !open && (
+          <button
+            type="button"
+            onClick={() => onChange("")}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-[#B4B8C2] hover:text-[#0A0A0A] p-1"
+            aria-label={tt("Effacer", "Clear")}
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        )}
+        {open && (
+          <div className="absolute z-50 mt-1 w-full max-h-64 overflow-y-auto rounded-xl border border-[#E7E7EE] bg-white shadow-[0_20px_60px_rgba(20,20,50,0.18)]">
+            {groups.length === 0 ? (
+              <p className="px-3.5 py-3 text-[12.5px] text-[#9A9A97]">{tt("Aucun métier trouvé.", "No trade found.")}</p>
+            ) : (
+              groups.map((g) => (
+                <div key={g.group}>
+                  {g.group && (
+                    <p className="sticky top-0 bg-[#FAFAFC] px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#9A9A97]">
+                      {g.group}
+                    </p>
+                  )}
+                  {g.options.map((o) => (
+                    <button
+                      key={o.value}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        onChange(o.value);
+                        setOpen(false);
+                      }}
+                      className={`block w-full text-left px-3.5 py-2 text-[13px] hover:bg-violet-50 ${
+                        o.value === base ? "text-violet-700 font-semibold" : "text-[#0A0A0A]"
+                      }`}
+                    >
+                      {vocabLabel(vocabId, o.value, locale)}
+                    </button>
+                  ))}
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+      {precisionInput}
+    </>
+  );
+}
+
 // ─── AJOUT MANUEL : modal générique pilotée par FORM_FIELDS ──────────────────
 // Chaque entité expose ses champs PERTINENTS (curés dans lib/data-entities.ts).
 // Les champs de relation (client_id…) sont des <select> peuplés depuis le
 // workspace — jamais de saisie libre d'un nom qui existe déjà.
 // Valeurs de départ d'un formulaire d'édition : ligne existante → champs du form.
-function initialFormValues(fields: FormField[], row?: Row | null): Record<string, string | boolean> {
+/** Une valeur de formulaire : texte, case à cocher, ou liste de mots (colonne text[]). */
+type FormValue = string | boolean | string[];
+
+function initialFormValues(fields: FormField[], row?: Row | null): Record<string, FormValue> {
   if (!row) return {};
-  const init: Record<string, string | boolean> = {};
+  const init: Record<string, FormValue> = {};
   for (const f of fields) {
     const raw = row[f.key];
     if (raw === null || raw === undefined) continue;
     if (f.type === "checkbox") init[f.key] = raw === true;
+    else if (f.type === "tags") init[f.key] = Array.isArray(raw) ? raw.map(String) : [];
     else if (f.type === "date") init[f.key] = String(raw).slice(0, 10); // timestamptz → AAAA-MM-JJ
     else init[f.key] = String(raw);
   }
@@ -1814,9 +2060,11 @@ function initialFormValues(fields: FormField[], row?: Row | null): Record<string
 function RecordFormModal({
   entity, row, onClose, onSaved,
 }: { entity: string; row?: Row | null; onClose: () => void; onSaved: () => void }) {
+  const t = useT();
+  const locale = useLocale();
   const isEdit = !!row;
   const fields = FORM_FIELDS[entity] ?? [];
-  const [values, setValues] = useState<Record<string, string | boolean>>(() => initialFormValues(fields, row));
+  const [values, setValues] = useState<Record<string, FormValue>>(() => initialFormValues(fields, row));
   const [relOptions, setRelOptions] = useState<Record<string, { id: string; label: string }[]>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1835,7 +2083,7 @@ function RecordFormModal({
         const cols = RELATION_DISPLAY[rel] ?? ["nom"];
         const opts = ((j.data ?? []) as Row[]).map((r) => ({
           id: String(r.id),
-          label: cols.map((c) => r[c]).filter(Boolean).join(" ") || "(sans nom)",
+          label: cols.map((c) => r[c]).filter(Boolean).join(" ") || t("(sans nom)", "(no name)"),
         }));
         setRelOptions((prev) => ({ ...prev, [rel]: opts }));
       } catch {
@@ -1845,7 +2093,7 @@ function RecordFormModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entity]);
 
-  const set = (key: string, v: string | boolean) => setValues((prev) => ({ ...prev, [key]: v }));
+  const set = (key: string, v: FormValue) => setValues((prev) => ({ ...prev, [key]: v }));
 
   // Cible de relation « créable à la volée » : sa SEULE contrainte requise est un
   // champ texte (nom / désignation…). On peut alors la créer sans quitter le form.
@@ -1859,7 +2107,7 @@ function RecordFormModal({
   const createRelated = async (rel: string, fieldKey: string) => {
     const spec = quickCreateField(rel);
     if (!spec) { set(fieldKey, ""); return; }
-    const name = window.prompt(`${spec.label} :`, "");
+    const name = window.prompt(`${fieldLabel(spec.label, locale)} :`, "");
     if (!name || !name.trim()) { set(fieldKey, ""); return; }
     try {
       const res = await fetch("/api/data", {
@@ -1882,7 +2130,7 @@ function RecordFormModal({
     // Champs requis d'abord — message clair plutôt qu'une erreur SQL.
     for (const f of fields) {
       if (f.required && !String(values[f.key] ?? "").trim()) {
-        setError(`« ${f.label} » est requis.`);
+        setError(t(`« ${f.label} » est requis.`, `“${fieldLabel(f.label, locale)}” is required.`));
         return;
       }
     }
@@ -1892,6 +2140,13 @@ function RecordFormModal({
     for (const f of fields) {
       const v = values[f.key];
       if (f.type === "checkbox") { payload[f.key] = v === true; continue; }
+      // `tags` (colonne text[]) : on envoie un VRAI tableau. Une liste vidée devient
+      // un tableau vide, jamais null — la colonne est `not null default '{}'`.
+      if (f.type === "tags") {
+        const arr = Array.isArray(v) ? v : [];
+        if (arr.length || isEdit) payload[f.key] = arr;
+        continue;
+      }
       const s = typeof v === "string" ? v.trim() : "";
       if (s !== "") {
         payload[f.key] = f.type === "number" ? Number(s) : s;
@@ -1914,14 +2169,14 @@ function RecordFormModal({
       });
       const j = await res.json();
       if (!res.ok) {
-        setError(j.error ?? "Enregistrement impossible.");
+        setError(j.error ?? t("Enregistrement impossible.", "Save failed."));
         setSaving(false);
         return;
       }
       onSaved();
       onClose();
     } catch {
-      setError("Enregistrement impossible.");
+      setError(t("Enregistrement impossible.", "Save failed."));
       setSaving(false);
     }
   };
@@ -1932,12 +2187,12 @@ function RecordFormModal({
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center p-4" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
-      <div className="relative w-full max-w-lg max-h-[85vh] overflow-y-auto bg-white rounded-3xl shadow-[0_30px_90px_rgba(20,20,50,0.25)] p-6">
+      <div className="relative w-full max-w-lg max-h-[calc(100dvh-2rem-var(--safe-top)-var(--safe-bottom))] overflow-y-auto bg-white rounded-3xl shadow-[0_30px_90px_rgba(20,20,50,0.25)] p-6">
         <div className="flex items-center justify-between mb-5">
           <h3 className="text-[16px] font-bold text-[#0A0A0A] tracking-[-0.02em]">
-            {isEdit ? "Modifier" : "Ajouter"} — {ENTITIES[entity]?.label ?? entity}
+            {isEdit ? t("Modifier", "Edit") : t("Ajouter", "Add")} — {tEntityLabel(locale, entity)}
           </h3>
-          <button onClick={onClose} className="text-[#9A9A97] hover:text-[#0A0A0A] transition-colors" aria-label="Fermer">
+          <button onClick={onClose} className="text-[#9A9A97] hover:text-[#0A0A0A] transition-colors" aria-label={t("Fermer", "Close")}>
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -1946,13 +2201,15 @@ function RecordFormModal({
           {fields.map((f: FormField) => (
             <div key={f.key} className={f.type === "textarea" ? "sm:col-span-2" : ""}>
               <label className="block text-[12px] font-semibold text-[#6E6E6C] mb-1.5">
-                {f.label} {f.required && <span className="text-rose-500">*</span>}
+                {fieldLabel(f.label, locale)} {f.required && <span className="text-rose-500">*</span>}
               </label>
-              {f.type === "select" ? (
+              {f.type === "select" && f.vocab ? (
+                <VocabField vocabId={f.vocab} value={String(values[f.key] ?? "")} onChange={(v) => set(f.key, v)} locale={locale} />
+              ) : f.type === "select" ? (
                 <select value={String(values[f.key] ?? "")} onChange={(e) => set(f.key, e.target.value)} className={inputCls}>
                   <option value="">—</option>
                   {(f.options ?? []).map((o) => (
-                    <option key={o} value={o}>{o.replace(/_/g, " ")}</option>
+                    <option key={o} value={o}>{optionLabel(o, locale)}</option>
                   ))}
                 </select>
               ) : f.type === "relation" ? (
@@ -1965,10 +2222,29 @@ function RecordFormModal({
                   {(relOptions[f.relation ?? ""] ?? []).map((o) => (
                     <option key={o.id} value={o.id}>{o.label}</option>
                   ))}
-                  {quickCreateField(f.relation ?? "") && <option value="__new">+ Créer…</option>}
+                  {quickCreateField(f.relation ?? "") && <option value="__new">{t("+ Créer…", "+ Create…")}</option>}
                 </select>
+              ) : f.type === "tags" ? (
+                // Colonne text[] (les alias d'un article du catalogue). On saisit en
+                // clair, séparé par des virgules, et on stocke un VRAI tableau : envoyer
+                // la chaîne telle quelle ferait échouer l'insert Postgres.
+                <input
+                  type="text"
+                  value={Array.isArray(values[f.key]) ? (values[f.key] as string[]).join(", ") : String(values[f.key] ?? "")}
+                  onChange={(e) =>
+                    set(
+                      f.key,
+                      e.target.value
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter(Boolean)
+                    )
+                  }
+                  placeholder={fieldPlaceholder(f.placeholder, locale)}
+                  className={inputCls}
+                />
               ) : f.type === "textarea" ? (
-                <textarea rows={2} value={String(values[f.key] ?? "")} onChange={(e) => set(f.key, e.target.value)} placeholder={f.placeholder} className={inputCls} />
+                <textarea rows={2} value={String(values[f.key] ?? "")} onChange={(e) => set(f.key, e.target.value)} placeholder={fieldPlaceholder(f.placeholder, locale)} className={inputCls} />
               ) : f.type === "checkbox" ? (
                 <label className="inline-flex items-center gap-2 py-2 cursor-pointer">
                   <input
@@ -1977,14 +2253,14 @@ function RecordFormModal({
                     onChange={(e) => set(f.key, e.target.checked)}
                     className="w-4 h-4 rounded border-[#D4D4DE] text-violet-600 focus:ring-violet-500/40"
                   />
-                  <span className="text-[13px] text-[#0A0A0A]">Oui</span>
+                  <span className="text-[13px] text-[#0A0A0A]">{t("Oui", "Yes")}</span>
                 </label>
               ) : (
                 <input
                   type={f.type === "number" ? "number" : f.type === "date" ? "date" : f.type === "email" ? "email" : f.type === "tel" ? "tel" : "text"}
                   value={String(values[f.key] ?? "")}
                   onChange={(e) => set(f.key, e.target.value)}
-                  placeholder={f.placeholder}
+                  placeholder={fieldPlaceholder(f.placeholder, locale)}
                   className={inputCls}
                 />
               )}
@@ -1998,7 +2274,7 @@ function RecordFormModal({
 
         <div className="flex items-center justify-end gap-2.5 mt-6">
           <button onClick={onClose} className="rounded-full border border-[#E7E7E4] px-4 py-2 text-[13px] font-semibold text-[#0A0A0A] hover:border-[#C9C9C4] transition-colors">
-            Annuler
+            {t("Annuler", "Cancel")}
           </button>
           <button
             onClick={submit}
@@ -2006,7 +2282,7 @@ function RecordFormModal({
             className="inline-flex items-center gap-1.5 rounded-full bg-[#0A0A0A] px-4 py-2 text-[13px] font-semibold text-white hover:opacity-90 transition-opacity disabled:opacity-50"
           >
             {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : isEdit ? <Check className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
-            {isEdit ? "Enregistrer" : "Ajouter"}
+            {isEdit ? t("Enregistrer", "Save") : t("Ajouter", "Add")}
           </button>
         </div>
       </div>
@@ -2014,7 +2290,9 @@ function RecordFormModal({
   );
 }
 
-function ExportButton({ entity, label = "Exporter" }: { entity: string; label?: string }) {
+function ExportButton({ entity, label }: { entity: string; label?: string }) {
+  const t = useT();
+  const btnLabel = label ?? t("Exporter", "Export");
   const [open, setOpen] = useState(false);
   const isAll = entity === "all";
   const go = (format: "xlsx" | "csv") => {
@@ -2027,7 +2305,7 @@ function ExportButton({ entity, label = "Exporter" }: { entity: string; label?: 
         onClick={() => setOpen((o) => !o)}
         className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-[#0A0A0A] bg-white border border-[#E7E7EE] rounded-full px-3.5 py-1.5 hover:border-[#C9C9C4] transition-colors"
       >
-        <Download className="w-3.5 h-3.5" /> {label}
+        <Download className="w-3.5 h-3.5" /> {btnLabel}
       </button>
       {open && (
         <>
@@ -2035,12 +2313,12 @@ function ExportButton({ entity, label = "Exporter" }: { entity: string; label?: 
           <div className="absolute right-0 mt-1.5 z-50 w-52 bg-white border border-[#ECECF2] rounded-xl shadow-[0_18px_50px_rgba(20,20,50,0.18)] overflow-hidden py-1">
             <button onClick={() => go("xlsx")} className="flex items-center gap-2.5 w-full text-left px-3.5 py-2.5 text-[13px] text-[#0A0A0A] hover:bg-black/[0.04] transition-colors">
               <FileSpreadsheet className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-              <span>Excel <span className="text-[#9A9A97]">(.xlsx{isAll ? ", tout" : ""})</span></span>
+              <span>Excel <span className="text-[#9A9A97]">(.xlsx{isAll ? t(", tout", ", all") : ""})</span></span>
             </button>
             {!isAll && (
               <button onClick={() => go("csv")} className="flex items-center gap-2.5 w-full text-left px-3.5 py-2.5 text-[13px] text-[#0A0A0A] hover:bg-black/[0.04] transition-colors">
                 <FileText className="w-4 h-4 text-sky-600 flex-shrink-0" />
-                <span>CSV <span className="text-[#9A9A97]">(pour la compta)</span></span>
+                <span>CSV <span className="text-[#9A9A97]">{t("(pour la compta)", "(for accounting)")}</span></span>
               </button>
             )}
           </div>
@@ -2051,6 +2329,8 @@ function ExportButton({ entity, label = "Exporter" }: { entity: string; label?: 
 }
 
 export default function WorkspacePage() {
+  const t = useT();
+  const locale = useLocale();
   const [data, setData] = useState<DataMap>({});
   const [appsCount, setAppsCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -2108,7 +2388,7 @@ export default function WorkspacePage() {
     setSelectedIds((prev) => (prev.size >= ids.length && ids.length > 0 ? new Set() : new Set(ids)));
   const deleteSelected = async () => {
     if (!selected || selectedIds.size === 0) return;
-    if (!window.confirm(`Supprimer ${selectedIds.size} élément(s) ? Cette action est définitive.`)) return;
+    if (!window.confirm(t(`Supprimer ${selectedIds.size} élément(s) ? Cette action est définitive.`, `Delete ${selectedIds.size} item(s)? This action is permanent.`))) return;
     await fetch("/api/data", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2146,19 +2426,19 @@ export default function WorkspacePage() {
           <span className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500/15 to-pink-500/10 flex items-center justify-center flex-shrink-0">
             <Boxes className="w-5 h-5 text-violet-600" />
           </span>
-          <h1 className="text-xl sm:text-2xl font-black text-[#0A0A0A] tracking-[-0.03em]">Workspace</h1>
+          <h1 className="text-xl sm:text-2xl font-black text-[#0A0A0A] tracking-[-0.03em]">{t("Workspace", "Workspace")}</h1>
           <div className="ml-auto flex items-center gap-2 flex-wrap justify-end">
-            {total > 0 && <ExportButton entity="all" label="Exporter" />}
+            {total > 0 && <ExportButton entity="all" label={t("Exporter", "Export")} />}
             <button
               onClick={() => setImportAll(true)}
               className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 text-white text-[13px] font-semibold px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-full shadow-[0_8px_22px_rgba(124,58,190,0.30)] hover:brightness-105 active:scale-[0.98] transition"
             >
-              <Upload className="w-4 h-4" /> <span className="hidden xs:inline">Importer des données</span><span className="xs:hidden">Importer</span>
+              <Upload className="w-4 h-4" /> <span className="hidden xs:inline">{t("Importer des données", "Import data")}</span><span className="xs:hidden">{t("Importer", "Import")}</span>
             </button>
           </div>
         </div>
         <p className="text-[14px] text-[#6E6E6C] mb-6 ml-0 sm:ml-12">
-          La mémoire de votre entreprise. {loading ? "Chargement…" : `${total} éléments reliés.`}
+          {t("La mémoire de votre entreprise.", "Your company's memory.")} {loading ? t("Chargement…", "Loading…") : t(`${total} éléments reliés.`, `${total} linked items.`)}
         </p>
 
         {/* Recherche globale */}
@@ -2167,7 +2447,7 @@ export default function WorkspacePage() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Rechercher partout : un client, un chantier, un document…"
+            placeholder={t("Rechercher partout : un client, un chantier, un document…", "Search everywhere: a client, a job site, a document…")}
             className="w-full pl-12 pr-11 py-3.5 rounded-2xl border border-[#E7E7EE] bg-white text-[14px] text-[#0A0A0A] placeholder-[#9A9AA6] focus:outline-none focus:border-violet-400 focus:ring-4 focus:ring-violet-500/10 transition-all"
           />
           {searching && (
@@ -2185,10 +2465,10 @@ export default function WorkspacePage() {
           // ─── Résultats de recherche ─────────────────────────────────────
           <div>
             <p className="text-[13px] text-[#6E6E6C] mb-3">
-              {results.length} résultat{results.length > 1 ? "s" : ""} pour « {query.trim()} »
+              {t(`${results.length} résultat${results.length > 1 ? "s" : ""} pour « ${query.trim()} »`, `${results.length} result${results.length > 1 ? "s" : ""} for “${query.trim()}”`)}
             </p>
             {results.length === 0 ? (
-              <p className="text-sm text-[#9A9A97] py-12 text-center">Rien trouvé dans votre mémoire.</p>
+              <p className="text-sm text-[#9A9A97] py-12 text-center">{t("Rien trouvé dans votre mémoire.", "Nothing found in your memory.")}</p>
             ) : (
               <div className="bg-white border border-[#E7E7E4] rounded-2xl p-2 divide-y divide-[#F1F1EC]">
                 {results.map(({ entity, row }) => (
@@ -2206,7 +2486,7 @@ export default function WorkspacePage() {
               onClick={() => setSelected(null)}
               className="inline-flex items-center gap-1.5 text-[13px] font-medium text-[#6E6E6C] hover:text-[#0A0A0A] mb-4 transition-colors"
             >
-              <ArrowLeft className="w-4 h-4" /> Vue d&apos;ensemble
+              <ArrowLeft className="w-4 h-4" /> {t("Vue d'ensemble", "Overview")}
             </button>
             <div className="flex items-center gap-2.5 mb-4 flex-wrap">
               {(() => { const I = ENTITY_META[selected].icon; return (
@@ -2214,7 +2494,7 @@ export default function WorkspacePage() {
                   <I className="w-5 h-5" />
                 </span>
               ); })()}
-              <h2 className="text-lg font-bold text-[#0A0A0A]">{ENTITY_META[selected].label}</h2>
+              <h2 className="text-lg font-bold text-[#0A0A0A]">{tEntityLabel(locale, selected)}</h2>
               <span className="text-[13px] text-[#9A9A97] tabular-nums">{data[selected]?.length ?? 0}</span>
               <div className="ml-auto flex items-center gap-2 flex-wrap justify-end">
                 <ExportButton entity={selected} />
@@ -2222,14 +2502,14 @@ export default function WorkspacePage() {
                   onClick={() => setImportEntity(selected)}
                   className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-violet-700 bg-violet-50 border border-violet-200 rounded-full px-3.5 py-1.5 hover:bg-violet-100 transition-colors"
                 >
-                  <Upload className="w-3.5 h-3.5" /> Importer
+                  <Upload className="w-3.5 h-3.5" /> {t("Importer", "Import")}
                 </button>
                 {FORM_FIELDS[selected] && (
                   <button
                     onClick={() => setAddEntity(selected)}
                     className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-white bg-[#0A0A0A] rounded-full px-3.5 py-1.5 hover:opacity-90 transition-opacity"
                   >
-                    <Plus className="w-3.5 h-3.5" /> Ajouter
+                    <Plus className="w-3.5 h-3.5" /> {t("Ajouter", "Add")}
                   </button>
                 )}
               </div>
@@ -2239,16 +2519,16 @@ export default function WorkspacePage() {
                 <div className="w-12 h-12 rounded-2xl border border-[#E7E7EE] bg-[#FAFAFC] flex items-center justify-center mb-3 text-[#B4B8C2]">
                   <Upload className="w-5 h-5" strokeWidth={1.5} />
                 </div>
-                <p className="text-[14px] font-semibold text-[#0A0A0A] mb-1">Aucun élément pour le moment</p>
+                <p className="text-[14px] font-semibold text-[#0A0A0A] mb-1">{t("Aucun élément pour le moment", "Nothing here yet")}</p>
                 <p className="text-[13px] text-[#9A9A97] max-w-xs leading-relaxed mb-4">
-                  Ajoutez une fiche à la main, ou importez vos {ENTITY_META[selected].label.toLowerCase()} en masse (Excel ou CSV).
+                  {t(`Ajoutez une fiche à la main, ou importez vos ${ENTITY_META[selected].label.toLowerCase()} en masse (Excel ou CSV).`, `Add a record by hand, or bulk-import your ${tEntityLabel(locale, selected).toLowerCase()} (Excel or CSV).`)}
                 </p>
                 {FORM_FIELDS[selected] && (
                   <button
                     onClick={() => setAddEntity(selected)}
                     className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-white bg-[#0A0A0A] rounded-full px-4 py-2 hover:opacity-90 transition-opacity"
                   >
-                    <Plus className="w-3.5 h-3.5" /> Ajouter {ENTITY_META[selected].label.toLowerCase().replace(/s$/, "")}
+                    <Plus className="w-3.5 h-3.5" /> {t(`Ajouter ${ENTITY_META[selected].label.toLowerCase().replace(/s$/, "")}`, `Add ${tEntityLabel(locale, selected).toLowerCase().replace(/s$/, "")}`)}
                   </button>
                 )}
               </div>
@@ -2257,12 +2537,12 @@ export default function WorkspacePage() {
                 {selectedIds.size > 0 && (
                   <div className="flex items-center justify-between gap-3 mb-3 bg-violet-50 border border-violet-200 rounded-xl px-4 py-2.5">
                     <span className="text-[13px] font-semibold text-violet-800 tabular-nums">
-                      {selectedIds.size} sélectionné{selectedIds.size > 1 ? "s" : ""}
+                      {t(`${selectedIds.size} sélectionné${selectedIds.size > 1 ? "s" : ""}`, `${selectedIds.size} selected`)}
                     </span>
                     <div className="flex items-center gap-3">
-                      <button onClick={() => setSelectedIds(new Set())} className="text-[13px] font-medium text-[#6E6E6C] hover:text-[#0A0A0A]">Annuler</button>
+                      <button onClick={() => setSelectedIds(new Set())} className="text-[13px] font-medium text-[#6E6E6C] hover:text-[#0A0A0A]">{t("Annuler", "Cancel")}</button>
                       <button onClick={deleteSelected} className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-full px-3.5 py-1.5 transition-colors">
-                        <Trash2 className="w-3.5 h-3.5" /> Supprimer
+                        <Trash2 className="w-3.5 h-3.5" /> {t("Supprimer", "Delete")}
                       </button>
                     </div>
                   </div>
@@ -2280,11 +2560,11 @@ export default function WorkspacePage() {
                           checked={allSelected}
                           ref={(el) => { if (el) el.indeterminate = someSelected; }}
                           onChange={() => toggleSelectAll(ids)}
-                          aria-label="Tout sélectionner"
+                          aria-label={t("Tout sélectionner", "Select all")}
                           className="w-4 h-4 rounded border-[#D4D4DE] text-violet-600 focus:ring-violet-500/40 cursor-pointer flex-shrink-0"
                         />
                         <span className="ml-2 text-[12px] font-medium text-[#9A9A97]">
-                          {allSelected ? "Tout désélectionner" : "Tout sélectionner"}
+                          {allSelected ? t("Tout désélectionner", "Deselect all") : t("Tout sélectionner", "Select all")}
                           <span className="tabular-nums"> · {ids.length}</span>
                         </span>
                       </label>
@@ -2296,7 +2576,7 @@ export default function WorkspacePage() {
                         type="checkbox"
                         checked={selectedIds.has(row.id)}
                         onChange={() => toggleSelect(row.id)}
-                        aria-label="Sélectionner"
+                        aria-label={t("Sélectionner", "Select")}
                         className="w-4 h-4 rounded border-[#D4D4DE] text-violet-600 focus:ring-violet-500/40 cursor-pointer flex-shrink-0"
                       />
                       <div className="flex-1 min-w-0">
@@ -2305,9 +2585,9 @@ export default function WorkspacePage() {
                       {FORM_FIELDS[selected] && (
                         <button
                           onClick={() => setEditRecord({ entity: selected, row })}
-                          className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-[#9A9A97] opacity-0 group-hover/row:opacity-100 hover:bg-black/[0.05] hover:text-[#0A0A0A] transition-all"
-                          title="Modifier"
-                          aria-label="Modifier"
+                          className="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-[#9A9A97] opacity-0 group-hover/row:opacity-100 show-touch hover:bg-black/[0.05] hover:text-[#0A0A0A] transition-all"
+                          title={t("Modifier", "Edit")}
+                          aria-label={t("Modifier", "Edit")}
                         >
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
@@ -2323,7 +2603,7 @@ export default function WorkspacePage() {
           <div className="space-y-9">
             {ENTITY_GROUPS.map((group) => (
               <section key={group.title}>
-                <h2 className="mb-3 text-[11px] font-bold uppercase tracking-[0.09em] text-[#A6A6B2]">{group.title}</h2>
+                <h2 className="mb-3 text-[11px] font-bold uppercase tracking-[0.09em] text-[#A6A6B2]">{tGroupTitle(locale, group.title)}</h2>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                   {group.entities.map((entity) => (
                     <EntityTile key={entity} entity={entity} rows={data[entity] ?? []} onClick={() => setSelected(entity)} />
@@ -2334,31 +2614,31 @@ export default function WorkspacePage() {
 
             {/* Vos créations Biltia — objets plateforme (≠ données métier), vers la Bibliothèque */}
             <section>
-              <h2 className="mb-3 text-[11px] font-bold uppercase tracking-[0.09em] text-[#A6A6B2]">Vos créations</h2>
+              <h2 className="mb-3 text-[11px] font-bold uppercase tracking-[0.09em] text-[#A6A6B2]">{t("Vos créations", "Your creations")}</h2>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                 <Link href="/library" className="group flex flex-col text-left rounded-[20px] border border-[#EBEBF1] bg-white p-[18px] shadow-[0_12px_40px_rgba(60,40,120,0.06)] transition-all duration-300 hover:-translate-y-1 hover:border-[#DBD3F1] hover:shadow-[0_26px_64px_rgba(60,40,120,0.15)]">
                   <div className="mb-3.5 flex items-center justify-between">
                     <span className="grid h-11 w-11 place-items-center rounded-[14px] text-white shadow-[0_8px_20px_rgba(80,50,160,0.24)] transition-transform duration-300 group-hover:scale-[1.06]" style={{ background: "linear-gradient(135deg, #F472B6, #EC4899)" }}><AppWindow className="h-5 w-5" /></span>
                     <span className={`text-[19px] font-black tabular-nums tracking-[-0.03em] ${appsCount ? "text-[#0A0A0A]" : "text-[#D3D3DC]"}`}>{appsCount ?? "—"}</span>
                   </div>
-                  <h3 className="flex items-center gap-1 text-[14px] font-semibold leading-tight tracking-[-0.01em] text-[#0A0A0A]">Applications <ChevronRight className="h-3.5 w-3.5 text-[#C9C9C4] group-hover:text-[#6E6E6C]" /></h3>
-                  <p className="mt-0.5 text-[11.5px] text-[#9A9AA6]">Dans la Bibliothèque</p>
+                  <h3 className="flex items-center gap-1 text-[14px] font-semibold leading-tight tracking-[-0.01em] text-[#0A0A0A]">{t("Applications", "Apps")} <ChevronRight className="h-3.5 w-3.5 text-[#C9C9C4] group-hover:text-[#6E6E6C]" /></h3>
+                  <p className="mt-0.5 text-[11.5px] text-[#9A9AA6]">{t("Dans la Bibliothèque", "In the Library")}</p>
                 </Link>
 
                 <Link href="/library" className="group flex flex-col text-left rounded-[20px] border border-[#EBEBF1] bg-white p-[18px] shadow-[0_12px_40px_rgba(60,40,120,0.06)] transition-all duration-300 hover:-translate-y-1 hover:border-[#DBD3F1] hover:shadow-[0_26px_64px_rgba(60,40,120,0.15)]">
                   <div className="mb-3.5 flex items-center justify-between">
                     <span className="grid h-11 w-11 place-items-center rounded-[14px] text-white shadow-[0_8px_20px_rgba(80,50,160,0.24)] transition-transform duration-300 group-hover:scale-[1.06]" style={{ background: "linear-gradient(135deg, #818CF8, #6366F1)" }}><GitBranch className="h-5 w-5" /></span>
                   </div>
-                  <h3 className="flex items-center gap-1 text-[14px] font-semibold leading-tight tracking-[-0.01em] text-[#0A0A0A]">Automatisations <ChevronRight className="h-3.5 w-3.5 text-[#C9C9C4] group-hover:text-[#6E6E6C]" /></h3>
-                  <p className="mt-0.5 text-[11.5px] text-[#9A9AA6]">Vos contrôles par lot</p>
+                  <h3 className="flex items-center gap-1 text-[14px] font-semibold leading-tight tracking-[-0.01em] text-[#0A0A0A]">{t("Automatisations", "Automations")} <ChevronRight className="h-3.5 w-3.5 text-[#C9C9C4] group-hover:text-[#6E6E6C]" /></h3>
+                  <p className="mt-0.5 text-[11.5px] text-[#9A9AA6]">{t("Vos contrôles par lot", "Your batch checks")}</p>
                 </Link>
 
                 <Link href="/library" className="group flex flex-col text-left rounded-[20px] border border-[#EBEBF1] bg-white p-[18px] shadow-[0_12px_40px_rgba(60,40,120,0.06)] transition-all duration-300 hover:-translate-y-1 hover:border-[#DBD3F1] hover:shadow-[0_26px_64px_rgba(60,40,120,0.15)]">
                   <div className="mb-3.5 flex items-center justify-between">
                     <span className="grid h-11 w-11 place-items-center rounded-[14px] text-white shadow-[0_8px_20px_rgba(80,50,160,0.24)] transition-transform duration-300 group-hover:scale-[1.06]" style={{ background: "linear-gradient(135deg, #A78BFA, #8B5CF6)" }}><MessageSquare className="h-5 w-5" /></span>
                   </div>
-                  <h3 className="flex items-center gap-1 text-[14px] font-semibold leading-tight tracking-[-0.01em] text-[#0A0A0A]">Conversations <ChevronRight className="h-3.5 w-3.5 text-[#C9C9C4] group-hover:text-[#6E6E6C]" /></h3>
-                  <p className="mt-0.5 text-[11.5px] text-[#9A9AA6]">L&apos;historique du chat</p>
+                  <h3 className="flex items-center gap-1 text-[14px] font-semibold leading-tight tracking-[-0.01em] text-[#0A0A0A]">{t("Conversations", "Conversations")} <ChevronRight className="h-3.5 w-3.5 text-[#C9C9C4] group-hover:text-[#6E6E6C]" /></h3>
+                  <p className="mt-0.5 text-[11.5px] text-[#9A9AA6]">{t("L'historique du chat", "Your chat history")}</p>
                 </Link>
               </div>
             </section>
@@ -2371,9 +2651,9 @@ export default function WorkspacePage() {
             <div className="w-14 h-14 rounded-2xl border border-[#E7E7EE] bg-[#FAFAFC] flex items-center justify-center mb-4">
               <Sparkles className="w-6 h-6 text-violet-600" strokeWidth={1.5} />
             </div>
-            <h3 className="text-base font-bold text-[#0A0A0A] mb-1.5">Votre mémoire est encore vide</h3>
+            <h3 className="text-base font-bold text-[#0A0A0A] mb-1.5">{t("Votre mémoire est encore vide", "Your memory is still empty")}</h3>
             <p className="text-sm text-[#6E6E6C] max-w-sm leading-relaxed">
-              Dès que Biltia traitera vos chantiers, clients et documents, tout apparaîtra ici, relié.
+              {t("Dès que Biltia traitera vos chantiers, clients et documents, tout apparaîtra ici, relié.", "As soon as Biltia handles your job sites, clients and documents, everything will appear here, linked.")}
             </p>
           </div>
         )}

@@ -22,6 +22,10 @@ const nextConfig: NextConfig = {
   experimental: {
     optimizePackageImports: ["framer-motion", "lucide-react"],
   },
+  // Le moteur PDF (devis/factures rendus côté serveur) embarque fontkit et des
+  // binaires de polices : le laisser passer par le bundler casse la résolution de
+  // ses assets. On le charge comme un module Node externe, à l'exécution.
+  serverExternalPackages: ["@react-pdf/renderer"],
   // Dev : `next dev --turbopack`.
   turbopack: {
     resolveAlias: {

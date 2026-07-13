@@ -10,6 +10,7 @@ import {
   ExternalLink,
   X,
 } from "lucide-react";
+import { useT } from "@/lib/i18n/context";
 
 type KnowledgeDoc = {
   id: string;
@@ -23,6 +24,7 @@ type KnowledgeDoc = {
 };
 
 export default function KnowledgeManager() {
+  const t = useT();
   const [docs, setDocs] = useState<KnowledgeDoc[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -48,17 +50,17 @@ export default function KnowledgeManager() {
         const isPdf = f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf");
         let payload: Record<string, unknown>;
         if (isPdf) {
-          if (f.size > 3.5 * 1024 * 1024) throw new Error(`${f.name} : PDF trop lourd (3,5 Mo max).`);
+          if (f.size > 3.5 * 1024 * 1024) throw new Error(t(`${f.name} : PDF trop lourd (3,5 Mo max).`, `${f.name}: PDF too large (3.5 MB max).`));
           const data = await new Promise<string>((resolve, reject) => {
             const r = new FileReader();
             r.onload = () => { const s = String(r.result); resolve(s.slice(s.indexOf(",") + 1)); };
-            r.onerror = () => reject(new Error("Lecture impossible."));
+            r.onerror = () => reject(new Error(t("Lecture impossible.", "Read failed.")));
             r.readAsDataURL(f);
           });
           payload = { title: f.name.replace(/\.pdf$/i, ""), file: { name: f.name, mediaType: "application/pdf", data } };
         } else {
           const text = (await f.text()).trim();
-          if (!text) throw new Error(`${f.name} : fichier vide.`);
+          if (!text) throw new Error(t(`${f.name} : fichier vide.`, `${f.name}: empty file.`));
           payload = { title: f.name.replace(/\.(txt|md|csv)$/i, ""), content: text.slice(0, 50000) };
         }
         const res = await fetch("/api/knowledge", {
@@ -67,16 +69,16 @@ export default function KnowledgeManager() {
           body: JSON.stringify(payload),
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(`${f.name} : ${data.error ?? "ajout impossible"}`);
+        if (!res.ok) throw new Error(`${f.name} : ${data.error ?? t("ajout impossible", "add failed")}`);
         ok++;
       } catch (e) {
-        setError(e instanceof Error ? e.message : `Échec sur ${f.name}.`);
+        setError(e instanceof Error ? e.message : t(`Échec sur ${f.name}.`, `Failed on ${f.name}.`));
         break;
       }
     }
     setUploading(null);
     if (ok > 0) {
-      setSuccess(`${ok} document${ok > 1 ? "s" : ""} ajouté${ok > 1 ? "s" : ""} et indexé${ok > 1 ? "s" : ""}.`);
+      setSuccess(t(`${ok} document${ok > 1 ? "s" : ""} ajouté${ok > 1 ? "s" : ""} et indexé${ok > 1 ? "s" : ""}.`, `${ok} document${ok > 1 ? "s" : ""} added and indexed.`));
       load();
     }
   }
@@ -100,7 +102,7 @@ export default function KnowledgeManager() {
     setError(null);
     setSuccess(null);
     if (!title.trim() || !content.trim()) {
-      setError("Le titre et le contenu sont requis.");
+      setError(t("Le titre et le contenu sont requis.", "Title and content are required."));
       return;
     }
     setSubmitting(true);
@@ -116,17 +118,17 @@ export default function KnowledgeManager() {
       });
       const data = await res.json();
       if (res.ok) {
-        setSuccess(`Document ajouté (${data.chunks} extrait${data.chunks > 1 ? "s" : ""} indexé${data.chunks > 1 ? "s" : ""}).`);
+        setSuccess(t(`Document ajouté (${data.chunks} extrait${data.chunks > 1 ? "s" : ""} indexé${data.chunks > 1 ? "s" : ""}).`, `Document added (${data.chunks} chunk${data.chunks > 1 ? "s" : ""} indexed).`));
         setTitle("");
         setSourceUrl("");
         setContent("");
         setShowForm(false);
         load();
       } else {
-        setError(data.error ?? "Ajout impossible.");
+        setError(data.error ?? t("Ajout impossible.", "Add failed."));
       }
     } catch {
-      setError("Erreur réseau. Réessayez.");
+      setError(t("Erreur réseau. Réessayez.", "Network error. Try again."));
     }
     setSubmitting(false);
   }
@@ -137,7 +139,7 @@ export default function KnowledgeManager() {
   return (
     <section className="mt-8">
       <h2 className="text-[10px] font-bold text-[#6E6E6C] uppercase tracking-[0.18em] mb-4">
-        Base de connaissances
+        {t("Base de connaissances", "Knowledge base")}
       </h2>
 
       <div className="bg-white border border-[#ECECF2] rounded-2xl p-5 shadow-[0_4px_14px_rgba(60,40,120,0.08)]">
@@ -146,11 +148,9 @@ export default function KnowledgeManager() {
             <BookOpen className="w-4 h-4 text-[#7C3AED]" />
           </div>
           <div>
-            <p className="text-sm font-semibold text-[#0A0A0A]">Sources vérifiées de vos apps</p>
+            <p className="text-sm font-semibold text-[#0A0A0A]">{t("Sources vérifiées de vos apps", "Verified sources for your apps")}</p>
             <p className="text-xs text-[#6E6E6C]">
-              Ajoutez vos propres documents (catalogues de prix, CCTP, mentions légales, modèles de
-              devis). L&apos;IA s&apos;appuie dessus pour générer vos apps et documents, au lieu de
-              deviner.
+              {t("Ajoutez vos propres documents (catalogues de prix, CCTP, mentions légales, modèles de devis). L'IA s'appuie dessus pour générer vos apps et documents, au lieu de deviner.", "Add your own documents (price lists, specifications, legal notices, quote templates). The AI relies on them to generate your apps and documents, instead of guessing.")}
             </p>
           </div>
         </div>
@@ -186,7 +186,7 @@ export default function KnowledgeManager() {
                   {uploading.slice(0, 28)}…
                 </>
               ) : (
-                <>Téléverser des fichiers (PDF, TXT, CSV)</>
+                <>{t("Téléverser des fichiers (PDF, TXT, CSV)", "Upload files (PDF, TXT, CSV)")}</>
               )}
             </button>
             <button
@@ -196,7 +196,7 @@ export default function KnowledgeManager() {
               }}
               className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#ECECF2] bg-white py-2.5 text-sm font-semibold text-[#0A0A0A] transition-colors hover:bg-[#F3EFFC]"
             >
-              <Plus className="h-4 w-4" /> Coller un texte ou une URL
+              <Plus className="h-4 w-4" /> {t("Coller un texte ou une URL", "Paste text or a URL")}
             </button>
           </div>
         )}
@@ -206,29 +206,29 @@ export default function KnowledgeManager() {
           <div className="rounded-xl border border-[#ECECF2] bg-[#FCFCFD] p-4">
             <div className="mb-3 flex items-center justify-between">
               <span className="text-[11px] font-semibold uppercase tracking-wide text-[#6E6E6C]">
-                Nouveau document
+                {t("Nouveau document", "New document")}
               </span>
               <button
                 onClick={() => setShowForm(false)}
                 className="text-[#6E6E6C] hover:text-[#0A0A0A]"
-                aria-label="Fermer"
+                aria-label={t("Fermer", "Close")}
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
             <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-[#6E6E6C]">
-              Titre
+              {t("Titre", "Title")}
             </label>
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="Ex : Catalogue de prix 2026"
+              placeholder={t("Ex : Catalogue de prix 2026", "e.g. 2026 price list")}
               className="mb-3 w-full rounded-xl border border-[#ECECF2] bg-white px-3.5 py-2.5 text-sm text-[#0A0A0A] focus:border-[#7C3AED] focus:outline-none"
             />
 
             <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-[#6E6E6C]">
-              Source (URL, optionnel)
+              {t("Source (URL, optionnel)", "Source (URL, optional)")}
             </label>
             <input
               value={sourceUrl}
@@ -238,17 +238,17 @@ export default function KnowledgeManager() {
             />
 
             <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-[#6E6E6C]">
-              Contenu
+              {t("Contenu", "Content")}
             </label>
             <textarea
               value={content}
               onChange={(e) => setContent(e.target.value)}
               rows={7}
-              placeholder="Collez ici le texte du document (tarifs, clauses, notes techniques…)."
+              placeholder={t("Collez ici le texte du document (tarifs, clauses, notes techniques…).", "Paste the document text here (prices, clauses, technical notes…).")}
               className="mb-1 w-full resize-y rounded-xl border border-[#ECECF2] bg-white px-3.5 py-2.5 text-sm text-[#0A0A0A] focus:border-[#7C3AED] focus:outline-none"
             />
             <p className="mb-3 text-xs text-[#6E6E6C]">
-              {content.length.toLocaleString("fr-FR")} / 50 000 caractères
+              {t(`${content.length.toLocaleString("fr-FR")} / 50 000 caractères`, `${content.length.toLocaleString("en-US")} / 50,000 characters`)}
             </p>
 
             {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
@@ -260,11 +260,11 @@ export default function KnowledgeManager() {
             >
               {submitting ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin" /> Indexation…
+                  <Loader2 className="h-4 w-4 animate-spin" /> {t("Indexation…", "Indexing…")}
                 </>
               ) : (
                 <>
-                  <Plus className="h-4 w-4" /> Indexer le document
+                  <Plus className="h-4 w-4" /> {t("Indexer le document", "Index the document")}
                 </>
               )}
             </button>
@@ -274,13 +274,13 @@ export default function KnowledgeManager() {
         {/* Liste des documents */}
         <div className="mt-5">
           {loading ? (
-            <p className="text-sm text-[#6E6E6C]">Chargement…</p>
+            <p className="text-sm text-[#6E6E6C]">{t("Chargement…", "Loading…")}</p>
           ) : (
             <>
               {privateDocs.length > 0 && (
                 <div className="mb-4">
                   <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#6E6E6C]">
-                    <Lock className="h-3 w-3" /> Vos documents ({privateDocs.length})
+                    <Lock className="h-3 w-3" /> {t("Vos documents", "Your documents")} ({privateDocs.length})
                   </p>
                   <ul className="space-y-2">
                     {privateDocs.map((d) => (
@@ -292,11 +292,11 @@ export default function KnowledgeManager() {
 
               <div>
                 <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#6E6E6C]">
-                  <Globe className="h-3 w-3" /> Bibliothèque Biltia ({globalDocs.length})
+                  <Globe className="h-3 w-3" /> {t("Bibliothèque Biltia", "Biltia library")} ({globalDocs.length})
                 </p>
                 {globalDocs.length === 0 ? (
                   <p className="text-xs text-[#6E6E6C]">
-                    Aucune fiche indexée pour le moment.
+                    {t("Aucune fiche indexée pour le moment.", "No entry indexed yet.")}
                   </p>
                 ) : (
                   <ul className="space-y-2">
@@ -315,6 +315,7 @@ export default function KnowledgeManager() {
 }
 
 function DocRow({ doc }: { doc: KnowledgeDoc }) {
+  const t = useT();
   return (
     <li className="flex items-center justify-between gap-3 rounded-xl border border-[#ECECF2] bg-white px-3.5 py-2.5">
       <div className="min-w-0">
@@ -327,7 +328,7 @@ function DocRow({ doc }: { doc: KnowledgeDoc }) {
           target="_blank"
           rel="noopener noreferrer"
           className="flex-shrink-0 text-[#6E6E6C] hover:text-[#7C3AED]"
-          aria-label="Ouvrir la source"
+          aria-label={t("Ouvrir la source", "Open source")}
         >
           <ExternalLink className="h-4 w-4" />
         </a>

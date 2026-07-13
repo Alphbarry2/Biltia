@@ -16,6 +16,7 @@ import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, ChevronsUpDown, Pencil, Plus, Loader2 } from "lucide-react";
 import { writeActiveTenantCookie } from "@/lib/tenant";
+import { useT, useLocale } from "@/lib/i18n/context";
 
 const EASE = [0.16, 1, 0.3, 1] as const;
 
@@ -26,10 +27,19 @@ const ROLE_LABELS: Record<string, string> = {
   member: "Membre",
   viewer: "Lecture seule",
 };
+const ROLE_LABELS_EN: Record<string, string> = {
+  owner: "Owner",
+  admin: "Admin",
+  manager: "Manager",
+  member: "Member",
+  viewer: "Read-only",
+};
 
 type Workspace = { id: string; name: string; role: string; active: boolean };
 
 export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }) {
+  const tr = useT();
+  const locale = useLocale();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
@@ -118,11 +128,11 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
         body: JSON.stringify({ tenantId: target.id, name }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "Renommage impossible.");
+      if (!res.ok) throw new Error(data.error ?? tr("Renommage impossible.", "Rename failed."));
       setWorkspaces((ws) => ws.map((w) => (w.id === target.id ? { ...w, name } : w)));
       setRenamingId(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Renommage impossible.");
+      setError(e instanceof Error ? e.message : tr("Renommage impossible.", "Rename failed."));
     } finally {
       setBusy(false);
     }
@@ -143,11 +153,11 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
         body: JSON.stringify({ name }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "Création impossible.");
+      if (!res.ok) throw new Error(data.error ?? tr("Création impossible.", "Creation failed."));
       // Cookie posé par le serveur → le nouvel espace est actif au reload.
       window.location.assign("/dashboard");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Création impossible.");
+      setError(e instanceof Error ? e.message : tr("Création impossible.", "Creation failed."));
       setBusy(false);
     }
   };
@@ -162,8 +172,8 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
         onClick={() => (open ? setOpen(false) : openMenu())}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="Changer d'espace de travail"
-        title={collapsed ? active?.name ?? "Espace de travail" : undefined}
+        aria-label={tr("Changer d'espace de travail", "Switch workspace")}
+        title={collapsed ? active?.name ?? tr("Espace de travail", "Workspace") : undefined}
         className={`group flex w-full items-center rounded-xl transition-colors hover:bg-black/[0.04] ${
           collapsed ? "justify-center py-2" : "gap-2.5 px-2 py-2"
         }`}
@@ -193,11 +203,11 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
                 exit={{ opacity: 0, y: -8, scale: 0.98 }}
                 transition={{ duration: 0.16, ease: EASE }}
                 role="menu"
-                aria-label="Espaces de travail"
+                aria-label={tr("Espaces de travail", "Workspaces")}
                 className="overflow-hidden rounded-2xl border border-[#ECE7F6] bg-white p-1.5 shadow-[0_30px_80px_rgba(60,40,120,0.28)]"
               >
                 <p className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-[0.08em] text-[#B4ADC4]">
-                  Espaces de travail
+                  {tr("Espaces de travail", "Workspaces")}
                 </p>
 
                 <div className="max-h-[260px] overflow-y-auto overscroll-contain">
@@ -214,9 +224,9 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
                           onBlur={submitRename}
                           maxLength={60}
                           disabled={busy}
-                          aria-label="Nouveau nom de l'espace"
+                          aria-label={tr("Nouveau nom de l'espace", "New workspace name")}
                           className="w-full bg-transparent text-[13px] font-semibold text-[#0A0A0A] outline-none placeholder:text-[#9A9AA6]"
-                          placeholder="Nom de l'entreprise"
+                          placeholder={tr("Nom de l'entreprise", "Company name")}
                         />
                         {busy && <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin text-[#7C3AED]" />}
                       </div>
@@ -240,7 +250,7 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
                               {w.name}
                             </span>
                             <span className="block text-[10.5px] text-[#9A9AA6]">
-                              {ROLE_LABELS[w.role] ?? w.role}
+                              {(locale === "en" ? ROLE_LABELS_EN : ROLE_LABELS)[w.role] ?? w.role}
                             </span>
                           </span>
                         </button>
@@ -252,9 +262,9 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
                               setCreating(false);
                               setRenamingId(w.id);
                             }}
-                            title="Renommer"
-                            aria-label={`Renommer ${w.name}`}
-                            className="hidden h-6 w-6 flex-shrink-0 place-items-center rounded-md text-[#9A9A97] transition-colors hover:bg-black/[0.06] hover:text-[#0A0A0A] group-hover/row:grid"
+                            title={tr("Renommer", "Rename")}
+                            aria-label={tr(`Renommer ${w.name}`, `Rename ${w.name}`)}
+                            className="hidden h-6 w-6 flex-shrink-0 place-items-center rounded-md text-[#9A9A97] transition-colors hover:bg-black/[0.06] hover:text-[#0A0A0A] group-hover/row:grid show-touch-grid"
                           >
                             <Pencil className="h-3 w-3" />
                           </button>
@@ -278,9 +288,9 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
                       }}
                       maxLength={60}
                       disabled={busy}
-                      aria-label="Nom de la nouvelle entreprise"
+                      aria-label={tr("Nom de la nouvelle entreprise", "New company name")}
                       className="w-full bg-transparent text-[13px] font-semibold text-[#0A0A0A] outline-none placeholder:text-[#9A9AA6]"
-                      placeholder="Nom de la nouvelle entreprise"
+                      placeholder={tr("Nom de la nouvelle entreprise", "New company name")}
                     />
                     {busy ? (
                       <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin text-[#7C3AED]" />
@@ -288,7 +298,7 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
                       <button
                         type="button"
                         onClick={submitCreate}
-                        aria-label="Créer l'espace"
+                        aria-label={tr("Créer l'espace", "Create workspace")}
                         className="grid h-6 w-6 flex-shrink-0 place-items-center rounded-md bg-[#7C3AED] text-white transition-transform hover:scale-105 active:scale-95"
                       >
                         <Check className="h-3 w-3" strokeWidth={3} />
@@ -308,7 +318,7 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
                     <span className="grid h-6 w-6 flex-shrink-0 place-items-center rounded-lg border border-dashed border-[#C9BEF0] text-[#7C3AED]">
                       <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
                     </span>
-                    <span className="text-[13px] font-semibold text-[#7C3AED]">Nouvelle entreprise</span>
+                    <span className="text-[13px] font-semibold text-[#7C3AED]">{tr("Nouvelle entreprise", "New company")}</span>
                   </button>
                 )}
 

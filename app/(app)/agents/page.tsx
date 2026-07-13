@@ -27,6 +27,8 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { AgentTemplateGallery } from "@/components/agent-templates";
+import { useT, useLocale } from "@/lib/i18n/context";
+import type { Locale } from "@/lib/i18n/config";
 
 type AgentSchedule = { time: string; days: number[]; tz: string };
 type AgentTrigger = { watcher: string; params?: { days?: number }; scanEveryMinutes?: number };
@@ -71,7 +73,7 @@ type PendingRelance = {
   fiche_label: string | null;
   kind: string;
   level: number | null;
-  to_email: string;
+  to_email: string | null;
   subject: string;
   body: string;
   status: string;
@@ -79,17 +81,18 @@ type PendingRelance = {
 };
 
 const DAY_NAMES = ["", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"];
+const DAY_NAMES_EN = ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
-function describeSchedule(s: AgentSchedule | null | undefined): string {
-  if (!s?.time) return "planning à définir";
+function describeSchedule(s: AgentSchedule | null | undefined, t: (fr: string, en: string) => string, locale: Locale): string {
+  if (!s?.time) return t("planning à définir", "schedule to be set");
   const days = (s.days ?? []).filter((d) => d >= 1 && d <= 7);
   const when =
     days.length === 0
-      ? "tous les jours"
+      ? t("tous les jours", "every day")
       : days.length === 5 && [1, 2, 3, 4, 5].every((d) => days.includes(d))
-        ? "du lundi au vendredi"
-        : `chaque ${days.map((d) => DAY_NAMES[d]).join(", ")}`;
-  return `${when} à ${s.time}`;
+        ? t("du lundi au vendredi", "Monday to Friday")
+        : t(`chaque ${days.map((d) => DAY_NAMES[d]).join(", ")}`, `every ${days.map((d) => DAY_NAMES_EN[d]).join(", ")}`);
+  return t(`${when} à ${s.time}`, `${when} at ${s.time}`);
 }
 
 // Ce que surveille un agent-événement (miroir court de lib/agent-watchers.ts).
@@ -143,19 +146,70 @@ const WATCHER_LABELS: Record<string, string> = {
   client_inactif: "les clients sans activité depuis longtemps",
 };
 
+const WATCHER_LABELS_EN: Record<string, string> = {
+  chantier_en_retard: "job sites behind schedule",
+  chantier_fin_proche: "job sites nearing their end date",
+  chantier_hors_budget: "job sites over budget",
+  chantier_sans_activite: "job sites that have stalled",
+  chantier_sans_devis: "job sites started without a signed quote",
+  chantier_termine: "job sites just completed",
+  demande_urgente: "urgent client requests left unanswered (judged by AI)",
+  devis_non_signe: "unsigned quotes",
+  devis_accepte: "quotes just accepted",
+  devis_expire_bientot: "quotes nearing their expiry date",
+  facture_echeance_proche: "invoices nearing their due date",
+  facture_impayee: "unpaid invoices",
+  facture_payee: "invoices just paid",
+  echeance_proche: "upcoming deadlines (docs, insurance, contracts, maintenance)",
+  visite_terminee: "completed visits (auto report)",
+  rdv_demain: "upcoming client appointments",
+  conflit_planning: "scheduling conflicts (overlapping jobs)",
+  intervention_annulee: "cancelled appointments / jobs",
+  tache_en_retard: "overdue tasks (past due date)",
+  tache_terminee: "tasks just completed",
+  tache_sans_responsable: "open tasks with no assignee",
+  chantier_sans_responsable: "active job sites with no site manager",
+  equipe_surchargee: "overloaded team members (too much open work)",
+  stock_bas: "materials below their threshold",
+  nouveau_lead: "new leads received via form",
+  nouveau_client: "new clients created",
+  nouveau_chantier: "new job sites created",
+  pointage_manquant: "employees who haven't clocked in recently",
+  heures_a_valider: "unvalidated hours/timesheets left pending",
+  heures_incoherentes: "days with abnormally high hours",
+  chantier_trop_heures: "job sites burning too many hours",
+  document_a_regulariser: "missing or already expired documents",
+  assurance_expiree: "expired liability insurance (subcontractors)",
+  clients_doublons: "duplicate client records (same email or phone)",
+  client_mauvais_payeur: "clients piling up overdue unpaid invoices",
+  sous_traitant_a_probleme: "subcontractors piling up open snags/incidents",
+  sous_traitant_sans_assurance: "subcontractors with no liability insurance on file",
+  documents_a_classer: "uploaded documents with no link (to file)",
+  chantier_sans_photo: "completed job sites with no photo on file",
+  intervention_sans_responsable: "open jobs/after-sales with no assignee",
+  intervention_sans_date: "open jobs/after-sales with no planned date",
+  intervention_en_retard: "jobs/after-sales past their planned date",
+  commande_en_retard: "supplier orders behind on delivery",
+  achat_non_affecte: "supplier purchases/expenses not linked to a job site",
+  facture_fournisseur_a_payer: "supplier invoices to pay (past due)",
+  chantier_sans_budget: "active job sites with no budget set",
+  client_inactif: "clients with no activity for a long time",
+};
+
 /** Agent-événement → « surveille X » ; agent planifié → son planning. */
-function describeTrigger(r: AgentRule): string {
+function describeTrigger(r: AgentRule, t: (fr: string, en: string) => string, locale: Locale): string {
   if (r.trigger_type === "event" && r.trigger?.watcher) {
-    const what = WATCHER_LABELS[r.trigger.watcher] ?? "une condition";
-    return `surveille ${what}, en continu`;
+    const labels = locale === "en" ? WATCHER_LABELS_EN : WATCHER_LABELS;
+    const what = labels[r.trigger.watcher] ?? t("une condition", "a condition");
+    return t(`surveille ${what}, en continu`, `watches ${what}, continuously`);
   }
-  return describeSchedule(r.schedule);
+  return describeSchedule(r.schedule, t, locale);
 }
 
-function formatDate(iso: string | null): string {
+function formatDate(iso: string | null, locale: Locale): string {
   if (!iso) return "—";
   try {
-    return new Intl.DateTimeFormat("fr-FR", {
+    return new Intl.DateTimeFormat(locale === "en" ? "en-GB" : "fr-FR", {
       timeZone: "Europe/Paris",
       weekday: "short",
       day: "numeric",
@@ -177,7 +231,18 @@ const ACTION_LABELS: Record<string, string> = {
   act: "Action automatique",
 };
 
+const ACTION_LABELS_EN: Record<string, string> = {
+  send_email: "Automatic email",
+  notify: "Reminder",
+  report: "Check + summary",
+  team_planning: "Team schedule",
+  compte_rendu: "Auto report",
+  act: "Automatic action",
+};
+
 export default function AgentsPage() {
+  const t = useT();
+  const locale = useLocale();
   const [rules, setRules] = useState<AgentRule[]>([]);
   const [runs, setRuns] = useState<AgentRun[]>([]);
   const [pending, setPending] = useState<PendingRelance[]>([]);
@@ -202,13 +267,13 @@ export default function AgentsPage() {
         // Aucun agent encore : on met les modèles prêts à l'emploi en avant.
         if ((data.rules ?? []).length === 0) setTemplatesOpen(true);
       } else {
-        setError(data.error ?? "Chargement impossible.");
+        setError(data.error ?? t("Chargement impossible.", "Loading failed."));
       }
     } catch {
-      setError("Chargement impossible.");
+      setError(t("Chargement impossible.", "Loading failed."));
     }
     setLoading(false);
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     load();
@@ -231,23 +296,23 @@ export default function AgentsPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "Action impossible.");
+        setError(data.error ?? t("Action impossible.", "Action failed."));
       } else {
         if (action === "run_now") {
           flash(
             data.outcome?.status === "success"
-              ? `✓ Exécuté : ${data.outcome.summary}`
-              : `Passage terminé (${data.outcome?.status ?? "?"}) : ${data.outcome?.summary ?? ""}`
+              ? t(`✓ Exécuté : ${data.outcome.summary}`, `✓ Ran: ${data.outcome.summary}`)
+              : t(`Passage terminé (${data.outcome?.status ?? "?"}) : ${data.outcome?.summary ?? ""}`, `Run finished (${data.outcome?.status ?? "?"}): ${data.outcome?.summary ?? ""}`)
           );
         } else if (data.message) {
           flash(data.message);
         } else {
-          flash("✓ Fait.");
+          flash(t("✓ Fait.", "✓ Done."));
         }
         await load();
       }
     } catch {
-      setError("Action impossible.");
+      setError(t("Action impossible.", "Action failed."));
     }
     setBusy(null);
   }
@@ -263,13 +328,13 @@ export default function AgentsPage() {
         body: JSON.stringify({ id, decision }),
       });
       const data = await res.json();
-      if (!res.ok) setError(data.error ?? "Action impossible.");
+      if (!res.ok) setError(data.error ?? t("Action impossible.", "Action failed."));
       else {
-        flash(decision === "send" ? "✓ Relance envoyée." : "Relance ignorée.");
+        flash(decision === "send" ? t("✓ Validé.", "✓ Approved.") : t("Ignoré.", "Dismissed."));
         await load();
       }
     } catch {
-      setError("Action impossible.");
+      setError(t("Action impossible.", "Action failed."));
     }
     setBusy(null);
   }
@@ -278,18 +343,18 @@ export default function AgentsPage() {
     if (r.status === "active")
       return (
         <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
-          <CheckCircle className="w-3 h-3" /> Actif
+          <CheckCircle className="w-3 h-3" /> {t("Actif", "Active")}
         </span>
       );
     if (r.status === "blocked")
       return (
         <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
-          <AlertTriangle className="w-3 h-3" /> Bloqué
+          <AlertTriangle className="w-3 h-3" /> {t("Bloqué", "Blocked")}
         </span>
       );
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-[#F4F4F2] border border-[#E7E7E4] px-2 py-0.5 text-[11px] font-semibold text-[#6E6E6C]">
-        <Pause className="w-3 h-3" /> En pause
+        <Pause className="w-3 h-3" /> {t("En pause", "Paused")}
       </span>
     );
   };
@@ -303,28 +368,28 @@ export default function AgentsPage() {
 
   return (
     <div className="min-h-full bg-[#FCFCFD]">
-      <div className="max-w-4xl mx-auto px-6 py-8">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
         <div className="flex items-center justify-between gap-3 mb-1.5">
           <div className="flex items-center gap-3">
             <span className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500/15 to-pink-500/10 flex items-center justify-center">
               <Bot className="w-5 h-5 text-violet-600" />
             </span>
-            <h1 className="text-2xl font-black text-[#0A0A0A] tracking-[-0.03em]">Agents</h1>
+            <h1 className="text-2xl font-black text-[#0A0A0A] tracking-[-0.03em]">{t("Agents", "Agents")}</h1>
           </div>
           {rules.length > 0 && (
             <Link
               href="/generate?new=agent"
               className="inline-flex items-center gap-1.5 rounded-full bg-[#0A0A0A] px-4 py-2 text-[12.5px] font-semibold text-white hover:opacity-90 transition-opacity flex-shrink-0"
             >
-              <Zap className="w-3.5 h-3.5" /> Recruter un agent
+              <Zap className="w-3.5 h-3.5" /> {t("Recruter un agent", "Hire an agent")}
             </Link>
           )}
         </div>
         <p className="text-[14px] text-[#6E6E6C] mb-6 ml-12">
-          Vos missions déléguées : Biltia les exécute seul et trace chaque passage. À heure fixe
-          («&nbsp;chaque soir à 18h, vérifie mes factures impayées&nbsp;») ou <strong>sur événement</strong>,
-          dès qu&apos;une fiche le déclenche («&nbsp;préviens-moi quand un chantier prend du
-          retard&nbsp;», «&nbsp;relance les devis non signés&nbsp;»). Recrutez depuis le chat.
+          {t(
+            "Vos missions déléguées : Biltia les exécute seul et trace chaque passage. À heure fixe (« chaque soir à 18h, vérifie mes factures impayées ») ou sur événement, dès qu'une fiche le déclenche (« préviens-moi quand un chantier prend du retard », « relance les devis non signés »). Recrutez depuis le chat.",
+            "Your delegated missions: Biltia runs them on its own and logs every run. On a fixed schedule (“every evening at 6pm, check my unpaid invoices”) or on an event, as soon as a record triggers it (“alert me when a job site falls behind”, “chase unsigned quotes”). Hire from the chat.",
+          )}
         </p>
 
         {notice && (
@@ -344,9 +409,9 @@ export default function AgentsPage() {
             <div className="px-4 py-3 border-b border-amber-200 flex items-center gap-2">
               <Mail className="w-4 h-4 text-amber-600 flex-shrink-0" />
               <span className="text-[13.5px] font-bold text-amber-900">
-                {pending.length} relance{pending.length > 1 ? "s" : ""} à valider
+                {t(`${pending.length} à valider`, `${pending.length} to approve`)}
               </span>
-              <span className="text-[12px] text-amber-700">avant envoi</span>
+              <span className="text-[12px] text-amber-700">{t("relances & actions préparées", "prepared follow-ups & actions")}</span>
             </div>
             <div className="divide-y divide-amber-100">
               {pending.map((p) => (
@@ -357,13 +422,14 @@ export default function AgentsPage() {
                         <span className="text-[13px] font-semibold text-[#0A0A0A] truncate">{p.subject}</span>
                         {p.level != null && p.level >= 3 && (
                           <span className="rounded-full bg-rose-100 border border-rose-200 px-2 py-0.5 text-[10.5px] font-semibold text-rose-700">
-                            ferme (niv.&nbsp;{p.level})
+                            {t(`ferme (niv. ${p.level})`, `firm (lvl ${p.level})`)}
                           </span>
                         )}
                       </div>
                       <div className="text-[12px] text-[#6E6E6C] mt-0.5 truncate">
-                        Pour {p.to_email}
-                        {p.fiche_label ? ` · ${p.fiche_label}` : ""}
+                        {p.kind === "workflow_step"
+                          ? (p.fiche_label ? t(`Action · ${p.fiche_label}`, `Action · ${p.fiche_label}`) : t("Action de l'agent", "Agent action"))
+                          : t(`Pour ${p.to_email ?? "?"}${p.fiche_label ? ` · ${p.fiche_label}` : ""}`, `To ${p.to_email ?? "?"}${p.fiche_label ? ` · ${p.fiche_label}` : ""}`)}
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -372,19 +438,26 @@ export default function AgentsPage() {
                         onClick={() => decideRelance(p.id, "send")}
                         className="inline-flex items-center gap-1 rounded-full bg-[#0A0A0A] px-3 py-1.5 text-[12px] font-semibold text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
                       >
-                        {busy === p.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />} Envoyer
+                        {busy === p.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : p.kind === "workflow_step" ? (
+                          <CheckCircle className="w-3.5 h-3.5" />
+                        ) : (
+                          <Mail className="w-3.5 h-3.5" />
+                        )}{" "}
+                        {p.kind === "workflow_step" ? t("Valider", "Approve") : t("Envoyer", "Send")}
                       </button>
                       <button
                         disabled={busy === p.id}
                         onClick={() => decideRelance(p.id, "discard")}
                         className="inline-flex items-center rounded-full border border-[#E7E7E4] bg-white px-3 py-1.5 text-[12px] font-semibold text-[#6E6E6C] hover:bg-[#FBFBFD] disabled:opacity-50 transition-colors"
                       >
-                        Ignorer
+                        {t("Ignorer", "Dismiss")}
                       </button>
                     </div>
                   </div>
                   <details className="mt-2">
-                    <summary className="text-[11.5px] text-violet-700 cursor-pointer select-none">Voir le message</summary>
+                    <summary className="text-[11.5px] text-violet-700 cursor-pointer select-none">{p.kind === "workflow_step" ? t("Voir le détail", "View details") : t("Voir le message", "View message")}</summary>
                     <pre className="mt-1.5 whitespace-pre-wrap break-words text-[12px] leading-relaxed text-[#3A3A46] bg-white border border-amber-100 rounded-lg p-2.5 font-sans">
 {p.body}
                     </pre>
@@ -407,10 +480,10 @@ export default function AgentsPage() {
               </span>
               <span className="min-w-0">
                 <span className="block text-[14px] font-bold text-[#0A0A0A] tracking-[-0.01em]">
-                  Agents prêts à l&apos;emploi
+                  {t("Agents prêts à l'emploi", "Ready-to-use agents")}
                 </span>
                 <span className="block text-[12px] text-[#9A9A97]">
-                  Activez, ils travaillent tout seuls.
+                  {t("Activez, ils travaillent tout seuls.", "Turn them on, they work on their own.")}
                 </span>
               </span>
             </span>
@@ -427,21 +500,20 @@ export default function AgentsPage() {
 
         {loading ? (
           <div className="flex items-center gap-2 text-[13px] text-[#9A9A97] py-10 justify-center">
-            <Loader2 className="w-4 h-4 animate-spin" /> Chargement…
+            <Loader2 className="w-4 h-4 animate-spin" /> {t("Chargement…", "Loading…")}
           </div>
         ) : rules.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-[#E7E7E4] bg-white p-10 text-center">
             <Bot className="w-8 h-8 text-[#C9BEF0] mx-auto mb-3" />
-            <p className="text-[14px] font-semibold text-[#0A0A0A] mb-1">Aucun agent recruté pour l&apos;instant</p>
+            <p className="text-[14px] font-semibold text-[#0A0A0A] mb-1">{t("Aucun agent recruté pour l'instant", "No agent hired yet")}</p>
             <p className="text-[13px] text-[#9A9A97] mb-4 max-w-md mx-auto">
-              Dictez une mission permanente dans le chat et Biltia s&apos;en occupe désormais —
-              relances, rappels, contrôles quotidiens.
+              {t("Dictez une mission permanente dans le chat et Biltia s'en occupe désormais — relances, rappels, contrôles quotidiens.", "Dictate a standing mission in the chat and Biltia takes it over from now on — follow-ups, reminders, daily checks.")}
             </p>
             <Link
               href="/generate?new=agent"
               className="inline-flex items-center gap-1.5 rounded-full bg-[#0A0A0A] px-4 py-2 text-[12.5px] font-semibold text-white hover:opacity-90 transition-opacity"
             >
-              <Zap className="w-3.5 h-3.5" /> Recruter mon premier agent
+              <Zap className="w-3.5 h-3.5" /> {t("Recruter mon premier agent", "Hire my first agent")}
             </Link>
           </div>
         ) : (
@@ -455,34 +527,34 @@ export default function AgentsPage() {
                       {statusBadge(r)}
                       {r.trigger_type === "event" && (
                         <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 border border-violet-200 px-2 py-0.5 text-[11px] font-semibold text-violet-700">
-                          <Zap className="w-3 h-3" /> Surveillance
+                          <Zap className="w-3 h-3" /> {t("Surveillance", "Watching")}
                         </span>
                       )}
                       <span className="text-[11px] text-[#9A9A97]">
-                        {ACTION_LABELS[r.action?.type ?? ""] ?? "Mission"}
+                        {(locale === "en" ? ACTION_LABELS_EN : ACTION_LABELS)[r.action?.type ?? ""] ?? t("Mission", "Mission")}
                       </span>
                     </div>
                     <p className="text-[12.5px] text-[#6E6E6C] mt-1">
-                      {describeTrigger(r)}
+                      {describeTrigger(r, t, locale)}
                       {r.status === "active" && r.next_run_at && (
                         <span className="text-[#9A9A97]">
-                          {" "}· {r.trigger_type === "event" ? "prochaine vérification" : "prochain passage"} : {formatDate(r.next_run_at)}
+                          {" "}· {r.trigger_type === "event" ? t("prochaine vérification", "next check") : t("prochain passage", "next run")} : {formatDate(r.next_run_at, locale)}
                         </span>
                       )}
                       {r.last_run_at && (
-                        <span className="text-[#9A9A97]"> · dernier : {formatDate(r.last_run_at)}</span>
+                        <span className="text-[#9A9A97]"> · {t("dernier", "last")} : {formatDate(r.last_run_at, locale)}</span>
                       )}
                     </p>
                     {/* Transparence prix : estimation + consommé réel (50 derniers passages). */}
                     <p className="text-[11.5px] text-[#9A9A97] mt-0.5 tabular-nums">
                       {typeof r.action?.estimatedCreditsPerRun === "number" && (
-                        <>≈ {r.action.estimatedCreditsPerRun} crédits/passage</>
+                        <>{t(`≈ ${r.action.estimatedCreditsPerRun} crédits/passage`, `≈ ${r.action.estimatedCreditsPerRun} credits/run`)}</>
                       )}
                       {(() => {
                         const spent = runs
                           .filter((x) => x.rule_id === r.id)
                           .reduce((n, x) => n + (x.credits_used ?? 0), 0);
-                        return spent > 0 ? <> · {spent} crédits consommés récemment</> : null;
+                        return spent > 0 ? <>{t(` · ${spent} crédits consommés récemment`, ` · ${spent} credits used recently`)}</> : null;
                       })()}
                     </p>
                   </div>
@@ -491,7 +563,7 @@ export default function AgentsPage() {
                       <button
                         onClick={() => command(r.id, "pause")}
                         disabled={busy === r.id}
-                        title="Mettre en pause"
+                        title={t("Mettre en pause", "Pause")}
                         className="p-2 rounded-lg border border-[#E7E7E4] text-[#6E6E6C] hover:border-[#C9BEF0] transition-colors disabled:opacity-50"
                       >
                         <Pause className="w-3.5 h-3.5" />
@@ -500,7 +572,7 @@ export default function AgentsPage() {
                       <button
                         onClick={() => command(r.id, "resume")}
                         disabled={busy === r.id || (r.status === "blocked" && (r.missing?.field === "email" || r.missing?.field === "content"))}
-                        title="Relancer"
+                        title={t("Relancer", "Resume")}
                         className="p-2 rounded-lg border border-[#E7E7E4] text-[#6E6E6C] hover:border-[#C9BEF0] transition-colors disabled:opacity-50"
                       >
                         <Play className="w-3.5 h-3.5" />
@@ -509,19 +581,19 @@ export default function AgentsPage() {
                     <button
                       onClick={() => command(r.id, "run_now")}
                       disabled={busy === r.id || r.status === "blocked"}
-                      title="Exécuter maintenant"
+                      title={t("Exécuter maintenant", "Run now")}
                       className="p-2 rounded-lg border border-[#E7E7E4] text-[#6E6E6C] hover:border-[#C9BEF0] transition-colors disabled:opacity-50"
                     >
                       {busy === r.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
                     </button>
                     <button
                       onClick={() => {
-                        if (confirm(`Supprimer l'agent « ${r.title} » ? Son journal sera effacé.`)) {
+                        if (confirm(t(`Supprimer l'agent « ${r.title} » ? Son journal sera effacé.`, `Delete the agent “${r.title}”? Its log will be erased.`))) {
                           command(r.id, "delete");
                         }
                       }}
                       disabled={busy === r.id}
-                      title="Supprimer"
+                      title={t("Supprimer", "Delete")}
                       className="p-2 rounded-lg border border-[#E7E7E4] text-rose-500 hover:border-rose-300 transition-colors disabled:opacity-50"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -532,7 +604,7 @@ export default function AgentsPage() {
                 {r.status === "blocked" && r.blocked_reason && (
                   <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
                     <p className="text-[12.5px] text-amber-800">
-                      ⚠️ En attente : {r.blocked_reason}.
+                      {t(`⚠️ En attente : ${r.blocked_reason}.`, `⚠️ Waiting: ${r.blocked_reason}.`)}
                     </p>
                     {r.missing?.field === "email" && r.missing.id && (
                       <div className="flex items-center gap-2 mt-2">
@@ -542,7 +614,7 @@ export default function AgentsPage() {
                             type="email"
                             value={emailInputs[r.id] ?? ""}
                             onChange={(e) => setEmailInputs((p) => ({ ...p, [r.id]: e.target.value }))}
-                            placeholder={`Email de ${r.missing.name}`}
+                            placeholder={t(`Email de ${r.missing.name}`, `${r.missing.name}'s email`)}
                             className="w-full rounded-lg border border-[#E7E7E4] bg-white pl-9 pr-3 py-1.5 text-[12.5px] text-[#0A0A0A] placeholder:text-[#B9B9B6] focus:outline-none focus:border-[#C9BEF0]"
                           />
                         </div>
@@ -551,7 +623,7 @@ export default function AgentsPage() {
                           disabled={busy === r.id || !(emailInputs[r.id] ?? "").includes("@")}
                           className="rounded-full bg-[#0A0A0A] px-3.5 py-1.5 text-[12px] font-semibold text-white hover:opacity-90 transition-opacity disabled:opacity-40"
                         >
-                          Compléter et démarrer
+                          {t("Compléter et démarrer", "Complete and start")}
                         </button>
                       </div>
                     )}
@@ -561,7 +633,7 @@ export default function AgentsPage() {
                           value={contentInputs[r.id] ?? ""}
                           onChange={(e) => setContentInputs((p) => ({ ...p, [r.id]: e.target.value }))}
                           rows={2}
-                          placeholder="Quel message dois-je envoyer ? Ex : « demande-lui une photo du chantier »"
+                          placeholder={t("Quel message dois-je envoyer ? Ex : « demande-lui une photo du chantier »", "What message should I send? E.g. “ask them for a photo of the job site”")}
                           className="w-full rounded-lg border border-[#E7E7E4] bg-white px-3 py-2 text-[12.5px] text-[#0A0A0A] placeholder:text-[#B9B9B6] focus:outline-none focus:border-[#C9BEF0] resize-none"
                         />
                         <button
@@ -569,7 +641,7 @@ export default function AgentsPage() {
                           disabled={busy === r.id || (contentInputs[r.id] ?? "").trim().length < 3}
                           className="mt-2 rounded-full bg-[#0A0A0A] px-3.5 py-1.5 text-[12px] font-semibold text-white hover:opacity-90 transition-opacity disabled:opacity-40"
                         >
-                          Enregistrer et démarrer
+                          {t("Enregistrer et démarrer", "Save and start")}
                         </button>
                       </div>
                     )}
@@ -583,7 +655,7 @@ export default function AgentsPage() {
         {runs.length > 0 && (
           <div>
             <h2 className="text-[15px] font-bold text-[#0A0A0A] tracking-[-0.02em] mb-3 flex items-center gap-2">
-              <Clock className="w-4 h-4 text-[#6E6E6C]" /> Journal des passages
+              <Clock className="w-4 h-4 text-[#6E6E6C]" /> {t("Journal des passages", "Run log")}
             </h2>
             <div className="rounded-2xl border border-[#EDEDF2] bg-white divide-y divide-[#F4F4F2]">
               {runs.map((run) => {
@@ -597,8 +669,8 @@ export default function AgentsPage() {
                         {run.summary || run.error || run.status}
                       </p>
                       <p className="text-[11px] text-[#9A9A97] tabular-nums">
-                        {formatDate(run.created_at)}
-                        {(run.credits_used ?? 0) > 0 && <> · {run.credits_used} cr</>}
+                        {formatDate(run.created_at, locale)}
+                        {(run.credits_used ?? 0) > 0 && <> · {run.credits_used} {t("cr", "cr")}</>}
                       </p>
                     </div>
                   </div>

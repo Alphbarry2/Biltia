@@ -7,6 +7,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: SITE_URL, changeFrequency: "weekly", priority: 1 },
     { url: `${SITE_URL}/blog`, changeFrequency: "weekly", priority: 0.9 },
     { url: `${SITE_URL}/tarifs`, changeFrequency: "monthly", priority: 0.7 },
+    { url: `${SITE_URL}/connecteurs`, changeFrequency: "monthly", priority: 0.7 },
   ];
 
   const productPages: MetadataRoute.Sitemap = PRODUCTS.map((p) => ({

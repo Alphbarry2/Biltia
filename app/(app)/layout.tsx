@@ -12,6 +12,8 @@ import { BiltiaLogo } from "@/components/brand";
 import { CreditPacksDialog } from "@/components/credit-packs";
 import { ReferralClaim } from "@/components/referral-claim";
 import { ReferralDialog } from "@/components/referral-dialog";
+import { LanguageSwitcher } from "@/components/language-switcher";
+import { useT, useLocale } from "@/lib/i18n/context";
 import {
   Home,
   Boxes,
@@ -40,6 +42,8 @@ function Sidebar({
   collapsed?: boolean;
   onToggle?: () => void;
 }) {
+  const t = useT();
+  const locale = useLocale();
   const pathname = usePathname();
   const router = useRouter();
   const [credits, setCredits] = useState<number | null>(null);
@@ -92,19 +96,19 @@ function Sidebar({
   };
 
   const nav = [
-    { label: "Accueil", href: "/dashboard", icon: <Home className="w-4 h-4" /> },
-    { label: "Workspace", href: "/workspace", icon: <Boxes className="w-4 h-4" /> },
-    { label: "Bibliothèque", href: "/library", icon: <Library className="w-4 h-4" /> },
-    { label: "Agents", href: "/agents", icon: <Bot className="w-4 h-4" /> },
-    { label: "Connecteurs", href: "/connectors", icon: <Plug className="w-4 h-4" /> },
-    { label: "Activité", href: "/activity", icon: <Activity className="w-4 h-4" /> },
-    { label: "Paramètres", href: "/settings", icon: <Settings className="w-4 h-4" /> },
+    { label: t("Accueil", "Home"), href: "/dashboard", icon: <Home className="w-4 h-4" /> },
+    { label: t("Workspace", "Workspace"), href: "/workspace", icon: <Boxes className="w-4 h-4" /> },
+    { label: t("Bibliothèque", "Library"), href: "/library", icon: <Library className="w-4 h-4" /> },
+    { label: t("Agents", "Agents"), href: "/agents", icon: <Bot className="w-4 h-4" /> },
+    { label: t("Connecteurs", "Connectors"), href: "/connectors", icon: <Plug className="w-4 h-4" /> },
+    { label: t("Activité", "Activity"), href: "/activity", icon: <Activity className="w-4 h-4" /> },
+    { label: t("Paramètres", "Settings"), href: "/settings", icon: <Settings className="w-4 h-4" /> },
   ];
 
   const initial = (email || userName || "?")[0].toUpperCase();
 
   return (
-    <aside className={`flex flex-col h-full ${collapsed ? "w-[68px]" : "w-[240px]"} bg-[#FCFCFD] border-r border-[#EDEDE9] flex-shrink-0 transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]`}>
+    <aside className={`flex flex-col h-full pt-safe pb-safe ${collapsed ? "w-[68px]" : "w-[240px]"} bg-[#FCFCFD] border-r border-[#EDEDE9] flex-shrink-0 transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]`}>
       {/* Header */}
       <div className={`flex items-center h-[64px] border-b border-[#EDEDE9] flex-shrink-0 ${collapsed ? "justify-center px-0" : "justify-between px-4"}`}>
         {!collapsed && (
@@ -119,7 +123,7 @@ function Sidebar({
         ) : onToggle ? (
           <button
             onClick={onToggle}
-            title={collapsed ? "Déployer la barre" : "Réduire la barre"}
+            title={collapsed ? t("Déployer la barre", "Expand sidebar") : t("Réduire la barre", "Collapse sidebar")}
             className="w-8 h-8 rounded-lg hover:bg-black/[0.05] flex items-center justify-center text-[#6E6E6C] hover:text-[#0A0A0A] transition-colors"
           >
             {collapsed ? <PanelLeftOpen className="w-[18px] h-[18px]" /> : <PanelLeftClose className="w-[18px] h-[18px]" />}
@@ -166,7 +170,7 @@ function Sidebar({
           {collapsed ? (
             <Link
               href="/settings?section=billing"
-              title="Passer à Pro"
+              title={t("Passer à Pro", "Upgrade to Pro")}
               className="flex items-center justify-center py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 text-white shadow-[0_6px_16px_rgba(139,92,246,0.3)] transition-transform hover:scale-[1.03] active:scale-95"
             >
               <Sparkles className="w-4 h-4" />
@@ -176,7 +180,7 @@ function Sidebar({
               href="/settings?section=billing"
               className="flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 text-[13px] font-semibold text-white shadow-[0_8px_20px_rgba(139,92,246,0.32)] transition-transform hover:scale-[1.02] active:scale-[0.98]"
             >
-              <Sparkles className="w-3.5 h-3.5" /> Passer à Pro
+              <Sparkles className="w-3.5 h-3.5" /> {t("Passer à Pro", "Upgrade to Pro")}
             </Link>
           )}
         </div>
@@ -188,7 +192,7 @@ function Sidebar({
           <button
             type="button"
             onClick={() => setPacksOpen(true)}
-            title={credits !== null ? `${credits} crédits · Recharger` : "Recharger"}
+            title={credits !== null ? `${credits} ${t("crédits · Recharger", "credits · Top up")}` : t("Recharger", "Top up")}
             className="flex w-full items-center justify-center py-2.5 rounded-xl hover:bg-black/[0.04] transition-colors"
           >
             <Zap className="w-4 h-4 text-[#7C3AED]" />
@@ -199,9 +203,9 @@ function Sidebar({
               <Zap className="w-3.5 h-3.5 text-[#7C3AED] flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-xs text-[#0A0A0A] font-semibold tabular-nums">
-                  {credits !== null ? `${credits.toLocaleString("fr-FR")} crédits` : "…"}
+                  {credits !== null ? `${credits.toLocaleString(locale === "en" ? "en-US" : "fr-FR")} ${t("crédits", "credits")}` : "…"}
                 </p>
-                <p className="text-[10px] text-[#9A9A97]">Solde disponible</p>
+                <p className="text-[10px] text-[#9A9A97]">{t("Solde disponible", "Available balance")}</p>
               </div>
             </div>
             <button
@@ -209,7 +213,7 @@ function Sidebar({
               onClick={() => setPacksOpen(true)}
               className="flex w-full items-center justify-center gap-1.5 border-t border-[#EDEDE9] py-2 text-[12px] font-semibold text-[#7C3AED] transition-colors hover:bg-[#F7F4FD]"
             >
-              <Plus className="w-3.5 h-3.5" strokeWidth={2.5} /> Recharger
+              <Plus className="w-3.5 h-3.5" strokeWidth={2.5} /> {t("Recharger", "Top up")}
             </button>
           </div>
         )}
@@ -222,7 +226,7 @@ function Sidebar({
           <button
             type="button"
             onClick={() => setRefOpen(true)}
-            title="Parrainage — gagner des crédits"
+            title={t("Parrainage — gagner des crédits", "Referral — earn credits")}
             className="flex w-full items-center justify-center py-2.5 rounded-xl hover:bg-black/[0.04] transition-colors"
           >
             <Gift className="w-4 h-4 text-[#7C3AED]" />
@@ -233,11 +237,16 @@ function Sidebar({
             onClick={() => setRefOpen(true)}
             className="flex w-full items-center gap-2 rounded-xl border border-[#E7E7E4] bg-white px-3 py-2.5 text-[13px] font-semibold text-[#0A0A0A] transition-colors hover:bg-[#F7F4FD]"
           >
-            <Gift className="w-4 h-4 text-[#7C3AED]" /> Gagner des crédits
+            <Gift className="w-4 h-4 text-[#7C3AED]" /> {t("Gagner des crédits", "Earn credits")}
           </button>
         )}
       </div>
       <ReferralDialog open={refOpen} onClose={() => setRefOpen(false)} />
+
+      {/* Langue (FR / EN) — bascule tout le logiciel */}
+      <div className={`px-2.5 pb-3 ${collapsed ? "flex justify-center" : ""}`}>
+        <LanguageSwitcher variant={collapsed ? "ghost" : "sidebar"} className={collapsed ? "" : "w-full"} />
+      </div>
 
       {/* User */}
       <div className="px-2.5 pb-4 border-t border-[#EDEDE9] pt-3 flex-shrink-0">
@@ -251,7 +260,7 @@ function Sidebar({
               <button
                 onClick={handleLogout}
                 className="text-[#9A9A97] hover:text-[#0A0A0A] transition-colors"
-                title="Déconnexion"
+                title={t("Déconnexion", "Log out")}
               >
                 <LogOut className="w-3.5 h-3.5" />
               </button>
@@ -313,7 +322,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthGuard>
-      <div className="flex h-screen bg-[#FCFCFD] overflow-hidden">
+      <div className="flex h-dvh bg-[#FCFCFD] overflow-hidden">
         {/* Desktop sidebar (masquée sur /generate) */}
         {!isGenerate && (
           <div className="hidden md:flex flex-shrink-0">
@@ -336,7 +345,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           {/* Mobile header (masqué sur /generate) */}
           {!isGenerate && (
-            <div className="md:hidden flex items-center gap-3 px-4 h-14 border-b border-[#EDEDE9] bg-[#FCFCFD]/90 backdrop-blur-md flex-shrink-0 sticky top-0 z-30">
+            <div
+              className="md:hidden flex items-center gap-3 px-4 border-b border-[#EDEDE9] bg-[#FCFCFD]/90 backdrop-blur-md flex-shrink-0 sticky top-0 z-30"
+              style={{ height: "calc(3.5rem + var(--safe-top))", paddingTop: "var(--safe-top)" }}
+            >
               <button
                 onClick={() => setMobileOpen(true)}
                 className="w-9 h-9 -ml-1 rounded-[11px] bg-black/[0.05] hover:bg-black/[0.09] flex items-center justify-center text-[#0A0A0A] transition-colors"
@@ -351,7 +363,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
           <ReferralClaim />
           <SubscriptionBanner />
-          <main className="flex-1 overflow-auto">{children}</main>
+          {/* Réserve la zone « home indicator » en bas pour TOUTES les pages qui
+              défilent (le dernier bouton ne passe plus sous l'indicateur). /generate
+              gère ses propres barres → exclu. */}
+          <main className={`flex-1 overflow-auto ${isGenerate ? "" : "pb-safe"}`}>{children}</main>
         </div>
       </div>
     </AuthGuard>

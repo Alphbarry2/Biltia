@@ -9,6 +9,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { BiltiaLogo } from "@/components/brand";
 import { demoDb } from "@/lib/demo-server";
+import { getLocale } from "@/lib/i18n/server";
+import { pick, type Locale } from "@/lib/i18n/config";
 import ManageClient, { type ManageBooking, type Role } from "./manage-client";
 
 export const metadata: Metadata = {
@@ -29,13 +31,15 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function StateCard({ title, message }: { title: string; message: string }) {
+function StateCard({ title, message, locale }: { title: string; message: string; locale: Locale }) {
   return (
     <Shell>
       <div className="rounded-[22px] border border-[#ECECF2] bg-white p-8 text-center shadow-[0_10px_40px_rgba(60,40,120,0.08)]">
         <h1 className="text-[20px] font-black tracking-[-0.02em] text-[#0A0A0A]">{title}</h1>
         <p className="mt-2 text-[14px] leading-relaxed text-[#5B5B66]">{message}</p>
-        <Link href="/" className="mt-6 inline-block text-[13px] font-semibold text-[#7C3AED] hover:underline">Retour au site</Link>
+        <Link href="/" className="mt-6 inline-block text-[13px] font-semibold text-[#7C3AED] hover:underline">
+          {pick(locale, "Retour au site", "Back to the site")}
+        </Link>
       </div>
     </Shell>
   );
@@ -43,14 +47,27 @@ function StateCard({ title, message }: { title: string; message: string }) {
 
 export default async function ManagePage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
+  const locale = await getLocale();
 
   if (!UUID_RE.test(token)) {
-    return <StateCard title="Lien invalide" message="Ce lien de réservation n'est pas valide." />;
+    return (
+      <StateCard
+        locale={locale}
+        title={pick(locale, "Lien invalide", "Invalid link")}
+        message={pick(locale, "Ce lien de réservation n’est pas valide.", "This booking link is not valid.")}
+      />
+    );
   }
 
   const db = demoDb();
   if (!db) {
-    return <StateCard title="Service indisponible" message="La gestion des réservations est momentanément indisponible." />;
+    return (
+      <StateCard
+        locale={locale}
+        title={pick(locale, "Service indisponible", "Service unavailable")}
+        message={pick(locale, "La gestion des réservations est momentanément indisponible.", "Booking management is temporarily unavailable.")}
+      />
+    );
   }
 
   const { data } = await db
@@ -60,7 +77,13 @@ export default async function ManagePage({ params }: { params: Promise<{ token: 
     .maybeSingle();
 
   if (!data) {
-    return <StateCard title="Réservation introuvable" message="Cette réservation n'existe pas ou a été supprimée." />;
+    return (
+      <StateCard
+        locale={locale}
+        title={pick(locale, "Réservation introuvable", "Booking not found")}
+        message={pick(locale, "Cette réservation n’existe pas ou a été supprimée.", "This booking does not exist or has been deleted.")}
+      />
+    );
   }
 
   const role: Role = data.admin_token === token ? "owner" : "client";

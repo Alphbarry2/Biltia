@@ -6,9 +6,11 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase";
 import { OAuthButtons, OrDivider, AUTH_INPUT, AUTH_LABEL } from "@/components/auth";
 import { Turnstile, turnstileEnabled, type TurnstileHandle } from "@/components/turnstile";
+import { useT } from "@/lib/i18n/context";
 import { Eye, EyeOff, ArrowRight, Check, MailCheck, Gift } from "lucide-react";
 
 export default function SignupPage() {
+  const t = useT();
   const router = useRouter();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -57,11 +59,11 @@ export default function SignupPage() {
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullName.trim()) { setError("Indiquez votre nom pour personnaliser votre espace."); return; }
-    if (!passwordOk) { setError("Le mot de passe ne respecte pas encore les deux critères."); return; }
-    if (!passwordsMatch) { setError("Les deux mots de passe ne correspondent pas."); return; }
-    if (!acceptedTerms) { setError("Vous devez accepter les conditions pour créer un compte."); return; }
-    if (turnstileEnabled && !captchaToken) { setError("Confirmez que vous n'êtes pas un robot."); return; }
+    if (!fullName.trim()) { setError(t("Indiquez votre nom pour personnaliser votre espace.", "Enter your name to personalize your workspace.")); return; }
+    if (!passwordOk) { setError(t("Le mot de passe ne respecte pas encore les deux critères.", "The password doesn't meet both requirements yet.")); return; }
+    if (!passwordsMatch) { setError(t("Les deux mots de passe ne correspondent pas.", "The two passwords don't match.")); return; }
+    if (!acceptedTerms) { setError(t("Vous devez accepter les conditions pour créer un compte.", "You must accept the terms to create an account.")); return; }
+    if (turnstileEnabled && !captchaToken) { setError(t("Confirmez que vous n'êtes pas un robot.", "Please confirm you're not a robot.")); return; }
     setLoading(true);
     setError("");
 
@@ -97,7 +99,7 @@ export default function SignupPage() {
     if (signUpError) {
       setError(
         signUpError.message.includes("already registered")
-          ? "Cet email a déjà un compte. Connectez-vous."
+          ? t("Cet email a déjà un compte. Connectez-vous.", "This email already has an account. Please sign in.")
           : signUpError.message
       );
       turnstileRef.current?.reset();
@@ -122,10 +124,10 @@ export default function SignupPage() {
         <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-pink-500">
           <MailCheck className="h-6 w-6 text-white" />
         </div>
-        <h1 className="mb-2 text-[24px] font-black tracking-[-0.02em] text-[#0A0A0A]">Vérifiez vos emails.</h1>
+        <h1 className="mb-2 text-[24px] font-black tracking-[-0.02em] text-[#0A0A0A]">{t("Vérifiez vos emails.", "Check your email.")}</h1>
         <p className="text-sm leading-relaxed text-[#6E6E6C]">
-          Un lien de confirmation vient de partir vers <span className="font-semibold text-[#0A0A0A]">{email}</span>.
-          Cliquez dessus pour activer vos 300 crédits offerts{invited ? " et vos 200 crédits bonus d'invitation" : ""}.
+          {t("Un lien de confirmation vient de partir vers ", "A confirmation link was just sent to ")}<span className="font-semibold text-[#0A0A0A]">{email}</span>.
+          {t(" Cliquez dessus pour activer vos 300 crédits offerts", " Click it to activate your 300 free credits")}{invited ? t(" et vos 200 crédits bonus d'invitation", " and your 200 bonus invite credits") : ""}.
         </p>
       </div>
     );
@@ -139,45 +141,45 @@ export default function SignupPage() {
             <Gift className="h-4 w-4" />
           </span>
           <p className="text-[13px] leading-snug text-[#4A4A56]">
-            <b className="font-semibold text-[#0A0A0A]">Vous avez été invité sur Biltia.</b> Créez votre compte et recevez{" "}
-            <b className="font-semibold text-[#7C3AED]">200 crédits bonus</b>, en plus de vos 300 crédits offerts.
+            <b className="font-semibold text-[#0A0A0A]">{t("Vous avez été invité sur Biltia.", "You've been invited to Biltia.")}</b> {t("Créez votre compte et recevez", "Create your account and get")}{" "}
+            <b className="font-semibold text-[#7C3AED]">{t("200 crédits bonus", "200 bonus credits")}</b>{t(", en plus de vos 300 crédits offerts.", ", on top of your 300 free credits.")}
           </p>
         </div>
       )}
-      <h1 className="mb-1.5 text-[28px] font-black tracking-[-0.03em] text-[#0A0A0A]">Créez votre compte.</h1>
-      <p className="mb-7 text-sm text-[#6E6E6C]">300 crédits offerts. Sans carte bancaire.</p>
+      <h1 className="mb-1.5 text-[28px] font-black tracking-[-0.03em] text-[#0A0A0A]">{t("Créez votre compte.", "Create your account.")}</h1>
+      <p className="mb-7 text-sm text-[#6E6E6C]">{t("300 crédits offerts. Sans carte bancaire.", "300 free credits. No credit card.")}</p>
 
       <OAuthButtons next="/onboarding" onError={setError} disabled={!acceptedTerms} />
       <OrDivider />
 
       <form onSubmit={handleSignup} className="space-y-4">
         <div>
-          <label htmlFor="signup-name" className={AUTH_LABEL}>Votre nom</label>
+          <label htmlFor="signup-name" className={AUTH_LABEL}>{t("Votre nom", "Your name")}</label>
           <input id="signup-name" type="text" value={fullName} onChange={(e) => setFullName(e.target.value)}
             placeholder="Alpha Barry" required autoComplete="name" className={AUTH_INPUT} />
         </div>
 
         <div>
-          <label htmlFor="signup-email" className={AUTH_LABEL}>Adresse email</label>
+          <label htmlFor="signup-email" className={AUTH_LABEL}>{t("Adresse email", "Email address")}</label>
           <input id="signup-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-            placeholder="vous@entreprise.fr" required autoComplete="email" className={AUTH_INPUT} />
+            placeholder={t("vous@entreprise.fr", "you@company.com")} required autoComplete="email" className={AUTH_INPUT} />
         </div>
 
         <div>
-          <label htmlFor="signup-password" className={AUTH_LABEL}>Mot de passe</label>
+          <label htmlFor="signup-password" className={AUTH_LABEL}>{t("Mot de passe", "Password")}</label>
           <div className="relative">
             <input id="signup-password" type={showPassword ? "text" : "password"} value={password}
-              onChange={(e) => setPassword(e.target.value)} placeholder="Votre mot de passe" required
+              onChange={(e) => setPassword(e.target.value)} placeholder={t("Votre mot de passe", "Your password")} required
               autoComplete="new-password" className={`${AUTH_INPUT} pr-12`} />
             <button type="button" onClick={() => setShowPassword(!showPassword)}
-              aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9A9AA6] transition-colors hover:text-[#0A0A0A]">
+              aria-label={showPassword ? t("Masquer le mot de passe", "Hide password") : t("Afficher le mot de passe", "Show password")}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 grid h-9 w-9 place-items-center rounded-lg text-[#9A9AA6] transition-colors hover:bg-black/[0.05] hover:text-[#0A0A0A]">
               {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
           </div>
           {password.length > 0 && !passwordOk && (
             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-              {[{ ok: hasLength, t: "Au moins 8 caractères" }, { ok: hasDigit, t: "Un chiffre (0-9)" }].map((c) => (
+              {[{ ok: hasLength, t: t("Au moins 8 caractères", "At least 8 characters") }, { ok: hasDigit, t: t("Un chiffre (0-9)", "A digit (0-9)") }].map((c) => (
                 <span key={c.t} className={`flex items-center gap-1.5 text-[12px] transition-colors ${c.ok ? "font-semibold text-emerald-600" : "text-[#9A9AA6]"}`}>
                   <span className={`grid h-3.5 w-3.5 place-items-center rounded-full ${c.ok ? "bg-emerald-500" : "bg-[#E7E7E4]"}`}>
                     <Check className="h-2 w-2 text-white" strokeWidth={4} />
@@ -190,12 +192,12 @@ export default function SignupPage() {
         </div>
 
         <div>
-          <label htmlFor="signup-confirm" className={AUTH_LABEL}>Confirmez le mot de passe</label>
+          <label htmlFor="signup-confirm" className={AUTH_LABEL}>{t("Confirmez le mot de passe", "Confirm password")}</label>
           <input id="signup-confirm" type={showPassword ? "text" : "password"} value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Ressaisissez le mot de passe" required
+            onChange={(e) => setConfirmPassword(e.target.value)} placeholder={t("Ressaisissez le mot de passe", "Re-enter your password")} required
             autoComplete="new-password" className={AUTH_INPUT} />
           {confirmPassword.length > 0 && !passwordsMatch && (
-            <p className="mt-2 text-[12px] font-medium text-rose-500">Les deux mots de passe ne correspondent pas.</p>
+            <p className="mt-2 text-[12px] font-medium text-rose-500">{t("Les deux mots de passe ne correspondent pas.", "The two passwords don't match.")}</p>
           )}
         </div>
 
@@ -209,11 +211,11 @@ export default function SignupPage() {
             <Check className="pointer-events-none absolute h-3 w-3 text-white opacity-0 transition-opacity peer-checked:opacity-100" strokeWidth={4} />
           </span>
           <span className="text-xs leading-relaxed text-[#6E6E6C]">
-            J&apos;ai lu et j&apos;accepte les{" "}
-            <a href="/mentions-legales" target="_blank" rel="noopener noreferrer" className="font-semibold text-[#7C3AED] underline-offset-2 hover:underline">mentions légales</a>,{" "}
-            les <a href="/cgu" target="_blank" rel="noopener noreferrer" className="font-semibold text-[#7C3AED] underline-offset-2 hover:underline">CGU</a>,{" "}
-            les <a href="/cgv" target="_blank" rel="noopener noreferrer" className="font-semibold text-[#7C3AED] underline-offset-2 hover:underline">CGV</a> et la{" "}
-            <a href="/confidentialite" target="_blank" rel="noopener noreferrer" className="font-semibold text-[#7C3AED] underline-offset-2 hover:underline">politique de confidentialité</a>.
+            {t("J'ai lu et j'accepte les", "I have read and accept the")}{" "}
+            <a href="/mentions-legales" target="_blank" rel="noopener noreferrer" className="font-semibold text-[#7C3AED] underline-offset-2 hover:underline">{t("mentions légales", "legal notice")}</a>,{" "}
+            {t("les", "the")} <a href="/cgu" target="_blank" rel="noopener noreferrer" className="font-semibold text-[#7C3AED] underline-offset-2 hover:underline">{t("CGU", "Terms of Use")}</a>,{" "}
+            {t("les", "the")} <a href="/cgv" target="_blank" rel="noopener noreferrer" className="font-semibold text-[#7C3AED] underline-offset-2 hover:underline">{t("CGV", "Sales Terms")}</a> {t("et la", "and the")}{" "}
+            <a href="/confidentialite" target="_blank" rel="noopener noreferrer" className="font-semibold text-[#7C3AED] underline-offset-2 hover:underline">{t("politique de confidentialité", "privacy policy")}</a>.
           </span>
         </label>
 
@@ -230,14 +232,14 @@ export default function SignupPage() {
           {loading ? (
             <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
           ) : (
-            <>Créer mon compte <ArrowRight className="h-4 w-4" /></>
+            <>{t("Créer mon compte", "Create my account")} <ArrowRight className="h-4 w-4" /></>
           )}
         </button>
       </form>
 
       <p className="mt-5 text-center text-sm text-[#6E6E6C]">
-        Déjà un compte ?{" "}
-        <Link href="/login" className="font-semibold text-[#7C3AED] transition-colors hover:text-[#0A0A0A]">Se connecter</Link>
+        {t("Déjà un compte ?", "Already have an account?")}{" "}
+        <Link href="/login" className="font-semibold text-[#7C3AED] transition-colors hover:text-[#0A0A0A]">{t("Se connecter", "Sign in")}</Link>
       </p>
     </div>
   );

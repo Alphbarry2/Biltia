@@ -6,6 +6,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase";
 import { OAuthButtons, OrDivider, AUTH_INPUT, AUTH_LABEL } from "@/components/auth";
 import { Turnstile, turnstileEnabled, type TurnstileHandle } from "@/components/turnstile";
+import { useT } from "@/lib/i18n/context";
 import { Eye, EyeOff, ArrowRight } from "lucide-react";
 
 // useSearchParams impose une frontière Suspense au prérendu (Next 15).
@@ -18,6 +19,7 @@ export default function LoginPage() {
 }
 
 function LoginForm() {
+  const t = useT();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
@@ -34,13 +36,13 @@ function LoginForm() {
 
   useEffect(() => {
     if (searchParams.get("error") === "oauth") {
-      setError("La connexion a échoué. Réessayez, ou utilisez votre email.");
+      setError(t("La connexion a échoué. Réessayez, ou utilisez votre email.", "Sign-in failed. Try again, or use your email."));
     }
-  }, [searchParams]);
+  }, [searchParams, t]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (turnstileEnabled && !captchaToken) { setError("Confirmez que vous n'êtes pas un robot."); return; }
+    if (turnstileEnabled && !captchaToken) { setError(t("Confirmez que vous n'êtes pas un robot.", "Please confirm you're not a robot.")); return; }
     setLoading(true);
     setError("");
 
@@ -52,7 +54,7 @@ function LoginForm() {
     });
 
     if (error) {
-      setError("Email ou mot de passe incorrect.");
+      setError(t("Email ou mot de passe incorrect.", "Incorrect email or password."));
       turnstileRef.current?.reset();
       setLoading(false);
     } else {
@@ -83,7 +85,7 @@ function LoginForm() {
       code: mfaCode,
     });
     if (error) {
-      setError("Code invalide. Réessayez.");
+      setError(t("Code invalide. Réessayez.", "Invalid code. Try again."));
       setLoading(false);
     } else {
       router.push("/dashboard");
@@ -94,13 +96,13 @@ function LoginForm() {
   const forgotPassword = async () => {
     setError("");
     if (!email.trim()) {
-      setError("Entrez d'abord votre adresse email, puis recliquez sur « Mot de passe oublié ? ».");
+      setError(t("Entrez d'abord votre adresse email, puis recliquez sur « Mot de passe oublié ? ».", "Enter your email first, then click “Forgot password?” again."));
       return;
     }
     // Turnstile : la demande de reset est aussi protégée côté Supabase quand le
     // CAPTCHA est activé — sans token, elle serait rejetée en silence.
     if (turnstileEnabled && !captchaToken) {
-      setError("Confirmez que vous n'êtes pas un robot, puis recliquez sur « Mot de passe oublié ? ».");
+      setError(t("Confirmez que vous n'êtes pas un robot, puis recliquez sur « Mot de passe oublié ? ».", "Confirm you're not a robot, then click “Forgot password?” again."));
       return;
     }
     const supabase = createClient();
@@ -119,8 +121,8 @@ function LoginForm() {
   if (mfaFactorId) {
     return (
       <div className="animate-fade-in-up">
-        <h1 className="mb-1.5 text-[28px] font-black tracking-[-0.03em] text-[#0A0A0A]">Code de vérification.</h1>
-        <p className="mb-7 text-sm text-[#6E6E6C]">Ouvrez votre application d&apos;authentification et saisissez le code à 6 chiffres.</p>
+        <h1 className="mb-1.5 text-[28px] font-black tracking-[-0.03em] text-[#0A0A0A]">{t("Code de vérification.", "Verification code.")}</h1>
+        <p className="mb-7 text-sm text-[#6E6E6C]">{t("Ouvrez votre application d'authentification et saisissez le code à 6 chiffres.", "Open your authenticator app and enter the 6-digit code.")}</p>
         <form onSubmit={verifyMfa} className="space-y-4">
           <input
             value={mfaCode}
@@ -138,7 +140,7 @@ function LoginForm() {
             {loading ? (
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
             ) : (
-              <>Vérifier <ArrowRight className="h-4 w-4" /></>
+              <>{t("Vérifier", "Verify")} <ArrowRight className="h-4 w-4" /></>
             )}
           </button>
         </form>
@@ -148,30 +150,30 @@ function LoginForm() {
 
   return (
     <div className="animate-fade-in-up">
-      <h1 className="mb-1.5 text-[28px] font-black tracking-[-0.03em] text-[#0A0A0A]">Bon retour.</h1>
-      <p className="mb-7 text-sm text-[#6E6E6C]">Accédez à votre workspace.</p>
+      <h1 className="mb-1.5 text-[28px] font-black tracking-[-0.03em] text-[#0A0A0A]">{t("Bon retour.", "Welcome back.")}</h1>
+      <p className="mb-7 text-sm text-[#6E6E6C]">{t("Accédez à votre workspace.", "Access your workspace.")}</p>
 
       <OAuthButtons next="/dashboard" onError={setError} />
       <OrDivider />
 
       <form onSubmit={handleLogin} className="space-y-4">
         <div>
-          <label htmlFor="login-email" className={AUTH_LABEL}>Adresse email</label>
+          <label htmlFor="login-email" className={AUTH_LABEL}>{t("Adresse email", "Email address")}</label>
           <input id="login-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-            placeholder="vous@entreprise.fr" required autoComplete="email" className={AUTH_INPUT} />
+            placeholder={t("vous@entreprise.fr", "you@company.com")} required autoComplete="email" className={AUTH_INPUT} />
         </div>
 
         <div>
           <div className="flex items-baseline justify-between">
-            <label htmlFor="login-password" className={AUTH_LABEL}>Mot de passe</label>
+            <label htmlFor="login-password" className={AUTH_LABEL}>{t("Mot de passe", "Password")}</label>
             <button type="button" onClick={forgotPassword}
               className="mb-1.5 text-[12px] font-medium text-[#9A9AA6] transition-colors hover:text-[#7C3AED]">
-              Mot de passe oublié ?
+              {t("Mot de passe oublié ?", "Forgot password?")}
             </button>
           </div>
           {resetSent && (
             <p className="mb-2 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-[12.5px] text-emerald-700">
-              Lien de réinitialisation envoyé à {email}. Vérifiez votre boîte mail.
+              {t(`Lien de réinitialisation envoyé à ${email}. Vérifiez votre boîte mail.`, `Reset link sent to ${email}. Check your inbox.`)}
             </p>
           )}
           <div className="relative">
@@ -179,8 +181,8 @@ function LoginForm() {
               onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required
               autoComplete="current-password" className={`${AUTH_INPUT} pr-12`} />
             <button type="button" onClick={() => setShowPassword(!showPassword)}
-              aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9A9AA6] transition-colors hover:text-[#0A0A0A]">
+              aria-label={showPassword ? t("Masquer le mot de passe", "Hide password") : t("Afficher le mot de passe", "Show password")}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 grid h-9 w-9 place-items-center rounded-lg text-[#9A9AA6] transition-colors hover:bg-black/[0.05] hover:text-[#0A0A0A]">
               {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
           </div>
@@ -197,14 +199,14 @@ function LoginForm() {
           {loading ? (
             <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
           ) : (
-            <>Se connecter <ArrowRight className="h-4 w-4" /></>
+            <>{t("Se connecter", "Sign in")} <ArrowRight className="h-4 w-4" /></>
           )}
         </button>
       </form>
 
       <p className="mt-6 text-center text-sm text-[#6E6E6C]">
-        Pas encore de compte ?{" "}
-        <Link href="/signup" className="font-semibold text-[#7C3AED] transition-colors hover:text-[#0A0A0A]">Créer un compte</Link>
+        {t("Pas encore de compte ?", "No account yet?")}{" "}
+        <Link href="/signup" className="font-semibold text-[#7C3AED] transition-colors hover:text-[#0A0A0A]">{t("Créer un compte", "Create an account")}</Link>
       </p>
     </div>
   );

@@ -2,6 +2,8 @@ import { createClient } from "@/lib/supabase-server";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
 import { getFlagshipApp, renderFlagshipHtml } from "@/lib/flagship-apps";
 import { injectBiltiaSDK } from "@/lib/biltia-sdk";
+import { getLocale } from "@/lib/i18n/server";
+import { pick } from "@/lib/i18n/config";
 
 // Aperçu LIVE (authentifié, DANS l'atelier) d'une app phare.
 //
@@ -16,12 +18,15 @@ export const dynamic = "force-dynamic";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const locale = await getLocale();
 
   const app = getFlagshipApp(id);
-  if (!app || !app.ready) return new Response("Modèle introuvable.", { status: 404 });
+  if (!app || !app.ready) {
+    return new Response(pick(locale, "Modèle introuvable.", "Template not found."), { status: 404 });
+  }
 
   // Nom d'entreprise réel pour l'en-tête (best-effort ; défaut neutre sinon).
-  let entreprise = "Mon entreprise";
+  let entreprise = pick(locale, "Mon entreprise", "My company");
   try {
     const supabase = await createClient();
     const {
@@ -42,7 +47,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     // pas de session lisible → on garde le nom par défaut, l'app reste vide.
   }
 
-  const html = injectBiltiaSDK(renderFlagshipHtml(app, entreprise));
+  const html = injectBiltiaSDK(renderFlagshipHtml(app, entreprise, locale));
   return new Response(html, {
     status: 200,
     headers: {

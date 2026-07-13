@@ -23,6 +23,8 @@ import {
   AppWindow as AppLinkIcon,
 } from "lucide-react";
 import type { ChatMessage } from "@/lib/conversations";
+import { useT, useLocale } from "@/lib/i18n/context";
+import type { Locale } from "@/lib/i18n/config";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Bibliothèque — « Mes créations ». Tout ce que Biltia a produit.
@@ -47,26 +49,39 @@ type ReportListItem = {
   created_at: string;
 };
 
-function formatRelative(iso: string | null) {
+function formatRelative(iso: string | null, t: (fr: string, en: string) => string, locale: Locale) {
   if (!iso) return "-";
   const diff = Date.now() - new Date(iso).getTime();
   const d = Math.floor(diff / 86400000);
-  if (d === 0) return "Aujourd'hui";
-  if (d === 1) return "Hier";
-  if (d < 7) return `Il y a ${d} jours`;
-  return new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+  if (d === 0) return t("Aujourd'hui", "Today");
+  if (d === 1) return t("Hier", "Yesterday");
+  if (d < 7) return t(`Il y a ${d} jours`, `${d} days ago`);
+  return new Date(iso).toLocaleDateString(locale === "en" ? "en-US" : "fr-FR", { day: "numeric", month: "short" });
 }
 
 const FILTERS = [
-  { key: "apps", label: "Applications", icon: AppWindow, live: true },
-  { key: "chats", label: "Conversations", icon: MessageCircle, live: true },
-  { key: "docs", label: "Documents PDF", icon: FileText, live: true },
-  { key: "reports", label: "Rapports", icon: BarChart3, live: true },
-  { key: "automations", label: "Automatisations", icon: GitBranch, live: true },
+  { key: "apps", icon: AppWindow, live: true },
+  { key: "chats", icon: MessageCircle, live: true },
+  { key: "docs", icon: FileText, live: true },
+  { key: "reports", icon: BarChart3, live: true },
+  { key: "automations", icon: GitBranch, live: true },
 ] as const;
+
+function filterLabel(t: (fr: string, en: string) => string, key: string): string {
+  switch (key) {
+    case "apps": return t("Applications", "Apps");
+    case "chats": return t("Conversations", "Conversations");
+    case "docs": return t("Documents PDF", "PDF documents");
+    case "reports": return t("Rapports", "Reports");
+    case "automations": return t("Automatisations", "Automations");
+    default: return key;
+  }
+}
 
 // Ligne de rapport (analyse de document ou contrôle par lot).
 function ReportRowCard({ report, onDelete }: { report: ReportListItem; onDelete: () => void }) {
+  const t = useT();
+  const locale = useLocale();
   const router = useRouter();
   const isControle = report.type === "controle";
   const Icon = isControle ? GitBranch : BarChart3;
@@ -81,14 +96,14 @@ function ReportRowCard({ report, onDelete }: { report: ReportListItem; onDelete:
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold text-[#0A0A0A]">{report.title}</p>
         <p className="mt-0.5 text-[12px] text-[#9A9A97]">
-          {isControle ? "Contrôle par lot" : "Analyse de document"} · {report.file_count} fichier(s) · {formatRelative(report.created_at)}
+          {isControle ? t("Contrôle par lot", "Batch check") : t("Analyse de document", "Document analysis")} · {t(`${report.file_count} fichier(s)`, `${report.file_count} file(s)`)} · {formatRelative(report.created_at, t, locale)}
         </p>
       </div>
       <div className="flex flex-shrink-0 items-center gap-3">
         <button
           onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          aria-label="Supprimer le rapport"
-          className="rounded-lg p-1.5 text-[#9A9A97] opacity-0 transition-all hover:bg-rose-50 hover:text-rose-600 group-hover:opacity-100"
+          aria-label={t("Supprimer le rapport", "Delete report")}
+          className="rounded-lg p-2 text-[#9A9A97] opacity-0 transition-all hover:bg-rose-50 hover:text-rose-600 group-hover:opacity-100 show-touch"
         >
           <Trash2 className="h-4 w-4" />
         </button>
@@ -108,6 +123,8 @@ type Conversation = {
 
 // Ligne de conversation : titre, dernier échange, nombre de messages, réouverture.
 function ConversationRowCard({ conv, onDelete }: { conv: Conversation; onDelete: () => void }) {
+  const t = useT();
+  const locale = useLocale();
   const router = useRouter();
   const last = conv.messages[conv.messages.length - 1];
   const snippet = (last?.content ?? "").replace(/[#*`>]/g, "").split("\n")[0];
@@ -122,21 +139,21 @@ function ConversationRowCard({ conv, onDelete }: { conv: Conversation; onDelete:
       </span>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold text-[#0A0A0A]">{conv.title}</p>
-        <p className="mt-0.5 truncate text-[12px] text-[#9A9A97]">{snippet || "Conversation vide"}</p>
+        <p className="mt-0.5 truncate text-[12px] text-[#9A9A97]">{snippet || t("Conversation vide", "Empty conversation")}</p>
       </div>
       <div className="flex flex-shrink-0 items-center gap-3">
         {conv.app_id && (
           <span className="hidden sm:inline-flex items-center gap-1 rounded-full border border-[#E2D9F8] bg-[#F3EFFC] px-2 py-0.5 text-[10.5px] font-semibold text-[#7C3AED]">
-            <AppLinkIcon className="h-3 w-3" /> App liée
+            <AppLinkIcon className="h-3 w-3" /> {t("App liée", "Linked app")}
           </span>
         )}
         <span className="hidden text-[11px] tabular-nums text-[#9A9A97] sm:block">
-          {conv.messages.length} msg · {formatRelative(conv.updated_at)}
+          {t(`${conv.messages.length} msg`, `${conv.messages.length} msg`)} · {formatRelative(conv.updated_at, t, locale)}
         </span>
         <button
           onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          aria-label="Supprimer la conversation"
-          className="rounded-lg p-1.5 text-[#9A9A97] opacity-0 transition-all hover:bg-rose-50 hover:text-rose-600 group-hover:opacity-100"
+          aria-label={t("Supprimer la conversation", "Delete conversation")}
+          className="rounded-lg p-2 text-[#9A9A97] opacity-0 transition-all hover:bg-rose-50 hover:text-rose-600 group-hover:opacity-100 show-touch"
         >
           <Trash2 className="h-4 w-4" />
         </button>
@@ -147,6 +164,8 @@ function ConversationRowCard({ conv, onDelete }: { conv: Conversation; onDelete:
 }
 
 function AppCard({ app, index, onDelete }: { app: App; index: number; onDelete: () => void }) {
+  const t = useT();
+  const locale = useLocale();
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -192,7 +211,7 @@ function AppCard({ app, index, onDelete }: { app: App; index: number; onDelete: 
         <div className={`absolute inset-0 bg-[#0A0A0A]/55 flex items-center justify-center gap-3 transition-opacity duration-300 ${hovered ? "opacity-100" : "opacity-0"}`}>
           <span className="flex items-center gap-1.5 px-3 py-1.5 bg-white/15 backdrop-blur-sm border border-white/20 text-white text-xs font-medium rounded-full">
             <ArrowUpRight className="w-3.5 h-3.5" />
-            Ouvrir
+            {t("Ouvrir", "Open")}
           </span>
           <Link
             href={`/generate?edit=${app.id}`}
@@ -200,7 +219,7 @@ function AppCard({ app, index, onDelete }: { app: App; index: number; onDelete: 
             className="flex items-center gap-1.5 px-3 py-1.5 bg-white/15 backdrop-blur-sm border border-white/20 text-white text-xs font-medium rounded-full hover:bg-white/25 transition-colors"
           >
             <Pencil className="w-3.5 h-3.5" />
-            Modifier
+            {t("Modifier", "Edit")}
           </Link>
         </div>
       </div>
@@ -210,27 +229,38 @@ function AppCard({ app, index, onDelete }: { app: App; index: number; onDelete: 
           <h3 className="text-sm font-semibold text-[#0A0A0A] truncate">{app.name}</h3>
           <div className="flex items-center gap-1 mt-0.5">
             <Clock className="w-3 h-3 text-[#9A9A97] flex-shrink-0" />
-            <p className="text-[11px] text-[#9A9A97]">{formatRelative(app.updated_at)}</p>
+            <p className="text-[11px] text-[#9A9A97]">{formatRelative(app.updated_at, t, locale)}</p>
           </div>
         </div>
 
         <div className="relative flex-shrink-0">
           <button
             onClick={(e) => { e.preventDefault(); setMenuOpen(!menuOpen); }}
-            className="p-1.5 text-[#9A9A97] hover:text-[#0A0A0A] rounded-lg hover:bg-black/[0.04] transition-colors opacity-0 group-hover:opacity-100"
+            aria-label={t("Options", "Options")}
+            className="p-2 text-[#9A9A97] hover:text-[#0A0A0A] rounded-lg hover:bg-black/[0.04] transition-colors opacity-0 group-hover:opacity-100 show-touch"
           >
             <MoreHorizontal className="w-4 h-4" />
           </button>
           {menuOpen && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-              <div className="absolute bottom-full right-0 mb-1 z-20 bg-white border border-[#E7E7E4] rounded-xl shadow-[0_8px_28px_rgba(0,0,0,0.1)] py-1 w-36">
+              <div className="absolute bottom-full right-0 mb-1 z-20 bg-white border border-[#E7E7E4] rounded-xl shadow-[0_8px_28px_rgba(0,0,0,0.1)] py-1 w-40">
+                {/* « Modifier » n'existait que dans l'overlay au survol (invisible au
+                    doigt) → on le remet dans le menu, accessible sur tactile. */}
+                <Link
+                  href={`/generate?edit=${app.id}`}
+                  onClick={() => setMenuOpen(false)}
+                  className="flex items-center gap-2 w-full px-3 py-2.5 text-xs text-[#0A0A0A] hover:bg-black/[0.04] transition-colors"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  {t("Modifier", "Edit")}
+                </Link>
                 <button
                   onClick={() => { onDelete(); setMenuOpen(false); }}
-                  className="flex items-center gap-2 w-full px-3 py-2 text-xs text-[#D95C4A] hover:bg-[#fdf2f0] transition-colors"
+                  className="flex items-center gap-2 w-full px-3 py-2.5 text-xs text-[#D95C4A] hover:bg-[#fdf2f0] transition-colors"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
-                  Supprimer
+                  {t("Supprimer", "Delete")}
                 </button>
               </div>
             </>
@@ -256,6 +286,7 @@ function SkeletonCard() {
 }
 
 export default function LibraryPage() {
+  const t = useT();
   const [apps, setApps] = useState<App[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [reports, setReports] = useState<ReportListItem[]>([]);
@@ -308,21 +339,21 @@ export default function LibraryPage() {
   useEffect(() => { fetchApps(); }, []);
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Supprimer cette création ?")) return;
+    if (!confirm(t("Supprimer cette création ?", "Delete this creation?"))) return;
     const supabase = createClient();
     await supabase.from("modules").update({ status: "archived" }).eq("id", id);
     setApps((prev) => prev.filter((a) => a.id !== id));
   };
 
   const handleDeleteConv = async (id: string) => {
-    if (!confirm("Supprimer cette conversation ?")) return;
+    if (!confirm(t("Supprimer cette conversation ?", "Delete this conversation?"))) return;
     const supabase = createClient();
     await supabase.from("conversations").delete().eq("id", id);
     setConversations((prev) => prev.filter((c) => c.id !== id));
   };
 
   const handleDeleteReport = async (id: string) => {
-    if (!confirm("Supprimer ce rapport ?")) return;
+    if (!confirm(t("Supprimer ce rapport ?", "Delete this report?"))) return;
     const supabase = createClient();
     await supabase.from("reports").delete().eq("id", id);
     setReports((prev) => prev.filter((r) => r.id !== id));
@@ -349,14 +380,14 @@ export default function LibraryPage() {
           <span className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500/15 to-pink-500/10 flex items-center justify-center flex-shrink-0">
             <Library className="w-5 h-5 text-violet-600" />
           </span>
-          <h1 className="text-xl sm:text-2xl font-black text-[#0A0A0A] tracking-[-0.03em]">Bibliothèque</h1>
+          <h1 className="text-xl sm:text-2xl font-black text-[#0A0A0A] tracking-[-0.03em]">{t("Bibliothèque", "Library")}</h1>
         </div>
-        <p className="text-[14px] text-[#6E6E6C] mb-6 ml-0 sm:ml-12">Tout ce que Biltia a créé pour vous.</p>
+        <p className="text-[14px] text-[#6E6E6C] mb-6 ml-0 sm:ml-12">{t("Tout ce que Biltia a créé pour vous.", "Everything Biltia has created for you.")}</p>
 
         {/* Filtres + recherche */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
           <div className="flex flex-wrap items-center gap-2">
-            {FILTERS.map(({ key, label, icon: Icon, live }) => (
+            {FILTERS.map(({ key, icon: Icon, live }) => (
               <button
                 key={key}
                 onClick={() => setFilter(key)}
@@ -369,7 +400,7 @@ export default function LibraryPage() {
                 }`}
               >
                 <Icon className="w-3.5 h-3.5" />
-                {label}
+                {filterLabel(t, key)}
               </button>
             ))}
           </div>
@@ -380,7 +411,7 @@ export default function LibraryPage() {
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder={filter === "chats" ? "Rechercher une conversation…" : "Rechercher une création…"}
+                placeholder={filter === "chats" ? t("Rechercher une conversation…", "Search a conversation…") : t("Rechercher une création…", "Search a creation…")}
                 className="w-full pl-10 pr-4 py-2.5 rounded-full border border-[#E7E7EE] bg-white text-[13px] text-[#0A0A0A] placeholder-[#9A9AA6] focus:outline-none focus:border-violet-400 transition-colors"
               />
             </div>
@@ -400,16 +431,16 @@ export default function LibraryPage() {
               <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl border border-[#E7E7EE] bg-[#FAFAFC]">
                 <MessageCircle className="h-7 w-7 text-violet-600" strokeWidth={1.5} />
               </div>
-              <h3 className="mb-2 text-lg font-bold tracking-[-0.01em] text-[#0A0A0A]">Aucune conversation</h3>
+              <h3 className="mb-2 text-lg font-bold tracking-[-0.01em] text-[#0A0A0A]">{t("Aucune conversation", "No conversation")}</h3>
               <p className="mb-6 max-w-xs text-sm leading-relaxed text-[#6E6E6C]">
-                Chaque session de chat de l&apos;atelier est enregistrée ici automatiquement, et se rouvre d&apos;un clic.
+                {t("Chaque session de chat de l'atelier est enregistrée ici automatiquement, et se rouvre d'un clic.", "Every chat session in the workshop is saved here automatically, and reopens in one click.")}
               </p>
               <Link href="/generate" className="text-[13px] font-semibold text-violet-600 transition-opacity hover:opacity-80">
-                Démarrer une conversation
+                {t("Démarrer une conversation", "Start a conversation")}
               </Link>
             </div>
           ) : filteredConvs.length === 0 ? (
-            <p className="py-12 text-center text-sm text-[#6E6E6C]">Aucune conversation ne correspond à votre recherche.</p>
+            <p className="py-12 text-center text-sm text-[#6E6E6C]">{t("Aucune conversation ne correspond à votre recherche.", "No conversation matches your search.")}</p>
           ) : (
             <div className="space-y-3">
               {filteredConvs.map((c) => (
@@ -432,15 +463,15 @@ export default function LibraryPage() {
                   : <BarChart3 className="h-7 w-7 text-violet-600" strokeWidth={1.5} />}
               </div>
               <h3 className="mb-2 text-lg font-bold tracking-[-0.01em] text-[#0A0A0A]">
-                {filter === "automations" ? "Aucun contrôle par lot" : "Aucun rapport d'analyse"}
+                {filter === "automations" ? t("Aucun contrôle par lot", "No batch check") : t("Aucun rapport d'analyse", "No analysis report")}
               </h3>
               <p className="mb-6 max-w-xs text-sm leading-relaxed text-[#6E6E6C]">
                 {filter === "automations"
-                  ? "Glissez plusieurs bons de livraison ou factures dans l'atelier : le rapport d'écarts arrivera ici."
-                  : "Analysez un devis, une facture ou un plan dans l'atelier : le rapport arrivera ici."}
+                  ? t("Glissez plusieurs bons de livraison ou factures dans l'atelier : le rapport d'écarts arrivera ici.", "Drop several delivery notes or invoices into the workshop: the discrepancy report will land here.")
+                  : t("Analysez un devis, une facture ou un plan dans l'atelier : le rapport arrivera ici.", "Analyze a quote, invoice or plan in the workshop: the report will land here.")}
               </p>
               <Link href="/generate" className="text-[13px] font-semibold text-violet-600 transition-opacity hover:opacity-80">
-                Lancer dans l&apos;atelier
+                {t("Lancer dans l'atelier", "Launch in the workshop")}
               </Link>
             </div>
           ) : (
@@ -462,19 +493,19 @@ export default function LibraryPage() {
                 : <Library className="w-7 h-7 text-violet-600" strokeWidth={1.5} />}
             </div>
             <h3 className="text-lg font-bold text-[#0A0A0A] mb-2 tracking-[-0.01em]">
-              {filter === "docs" ? "Aucun document sauvegardé" : "Rien dans la bibliothèque"}
+              {filter === "docs" ? t("Aucun document sauvegardé", "No saved document") : t("Rien dans la bibliothèque", "Nothing in the library")}
             </h3>
             <p className="text-sm text-[#6E6E6C] max-w-xs leading-relaxed mb-6">
               {filter === "docs"
-                ? "Dictez un devis, un PV ou un courrier dans l'atelier, puis sauvegardez-le : il apparaîtra ici, prêt à imprimer."
-                : "Vos applications, documents et rapports générés apparaîtront ici."}
+                ? t("Dictez un devis, un PV ou un courrier dans l'atelier, puis sauvegardez-le : il apparaîtra ici, prêt à imprimer.", "Dictate a quote, report or letter in the workshop, then save it: it'll appear here, ready to print.")
+                : t("Vos applications, documents et rapports générés apparaîtront ici.", "Your generated apps, documents and reports will appear here.")}
             </p>
             <Link href="/dashboard" className="text-[13px] font-semibold text-violet-600 hover:opacity-80 transition-opacity">
-              Créer quelque chose
+              {t("Créer quelque chose", "Create something")}
             </Link>
           </div>
         ) : filtered.length === 0 ? (
-          <p className="text-sm text-[#6E6E6C] py-12 text-center">Aucune création ne correspond à votre recherche.</p>
+          <p className="text-sm text-[#6E6E6C] py-12 text-center">{t("Aucune création ne correspond à votre recherche.", "No creation matches your search.")}</p>
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {filtered.map((app, i) => (

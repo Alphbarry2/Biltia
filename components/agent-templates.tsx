@@ -31,9 +31,10 @@ import {
   Plug,
   CheckCircle,
 } from "lucide-react";
-import { AGENT_TEMPLATES, type AgentTemplate } from "@/lib/agent-templates";
+import { AGENT_TEMPLATES, localizeAgentTemplate, type AgentTemplate } from "@/lib/agent-templates";
 import { connectorForCapability } from "@/lib/connectors";
 import { connectViaPopup } from "@/lib/connect-popup";
+import { useT, useLocale } from "@/lib/i18n/context";
 
 // Manque de capacité renvoyé par le preflight (/api/agents/activate → gaps).
 // Type local : la définition serveur (lib/agent-readiness) n'est pas importable ici.
@@ -72,6 +73,8 @@ export function AgentTemplateGallery({
   /** Appelé après une activation réussie (ex : recharger la liste des agents). */
   onActivated?: () => void;
 }) {
+  const tr = useT();
+  const locale = useLocale();
   const [activeIds, setActiveIds] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);
   const [flash, setFlash] = useState<Flash | null>(null);
@@ -125,7 +128,7 @@ export function AgentTemplateGallery({
           setGate(null);
           setFlash({
             id: t.id,
-            msg: data.alreadyActive ? "Déjà dans vos agents." : "Activé — il travaille pour vous.",
+            msg: data.alreadyActive ? tr("Déjà dans vos agents.", "Already in your agents.") : tr("Activé — il travaille pour vous.", "Activated — it's working for you."),
             kind: "ok",
           });
         }
@@ -133,22 +136,26 @@ export function AgentTemplateGallery({
         // Refusé faute de capacité : pop-up « cette action ne peut pas être faite ».
         setGate({ template: t, blocked: true, gaps });
       } else {
-        setFlash({ id: t.id, msg: data.error || data.message || "Activation impossible.", kind: "err" });
+        setFlash({ id: t.id, msg: data.error || data.message || tr("Activation impossible.", "Activation failed."), kind: "err" });
       }
     } catch {
-      setFlash({ id: t.id, msg: "Activation impossible. Réessayez.", kind: "err" });
+      setFlash({ id: t.id, msg: tr("Activation impossible. Réessayez.", "Activation failed. Try again."), kind: "err" });
     }
     setBusy(null);
   }
 
+  // Nom / accroche / prix de l'agent dans la langue de l'interface (la recherche
+  // porte donc sur le texte réellement affiché).
+  const templates = AGENT_TEMPLATES.map((tpl) => localizeAgentTemplate(tpl, locale));
+
   const q = query.trim().toLowerCase();
   const list = q
-    ? AGENT_TEMPLATES.filter((t) => `${t.name} ${t.tagline}`.toLowerCase().includes(q))
-    : AGENT_TEMPLATES;
+    ? templates.filter((t) => `${t.name} ${t.tagline}`.toLowerCase().includes(q))
+    : templates;
 
   if (list.length === 0) {
     return (
-      <p className="text-[13px] text-[#9A9A97] py-8 text-center">Aucun agent ne correspond.</p>
+      <p className="text-[13px] text-[#9A9A97] py-8 text-center">{tr("Aucun agent ne correspond.", "No agent matches.")}</p>
     );
   }
 
@@ -183,7 +190,7 @@ export function AgentTemplateGallery({
             <div className="flex items-center justify-between gap-2 mt-4">
               {t.free ? (
                 <span className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-emerald-600">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Gratuit
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> {tr("Gratuit", "Free")}
                 </span>
               ) : (
                 <span className="text-[11.5px] font-medium text-[#9A9A97] tabular-nums">{t.pricing}</span>
@@ -191,7 +198,7 @@ export function AgentTemplateGallery({
 
               {isActive ? (
                 <span className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-emerald-600">
-                  <Check className="w-3.5 h-3.5" /> Activé
+                  <Check className="w-3.5 h-3.5" /> {tr("Activé", "Active")}
                 </span>
               ) : (
                 <button
@@ -199,7 +206,7 @@ export function AgentTemplateGallery({
                   disabled={isBusy}
                   className="inline-flex items-center justify-center gap-1.5 rounded-full bg-[#0A0A0A] px-4 py-1.5 text-[12.5px] font-semibold text-white hover:opacity-90 transition-opacity disabled:opacity-50"
                 >
-                  {isBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Activer"}
+                  {isBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : tr("Activer", "Activate")}
                 </button>
               )}
             </div>
@@ -240,6 +247,7 @@ function GapConnectButton({
   accent: string;
   onConnected: () => void;
 }) {
+  const tr = useT();
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -254,14 +262,14 @@ function GapConnectButton({
       setDone(true);
       onConnected();
     } else if (!r.canceled) {
-      setErr(r.error ?? "Connexion impossible.");
+      setErr(r.error ?? tr("Connexion impossible.", "Connection failed."));
     }
   };
 
   if (done) {
     return (
       <span className="inline-flex items-center gap-1 mt-2 text-[12px] font-semibold text-emerald-600">
-        <CheckCircle className="w-3.5 h-3.5" /> Connecté
+        <CheckCircle className="w-3.5 h-3.5" /> {tr("Connecté", "Connected")}
       </span>
     );
   }
@@ -275,7 +283,7 @@ function GapConnectButton({
         style={{ background: accent }}
       >
         {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plug className="w-3.5 h-3.5" />}
-        Connecter
+        {tr("Connecter", "Connect")}
       </button>
       {err && <p className="text-[11px] text-rose-600 leading-snug mt-1">{err}</p>}
     </div>
@@ -298,6 +306,7 @@ function GateDialog({
   onRetry: () => void;
   onClose: () => void;
 }) {
+  const tr = useT();
   const blocked = gate.blocked;
   const accent = blocked ? "#E11D48" : "#D97706"; // rose vs ambre
   return (
@@ -306,7 +315,7 @@ function GateDialog({
       onClick={onClose}
     >
       <div
-        className="w-full sm:max-w-md bg-white rounded-t-2xl sm:rounded-2xl border border-[#EAEAEF] shadow-xl overflow-hidden"
+        className="w-full sm:max-w-md max-h-[92dvh] overflow-y-auto bg-white rounded-t-2xl sm:rounded-2xl border border-[#EAEAEF] shadow-xl pb-safe sm:pb-0"
         onClick={(e) => e.stopPropagation()}
       >
         {/* En-tête */}
@@ -323,18 +332,18 @@ function GateDialog({
           </span>
           <div className="min-w-0 flex-1">
             <h3 className="text-[15px] font-semibold text-[#1A1A1A] leading-tight">
-              {blocked ? "Activation impossible" : "Agent activé — à finir"}
+              {blocked ? tr("Activation impossible", "Can't activate") : tr("Agent activé — à finir", "Agent activated — finish setup")}
             </h3>
             <p className="text-[12.5px] text-[#7A7A85] leading-snug mt-1">
               {blocked
-                ? `« ${gate.template.name} » a besoin de ceci avant de pouvoir travailler.`
-                : `« ${gate.template.name} » est en place. Pour qu'il soit pleinement efficace :`}
+                ? tr(`« ${gate.template.name} » a besoin de ceci avant de pouvoir travailler.`, `“${gate.template.name}” needs this before it can work.`)
+                : tr(`« ${gate.template.name} » est en place. Pour qu'il soit pleinement efficace :`, `“${gate.template.name}” is set up. To make it fully effective:`)}
             </p>
           </div>
           <button
             onClick={onClose}
             className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-[#9A9A97] hover:bg-[#F2F2F0] transition-colors"
-            aria-label="Fermer"
+            aria-label={tr("Fermer", "Close")}
           >
             <X className="w-4 h-4" />
           </button>
@@ -384,14 +393,14 @@ function GateDialog({
                 onClick={onClose}
                 className="rounded-full border border-[#E7E7E4] px-4 py-1.5 text-[12.5px] font-semibold text-[#0A0A0A] hover:border-[#C9BEF0] transition-colors"
               >
-                Fermer
+                {tr("Fermer", "Close")}
               </button>
               <button
                 onClick={onRetry}
                 disabled={busy}
                 className="inline-flex items-center justify-center gap-1.5 rounded-full bg-[#0A0A0A] px-4 py-1.5 text-[12.5px] font-semibold text-white hover:opacity-90 transition-opacity disabled:opacity-50"
               >
-                {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Réessayer"}
+                {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : tr("Réessayer", "Retry")}
               </button>
             </>
           ) : (
@@ -399,7 +408,7 @@ function GateDialog({
               onClick={onClose}
               className="rounded-full bg-[#0A0A0A] px-4 py-1.5 text-[12.5px] font-semibold text-white hover:opacity-90 transition-opacity"
             >
-              Compris
+              {tr("Compris", "Got it")}
             </button>
           )}
         </div>

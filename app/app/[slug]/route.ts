@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase-server";
 import { injectPoweredBy, publicNotFoundPage } from "@/lib/powered-by";
+import { getLocale } from "@/lib/i18n/server";
+import { pick } from "@/lib/i18n/config";
 
 // Route publique : sert une app générée via son slug.
 // Seules les apps marquées is_public = true et status = active sont accessibles.
@@ -10,9 +12,10 @@ export async function GET(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const { slug } = await params;
+  const locale = await getLocale();
 
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL?.startsWith("https://")) {
-    return new Response("Service non configuré.", { status: 503 });
+    return new Response(pick(locale, "Service non configuré.", "Service not configured."), { status: 503 });
   }
 
   const supabase = await createClient();
@@ -27,8 +30,13 @@ export async function GET(
   if (error || !data || !data.is_public || data.status !== "active") {
     return new Response(
       publicNotFoundPage(
-        "Application introuvable",
-        `L'application « ${slug} » n'existe pas ou n'est plus disponible.`
+        pick(locale, "Application introuvable", "App not found"),
+        pick(
+          locale,
+          `L'application « ${slug} » n'existe pas ou n'est plus disponible.`,
+          `The app “${slug}” does not exist or is no longer available.`
+        ),
+        locale
       ),
       { status: 404, headers: { "content-type": "text/html; charset=utf-8" } }
     );

@@ -1,6 +1,9 @@
 "use client";
 
+import { useT } from "@/lib/i18n/context";
+
 export function MockupSuiviChantiers() {
+  const tr = useT();
   return (
     <div className="flex h-full text-[6px]" style={{ fontFamily: "system-ui, sans-serif" }}>
       <div className="w-12 bg-[#1C1C1C] flex flex-col">
@@ -8,7 +11,7 @@ export function MockupSuiviChantiers() {
           <div className="w-5 h-5 rounded-md bg-[#14B8A6] flex items-center justify-center mb-1"><div className="w-2 h-2 bg-white rounded-sm" /></div>
           <div className="text-[5px] font-bold text-white leading-tight">Bâtisuivi</div>
         </div>
-        {["Tableau de bord","Chantiers","Équipes","Matériel","Planning"].map((l, i) => (
+        {[tr("Tableau de bord","Dashboard"),tr("Chantiers","Job sites"),tr("Équipes","Teams"),tr("Matériel","Equipment"),tr("Planning","Schedule")].map((l, i) => (
           <div key={l} className={`mx-1 my-0.5 px-1.5 py-1 rounded text-[4.5px] ${i === 0 ? "bg-white/15 text-white font-bold" : "text-white/40"}`}>{l}</div>
         ))}
       </div>
@@ -19,13 +22,13 @@ export function MockupSuiviChantiers() {
         </div>
         <div className="mx-1.5 mt-1.5 rounded-xl overflow-hidden" style={{ height: 44, background: "linear-gradient(135deg,#1C1C1C,#6B4226)" }}>
           <div className="p-2">
-            <div className="text-[5px] text-white/50 mb-0.5">Vendredi 26 juin · Tout est sous contrôle</div>
-            <div className="text-[7px] font-bold text-white leading-tight">Bonjour Marc,</div>
-            <div className="text-[6px] text-white/70 leading-tight">vos chantiers avancent bien.</div>
+            <div className="text-[5px] text-white/50 mb-0.5">{tr("Vendredi 26 juin · Tout est sous contrôle","Friday, June 26 · Everything under control")}</div>
+            <div className="text-[7px] font-bold text-white leading-tight">{tr("Bonjour Marc,","Hi Marc,")}</div>
+            <div className="text-[6px] text-white/70 leading-tight">{tr("vos chantiers avancent bien.","your projects are on track.")}</div>
           </div>
         </div>
         <div className="grid grid-cols-4 gap-1 px-1.5 mt-1.5">
-          {[["4","Chantiers"],["8","Équipe"],["73%","Budget"],["3","Urgent"]].map(([v,l]) => (
+          {[["4",tr("Chantiers","Projects")],["8",tr("Équipe","Team")],["73%",tr("Budget","Budget")],["3",tr("Urgent","Urgent")]].map(([v,l]) => (
             <div key={l} className="bg-white rounded-lg p-1 border border-[#EBEBEB]">
               <div className="text-[8px] font-bold text-[#0A0A0A]">{v}</div>
               <div className="text-[4px] text-[#9CA3AF]">{l}</div>
@@ -35,7 +38,7 @@ export function MockupSuiviChantiers() {
         <div className="flex gap-1.5 px-1.5 mt-1.5">
           <div className="flex-1 bg-white rounded-xl border border-[#EBEBEB] overflow-hidden">
             <div className="px-2 py-1 border-b border-[#F5F5F7]">
-              <div className="text-[5.5px] font-bold text-[#0A0A0A]">Chantiers en activité</div>
+              <div className="text-[5.5px] font-bold text-[#0A0A0A]">{tr("Chantiers en activité","Active projects")}</div>
             </div>
             {[["Résidence Les Oliviers","68",""],["École Jean Moulin","42",""],["Hangar logistique Nord","35","red"]].map(([n,p,red]) => (
               <div key={String(n)} className="px-2 py-1.5 border-b border-[#F5F5F7] last:border-0">
@@ -51,10 +54,10 @@ export function MockupSuiviChantiers() {
           </div>
           <div className="w-16 bg-white rounded-xl border border-[#EBEBEB] overflow-hidden">
             <div className="px-1.5 py-1 border-b border-[#F5F5F7] flex items-center justify-between">
-              <div className="text-[5px] font-bold text-[#0A0A0A]">À traiter</div>
+              <div className="text-[5px] font-bold text-[#0A0A0A]">{tr("À traiter","To do")}</div>
               <div className="w-3 h-3 rounded-full bg-rose-500 flex items-center justify-center text-[4px] font-bold text-white">3</div>
             </div>
-            {["Couler dalle R+2","Livraison fenêtres","Contrôle élec.","Réception toiture"].map(t => (
+            {[tr("Couler dalle R+2","Pour R+2 slab"),tr("Livraison fenêtres","Window delivery"),tr("Contrôle élec.","Elec. check"),tr("Réception toiture","Roof handover")].map(t => (
               <div key={t} className="px-1.5 py-1 border-b border-[#F5F5F7] last:border-0">
                 <div className="flex items-start gap-0.5">
                   <div className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0 mt-0.5" />
@@ -70,6 +73,7 @@ export function MockupSuiviChantiers() {
 }
 
 export function MockupGestionDevis() {
+  const t = useT();
   const rows = [
     { num: "DEV-2024-001", client: "M. Dumont J-P", montant: "18 792 €", s: "accepte" },
     { num: "DEV-2024-002", client: "Mairie Villeurbanne", montant: "52 438 €", s: "envoye" },
@@ -81,7 +85,7 @@ export function MockupGestionDevis() {
         <div className="px-2 py-2 border-b border-[#EBEBEB] flex items-center justify-between">
           <div className="flex items-center gap-1">
             <div className="w-4 h-4 rounded-md bg-blue-50 flex items-center justify-center"><div className="w-2 h-1.5 bg-blue-400 rounded-sm" /></div>
-            <span className="text-[5.5px] font-bold text-[#0A0A0A]">Devis</span>
+            <span className="text-[5.5px] font-bold text-[#0A0A0A]">{t("Devis","Quotes")}</span>
           </div>
           <div className="w-3 h-3 rounded bg-[#0A0A0A] flex items-center justify-center"><div className="text-[6px] text-white font-bold">+</div></div>
         </div>
@@ -104,9 +108,9 @@ export function MockupGestionDevis() {
                 <span className="text-[4.5px] text-[#9CA3AF]">DEV-2024-001 · 12/03/2024</span>
               </div>
             </div>
-            <div className="px-1.5 py-0.5 rounded text-[4.5px] font-bold" style={{ background: "#ECFDF5", color: "#059669" }}>Accepté</div>
+            <div className="px-1.5 py-0.5 rounded text-[4.5px] font-bold" style={{ background: "#ECFDF5", color: "#059669" }}>{t("Accepté","Accepted")}</div>
           </div>
-          {[["A1","Terrassement m²","120","m²","18 €","2 160 €"],["A2","Béton fondations","15","m³","285 €","4 275 €"],["B1","Maçonnerie briques","200","m²","42 €","8 400 €"]].map(cols => (
+          {[["A1",t("Terrassement m²","Earthworks m²"),"120","m²","18 €","2 160 €"],["A2",t("Béton fondations","Foundation concrete"),"15","m³","285 €","4 275 €"],["B1",t("Maçonnerie briques","Brick masonry"),"200","m²","42 €","8 400 €"]].map(cols => (
             <div key={cols[0]} className="grid border-b border-[#F5F5F7] last:border-0 px-2 py-1.5 items-center" style={{ gridTemplateColumns: "20px 1fr 24px 24px 36px 36px" }}>
               {cols.map((c, ci) => <div key={ci} className="text-[4.5px] text-[#0A0A0A]">{c}</div>)}
             </div>
@@ -114,7 +118,7 @@ export function MockupGestionDevis() {
         </div>
         <div className="flex justify-end">
           <div className="bg-white rounded-xl border border-[#EBEBEB] px-3 py-2 w-28">
-            {[["Total HT","14 835 €",true],["TVA 10%","1 483 €",false],["Total TTC","16 319 €",true]].map(([l,v,b]) => (
+            {[[t("Total HT","Subtotal"),"14 835 €",true],[t("TVA 10%","VAT 10%"),"1 483 €",false],[t("Total TTC","Total incl. VAT"),"16 319 €",true]].map(([l,v,b]) => (
               <div key={String(l)} className={`flex justify-between py-0.5 ${b ? "border-t border-[#EBEBEB]" : ""}`}>
                 <span className={`text-[4.5px] ${b ? "font-bold text-[#0A0A0A]" : "text-[#9CA3AF]"}`}>{String(l)}</span>
                 <span className={`text-[4.5px] tabular-nums ${b ? "font-bold text-[#0A0A0A]" : "text-[#6B7280]"}`}>{String(v)}</span>
@@ -128,6 +132,7 @@ export function MockupGestionDevis() {
 }
 
 export function MockupPlanningEquipes() {
+  const t = useT();
   const EMPS = [
     { name: "Karim B.", color: "#14B8A6" },
     { name: "Marc D.", color: "#3B82F6" },
@@ -135,7 +140,7 @@ export function MockupPlanningEquipes() {
     { name: "Thomas R.", color: "#F59E0B" },
     { name: "Luc M.", color: "#EF4444" },
   ];
-  const DAYS = ["Lun","Mar","Mer","Jeu","Ven","Sam"];
+  const DAYS = [t("Lun","Mon"),t("Mar","Tue"),t("Mer","Wed"),t("Jeu","Thu"),t("Ven","Fri"),t("Sam","Sat")];
   const CHANTIERS = ["Villa Dumont","École Bellevue","Entrepôt Nord","Résidence Prés"];
   const CC = ["#14B8A6","#3B82F6","#8B5CF6","#F59E0B"];
   const DATA = [
@@ -144,7 +149,7 @@ export function MockupPlanningEquipes() {
   return (
     <div className="flex flex-col h-full bg-[#F5F5F7]">
       <div className="h-7 bg-white border-b border-[#EBEBEB] flex items-center justify-between px-2 flex-shrink-0">
-        <span className="text-[6px] font-bold text-[#0A0A0A]">Planning Équipes</span>
+        <span className="text-[6px] font-bold text-[#0A0A0A]">{t("Planning Équipes","Team Schedule")}</span>
         <div className="flex gap-1">
           {CHANTIERS.map((c,i) => <span key={c} className="flex items-center gap-0.5 text-[4.5px] text-[#6B7280]"><span className="w-1.5 h-1.5 rounded-sm" style={{background:CC[i]}} />{c.split(" ")[0]}</span>)}
         </div>
@@ -179,17 +184,18 @@ export function MockupPlanningEquipes() {
 }
 
 export function MockupPointageHeures() {
+  const t = useT();
   const OUVRIERS = ["Karim B.","Marc D.","Sofiane K.","Thomas R.","Luc M."];
-  const JOURS = ["Lun 17","Mar 18","Mer 19","Jeu 20","Ven 21","Sam 22"];
+  const JOURS = [t("Lun 17","Mon 17"),t("Mar 18","Tue 18"),t("Mer 19","Wed 19"),t("Jeu 20","Thu 20"),t("Ven 21","Fri 21"),t("Sam 22","Sat 22")];
   const DATA = [
     [9,8,10,8,-1,-1],[8,9.5,8,8,8,-1],[8,8,8,8,8,-1],[-1,8,-1,7,8,-1],[8,9,-1,-1,8,-1],
   ];
   return (
     <div className="flex flex-col h-full bg-[#F5F5F7]">
       <div className="h-7 bg-white border-b border-[#EBEBEB] flex items-center justify-between px-2 flex-shrink-0">
-        <span className="text-[6px] font-bold text-[#0A0A0A]">Pointage des Heures</span>
+        <span className="text-[6px] font-bold text-[#0A0A0A]">{t("Pointage des Heures","Time Tracking")}</span>
         <div className="flex gap-1.5">
-          {[["205h","normales","text-[#0A0A0A]"],["12h","supp","text-amber-500"],["4","à valider","text-rose-500"]].map(([v,l,c]) => (
+          {[["205h",t("normales","regular"),"text-[#0A0A0A]"],["12h",t("supp","overtime"),"text-amber-500"],["4",t("à valider","to approve"),"text-rose-500"]].map(([v,l,c]) => (
             <div key={String(l)} className="text-center">
               <div className={`text-[6px] font-bold tabular-nums ${c}`}>{v}</div>
               <div className="text-[4px] text-[#9CA3AF]">{l}</div>
@@ -200,9 +206,9 @@ export function MockupPointageHeures() {
       <div className="flex-1 p-1.5 overflow-hidden">
         <div className="bg-white rounded-xl border border-[#EBEBEB] overflow-hidden h-full">
           <div className="grid border-b border-[#F5F5F7] bg-[#FAFAFA]" style={{ gridTemplateColumns:"44px repeat(6,1fr) 24px" }}>
-            <div className="px-1 py-1 text-[4.5px] font-bold text-[#C4C4C4] uppercase">Ouvrier</div>
+            <div className="px-1 py-1 text-[4.5px] font-bold text-[#C4C4C4] uppercase">{t("Ouvrier","Worker")}</div>
             {JOURS.map(j => <div key={j} className="text-center py-1 text-[4px] font-bold text-[#C4C4C4] uppercase">{j}</div>)}
-            <div className="text-center py-1 text-[4px] font-bold text-[#C4C4C4]">Tot.</div>
+            <div className="text-center py-1 text-[4px] font-bold text-[#C4C4C4]">{t("Tot.","Tot.")}</div>
           </div>
           {OUVRIERS.map((o, oi) => {
             const total = DATA[oi].filter(h => h > 0).reduce((s,h)=>s+h,0);
@@ -232,6 +238,7 @@ export function MockupPointageHeures() {
 }
 
 export function MockupSiteVitrine() {
+  const t = useT();
   return (
     <div className="flex flex-col h-full overflow-hidden" style={{ background: "white" }}>
       <div className="h-5 bg-white border-b border-[#EBEBEB] flex items-center justify-between px-2">
@@ -239,22 +246,22 @@ export function MockupSiteVitrine() {
           <div className="w-3.5 h-3.5 rounded bg-[#10B981]" />
           <span className="text-[5.5px] font-bold text-[#0A0A0A]">BTP Martin & Fils</span>
         </div>
-        <div className="px-1.5 py-0.5 rounded-full bg-[#10B981] text-[4.5px] text-white font-bold">Devis gratuit</div>
+        <div className="px-1.5 py-0.5 rounded-full bg-[#10B981] text-[4.5px] text-white font-bold">{t("Devis gratuit","Free quote")}</div>
       </div>
       <div className="relative px-2 py-3 text-white flex-shrink-0" style={{ background: "linear-gradient(135deg,#0A0A0A,#1a1a1a)", minHeight: 52 }}>
         <div className="absolute inset-0 opacity-[0.04]" style={{ backgroundImage: "linear-gradient(#fff 1px,transparent 1px),linear-gradient(90deg,#fff 1px,transparent 1px)", backgroundSize: "16px 16px" }} />
         <div className="relative">
-          <div className="text-[5px] text-white/40 mb-0.5">RGE · Qualibat · 25 ans d&apos;expérience</div>
-          <div className="text-[8px] font-bold text-white leading-tight mb-1">Votre projet BTP<br /><span style={{color:"#10B981"}}>entre de bonnes mains</span></div>
+          <div className="text-[5px] text-white/40 mb-0.5">{t("RGE · Qualibat · 25 ans d'expérience","RGE · Qualibat · 25 years of experience")}</div>
+          <div className="text-[8px] font-bold text-white leading-tight mb-1">{t("Votre projet BTP","Your construction project")}<br /><span style={{color:"#10B981"}}>{t("entre de bonnes mains","in good hands")}</span></div>
           <div className="flex gap-1">
-            <div className="px-1.5 py-0.5 rounded-full bg-[#10B981] text-[4.5px] text-white font-bold">Devis gratuit →</div>
+            <div className="px-1.5 py-0.5 rounded-full bg-[#10B981] text-[4.5px] text-white font-bold">{t("Devis gratuit →","Free quote →")}</div>
             <div className="px-1.5 py-0.5 rounded-full border border-white/20 text-[4.5px] text-white/70">04 78 00 00 00</div>
           </div>
         </div>
       </div>
       <div className="flex-1 px-2 py-2">
         <div className="grid grid-cols-2 gap-1 mb-2">
-          {[["Gros Œuvre","#10B981"],["Rénovation","#3B82F6"],["Charpente","#8B5CF6"],["Aménagement","#F59E0B"]].map(([l,c]) => (
+          {[[t("Gros Œuvre","Structural work"),"#10B981"],[t("Rénovation","Renovation"),"#3B82F6"],[t("Charpente","Carpentry"),"#8B5CF6"],[t("Aménagement","Fit-out"),"#F59E0B"]].map(([l,c]) => (
             <div key={String(l)} className="bg-[#F8F8F8] border border-[#F0F0F0] rounded-lg p-1.5">
               <div className="w-4 h-4 rounded-lg mb-1 flex items-center justify-center" style={{background:String(c)+"20"}}>
                 <div className="w-2 h-2 rounded-sm" style={{background:String(c)}} />
@@ -267,7 +274,7 @@ export function MockupSiteVitrine() {
           {[0,1,2].map(i => (
             <div key={i} className="flex-1 bg-[#F8F8F8] border border-[#F0F0F0] rounded-lg p-1.5">
               <div className="text-[5px] text-amber-400 mb-0.5">★★★★★</div>
-              <div className="text-[4px] text-[#6B7280] leading-tight">Excellent travail, équipe sérieuse.</div>
+              <div className="text-[4px] text-[#6B7280] leading-tight">{t("Excellent travail, équipe sérieuse.","Excellent work, reliable team.")}</div>
             </div>
           ))}
         </div>
@@ -277,10 +284,11 @@ export function MockupSiteVitrine() {
 }
 
 export function MockupSuiviST() {
+  const t = useT();
   const STS = [
-    { nom: "Élec Pro SARL", corps: "Électricité", score: 80, color: "#F59E0B" },
-    { nom: "Plomberie Durand", corps: "Plomberie", score: 95, color: "#10B981" },
-    { nom: "Béton & Chape SAS", corps: "Maçonnerie", score: 72, color: "#EF4444" },
+    { nom: "Élec Pro SARL", corps: t("Électricité","Electrical"), score: 80, color: "#F59E0B" },
+    { nom: "Plomberie Durand", corps: t("Plomberie","Plumbing"), score: 95, color: "#10B981" },
+    { nom: "Béton & Chape SAS", corps: t("Maçonnerie","Masonry"), score: 72, color: "#EF4444" },
   ];
   const DOCS = ["Kbis","URSSAF","RC Pro","Attestation","Carte BTP"];
   const STATUTS = ["valide","expire","valide","attente","valide"];
@@ -289,7 +297,7 @@ export function MockupSuiviST() {
     <div className="flex h-full">
       <div className="w-24 bg-white border-r border-[#EBEBEB] flex flex-col">
         <div className="px-2 py-2 border-b border-[#EBEBEB] flex items-center justify-between">
-          <span className="text-[5.5px] font-bold text-[#0A0A0A]">Sous-traitants</span>
+          <span className="text-[5.5px] font-bold text-[#0A0A0A]">{t("Sous-traitants","Subcontractors")}</span>
           <div className="w-3 h-3 rounded-full bg-rose-500 flex items-center justify-center text-[4px] font-bold text-white">1</div>
         </div>
         <div className="flex-1 p-1 space-y-0.5">
@@ -323,7 +331,7 @@ export function MockupSuiviST() {
             </div>
           </div>
           <div className="px-2 pb-1.5 pt-1">
-            <div className="text-[4.5px] font-bold text-[#C4C4C4] uppercase tracking-wider mb-1">Documents obligatoires</div>
+            <div className="text-[4.5px] font-bold text-[#C4C4C4] uppercase tracking-wider mb-1">{t("Documents obligatoires","Required documents")}</div>
             <div className="space-y-1">
               {DOCS.map((d,i) => (
                 <div key={d} className="flex items-center justify-between">

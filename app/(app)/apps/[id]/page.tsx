@@ -6,6 +6,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase";
 import { ShareMenu } from "@/components/share-menu";
 import { type ShareLink } from "@/lib/share";
+import { useT } from "@/lib/i18n/context";
 import { ChevronLeft, Pencil, Loader2, AlertCircle, ExternalLink, Maximize2, Globe, Copy, CheckCircle, Share2, Trash2, X, Eye, HardHat } from "lucide-react";
 
 type SharedLink = ShareLink & { url: string };
@@ -20,6 +21,7 @@ type App = {
 };
 
 export default function AppViewerPage() {
+  const t = useT();
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const [app, setApp] = useState<App | null>(null);
@@ -93,7 +95,7 @@ export default function AppViewerPage() {
       if (data.link) {
         setShareLinks((prev) => [data.link, ...prev]);
         setSelectedChantier("");
-      } else alert(data.error ?? "Impossible de créer le lien client.");
+      } else alert(data.error ?? t("Impossible de créer le lien client.", "Couldn't create the client link."));
     } finally {
       setClientBusy(false);
     }
@@ -110,7 +112,7 @@ export default function AppViewerPage() {
       });
       const data = await res.json();
       if (data.link) setShareLinks((prev) => [data.link, ...prev]);
-      else alert(data.error ?? "Impossible de créer le lien.");
+      else alert(data.error ?? t("Impossible de créer le lien.", "Couldn't create the link."));
     } finally {
       setShareBusy(false);
     }
@@ -144,7 +146,7 @@ export default function AppViewerPage() {
       if (data.url) {
         setDeploymentUrl(data.url);
       } else {
-        alert(data.error ?? "Erreur de déploiement.");
+        alert(data.error ?? t("Erreur de déploiement.", "Deployment error."));
       }
     } finally {
       setIsDeploying(false);
@@ -156,7 +158,7 @@ export default function AppViewerPage() {
     // Vérifier d'abord que l'user est authentifié
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) {
-        setError("Authentification requise.");
+        setError(t("Authentification requise.", "Authentication required."));
         setLoading(false);
         return;
       }
@@ -169,7 +171,7 @@ export default function AppViewerPage() {
         .single()
         .then(({ data, error }) => {
           if (error || !data) {
-            setError("Application introuvable ou accès refusé.");
+            setError(t("Application introuvable ou accès refusé.", "App not found or access denied."));
           } else {
             setApp(data);
           }
@@ -192,12 +194,20 @@ export default function AppViewerPage() {
       };
       const ep = (body as { __endpoint?: string } | null)?.__endpoint;
       const apiUrl =
-        ep === "app-ai" ? "/api/app-ai" : ep === "email" ? "/api/app-email" : ep === "sms" ? "/api/app-sms" : "/api/data";
-      // Sur /api/data on joint l'id du module : le serveur lit sa portée de données
-      // (modules.data_scope) et filtre la LECTURE en conséquence (vierge/import/
-      // sélection). Les écritures ignorent la portée → tout va au workspace.
+        ep === "app-ai" ? "/api/app-ai"
+          : ep === "email" ? "/api/app-email"
+          : ep === "document" ? "/api/app-document"
+          : ep === "sms" ? "/api/app-sms"
+          : ep === "agents" ? "/api/app-agents"
+          : ep === "telemetry" ? "/api/app-telemetry"
+          : "/api/data";
+      // /api/data, /api/app-agents et /api/app-telemetry ont besoin de l'id du
+      // module : filtrer la LECTURE (data), rattacher/lister les agents (agents),
+      // attribuer les événements d'usage à CETTE app (telemetry).
       const outBody =
-        !ep && body && typeof body === "object" ? { ...(body as Record<string, unknown>), moduleId: id } : body;
+        (!ep || ep === "agents" || ep === "telemetry") && body && typeof body === "object"
+          ? { ...(body as Record<string, unknown>), moduleId: id }
+          : body;
       fetch(apiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -206,10 +216,10 @@ export default function AppViewerPage() {
       })
         .then(async (res) => {
           const result = await res.json().catch(() => null);
-          if (!res.ok) reply({ error: result?.error ?? `Erreur ${res.status}` });
+          if (!res.ok) reply({ error: result?.error ?? t(`Erreur ${res.status}`, `Error ${res.status}`) });
           else reply({ result });
         })
-        .catch((err: unknown) => reply({ error: err instanceof Error ? err.message : "Réseau indisponible" }));
+        .catch((err: unknown) => reply({ error: err instanceof Error ? err.message : t("Réseau indisponible", "Network unavailable") }));
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
@@ -231,7 +241,7 @@ export default function AppViewerPage() {
         </div>
         <p className="text-[#6E6E6C] text-sm">{error}</p>
         <Link href="/dashboard" className="text-[#7C3AED] text-sm hover:text-[#0A0A0A]">
-          ← Retour au dashboard
+          {t("← Retour au dashboard", "← Back to dashboard")}
         </Link>
       </div>
     );
@@ -239,14 +249,17 @@ export default function AppViewerPage() {
 
   if (fullscreen) {
     return (
-      <div className="fixed inset-0 z-50 bg-white flex flex-col">
-        <div className="flex items-center justify-between px-4 h-12 bg-white border-b border-[#ECECF2] flex-shrink-0">
-          <span className="text-sm font-semibold text-[#0A0A0A]">{app.name}</span>
+      <div className="fixed inset-0 z-50 bg-white flex flex-col pb-safe">
+        <div
+          className="flex items-center justify-between px-4 bg-white border-b border-[#ECECF2] flex-shrink-0"
+          style={{ height: "calc(3rem + var(--safe-top))", paddingTop: "var(--safe-top)" }}
+        >
+          <span className="text-sm font-semibold text-[#0A0A0A] truncate pr-3">{app.name}</span>
           <button
             onClick={() => setFullscreen(false)}
-            className="text-[#6E6E6C] hover:text-[#0A0A0A] text-xs border border-[#ECECF2] px-3 py-1 rounded-lg"
+            className="flex-shrink-0 text-[#6E6E6C] hover:text-[#0A0A0A] text-xs font-medium border border-[#ECECF2] px-3 h-9 rounded-lg active:scale-95 transition-transform"
           >
-            Quitter le plein écran
+            {t("Quitter le plein écran", "Exit full screen")}
           </button>
         </div>
         <iframe
@@ -267,7 +280,8 @@ export default function AppViewerPage() {
         <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={() => router.push("/dashboard")}
-            className="text-[#6E6E6C] hover:text-[#0A0A0A] transition-colors flex-shrink-0"
+            aria-label={t("Retour", "Back")}
+            className="-ml-2 grid h-10 w-10 flex-shrink-0 place-items-center rounded-lg text-[#6E6E6C] hover:bg-black/[0.05] hover:text-[#0A0A0A] active:scale-90 transition-all"
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
@@ -288,7 +302,7 @@ export default function AppViewerPage() {
           <button
             onClick={() => setFullscreen(true)}
             className="p-1.5 text-[#6E6E6C] hover:text-[#0A0A0A] rounded-lg hover:bg-[#F6F6F9] transition-colors"
-            title="Plein écran"
+            title={t("Plein écran", "Full screen")}
           >
             <Maximize2 className="w-4 h-4" />
           </button>
@@ -297,37 +311,37 @@ export default function AppViewerPage() {
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
               shareOpen ? "bg-[#6D28D9] text-white" : "bg-[#7C3AED] text-white hover:bg-[#6D28D9]"
             }`}
-            title="Partager cette application"
+            title={t("Partager cette application", "Share this app")}
           >
             <Share2 className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Partager</span>
+            <span className="hidden sm:inline">{t("Partager", "Share")}</span>
           </button>
           <Link
             href={`/generate?edit=${id}`}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-[#F6F6F9] border border-[#ECECF2] text-[#0A0A0A] text-xs font-medium rounded-lg hover:bg-[#F3EFFC] hover:text-[#7C3AED] transition-colors"
           >
             <Pencil className="w-3.5 h-3.5" />
-            Modifier
+            {t("Modifier", "Edit")}
           </Link>
         </div>
       </div>
 
-      {/* Panneau Partager */}
+      {/* Panneau Partager — plafonné + scrollable pour ne pas écraser l'iframe
+          (aperçu de l'app) à zéro sur petit écran quand tout est déplié. */}
       {shareOpen && (
-        <div className="border-b border-[#ECECF2] bg-[#FBFAFF] flex-shrink-0">
+        <div className="border-b border-[#ECECF2] bg-[#FBFAFF] flex-shrink-0 max-h-[55dvh] overflow-y-auto">
           <div className="px-5 py-4 max-w-[820px]">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <h2 className="text-sm font-bold text-[#0A0A0A]">Partager cette application</h2>
+                <h2 className="text-sm font-bold text-[#0A0A0A]">{t("Partager cette application", "Share this app")}</h2>
                 <p className="text-xs text-[#6E6E6C] mt-0.5 leading-relaxed">
-                  Créez un lien de consultation en <strong>lecture seule</strong>. Toute personne ayant le lien voit
-                  l&apos;application, jamais vos autres données. Le lien est révocable à tout moment.
+                  {t("Créez un lien de consultation en lecture seule. Toute personne ayant le lien voit l'application, jamais vos autres données. Le lien est révocable à tout moment.", "Create a read-only view link. Anyone with the link sees the app, never your other data. The link is revocable at any time.")}
                 </p>
               </div>
               <button
                 onClick={() => setShareOpen(false)}
                 className="p-1 text-[#9A9AA5] hover:text-[#0A0A0A] rounded-md hover:bg-[#F0EEF8] flex-shrink-0"
-                title="Fermer"
+                title={t("Fermer", "Close")}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -352,21 +366,21 @@ export default function AppViewerPage() {
                       className="flex items-center gap-1.5 px-2.5 py-1 bg-[#7C3AED] text-white text-xs font-semibold rounded-md hover:bg-[#6D28D9] transition-all flex-shrink-0"
                     >
                       {shareCopiedId === link.id ? <CheckCircle className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                      <span className="hidden sm:inline">{shareCopiedId === link.id ? "Copié" : "Copier"}</span>
+                      <span className="hidden sm:inline">{shareCopiedId === link.id ? t("Copié", "Copied") : t("Copier", "Copy")}</span>
                     </button>
                     <a
                       href={link.url}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="p-1.5 text-[#6E6E6C] hover:text-[#7C3AED] rounded-md hover:bg-[#F6F6F9] transition-colors flex-shrink-0"
-                      title="Ouvrir le lien"
+                      title={t("Ouvrir le lien", "Open link")}
                     >
                       <ExternalLink className="w-3.5 h-3.5" />
                     </a>
                     <button
                       onClick={() => revokeShare(link.id)}
                       className="p-1.5 text-[#6E6E6C] hover:text-rose-600 rounded-md hover:bg-rose-50 transition-colors flex-shrink-0"
-                      title="Révoquer le lien"
+                      title={t("Révoquer le lien", "Revoke link")}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -382,11 +396,11 @@ export default function AppViewerPage() {
               className="mt-3 flex items-center gap-1.5 px-3 py-1.5 bg-[#7C3AED] text-white text-xs font-semibold rounded-lg hover:bg-[#6D28D9] transition-all disabled:opacity-60"
             >
               {shareBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Share2 className="w-3.5 h-3.5" />}
-              {shareLinks.length > 0 ? "Nouveau lien" : "Créer un lien de consultation"}
+              {shareLinks.length > 0 ? t("Nouveau lien", "New link") : t("Créer un lien de consultation", "Create a view link")}
             </button>
             {!shareLoaded && (
               <p className="mt-2 text-xs text-[#9A9AA5] flex items-center gap-1.5">
-                <Loader2 className="w-3 h-3 animate-spin" /> Chargement des liens…
+                <Loader2 className="w-3 h-3 animate-spin" /> {t("Chargement des liens…", "Loading links…")}
               </p>
             )}
 
@@ -395,11 +409,10 @@ export default function AppViewerPage() {
               <div className="mt-4 pt-3 border-t border-[#ECECF2]">
                 <div className="flex items-center gap-1.5 mb-1">
                   <HardHat className="w-3.5 h-3.5 text-emerald-600" />
-                  <h3 className="text-xs font-semibold text-[#0A0A0A]">Partager avec un client</h3>
+                  <h3 className="text-xs font-semibold text-[#0A0A0A]">{t("Partager avec un client", "Share with a client")}</h3>
                 </div>
                 <p className="text-xs text-[#6E6E6C] leading-relaxed mb-2">
-                  Un lien qui montre <strong>uniquement le chantier choisi</strong> (avec ses interventions,
-                  documents et tâches), en lecture seule. Le client ne voit rien d&apos;autre de votre espace.
+                  {t("Un lien qui montre uniquement le chantier choisi (avec ses interventions, documents et tâches), en lecture seule. Le client ne voit rien d'autre de votre espace.", "A link that shows only the chosen job site (with its jobs, documents and tasks), read-only. The client sees nothing else from your workspace.")}
                 </p>
                 <div className="flex items-center gap-2">
                   <select
@@ -407,10 +420,10 @@ export default function AppViewerPage() {
                     onChange={(e) => setSelectedChantier(e.target.value)}
                     className="flex-1 min-w-0 text-xs bg-white border border-[#ECECF2] rounded-lg px-2.5 py-1.5 text-[#0A0A0A]"
                   >
-                    <option value="">Choisir un chantier…</option>
+                    <option value="">{t("Choisir un chantier…", "Choose a job site…")}</option>
                     {chantiers.map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.nom || "Chantier"}
+                        {c.nom || t("Chantier", "Job site")}
                         {c.ville ? ` — ${c.ville}` : ""}
                       </option>
                     ))}
@@ -421,7 +434,7 @@ export default function AppViewerPage() {
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700 transition-all disabled:opacity-50 flex-shrink-0"
                   >
                     {clientBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <HardHat className="w-3.5 h-3.5" />}
-                    Créer le lien
+                    {t("Créer le lien", "Create link")}
                   </button>
                 </div>
               </div>
@@ -433,13 +446,12 @@ export default function AppViewerPage() {
                 onClick={() => setShowAdvanced((v) => !v)}
                 className="text-xs text-[#9A9AA5] hover:text-[#6E6E6C]"
               >
-                {showAdvanced ? "− " : "+ "}Déploiement autonome (avancé)
+                {showAdvanced ? "− " : "+ "}{t("Déploiement autonome (avancé)", "Standalone deployment (advanced)")}
               </button>
               {showAdvanced && (
                 <div className="mt-2">
                   <p className="text-xs text-[#9A9AA5] leading-relaxed mb-2">
-                    Héberge une copie détachée de l&apos;app sur un domaine séparé (non connectée à votre espace).
-                    Pour un simple partage, utilisez le lien de consultation ci-dessus.
+                    {t("Héberge une copie détachée de l'app sur un domaine séparé (non connectée à votre espace). Pour un simple partage, utilisez le lien de consultation ci-dessus.", "Hosts a detached copy of the app on a separate domain (not connected to your workspace). For simple sharing, use the view link above.")}
                   </p>
                   <button
                     onClick={handleDeploy}
@@ -447,7 +459,7 @@ export default function AppViewerPage() {
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-[#F6F6F9] border border-[#ECECF2] text-[#0A0A0A] text-xs font-medium rounded-lg hover:bg-[#F3EFFC] transition-colors disabled:opacity-60"
                   >
                     {isDeploying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Globe className="w-3.5 h-3.5" />}
-                    {isDeploying ? "Déploiement…" : deploymentUrl ? "Redéployer" : "Déployer sur un domaine autonome"}
+                    {isDeploying ? t("Déploiement…", "Deploying…") : deploymentUrl ? t("Redéployer", "Redeploy") : t("Déployer sur un domaine autonome", "Deploy to a standalone domain")}
                   </button>
                   {deploymentUrl && (
                     <div className="mt-2 flex items-center gap-2 bg-white border border-[#ECECF2] rounded-lg px-2.5 py-2">
@@ -458,7 +470,7 @@ export default function AppViewerPage() {
                         className="flex items-center gap-1.5 px-2.5 py-1 bg-[#7C3AED] text-white text-xs font-semibold rounded-md hover:bg-[#6D28D9] transition-all flex-shrink-0"
                       >
                         {deployCopied ? <CheckCircle className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                        <span className="hidden sm:inline">{deployCopied ? "Copié" : "Copier"}</span>
+                        <span className="hidden sm:inline">{deployCopied ? t("Copié", "Copied") : t("Copier", "Copy")}</span>
                       </button>
                       <a href={deploymentUrl} target="_blank" rel="noopener noreferrer" className="p-1.5 text-[#6E6E6C] hover:text-[#7C3AED] rounded-md hover:bg-[#F6F6F9] transition-colors flex-shrink-0">
                         <ExternalLink className="w-3.5 h-3.5" />

@@ -13,6 +13,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Check, X, Mic, Loader2 } from "lucide-react";
+import { useT, useLocale } from "@/lib/i18n/context";
 
 const BAR_COUNT = 44;
 
@@ -31,6 +32,25 @@ function extFor(mime: string) {
   return "webm";
 }
 
+/* ── Ressources micro partagées à l'échelle de la page ──────────────────────
+   iOS/WebKit plafonne le nombre d'AudioContext VIVANTS (~4) et libère la session
+   audio de façon PARESSEUSE. En recréer/fermer un à chaque dictée finit par les
+   épuiser (ondes mortes) et peut coincer la capture micro → LA cause du « la 2e
+   dictée bugue ». On réutilise donc UN SEUL AudioContext pour toute la vie de la
+   page, et on mémorise l'instant de libération du micro pour laisser iOS respirer
+   avant de rouvrir. */
+let sharedAudioCtx: AudioContext | null = null;
+let lastMicReleaseAt = 0;
+
+function getSharedAudioContext(): AudioContext | null {
+  if (typeof window === "undefined") return null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const AC = window.AudioContext || (window as any).webkitAudioContext;
+  if (!AC) return null;
+  if (!sharedAudioCtx || sharedAudioCtx.state === "closed") sharedAudioCtx = new AC();
+  return sharedAudioCtx;
+}
+
 export function VoiceRecorder({
   initialText = "",
   onCancel,
@@ -40,6 +60,8 @@ export function VoiceRecorder({
   onCancel: () => void;
   onCommit: (text: string) => void;
 }) {
+  const tr = useT();
+  const locale = useLocale();
   const base = initialText ? initialText.trimEnd() + " " : "";
 
   const [speechText, setSpeechText] = useState(""); // aperçu live navigateur
@@ -51,7 +73,7 @@ export function VoiceRecorder({
 
   const barsRef = useRef<(HTMLSpanElement | null)[]>([]);
   const rafRef = useRef<number | null>(null);
-  const audioCtxRef = useRef<AudioContext | null>(null);
+  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -75,12 +97,17 @@ export function VoiceRecorder({
       if (recorderRef.current && recorderRef.current.state !== "inactive") recorderRef.current.stop();
     } catch { /* déjà arrêté */ }
     recorderRef.current = null;
+    // Déconnecte la source du graphe SANS fermer le contexte partagé (il resservira
+    // à la prochaine dictée — iOS plafonne les AudioContext, cf. getSharedAudioContext).
+    try { sourceRef.current?.disconnect(); } catch { /* */ }
+    sourceRef.current = null;
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
-    if (audioCtxRef.current && audioCtxRef.current.state !== "closed") {
-      audioCtxRef.current.close().catch(() => {});
+    lastMicReleaseAt = Date.now();
+    // Mise en veille du contexte partagé (économie batterie) — jamais close().
+    if (sharedAudioCtx && sharedAudioCtx.state === "running") {
+      sharedAudioCtx.suspend().catch(() => {});
     }
-    audioCtxRef.current = null;
   };
 
   const stopRecorder = () =>
@@ -145,8 +172,8 @@ export function VoiceRecorder({
       setStatus("error");
       setErrorMsg(
         serverDownRef.current
-          ? "Service de dictée momentanément indisponible. Réessayez dans un instant."
-          : "Aucune parole détectée. Réessayez en parlant un peu plus fort, micro proche."
+          ? tr("Service de dictée momentanément indisponible. Réessayez dans un instant.", "Dictation service momentarily unavailable. Try again in a moment.")
+          : tr("Aucune parole détectée. Réessayez en parlant un peu plus fort, micro proche.", "No speech detected. Try again, speaking a bit louder with the mic close.")
       );
       return;
     }
@@ -185,16 +212,27 @@ export function VoiceRecorder({
         // noiseSuppression coupe le fond, echoCancellation évite le larsen. Mono.
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
       };
+      // Laisse iOS finir de libérer la session micro précédente avant de rouvrir :
+      // sans ce répit, getUserMedia jette un NotAllowedError/AbortError transitoire.
+      const since = Date.now() - lastMicReleaseAt;
+      if (lastMicReleaseAt && since < 700) {
+        await new Promise((r) => setTimeout(r, 700 - since));
+      }
       let lastErr: unknown;
-      for (let attempt = 0; attempt < 3; attempt++) {
+      for (let attempt = 0; attempt < 4; attempt++) {
         if (cancelled) throw new Error("cancelled");
         try {
           return await navigator.mediaDevices.getUserMedia(constraints);
         } catch (e) {
           lastErr = e;
           const name = (e as { name?: string })?.name;
-          if (name === "NotAllowedError" || name === "SecurityError") throw e; // vrai refus
-          await new Promise((r) => setTimeout(r, 350)); // laisse le micro se libérer
+          // SecurityError = contexte non sécurisé (http) → jamais récupérable.
+          if (name === "SecurityError") throw e;
+          // NotAllowedError est AMBIGU en PWA iOS : vrai refus utilisateur OU simple
+          // hoquet juste après la session précédente. On RETENTE (attente croissante) ;
+          // si c'est un vrai refus, les 4 tentatives échouent et on affiche le blocage.
+          // C'est la cause n°1 corrigée du « je refais un vocal et rien ne se passe ».
+          await new Promise((r) => setTimeout(r, 300 + attempt * 350));
         }
       }
       throw lastErr;
@@ -210,8 +248,8 @@ export function VoiceRecorder({
         setStatus("error");
         setErrorMsg(
           name === "NotAllowedError" || name === "SecurityError"
-            ? "Micro bloqué. Autorisez l'accès au microphone dans votre navigateur, puis réessayez."
-            : "Micro momentanément indisponible (déjà utilisé ou pas encore libéré). Réessayez."
+            ? tr("Micro bloqué. Autorisez l'accès au microphone dans votre navigateur, puis réessayez.", "Mic blocked. Allow microphone access in your browser, then try again.")
+            : tr("Micro momentanément indisponible (déjà utilisé ou pas encore libéré). Réessayez.", "Mic momentarily unavailable (in use or not yet released). Try again.")
         );
         return;
       }
@@ -219,39 +257,41 @@ export function VoiceRecorder({
       streamRef.current = stream;
       setStatus("listening");
 
-      // 1) Analyseur -> ondes réactives à la voix.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      const ctx: AudioContext = new AudioCtx();
-      audioCtxRef.current = ctx;
-      // Mobile / PWA : l'AudioContext démarre souvent « suspended » (politique
-      // autoplay) → les ondes restent mortes. On le réveille explicitement.
-      if (ctx.state === "suspended") { try { await ctx.resume(); } catch { /* ignore */ } }
-      if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
-      const source = ctx.createMediaStreamSource(stream);
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 128;
-      analyser.smoothingTimeConstant = 0.75;
-      source.connect(analyser);
-      const data = new Uint8Array(analyser.frequencyBinCount);
+      // 1) Analyseur -> ondes réactives à la voix. Contexte PARTAGÉ réutilisé
+      //    (jamais recréé) pour ne pas épuiser le quota d'AudioContext iOS.
+      const ctx = getSharedAudioContext();
+      if (ctx) {
+        // Mobile / PWA : le contexte démarre/reste souvent « suspended » (politique
+        // autoplay, ou mis en veille par la dictée précédente) → ondes mortes. On le
+        // réveille explicitement à chaque session.
+        if (ctx.state !== "running") { try { await ctx.resume(); } catch { /* ignore */ } }
+        if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
+        const source = ctx.createMediaStreamSource(stream);
+        sourceRef.current = source;
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 128;
+        analyser.smoothingTimeConstant = 0.75;
+        source.connect(analyser);
+        const data = new Uint8Array(analyser.frequencyBinCount);
 
-      const render = () => {
-        analyser.getByteFrequencyData(data);
-        const bars = barsRef.current;
-        const n = bars.length;
-        const usable = Math.floor(data.length * 0.66);
-        const mid = (n - 1) / 2;
-        for (let i = 0; i < n; i++) {
-          const dist = Math.abs(i - mid) / mid;
-          const idx = Math.floor((1 - dist) * (usable - 1));
-          const v = (data[idx] || 0) / 255;
-          const scale = 0.12 + Math.pow(v, 1.35) * 2.4;
-          const el = bars[i];
-          if (el) el.style.transform = `scaleY(${Math.min(scale, 2.7).toFixed(3)})`;
-        }
-        rafRef.current = requestAnimationFrame(render);
-      };
-      render();
+        const render = () => {
+          analyser.getByteFrequencyData(data);
+          const bars = barsRef.current;
+          const n = bars.length;
+          const usable = Math.floor(data.length * 0.66);
+          const mid = (n - 1) / 2;
+          for (let i = 0; i < n; i++) {
+            const dist = Math.abs(i - mid) / mid;
+            const idx = Math.floor((1 - dist) * (usable - 1));
+            const v = (data[idx] || 0) / 255;
+            const scale = 0.12 + Math.pow(v, 1.35) * 2.4;
+            const el = bars[i];
+            if (el) el.style.transform = `scaleY(${Math.min(scale, 2.7).toFixed(3)})`;
+          }
+          rafRef.current = requestAnimationFrame(render);
+        };
+        render();
+      }
 
       // 2) Enregistreur -> audio pour la transcription serveur (1 appel final).
       const mime = pickMime();
@@ -273,7 +313,7 @@ export function VoiceRecorder({
         const startRec = () => {
           if (stoppedRef.current) return;
           const rec = new SR();
-          rec.lang = "fr-FR";
+          rec.lang = locale === "en" ? "en-US" : "fr-FR";
           rec.continuous = true;
           rec.interimResults = true;
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -330,17 +370,17 @@ export function VoiceRecorder({
           </span>
           <span className="text-[12.5px] text-[#9A9AA6]">
             {isError
-              ? "Interrompu"
+              ? tr("Interrompu", "Interrupted")
               : isFinalizing
-              ? "Transcription en cours…"
+              ? tr("Transcription en cours…", "Transcribing…")
               : status === "connecting"
-              ? "Connexion du micro…"
-              : "À l'écoute…"}
+              ? tr("Connexion du micro…", "Connecting the mic…")
+              : tr("À l'écoute…", "Listening…")}
           </span>
         </div>
         <button
           onClick={cancel}
-          aria-label="Fermer la dictée"
+          aria-label={tr("Fermer la dictée", "Close dictation")}
           className="w-8 h-8 flex items-center justify-center rounded-full text-[#9A9AA6] hover:text-[#0A0A0A] hover:bg-black/[0.05] transition-colors"
         >
           <X className="w-4 h-4" />
@@ -366,12 +406,12 @@ export function VoiceRecorder({
         ) : isFinalizing ? (
           <p className="flex items-center gap-2 text-[#6E6E7A]">
             <Loader2 className="w-4 h-4 animate-spin text-[#7C3AED]" />
-            Transcription précise de votre dictée…
+            {tr("Transcription précise de votre dictée…", "Accurately transcribing your dictation…")}
           </p>
         ) : shown ? (
           <p className="text-[#0A0A0A]">{shown}</p>
         ) : (
-          <p className="text-[#9A9AA6]">Parlez, votre dictée s’écrit ici…</p>
+          <p className="text-[#9A9AA6]">{tr("Parlez, votre dictée s’écrit ici…", "Speak, your dictation appears here…")}</p>
         )}
       </div>
 
@@ -379,14 +419,14 @@ export function VoiceRecorder({
       <div className="relative flex items-center justify-between gap-2 mt-3">
         <div className="flex items-center gap-1.5 text-[11.5px] text-[#9A9AA6]">
           <Mic className="w-3.5 h-3.5" />
-          <span>Entrée pour valider · Échap pour annuler</span>
+          <span>{tr("Entrée pour valider · Échap pour annuler", "Enter to confirm · Esc to cancel")}</span>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={cancel}
             className="px-3.5 py-2 text-[13px] font-medium rounded-full text-[#4A4A56] bg-black/[0.04] border border-black/[0.06] hover:bg-black/[0.07] transition-colors"
           >
-            {isError ? "Fermer" : "Annuler"}
+            {isError ? tr("Fermer", "Close") : tr("Annuler", "Cancel")}
           </button>
           {isError && (
             <button
@@ -394,7 +434,7 @@ export function VoiceRecorder({
               className="flex items-center gap-1.5 px-4 py-2 text-[13px] font-semibold rounded-full text-white bg-gradient-to-br from-indigo-500 via-violet-500 to-pink-500 shadow-[0_6px_20px_rgba(139,92,246,0.4)] hover:shadow-[0_8px_28px_rgba(139,92,246,0.55)] active:scale-95 transition-all"
             >
               <Mic className="w-4 h-4" />
-              Réessayer
+              {tr("Réessayer", "Retry")}
             </button>
           )}
           {!isError && (
@@ -404,7 +444,7 @@ export function VoiceRecorder({
               className="flex items-center gap-1.5 px-4 py-2 text-[13px] font-semibold rounded-full text-white bg-gradient-to-br from-indigo-500 via-violet-500 to-pink-500 shadow-[0_6px_20px_rgba(139,92,246,0.4)] hover:shadow-[0_8px_28px_rgba(139,92,246,0.55)] active:scale-95 transition-all disabled:opacity-60 disabled:active:scale-100"
             >
               {isFinalizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-              {isFinalizing ? "Transcription…" : "Valider"}
+              {isFinalizing ? tr("Transcription…", "Transcribing…") : tr("Valider", "Confirm")}
             </button>
           )}
         </div>

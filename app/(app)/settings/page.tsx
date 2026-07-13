@@ -6,15 +6,19 @@ import { getActiveMembership } from "@/lib/tenant";
 import { useRole } from "@/lib/use-role";
 import { Dropdown } from "@/components/dropdown";
 import { COUNTRIES, normalizeCountry } from "@/lib/countries";
-import { CATEGORIES } from "@/lib/btp-catalog";
+import { CATEGORIES, catLabel } from "@/lib/btp-catalog";
+import { useT, useLocale, useI18n } from "@/lib/i18n/context";
+import { LOCALE_META, type Locale } from "@/lib/i18n/config";
 
 // Métiers éditables en paramètres (mêmes catégories qu'à l'onboarding) +
 // « Autre » pour couvrir le multi-services. Multi-sélection : un artisan peut
 // être électricien ET chauffagiste.
-const METIERS = [
-  ...CATEGORIES.map((c) => ({ id: c.id, label: c.label, emoji: c.emoji })),
-  { id: "autre", label: "Autre / Multi-services", emoji: "🧰" },
-];
+function buildMetiers(t: (fr: string, en: string) => string, locale: Locale) {
+  return [
+    ...CATEGORIES.map((c) => ({ id: c.id, label: catLabel(c.label, locale), emoji: c.emoji })),
+    { id: "autre", label: t("Autre / Multi-services", "Other / Multi-services"), emoji: "🧰" },
+  ];
+}
 import {
   User,
   Building2,
@@ -37,6 +41,7 @@ import {
   Upload,
   Download,
   Trash2,
+  Palette,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -46,11 +51,13 @@ import {
   formatEur,
   tierDisplayMonthlyEur,
   annualTotalEur,
+  localizePlan,
   type BillingCycle,
   type PlanId,
 } from "@/lib/plans";
 import { CreditPacksPanel } from "@/components/credit-packs";
 import KnowledgeManager from "@/components/knowledge-manager";
+import BrandSettings from "@/components/brand-settings";
 import {
   DEFAULT_PREFERENCES,
   normalizePreferences,
@@ -65,20 +72,35 @@ import {
 // ─────────────────────────────────────────────────────────────────────────────
 
 type SectionKey =
-  | "account" | "company" | "team" | "billing"
+  | "account" | "company" | "brand" | "team" | "billing"
   | "ai" | "notifications" | "security" | "data";
 
 // Les intégrations ont leur propre page (sidebar → /connectors).
-const SECTIONS: { key: SectionKey; label: string; icon: LucideIcon }[] = [
-  { key: "account", label: "Mon compte", icon: User },
-  { key: "company", label: "Entreprise", icon: Building2 },
-  { key: "team", label: "Équipe", icon: Users },
-  { key: "billing", label: "Facturation", icon: CreditCard },
-  { key: "ai", label: "IA", icon: Sparkles },
-  { key: "notifications", label: "Notifications", icon: Bell },
-  { key: "security", label: "Sécurité", icon: Shield },
-  { key: "data", label: "Données", icon: Database },
+const SECTIONS: { key: SectionKey; icon: LucideIcon }[] = [
+  { key: "account", icon: User },
+  { key: "company", icon: Building2 },
+  { key: "brand", icon: Palette },
+  { key: "team", icon: Users },
+  { key: "billing", icon: CreditCard },
+  { key: "ai", icon: Sparkles },
+  { key: "notifications", icon: Bell },
+  { key: "security", icon: Shield },
+  { key: "data", icon: Database },
 ];
+
+function sectionLabel(t: (fr: string, en: string) => string, key: SectionKey): string {
+  switch (key) {
+    case "account": return t("Mon compte", "My account");
+    case "company": return t("Entreprise", "Company");
+    case "brand": return t("Identité visuelle", "Visual identity");
+    case "team": return t("Équipe", "Team");
+    case "billing": return t("Facturation", "Billing");
+    case "ai": return t("IA", "AI");
+    case "notifications": return t("Notifications", "Notifications");
+    case "security": return t("Sécurité", "Security");
+    case "data": return t("Données", "Data");
+  }
+}
 
 // ─── Primitives ──────────────────────────────────────────────────────────────
 function SectionTitle({ title, desc }: { title: string; desc?: string }) {
@@ -141,6 +163,10 @@ function PrefRow({
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function SettingsPage() {
+  const t = useT();
+  const locale = useLocale();
+  const { setLocale } = useI18n();
+  const METIERS = buildMetiers(t, locale);
   const [section, setSection] = useState<SectionKey>("account");
   // Rôle dans l'espace actif → masque la Facturation aux non-propriétaires.
   // Pendant le chargement, on affiche (évite le clignotement pour le propriétaire).
@@ -162,6 +188,11 @@ export default function SettingsPage() {
   // Entreprise (tenants.company_info : pays FR/BE, TVA, SIRET/BCE, adresse)
   const [companyName, setCompanyName] = useState("");
   const [companyInfo, setCompanyInfo] = useState({ country: "FR", vat: "", siret: "", address: "" });
+  // company_info porte AUSSI des clés que cet écran n'édite pas (headcount,
+  // activity_type et sector_detail posés à l'inscription, brand = identité
+  // visuelle). On garde le JSON complet pour le REFUSIONNER à l'enregistrement :
+  // sans ça, sauver la fiche écrase silencieusement tout le reste.
+  const [companyRaw, setCompanyRaw] = useState<Record<string, unknown>>({});
   // Spécialités du métier (multi) : sectors[0] = principale (aiguille les agents).
   const [sectors, setSectors] = useState<string[]>([]);
   const [savingCompany, setSavingCompany] = useState(false);
@@ -224,8 +255,8 @@ export default function SettingsPage() {
     const KNOWN: SectionKey[] = ["account", "company", "team", "billing", "ai", "notifications", "security", "data"];
     if (sec && (KNOWN as string[]).includes(sec)) setSection(sec as SectionKey);
     if (params.get("upgrade") === "1") setSection("billing");
-    if (params.get("checkout") === "success") { setNotice("Paiement confirmé. Votre abonnement sera actif d'ici quelques secondes."); setSection("billing"); }
-    if (params.get("checkout") === "cancel") { setNotice("Paiement annulé. Aucun changement n'a été effectué."); setSection("billing"); }
+    if (params.get("checkout") === "success") { setNotice(t("Paiement confirmé. Votre abonnement sera actif d'ici quelques secondes.", "Payment confirmed. Your subscription will be active in a few seconds.")); setSection("billing"); }
+    if (params.get("checkout") === "cancel") { setNotice(t("Paiement annulé. Aucun changement n'a été effectué.", "Payment cancelled. No changes were made.")); setSection("billing"); }
 
     const supabase = createClient();
     supabase.auth.getUser().then(async ({ data: { user } }) => {
@@ -275,7 +306,7 @@ export default function SettingsPage() {
 
   // Tout abonnement actif non-"free" (y compris un ancien "business") est présenté comme Pro.
   const currentPlanId: PlanId = sub && sub.plan !== "free" ? "pro" : "free";
-  const currentPlan = getPlan(currentPlanId);
+  const currentPlan = localizePlan(getPlan(currentPlanId), locale);
   const selectedTier = getTier(selectedPlan, selectedCredits);
 
   function flash(msg: string) { setError(null); setNotice(msg); }
@@ -312,16 +343,16 @@ export default function SettingsPage() {
         body: JSON.stringify({ email, role: inviteRole }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Invitation impossible.");
-      setTeam((t) => [...t, data.member]);
+      if (!res.ok) throw new Error(data.error ?? t("Invitation impossible.", "Invitation failed."));
+      setTeam((prev) => [...prev, data.member]);
       setInviteEmail("");
       flash(
         data.invited
-          ? `Invitation envoyée à ${data.member.email} : il la reçoit par email, clique, choisit son mot de passe et rejoint l'équipe (sans confirmation).`
-          : `${data.member.email} a rejoint votre équipe.`
+          ? t(`Invitation envoyée à ${data.member.email} : il la reçoit par email, clique, choisit son mot de passe et rejoint l'équipe (sans confirmation).`, `Invitation sent to ${data.member.email}: they receive it by email, click, choose their password and join the team (no confirmation needed).`)
+          : t(`${data.member.email} a rejoint votre équipe.`, `${data.member.email} joined your team.`)
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Invitation impossible.");
+      setError(err instanceof Error ? err.message : t("Invitation impossible.", "Invitation failed."));
     }
     setInviting(false);
   }
@@ -336,10 +367,10 @@ export default function SettingsPage() {
         body: JSON.stringify({ memberUserId, employeeId: employeeId || null }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Liaison impossible.");
-      setTeam((t) => t.map((m) => (m.user_id === memberUserId ? { ...m, employeeId: employeeId || null } : m)));
+      if (!res.ok) throw new Error(data.error ?? t("Liaison impossible.", "Linking failed."));
+      setTeam((prev) => prev.map((m) => (m.user_id === memberUserId ? { ...m, employeeId: employeeId || null } : m)));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Liaison impossible.");
+      setError(err instanceof Error ? err.message : t("Liaison impossible.", "Linking failed."));
     }
     setLinkingUser(null);
   }
@@ -347,8 +378,8 @@ export default function SettingsPage() {
   async function removeMember(memberId: string) {
     // Confirmation anti-fausse-manip : on nomme la personne concernée.
     const target = team.find((m) => m.id === memberId);
-    const label = target?.full_name || target?.email || "ce collaborateur";
-    if (!window.confirm(`Retirer ${label} de l'équipe ?\n\nIl perdra immédiatement l'accès à cet espace de travail.`)) {
+    const label = target?.full_name || target?.email || t("ce collaborateur", "this collaborator");
+    if (!window.confirm(t(`Retirer ${label} de l'équipe ?\n\nIl perdra immédiatement l'accès à cet espace de travail.`, `Remove ${label} from the team?\n\nThey will immediately lose access to this workspace.`))) {
       return;
     }
     setError(null);
@@ -360,11 +391,11 @@ export default function SettingsPage() {
         body: JSON.stringify({ memberId }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Retrait impossible.");
-      setTeam((t) => t.filter((m) => m.id !== memberId));
-      flash("Membre retiré de l'équipe.");
+      if (!res.ok) throw new Error(data.error ?? t("Retrait impossible.", "Removal failed."));
+      setTeam((prev) => prev.filter((m) => m.id !== memberId));
+      flash(t("Membre retiré de l'équipe.", "Member removed from the team."));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Retrait impossible.");
+      setError(err instanceof Error ? err.message : t("Retrait impossible.", "Removal failed."));
     }
     setRemovingId(null);
   }
@@ -374,15 +405,15 @@ export default function SettingsPage() {
     try {
       const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Session expirée.");
+      if (!user) throw new Error(t("Session expirée.", "Session expired."));
       const { error: e1 } = await supabase
         .from("profiles")
         .upsert({ user_id: user.id, full_name: fullName }, { onConflict: "user_id" });
       if (e1) throw e1;
       await supabase.auth.updateUser({ data: { full_name: fullName } });
-      flash("Nom mis à jour.");
+      flash(t("Nom mis à jour.", "Name updated."));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Échec de l'enregistrement.");
+      setError(err instanceof Error ? err.message : t("Échec de l'enregistrement.", "Save failed."));
     }
     setSavingName(false);
   }
@@ -393,6 +424,7 @@ export default function SettingsPage() {
     const supabase = createClient();
     supabase.from("tenants").select("company_info, contributes_to_brain").eq("id", tenantId).maybeSingle().then(({ data }) => {
       const ci = (data?.company_info ?? {}) as Record<string, string>;
+      setCompanyRaw((data?.company_info ?? {}) as Record<string, unknown>);
       setCompanyInfo({
         country: normalizeCountry(ci.country),
         vat: ci.vat ?? "",
@@ -416,9 +448,9 @@ export default function SettingsPage() {
       .eq("id", tenantId);
     if (err) {
       setContributesToBrain(!next); // rollback
-      setError("Impossible de mettre à jour ce réglage.");
+      setError(t("Impossible de mettre à jour ce réglage.", "Couldn't update this setting."));
     } else {
-      flash(next ? "Contribution au cerveau collectif activée." : "Contribution désactivée.");
+      flash(next ? t("Contribution au cerveau collectif activée.", "Collective brain contribution enabled.") : t("Contribution désactivée.", "Contribution disabled."));
     }
     setSavingBrain(false);
   }
@@ -444,9 +476,9 @@ export default function SettingsPage() {
       });
       if (e) throw e;
       setResetSent(true);
-      flash("Email envoyé. Ouvrez le lien reçu pour définir un nouveau mot de passe.");
+      flash(t("Email envoyé. Ouvrez le lien reçu pour définir un nouveau mot de passe.", "Email sent. Open the link you receive to set a new password."));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Envoi impossible. Réessayez.");
+      setError(err instanceof Error ? err.message : t("Envoi impossible. Réessayez.", "Sending failed. Try again."));
     }
     setSavingPwd(false);
   }
@@ -460,7 +492,7 @@ export default function SettingsPage() {
       if (e) throw e;
       setMfaEnroll({ id: data.id, qr: data.totp.qr_code, secret: data.totp.secret });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Activation impossible.");
+      setError(err instanceof Error ? err.message : t("Activation impossible.", "Activation failed."));
     }
     setMfaBusy(false);
   }
@@ -481,30 +513,30 @@ export default function SettingsPage() {
       setMfaEnroll(null); setMfaCode("");
       const { data } = await supabase.auth.mfa.listFactors();
       setMfaFactors((data?.totp ?? []).map((f) => ({ id: f.id, status: f.status })));
-      flash("Double authentification activée.");
+      flash(t("Double authentification activée.", "Two-factor authentication enabled."));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Code invalide. Réessayez.");
+      setError(err instanceof Error ? err.message : t("Code invalide. Réessayez.", "Invalid code. Try again."));
     }
     setMfaBusy(false);
   }
 
   async function disableMfa(factorId: string) {
-    if (!confirm("Désactiver la double authentification ?")) return;
+    if (!confirm(t("Désactiver la double authentification ?", "Disable two-factor authentication?"))) return;
     setMfaBusy(true);
     try {
       const supabase = createClient();
       const { error: e } = await supabase.auth.mfa.unenroll({ factorId });
       if (e) throw e;
       setMfaFactors((prev) => prev.filter((f) => f.id !== factorId));
-      flash("Double authentification désactivée.");
+      flash(t("Double authentification désactivée.", "Two-factor authentication disabled."));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Échec de la désactivation.");
+      setError(err instanceof Error ? err.message : t("Échec de la désactivation.", "Failed to disable."));
     }
     setMfaBusy(false);
   }
 
   async function signOutEverywhere() {
-    if (!confirm("Se déconnecter de TOUS les appareils (y compris celui-ci) ?")) return;
+    if (!confirm(t("Se déconnecter de TOUS les appareils (y compris celui-ci) ?", "Sign out of ALL devices (including this one)?"))) return;
     const supabase = createClient();
     await supabase.auth.signOut({ scope: "global" });
     window.location.href = "/login";
@@ -512,17 +544,20 @@ export default function SettingsPage() {
 
   async function saveCompany() {
     setError(null);
-    if (!tenantId) { setError("Aucun espace de travail."); return; }
+    if (!tenantId) { setError(t("Aucun espace de travail.", "No workspace.")); return; }
     setSavingCompany(true);
     try {
       const supabase = createClient();
       const primarySector = sectors[0] ?? null;
       // tenants : nom + fiche (pays, TVA…) + spécialité principale/liste.
+      // On repart du JSON COMPLET (companyRaw) : les clés que cet écran n'édite pas
+      // — identité visuelle (brand), effectif, type d'activité posés à l'inscription —
+      // doivent survivre à l'enregistrement de la fiche.
       const { error: e } = await supabase
         .from("tenants")
         .update({
           name: companyName,
-          company_info: { ...companyInfo, sector: primarySector, sectors },
+          company_info: { ...companyRaw, ...companyInfo, sector: primarySector, sectors },
         })
         .eq("id", tenantId);
       if (e) throw e;
@@ -546,9 +581,9 @@ export default function SettingsPage() {
         }
       } catch { /* la spécialité est best-effort */ }
 
-      flash("Entreprise mise à jour.");
+      flash(t("Entreprise mise à jour.", "Company updated."));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Échec (seuls Propriétaire et Admin peuvent modifier).");
+      setError(err instanceof Error ? err.message : t("Échec (seuls Propriétaire et Admin peuvent modifier).", "Failed (only Owner and Admin can edit)."));
     }
     setSavingCompany(false);
   }
@@ -565,7 +600,7 @@ export default function SettingsPage() {
     try {
       const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Session expirée.");
+      if (!user) throw new Error(t("Session expirée.", "Session expired."));
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const db = supabase as unknown as { from: (t: string) => any };
       // Fusion avec les préférences brutes existantes (pays, objectifs
@@ -577,9 +612,9 @@ export default function SettingsPage() {
         .from("profiles")
         .upsert({ user_id: user.id, preferences: { ...raw, ...prefs } }, { onConflict: "user_id" });
       if (e) throw e;
-      flash("Préférences IA enregistrées.");
+      flash(t("Préférences IA enregistrées.", "AI preferences saved."));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Échec — la migration 009 est-elle appliquée ?");
+      setError(err instanceof Error ? err.message : t("Échec — la migration 009 est-elle appliquée ?", "Failed — is migration 009 applied?"));
     }
     setSavingPrefs(false);
   }
@@ -628,7 +663,7 @@ export default function SettingsPage() {
     setPushBusy(true);
     try {
       const reg = await getSWRegistration();
-      if (!reg) throw new Error("Service worker indisponible. Rechargez la page et réessayez.");
+      if (!reg) throw new Error(t("Service worker indisponible. Rechargez la page et réessayez.", "Service worker unavailable. Reload the page and try again."));
       if (pushEnabled) {
         // Désabonnement de CET appareil.
         const sub = await reg.pushManager.getSubscription();
@@ -641,15 +676,15 @@ export default function SettingsPage() {
           await sub.unsubscribe();
         }
         setPushEnabled(false);
-        flash("Notifications push désactivées sur cet appareil.");
+        flash(t("Notifications push désactivées sur cet appareil.", "Push notifications disabled on this device."));
       } else {
         const permission = await Notification.requestPermission();
         if (permission !== "granted") {
-          throw new Error("Autorisez les notifications dans votre navigateur pour les activer.");
+          throw new Error(t("Autorisez les notifications dans votre navigateur pour les activer.", "Allow notifications in your browser to enable them."));
         }
         const cfg = await fetch("/api/push").then((r) => r.json());
         if (!cfg.enabled || !cfg.publicKey) {
-          throw new Error("Notifications push non configurées côté serveur.");
+          throw new Error(t("Notifications push non configurées côté serveur.", "Push notifications not configured on the server."));
         }
         // subscribe() peut PENDRE si le service push du navigateur est
         // injoignable (pare-feu, offline) → timeout avec message clair.
@@ -660,7 +695,7 @@ export default function SettingsPage() {
           }),
           new Promise<never>((_, reject) =>
             setTimeout(
-              () => reject(new Error("Service de notifications injoignable. Vérifiez votre connexion et réessayez.")),
+              () => reject(new Error(t("Service de notifications injoignable. Vérifiez votre connexion et réessayez.", "Notification service unreachable. Check your connection and try again."))),
               12000
             )
           ),
@@ -671,22 +706,22 @@ export default function SettingsPage() {
           body: JSON.stringify({ subscription: sub.toJSON() }),
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "Activation impossible.");
+        if (!res.ok) throw new Error(data.error ?? t("Activation impossible.", "Activation failed."));
         setPushEnabled(true);
         flash(
           data.testSent
-            ? "Notifications activées — une notification de test vient d'arriver."
-            : "Notifications activées sur cet appareil."
+            ? t("Notifications activées — une notification de test vient d'arriver.", "Notifications enabled — a test notification just arrived.")
+            : t("Notifications activées sur cet appareil.", "Notifications enabled on this device.")
         );
       }
     } catch (err) {
       const raw = err instanceof Error ? err.message : "";
       // Erreurs navigateur brutes → messages compréhensibles.
       const friendly = /permission denied|incognito/i.test(raw)
-        ? "Votre navigateur bloque les notifications (navigation privée ?). Ouvrez Biltia dans une fenêtre normale et réessayez."
+        ? t("Votre navigateur bloque les notifications (navigation privée ?). Ouvrez Biltia dans une fenêtre normale et réessayez.", "Your browser blocks notifications (private browsing?). Open Biltia in a normal window and try again.")
         : /denied/i.test(raw)
-        ? "Autorisez les notifications dans votre navigateur pour les activer."
-        : raw || "Opération impossible.";
+        ? t("Autorisez les notifications dans votre navigateur pour les activer.", "Allow notifications in your browser to enable them.")
+        : raw || t("Opération impossible.", "Operation failed.");
       setError(friendly);
     }
     setPushBusy(false);
@@ -702,15 +737,15 @@ export default function SettingsPage() {
       });
       const data = await res.json();
       if (res.ok && data.url) { window.location.href = data.url; return; }
-      setError(data.error ?? "Impossible de démarrer le paiement.");
+      setError(data.error ?? t("Impossible de démarrer le paiement.", "Couldn't start the payment."));
     } catch {
-      setError("Erreur réseau. Réessayez.");
+      setError(t("Erreur réseau. Réessayez.", "Network error. Try again."));
     }
     setCheckoutLoading(false);
   }
 
   const roleLabel: Record<string, string> = {
-    owner: "Propriétaire", admin: "Admin", manager: "Manager", member: "Employé", viewer: "Lecture seule",
+    owner: t("Propriétaire", "Owner"), admin: t("Admin", "Admin"), manager: t("Manager", "Manager"), member: t("Employé", "Employee"), viewer: t("Lecture seule", "Read-only"),
   };
 
   return (
@@ -721,17 +756,18 @@ export default function SettingsPage() {
           <span className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500/15 to-pink-500/10 flex items-center justify-center flex-shrink-0">
             <User className="w-5 h-5 text-violet-600" />
           </span>
-          <h1 className="text-xl sm:text-2xl font-black text-[#0A0A0A] tracking-[-0.03em]">Paramètres</h1>
+          <h1 className="text-xl sm:text-2xl font-black text-[#0A0A0A] tracking-[-0.03em]">{t("Paramètres", "Settings")}</h1>
         </div>
-        <p className="text-[14px] text-[#6E6E6C] mb-6 ml-0 sm:ml-12">Vos préférences, pas de la technique.</p>
+        <p className="text-[14px] text-[#6E6E6C] mb-6 ml-0 sm:ml-12">{t("Vos préférences, pas de la technique.", "Your preferences, not the tech.")}</p>
 
-        <div className="flex flex-col md:flex-row gap-6 md:gap-8">
-          {/* Nav interne */}
-          <nav className="md:w-56 flex-shrink-0">
-            <div className="flex md:flex-col gap-1 overflow-x-auto md:overflow-visible pb-2 md:pb-0 -mx-1 px-1 md:mx-0 md:px-0">
+        <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
+          {/* Nav interne — horizontale jusqu'à lg (évite l'écrasement des champs
+              sur tablette : sidebar de l'app + nav verticale + formulaire 2 colonnes). */}
+          <nav className="lg:w-56 flex-shrink-0">
+            <div className="flex lg:flex-col gap-1 overflow-x-auto lg:overflow-visible pb-2 lg:pb-0 -mx-1 px-1 lg:mx-0 lg:px-0">
               {SECTIONS.filter(
                 (s) => s.key !== "billing" || roleLoading || roleCan("billing.manage")
-              ).map(({ key, label, icon: Icon }) => (
+              ).map(({ key, icon: Icon }) => (
                 <button
                   key={key}
                   onClick={() => { setSection(key); setError(null); }}
@@ -742,7 +778,7 @@ export default function SettingsPage() {
                   }`}
                 >
                   <Icon className={`w-4 h-4 ${section === key ? "text-violet-600" : ""}`} />
-                  {label}
+                  {sectionLabel(t, key)}
                 </button>
               ))}
             </div>
@@ -761,31 +797,34 @@ export default function SettingsPage() {
             {section === "account" && (
               <div className="space-y-5">
                 <Card>
-                  <SectionTitle title="Mon compte" desc="Vos informations personnelles." />
+                  <SectionTitle title={t("Mon compte", "My account")} desc={t("Vos informations personnelles.", "Your personal information.")} />
                   <div className="flex items-center gap-4 mb-6">
                     <div className="w-16 h-16 rounded-full bg-gradient-to-br from-violet-500 to-pink-500 flex items-center justify-center">
                       <span className="text-xl font-bold text-white">{(fullName || email || "?")[0]?.toUpperCase()}</span>
                     </div>
                     <div className="min-w-0">
                       <p className="text-[15px] font-semibold text-[#0A0A0A] truncate">{fullName || email}</p>
-                      <p className="text-[13px] text-[#9A9A97]">Plan {currentPlan.name}</p>
+                      <p className="text-[13px] text-[#9A9A97]">{t(`Plan ${currentPlan.name}`, `${currentPlan.name} plan`)}</p>
                     </div>
                   </div>
 
                   <div className="space-y-4">
-                    <Field label="Nom complet">
-                      <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Jean Dupont" className={inputCls} />
+                    <Field label={t("Nom complet", "Full name")}>
+                      <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder={t("Jean Dupont", "John Smith")} className={inputCls} />
                     </Field>
-                    <Field label="Email" hint="Votre identifiant de connexion. Pour le changer, contactez le support (protection anti-détournement).">
+                    <Field label={t("Email", "Email")} hint={t("Votre identifiant de connexion. Pour le changer, contactez le support (protection anti-détournement).", "Your sign-in ID. To change it, contact support (anti-hijacking protection).")}>
                       <input value={email} disabled className={inputCls} />
                     </Field>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <Field label="Langue">
-                        <Dropdown value="fr" onChange={() => {}} ariaLabel="Langue" size="sm"
-                          options={[{ value: "fr", label: "Français", icon: <Globe className="w-3.5 h-3.5 text-[#9A9A97]" /> }]} />
+                      <Field label={t("Langue", "Language")}>
+                        <Dropdown value={locale} onChange={(v) => setLocale(v as Locale)} ariaLabel={t("Langue", "Language")} size="sm"
+                          options={[
+                            { value: "fr", label: LOCALE_META.fr.label, icon: <Globe className="w-3.5 h-3.5 text-[#9A9A97]" /> },
+                            { value: "en", label: LOCALE_META.en.label, icon: <Globe className="w-3.5 h-3.5 text-[#9A9A97]" /> },
+                          ]} />
                       </Field>
-                      <Field label="Fuseau">
-                        <Dropdown value="paris" onChange={() => {}} ariaLabel="Fuseau horaire" size="sm"
+                      <Field label={t("Fuseau", "Time zone")}>
+                        <Dropdown value="paris" onChange={() => {}} ariaLabel={t("Fuseau horaire", "Time zone")} size="sm"
                           options={[{ value: "paris", label: "Europe/Paris", icon: <Clock className="w-3.5 h-3.5 text-[#9A9A97]" /> }]} />
                       </Field>
                     </div>
@@ -795,21 +834,21 @@ export default function SettingsPage() {
                       className="inline-flex items-center gap-2 rounded-xl bg-[#0A0A0A] text-white text-[13.5px] font-semibold px-4 py-2.5 hover:opacity-90 disabled:opacity-50 transition-opacity"
                     >
                       {savingName ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                      Enregistrer
+                      {t("Enregistrer", "Save")}
                     </button>
                   </div>
                 </Card>
 
                 <Card>
                   <SectionTitle
-                    title="Mot de passe"
-                    desc="Par sécurité, le changement passe par un lien envoyé à votre email — jamais directement depuis une session ouverte."
+                    title={t("Mot de passe", "Password")}
+                    desc={t("Par sécurité, le changement passe par un lien envoyé à votre email — jamais directement depuis une session ouverte.", "For security, changes go through a link sent to your email — never directly from an open session.")}
                   />
                   {resetSent ? (
                     <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
                       <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0" />
                       <p className="text-sm text-emerald-700">
-                        Lien envoyé à <b>{email}</b>. Ouvrez l&apos;email et suivez le lien pour définir votre nouveau mot de passe.
+                        {t("Lien envoyé à ", "Link sent to ")}<b>{email}</b>{t(". Ouvrez l'email et suivez le lien pour définir votre nouveau mot de passe.", ". Open the email and follow the link to set your new password.")}
                       </p>
                     </div>
                   ) : (
@@ -819,7 +858,7 @@ export default function SettingsPage() {
                       className="inline-flex items-center gap-2 rounded-xl bg-[#0A0A0A] text-white text-[13.5px] font-semibold px-4 py-2.5 hover:opacity-90 disabled:opacity-50 transition-opacity"
                     >
                       {savingPwd ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
-                      Recevoir le lien de réinitialisation
+                      {t("Recevoir le lien de réinitialisation", "Get the reset link")}
                     </button>
                   )}
                 </Card>
@@ -829,17 +868,17 @@ export default function SettingsPage() {
             {/* ─── ENTREPRISE ─────────────────────────────────────────── */}
             {section === "company" && (
               <Card>
-                <SectionTitle title="Entreprise" desc="Ces informations alimentent vos devis, factures et documents." />
+                <SectionTitle title={t("Entreprise", "Company")} desc={t("Ces informations alimentent vos devis, factures et documents.", "This information feeds your quotes, invoices and documents.")} />
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <Field label="Nom de l'entreprise">
-                      <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="BTP Dupont SARL" className={inputCls} />
+                    <Field label={t("Nom de l'entreprise", "Company name")}>
+                      <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder={t("BTP Dupont SARL", "Dupont Construction Ltd")} className={inputCls} />
                     </Field>
-                    <Field label="Pays">
+                    <Field label={t("Pays", "Country")}>
                       <Dropdown
                         value={companyInfo.country}
                         onChange={(v) => setCompanyInfo((c) => ({ ...c, country: v }))}
-                        ariaLabel="Pays de l'entreprise"
+                        ariaLabel={t("Pays de l'entreprise", "Company country")}
                         size="sm"
                         options={COUNTRIES.map((c) => ({
                           value: c.value,
@@ -850,7 +889,7 @@ export default function SettingsPage() {
                     </Field>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <Field label={companyInfo.country === "BE" ? "N° TVA (BE 0XXX.XXX.XXX)" : "N° TVA intracommunautaire"}>
+                    <Field label={companyInfo.country === "BE" ? t("N° TVA (BE 0XXX.XXX.XXX)", "VAT no. (BE 0XXX.XXX.XXX)") : t("N° TVA intracommunautaire", "EU VAT number")}>
                       <input
                         value={companyInfo.vat}
                         onChange={(e) => setCompanyInfo((c) => ({ ...c, vat: e.target.value }))}
@@ -858,7 +897,7 @@ export default function SettingsPage() {
                         className={inputCls}
                       />
                     </Field>
-                    <Field label={companyInfo.country === "BE" ? "N° d'entreprise (BCE)" : "SIRET"}>
+                    <Field label={companyInfo.country === "BE" ? t("N° d'entreprise (BCE)", "Company no. (BCE)") : t("SIRET", "SIRET")}>
                       <input
                         value={companyInfo.siret}
                         onChange={(e) => setCompanyInfo((c) => ({ ...c, siret: e.target.value }))}
@@ -867,7 +906,7 @@ export default function SettingsPage() {
                       />
                     </Field>
                   </div>
-                  <Field label="Adresse">
+                  <Field label={t("Adresse", "Address")}>
                     <input
                       value={companyInfo.address}
                       onChange={(e) => setCompanyInfo((c) => ({ ...c, address: e.target.value }))}
@@ -880,9 +919,9 @@ export default function SettingsPage() {
                       devient la principale (aiguille les agents et les réponses). */}
                   <div>
                     <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-[#8B8B96]">
-                      Votre métier
+                      {t("Votre métier", "Your trade")}
                       <span className="ml-1.5 font-medium normal-case tracking-normal text-[#9A9A97]">
-                        (plusieurs possibles — la 1re est la principale)
+                        {t("(plusieurs possibles — la 1re est la principale)", "(several possible — the first is primary)")}
                       </span>
                     </label>
                     <div className="flex flex-wrap gap-2">
@@ -904,7 +943,7 @@ export default function SettingsPage() {
                             {m.label}
                             {active && idx === 0 && (
                               <span className="rounded-full bg-[#7C3AED] px-1.5 py-0.5 text-[9px] font-bold uppercase text-white">
-                                Principale
+                                {t("Principale", "Primary")}
                               </span>
                             )}
                           </button>
@@ -919,9 +958,25 @@ export default function SettingsPage() {
                     className="inline-flex items-center gap-2 rounded-xl bg-[#0A0A0A] text-white text-[13.5px] font-semibold px-4 py-2.5 hover:opacity-90 disabled:opacity-50 transition-opacity"
                   >
                     {savingCompany ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                    Enregistrer
+                    {t("Enregistrer", "Save")}
                   </button>
                 </div>
+              </Card>
+            )}
+
+            {/* ─── IDENTITÉ VISUELLE ──────────────────────────────────── */}
+            {/* Ce qui part chez les clients : logo, couleurs et mentions des devis
+                et factures. Pas de la décoration — la vitrine de l'entreprise. */}
+            {section === "brand" && (
+              <Card>
+                <SectionTitle
+                  title={t("Identité visuelle", "Visual identity")}
+                  desc={t(
+                    "Votre logo, vos couleurs et vos mentions légales sur tout ce qui part chez vos clients : devis, factures, emails.",
+                    "Your logo, colors and legal information on everything sent to your clients: quotes, invoices, emails."
+                  )}
+                />
+                <BrandSettings tenantId={tenantId} canEdit={roleCan("workspace.settings")} t={t} />
               </Card>
             )}
 
@@ -929,8 +984,8 @@ export default function SettingsPage() {
             {section === "team" && (
               <Card>
                 <SectionTitle
-                  title="Équipe"
-                  desc="Vos collaborateurs partagent le workspace (clients, chantiers, documents) et les applications."
+                  title={t("Équipe", "Team")}
+                  desc={t("Vos collaborateurs partagent le workspace (clients, chantiers, documents) et les applications.", "Your collaborators share the workspace (clients, job sites, documents) and the apps.")}
                 />
 
                 {teamLoading ? (
@@ -951,25 +1006,25 @@ export default function SettingsPage() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-[14px] text-[#0A0A0A] truncate">
-                            {m.full_name || m.email || "Membre"}
-                            {m.isYou && <span className="text-[#9A9A97]"> · vous</span>}
+                            {m.full_name || m.email || t("Membre", "Member")}
+                            {m.isYou && <span className="text-[#9A9A97]">{t(" · vous", " · you")}</span>}
                           </p>
                           <p className="text-[12px] text-[#9A9A97] truncate">{m.email}</p>
                           {/* Périmètre : relier l'employé à sa fiche → il ne voit que SES chantiers */}
                           {canManageTeam && m.role === "member" && employeeOptions.length > 0 && (
                             <div className="mt-1.5 flex items-center gap-1.5">
-                              <span className="text-[11px] text-[#9A9A97] flex-shrink-0">Fiche :</span>
+                              <span className="text-[11px] text-[#9A9A97] flex-shrink-0">{t("Fiche :", "Record:")}</span>
                               <select
                                 value={m.employeeId ?? ""}
                                 onChange={(e) => linkEmployee(m.user_id, e.target.value)}
                                 disabled={linkingUser === m.user_id}
                                 className="text-[12px] bg-white border border-[#EDEDF2] rounded-md px-1.5 py-0.5 text-[#0A0A0A] max-w-[220px] disabled:opacity-50"
-                                title="Relier ce compte à une fiche employé pour limiter sa vue à ses chantiers"
+                                title={t("Relier ce compte à une fiche employé pour limiter sa vue à ses chantiers", "Link this account to an employee record to limit their view to their job sites")}
                               >
-                                <option value="">— non reliée (voit tout) —</option>
+                                <option value="">{t("— non reliée (voit tout) —", "— not linked (sees all) —")}</option>
                                 {employeeOptions.map((e) => (
                                   <option key={e.id} value={e.id}>
-                                    {[e.prenom, e.nom].filter(Boolean).join(" ") || "Employé"}
+                                    {[e.prenom, e.nom].filter(Boolean).join(" ") || t("Employé", "Employee")}
                                   </option>
                                 ))}
                               </select>
@@ -985,7 +1040,7 @@ export default function SettingsPage() {
                             onClick={() => removeMember(m.id)}
                             disabled={removingId === m.id}
                             className="flex-shrink-0 p-1.5 text-[#9A9A97] hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors disabled:opacity-50"
-                            title="Retirer de l'équipe"
+                            title={t("Retirer de l'équipe", "Remove from team")}
                           >
                             {removingId === m.id ? (
                               <Loader2 className="w-4 h-4 animate-spin" />
@@ -998,7 +1053,7 @@ export default function SettingsPage() {
                     ))}
                     {team.length === 0 && (
                       <p className="text-[13px] text-[#9A9A97] py-4 text-center">
-                        Vous êtes seul dans cet espace pour l&apos;instant.
+                        {t("Vous êtes seul dans cet espace pour l'instant.", "You're alone in this workspace for now.")}
                       </p>
                     )}
                   </div>
@@ -1012,20 +1067,20 @@ export default function SettingsPage() {
                         onChange={(e) => setInviteEmail(e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter") inviteMember(); }}
                         type="email"
-                        placeholder="collaborateur@entreprise.fr"
+                        placeholder={t("collaborateur@entreprise.fr", "colleague@company.com")}
                         className={inputCls}
                       />
                       <Dropdown
                         value={inviteRole}
                         onChange={setInviteRole}
-                        ariaLabel="Rôle du collaborateur"
+                        ariaLabel={t("Rôle du collaborateur", "Collaborator role")}
                         size="sm"
                         className="flex-shrink-0 sm:w-44"
                         options={[
-                          { value: "member", label: "Employé", hint: "Utilise l'outil" },
-                          { value: "manager", label: "Manager", hint: "Gère les données" },
-                          { value: "admin", label: "Admin", hint: "Gère l'équipe" },
-                          { value: "viewer", label: "Lecture seule", hint: "Consulte" },
+                          { value: "member", label: t("Employé", "Employee"), hint: t("Utilise l'outil", "Uses the tool") },
+                          { value: "manager", label: t("Manager", "Manager"), hint: t("Gère les données", "Manages data") },
+                          { value: "admin", label: t("Admin", "Admin"), hint: t("Gère l'équipe", "Manages the team") },
+                          { value: "viewer", label: t("Lecture seule", "Read-only"), hint: t("Consulte", "Views") },
                         ]}
                       />
                       <button
@@ -1034,17 +1089,16 @@ export default function SettingsPage() {
                         className="flex-shrink-0 inline-flex items-center justify-center gap-2 rounded-xl bg-[#0A0A0A] text-white text-[13.5px] font-semibold px-4 py-2.5 hover:opacity-90 disabled:opacity-50 transition-opacity"
                       >
                         {inviting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Users className="w-4 h-4" />}
-                        Inviter
+                        {t("Inviter", "Invite")}
                       </button>
                     </div>
                     <p className="text-[12px] text-[#9A9A97] mt-3">
-                      S&apos;il a déjà un compte Biltia, il rejoint votre espace immédiatement.
-                      Sinon, il reçoit une invitation par email pour créer son compte et vous rejoindre — sans carte, sans crédits à lui offrir.
+                      {t("S'il a déjà un compte Biltia, il rejoint votre espace immédiatement. Sinon, il reçoit une invitation par email pour créer son compte et vous rejoindre — sans carte, sans crédits à lui offrir.", "If they already have a Biltia account, they join your workspace immediately. Otherwise, they get an email invitation to create their account and join you — no card, no credits to gift them.")}
                     </p>
                   </>
                 ) : (
                   <p className="text-[12px] text-[#9A9A97]">
-                    Seul le propriétaire ou un admin peut gérer l&apos;équipe.
+                    {t("Seul le propriétaire ou un admin peut gérer l'équipe.", "Only the owner or an admin can manage the team.")}
                   </p>
                 )}
               </Card>
@@ -1054,21 +1108,21 @@ export default function SettingsPage() {
             {section === "billing" && (
               <div className="space-y-5">
                 <Card>
-                  <SectionTitle title="Facturation" desc="Votre plan et votre consommation de crédits." />
-                  <div className="flex items-center gap-3 p-3.5 rounded-xl bg-gradient-to-r from-violet-500/[0.08] to-pink-500/[0.05] border border-violet-200/60 mb-5">
+                  <SectionTitle title={t("Facturation", "Billing")} desc={t("Votre plan et votre consommation de crédits.", "Your plan and your credit usage.")} />
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 p-3.5 rounded-xl bg-gradient-to-r from-violet-500/[0.08] to-pink-500/[0.05] border border-violet-200/60 mb-5">
                     <Zap className="w-4 h-4 text-violet-600 flex-shrink-0" />
                     <span className="text-sm text-[#0A0A0A] font-semibold tabular-nums">
-                      {credits !== null ? `${credits.toLocaleString("fr-FR")} crédits disponibles` : "Chargement…"}
+                      {credits !== null ? t(`${credits.toLocaleString("fr-FR")} crédits disponibles`, `${credits.toLocaleString("en-US")} credits available`) : t("Chargement…", "Loading…")}
                     </span>
                     <span className="ml-auto text-[12px] text-[#9A9A97]">
-                      Plan {currentPlan.name}
+                      {t(`Plan ${currentPlan.name}`, `${currentPlan.name} plan`)}
                       {sub?.current_period_end && currentPlanId !== "free"
-                        ? ` · renouv. ${new Date(sub.current_period_end).toLocaleDateString("fr-FR")}`
+                        ? t(` · renouv. ${new Date(sub.current_period_end).toLocaleDateString("fr-FR")}`, ` · renews ${new Date(sub.current_period_end).toLocaleDateString("en-US")}`)
                         : ""}
                     </span>
                   </div>
 
-                  <label className="mb-1.5 block text-[12px] font-semibold text-[#4A4A56]">Facturation</label>
+                  <label className="mb-1.5 block text-[12px] font-semibold text-[#4A4A56]">{t("Facturation", "Billing")}</label>
                   <div className="mb-4 inline-flex items-center gap-1 rounded-xl border border-[#E7E7EE] bg-white p-1">
                     {(["monthly", "annual"] as const).map((c) => (
                       <button
@@ -1076,22 +1130,22 @@ export default function SettingsPage() {
                         onClick={() => setCycle(c)}
                         className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-[13px] font-semibold transition-all ${cycle === c ? "bg-violet-600 text-white" : "text-[#6E6E6C] hover:text-[#0A0A0A]"}`}
                       >
-                        {c === "monthly" ? "Mensuel" : "Annuel"}
-                        {c === "annual" && <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${cycle === "annual" ? "bg-white/20 text-white" : "bg-violet-100 text-violet-700"}`}>-2 mois</span>}
+                        {c === "monthly" ? t("Mensuel", "Monthly") : t("Annuel", "Annual")}
+                        {c === "annual" && <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${cycle === "annual" ? "bg-white/20 text-white" : "bg-violet-100 text-violet-700"}`}>{t("-2 mois", "-2 months")}</span>}
                       </button>
                     ))}
                   </div>
 
-                  <label className="mb-1.5 block text-[12px] font-semibold text-[#4A4A56]">Crédits par mois</label>
+                  <label className="mb-1.5 block text-[12px] font-semibold text-[#4A4A56]">{t("Crédits par mois", "Credits per month")}</label>
                   <Dropdown
                     value={String(selectedCredits)}
                     onChange={(v) => setSelectedCredits(Number(v))}
-                    ariaLabel="Crédits par mois"
+                    ariaLabel={t("Crédits par mois", "Credits per month")}
                     className="mb-4"
-                    options={getPlan(selectedPlan).tiers.map((t) => ({
-                      value: String(t.credits),
-                      label: `${t.credits.toLocaleString("fr-FR")} crédits`,
-                      hint: formatEur(tierDisplayMonthlyEur(t, cycle)),
+                    options={getPlan(selectedPlan).tiers.map((tier) => ({
+                      value: String(tier.credits),
+                      label: t(`${tier.credits.toLocaleString("fr-FR")} crédits`, `${tier.credits.toLocaleString("en-US")} credits`),
+                      hint: formatEur(tierDisplayMonthlyEur(tier, cycle)),
                     }))}
                   />
 
@@ -1100,18 +1154,18 @@ export default function SettingsPage() {
                       <span className="text-3xl font-black text-[#0A0A0A] tabular-nums tracking-[-0.02em]">
                         {selectedTier ? formatEur(tierDisplayMonthlyEur(selectedTier, cycle)) : "—"}
                       </span>
-                      <span className="text-sm text-[#9A9A97]">/mois</span>
+                      <span className="text-sm text-[#9A9A97]">{t("/mois", "/month")}</span>
                     </div>
                     {selectedTier && (
                       <p className="mt-1 text-[12px] text-[#9A9A97]">
                         {cycle === "annual"
-                          ? `Soit ${formatEur(annualTotalEur(selectedTier.priceEur))} facturés une fois par an, 2 mois offerts.`
-                          : "Passez à l'annuel pour économiser 2 mois."}
+                          ? t(`Soit ${formatEur(annualTotalEur(selectedTier.priceEur))} facturés une fois par an, 2 mois offerts.`, `That's ${formatEur(annualTotalEur(selectedTier.priceEur))} billed once a year, 2 months free.`)
+                          : t("Passez à l'annuel pour économiser 2 mois.", "Switch to annual to save 2 months.")}
                       </p>
                     )}
                   </div>
                   <ul className="mb-6 space-y-2">
-                    {getPlan(selectedPlan).features.map((f) => (
+                    {localizePlan(getPlan(selectedPlan), locale).features.map((f) => (
                       <li key={f} className="flex items-center gap-2 text-[13px] text-[#0A0A0A]">
                         <Check className="h-3.5 w-3.5 flex-shrink-0 text-violet-600" strokeWidth={2.5} />
                         {f}
@@ -1125,26 +1179,27 @@ export default function SettingsPage() {
                     className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#0A0A0A] py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
                   >
                     {checkoutLoading
-                      ? <><Loader2 className="h-4 w-4 animate-spin" /> Redirection…</>
-                      : <>{currentPlanId === "free" ? "S'abonner" : "Changer d'offre"} <ArrowRight className="h-4 w-4" /></>}
+                      ? <><Loader2 className="h-4 w-4 animate-spin" /> {t("Redirection…", "Redirecting…")}</>
+                      : <>{currentPlanId === "free" ? t("S'abonner", "Subscribe") : t("Changer d'offre", "Change plan")} <ArrowRight className="h-4 w-4" /></>}
                   </button>
-                  <p className="text-xs text-[#9A9A97] mt-3 text-center">Paiement via Stripe · Sans engagement · Résiliation à tout moment</p>
+                  <p className="text-xs text-[#9A9A97] mt-3 text-center">{t("Paiement via Stripe · Sans engagement · Résiliation à tout moment", "Payment via Stripe · No commitment · Cancel anytime")}</p>
                 </Card>
 
                 <Card>
-                  <SectionTitle title="Recharger des crédits" desc="Un pack ponctuel qui s'ajoute à votre solde. Les crédits achetés ne périment jamais." />
+                  <SectionTitle title={t("Recharger des crédits", "Top up credits")} desc={t("Un pack ponctuel qui s'ajoute à votre solde. Les crédits achetés ne périment jamais.", "A one-time pack added to your balance. Purchased credits never expire.")} />
                   <CreditPacksPanel showHeader={false} />
                 </Card>
 
                 <div className="space-y-3">
-                  {Object.values(PLANS).map((plan) => {
+                  {Object.values(PLANS).map((planRaw) => {
+                    const plan = localizePlan(planRaw, locale);
                     const isCurrent = plan.id === currentPlanId;
                     return (
                       <div key={plan.id} className={`flex items-center justify-between rounded-2xl border p-4 ${isCurrent ? "border-violet-400 bg-violet-50" : "border-[#E7E7E4] bg-white"}`}>
                         <div>
                           <div className="mb-0.5 flex items-center gap-2">
                             <span className="font-bold text-[#0A0A0A]">{plan.name}</span>
-                            {isCurrent && <span className="rounded-full border border-violet-200 bg-white px-2 py-0.5 text-xs font-semibold text-violet-700">Actuel</span>}
+                            {isCurrent && <span className="rounded-full border border-violet-200 bg-white px-2 py-0.5 text-xs font-semibold text-violet-700">{t("Actuel", "Current")}</span>}
                           </div>
                           <p className="text-xs text-[#9A9A97]">{plan.tagline}</p>
                         </div>
@@ -1156,10 +1211,10 @@ export default function SettingsPage() {
 
                 <div className="rounded-2xl border border-dashed border-[#E7E7E4] p-4 flex items-center justify-between gap-4">
                   <div>
-                    <p className="text-[13.5px] font-medium text-[#0A0A0A]">Historique, factures & carte bancaire</p>
-                    <p className="text-[12px] text-[#9A9A97] mt-0.5">Géré via le portail sécurisé Stripe.</p>
+                    <p className="text-[13.5px] font-medium text-[#0A0A0A]">{t("Historique, factures & carte bancaire", "History, invoices & payment card")}</p>
+                    <p className="text-[12px] text-[#9A9A97] mt-0.5">{t("Géré via le portail sécurisé Stripe.", "Managed via the secure Stripe portal.")}</p>
                   </div>
-                  <a href="https://billing.stripe.com/p/login" target="_blank" rel="noopener noreferrer" className="flex-shrink-0 rounded-full border border-[#E7E7E4] px-3.5 py-1.5 text-[12px] font-semibold text-[#0A0A0A] hover:border-[#C9BEF0] transition-colors">Ouvrir le portail</a>
+                  <a href="https://billing.stripe.com/p/login" target="_blank" rel="noopener noreferrer" className="flex-shrink-0 rounded-full border border-[#E7E7E4] px-3.5 py-1.5 text-[12px] font-semibold text-[#0A0A0A] hover:border-[#C9BEF0] transition-colors">{t("Ouvrir le portail", "Open the portal")}</a>
                 </div>
               </div>
             )}
@@ -1168,21 +1223,21 @@ export default function SettingsPage() {
             {section === "ai" && (
               <div className="space-y-5">
                 <Card>
-                  <SectionTitle title="Préférences IA" desc="Ces réglages changent réellement ce que Biltia génère." />
+                  <SectionTitle title={t("Préférences IA", "AI preferences")} desc={t("Ces réglages changent réellement ce que Biltia génère.", "These settings actually change what Biltia generates.")} />
                   <div className="-my-1">
-                    <PrefRow label="Toujours demander confirmation" desc="Avant toute action destructive dans vos applications." on={prefs.always_confirm} onToggle={() => togglePref("always_confirm")} />
-                    <PrefRow label="Toujours prévoir un PDF" desc="Une sortie imprimable propre quand c'est pertinent." on={prefs.always_pdf} onToggle={() => togglePref("always_pdf")} />
-                    <PrefRow label="Privilégier une application" desc="Plutôt qu'un simple document ponctuel." on={prefs.prefer_app} onToggle={() => togglePref("prefer_app")} />
-                    <PrefRow label="Notifications de l'IA" desc="Quand une tâche longue se termine." on={prefs.ai_notifications} onToggle={() => togglePref("ai_notifications")} />
+                    <PrefRow label={t("Toujours demander confirmation", "Always ask for confirmation")} desc={t("Avant toute action destructive dans vos applications.", "Before any destructive action in your apps.")} on={prefs.always_confirm} onToggle={() => togglePref("always_confirm")} />
+                    <PrefRow label={t("Toujours prévoir un PDF", "Always include a PDF")} desc={t("Une sortie imprimable propre quand c'est pertinent.", "A clean printable output when relevant.")} on={prefs.always_pdf} onToggle={() => togglePref("always_pdf")} />
+                    <PrefRow label={t("Privilégier une application", "Prefer an app")} desc={t("Plutôt qu'un simple document ponctuel.", "Rather than a one-off document.")} on={prefs.prefer_app} onToggle={() => togglePref("prefer_app")} />
+                    <PrefRow label={t("Notifications de l'IA", "AI notifications")} desc={t("Quand une tâche longue se termine.", "When a long task finishes.")} on={prefs.ai_notifications} onToggle={() => togglePref("ai_notifications")} />
                   </div>
                   <div className="mt-5">
-                    <Field label="Ton des réponses">
+                    <Field label={t("Ton des réponses", "Response tone")}>
                       <Dropdown
                         value={prefs.tone}
                         onChange={(v) => setPrefs((p) => ({ ...p, tone: v as Tone }))}
-                        ariaLabel="Ton des réponses"
+                        ariaLabel={t("Ton des réponses", "Response tone")}
                         size="sm"
-                        options={TONE_OPTIONS.map((t) => ({ value: t.value, label: t.label }))}
+                        options={TONE_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
                       />
                     </Field>
                   </div>
@@ -1192,12 +1247,12 @@ export default function SettingsPage() {
                     className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#0A0A0A] text-white text-[13.5px] font-semibold px-4 py-2.5 hover:opacity-90 disabled:opacity-50 transition-opacity"
                   >
                     {savingPrefs ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                    Enregistrer les préférences
+                    {t("Enregistrer les préférences", "Save preferences")}
                   </button>
                 </Card>
 
                 <Card>
-                  <SectionTitle title="Base de connaissances (RAG)" desc="Le corpus métier qui garantit des réponses sans hallucination." />
+                  <SectionTitle title={t("Base de connaissances (RAG)", "Knowledge base (RAG)")} desc={t("Le corpus métier qui garantit des réponses sans hallucination.", "The domain corpus that ensures answers without hallucination.")} />
                   <KnowledgeManager />
                 </Card>
               </div>
@@ -1206,7 +1261,7 @@ export default function SettingsPage() {
             {/* ─── NOTIFICATIONS ──────────────────────────────────────── */}
             {section === "notifications" && (
               <Card>
-                <SectionTitle title="Notifications" desc="Comment Biltia vous tient au courant." />
+                <SectionTitle title={t("Notifications", "Notifications")} desc={t("Comment Biltia vous tient au courant.", "How Biltia keeps you posted.")} />
                 <div className="-my-1">
                   {/* Push : réel (Web Push) */}
                   <div className="flex items-center justify-between gap-4 py-3.5 border-b border-[#F1F1EC]">
@@ -1214,8 +1269,8 @@ export default function SettingsPage() {
                       <p className="text-[14px] text-[#0A0A0A]">Push</p>
                       <p className="text-[12px] text-[#9A9A97] mt-0.5">
                         {pushSupported
-                          ? "Notifications sur cet appareil (ex : votre application est prête)."
-                          : "Non supporté par ce navigateur."}
+                          ? t("Notifications sur cet appareil (ex : votre application est prête).", "Notifications on this device (e.g. your app is ready).")
+                          : t("Non supporté par ce navigateur.", "Not supported by this browser.")}
                       </p>
                     </div>
                     {pushBusy ? (
@@ -1235,9 +1290,7 @@ export default function SettingsPage() {
                   </div>
                 </div>
                 <p className="text-[11px] text-[#9A9A97] mt-4">
-                  Astuce : installez Biltia sur votre écran d&apos;accueil (PWA) pour recevoir les
-                  notifications même l&apos;application fermée. Les notifications de fin de tâche IA
-                  se règlent dans l&apos;onglet IA.
+                  {t("Astuce : installez Biltia sur votre écran d'accueil (PWA) pour recevoir les notifications même l'application fermée. Les notifications de fin de tâche IA se règlent dans l'onglet IA.", "Tip: install Biltia on your home screen (PWA) to get notifications even when the app is closed. AI task-completion notifications are set in the AI tab.")}
                 </p>
               </Card>
             )}
@@ -1245,15 +1298,15 @@ export default function SettingsPage() {
             {/* ─── SÉCURITÉ ───────────────────────────────────────────── */}
             {section === "security" && (
               <Card>
-                <SectionTitle title="Sécurité" desc="Protégez l'accès à votre espace." />
+                <SectionTitle title={t("Sécurité", "Security")} desc={t("Protégez l'accès à votre espace.", "Protect access to your workspace.")} />
 
                 {/* 2FA TOTP réelle (Supabase MFA) */}
                 <div className="rounded-xl border border-[#EDEDF2] bg-white p-4">
                   <div className="flex items-center justify-between gap-4">
                     <div className="min-w-0">
-                      <p className="text-[14px] font-medium text-[#0A0A0A]">Double authentification (2FA)</p>
+                      <p className="text-[14px] font-medium text-[#0A0A0A]">{t("Double authentification (2FA)", "Two-factor authentication (2FA)")}</p>
                       <p className="text-[12px] text-[#9A9A97] mt-0.5">
-                        Un code à 6 chiffres depuis une application (Google Authenticator, 1Password…), demandé à chaque connexion.
+                        {t("Un code à 6 chiffres depuis une application (Google Authenticator, 1Password…), demandé à chaque connexion.", "A 6-digit code from an app (Google Authenticator, 1Password…), required at each sign-in.")}
                       </p>
                     </div>
                     {mfaFactors.some((f) => f.status === "verified") ? (
@@ -1262,7 +1315,7 @@ export default function SettingsPage() {
                         disabled={mfaBusy}
                         className="flex-shrink-0 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-[12px] font-semibold text-rose-600 hover:bg-rose-100 transition-colors disabled:opacity-50"
                       >
-                        Désactiver
+                        {t("Désactiver", "Disable")}
                       </button>
                     ) : !mfaEnroll ? (
                       <button
@@ -1270,7 +1323,7 @@ export default function SettingsPage() {
                         disabled={mfaBusy}
                         className="flex-shrink-0 rounded-full bg-[#0A0A0A] px-3.5 py-1.5 text-[12px] font-semibold text-white hover:opacity-90 transition-opacity disabled:opacity-50"
                       >
-                        {mfaBusy ? "…" : "Activer"}
+                        {mfaBusy ? "…" : t("Activer", "Enable")}
                       </button>
                     ) : null}
                   </div>
@@ -1280,13 +1333,13 @@ export default function SettingsPage() {
                       <div className="flex flex-col sm:flex-row gap-4 items-start">
                         {/* QR code fourni par Supabase (data URL SVG) */}
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={mfaEnroll.qr} alt="QR code 2FA" className="w-36 h-36 rounded-lg border border-[#EDEDF2] bg-white" />
+                        <img src={mfaEnroll.qr} alt={t("QR code 2FA", "2FA QR code")} className="w-36 h-36 rounded-lg border border-[#EDEDF2] bg-white" />
                         <div className="min-w-0 flex-1 space-y-3">
                           <p className="text-[13px] text-[#4A4A56] leading-relaxed">
-                            1. Scannez ce QR code avec votre application d&apos;authentification.<br />
-                            2. Saisissez le code à 6 chiffres affiché pour confirmer.
+                            {t("1. Scannez ce QR code avec votre application d'authentification.", "1. Scan this QR code with your authenticator app.")}<br />
+                            {t("2. Saisissez le code à 6 chiffres affiché pour confirmer.", "2. Enter the 6-digit code shown to confirm.")}
                           </p>
-                          <p className="text-[11px] text-[#9A9A97] break-all">Clé manuelle : {mfaEnroll.secret}</p>
+                          <p className="text-[11px] text-[#9A9A97] break-all">{t("Clé manuelle : ", "Manual key: ")}{mfaEnroll.secret}</p>
                           <div className="flex gap-2">
                             <input
                               value={mfaCode}
@@ -1300,7 +1353,7 @@ export default function SettingsPage() {
                               disabled={mfaBusy || mfaCode.length < 6}
                               className="rounded-xl bg-[#0A0A0A] px-4 text-[13px] font-semibold text-white hover:opacity-90 transition-opacity disabled:opacity-50"
                             >
-                              Confirmer
+                              {t("Confirmer", "Confirm")}
                             </button>
                           </div>
                         </div>
@@ -1311,14 +1364,14 @@ export default function SettingsPage() {
 
                 <div className="mt-3 rounded-xl border border-[#EDEDF2] bg-white p-4 flex items-center justify-between gap-4">
                   <div>
-                    <p className="text-[14px] font-medium text-[#0A0A0A]">Se déconnecter partout</p>
-                    <p className="text-[12px] text-[#9A9A97] mt-0.5">Révoque toutes les sessions, sur tous les appareils.</p>
+                    <p className="text-[14px] font-medium text-[#0A0A0A]">{t("Se déconnecter partout", "Sign out everywhere")}</p>
+                    <p className="text-[12px] text-[#9A9A97] mt-0.5">{t("Révoque toutes les sessions, sur tous les appareils.", "Revokes all sessions, on every device.")}</p>
                   </div>
                   <button
                     onClick={signOutEverywhere}
                     className="flex-shrink-0 rounded-full border border-[#E7E7E4] bg-white px-3.5 py-1.5 text-[12px] font-semibold text-[#0A0A0A] hover:border-rose-300 hover:text-rose-600 transition-colors"
                   >
-                    Déconnecter
+                    {t("Déconnecter", "Sign out")}
                   </button>
                 </div>
               </Card>
@@ -1328,14 +1381,14 @@ export default function SettingsPage() {
             {section === "data" && (
               <div className="space-y-5">
                 <Card>
-                  <SectionTitle title="Vos données" desc="Vous restez propriétaire de tout." />
+                  <SectionTitle title={t("Vos données", "Your data")} desc={t("Vous restez propriétaire de tout.", "You stay the owner of everything.")} />
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-4 rounded-xl border border-[#EDEDF2] bg-white p-4">
                       <div className="flex items-center gap-3 min-w-0">
                         <Download className="w-4 h-4 text-[#6E6E6C] flex-shrink-0" />
                         <div>
-                          <p className="text-[13.5px] font-medium text-[#0A0A0A]">Exporter mes données</p>
-                          <p className="text-[12px] text-[#9A9A97]">Tout votre workspace (clients, chantiers, équipe…).</p>
+                          <p className="text-[13.5px] font-medium text-[#0A0A0A]">{t("Exporter mes données", "Export my data")}</p>
+                          <p className="text-[12px] text-[#9A9A97]">{t("Tout votre workspace (clients, chantiers, équipe…).", "Your whole workspace (clients, job sites, team…).")}</p>
                         </div>
                       </div>
                       <div className="flex gap-2 flex-shrink-0">
@@ -1347,12 +1400,12 @@ export default function SettingsPage() {
                       <div className="flex items-center gap-3 min-w-0">
                         <Upload className="w-4 h-4 text-[#6E6E6C] flex-shrink-0" />
                         <div>
-                          <p className="text-[13.5px] font-medium text-[#0A0A0A]">Importer des données</p>
-                          <p className="text-[12px] text-[#9A9A97]">CSV / Excel, avec correspondance automatique des colonnes.</p>
+                          <p className="text-[13.5px] font-medium text-[#0A0A0A]">{t("Importer des données", "Import data")}</p>
+                          <p className="text-[12px] text-[#9A9A97]">{t("CSV / Excel, avec correspondance automatique des colonnes.", "CSV / Excel, with automatic column matching.")}</p>
                         </div>
                       </div>
                       <a href="/workspace" className="flex-shrink-0 rounded-full border border-[#E7E7E4] px-3.5 py-1.5 text-[12px] font-semibold text-[#0A0A0A] hover:border-[#C9BEF0] transition-colors">
-                        Ouvrir l&apos;import
+                        {t("Ouvrir l'import", "Open import")}
                       </a>
                     </div>
                   </div>
@@ -1360,16 +1413,16 @@ export default function SettingsPage() {
 
                 <Card>
                   <SectionTitle
-                    title="Cerveau collectif"
-                    desc="Biltia apprend des bonnes pratiques anonymisées pour améliorer les suggestions de tous."
+                    title={t("Cerveau collectif", "Collective brain")}
+                    desc={t("Biltia apprend des bonnes pratiques anonymisées pour améliorer les suggestions de tous.", "Biltia learns from anonymized best practices to improve everyone's suggestions.")}
                   />
                   <div className="flex items-center justify-between gap-4 rounded-xl border border-[#EDEDF2] bg-white p-4">
                     <div className="flex items-center gap-3 min-w-0">
                       <Sparkles className="w-4 h-4 text-violet-500 flex-shrink-0" />
                       <div>
-                        <p className="text-[13.5px] font-medium text-[#0A0A0A]">Contribuer au cerveau collectif</p>
+                        <p className="text-[13.5px] font-medium text-[#0A0A0A]">{t("Contribuer au cerveau collectif", "Contribute to the collective brain")}</p>
                         <p className="text-[12px] text-[#9A9A97]">
-                          Uniquement des enseignements agrégés (jamais vos clients, montants ou documents). Publiés seulement quand un pattern se retrouve chez plusieurs entreprises.
+                          {t("Uniquement des enseignements agrégés (jamais vos clients, montants ou documents). Publiés seulement quand un pattern se retrouve chez plusieurs entreprises.", "Only aggregated insights (never your clients, amounts or documents). Published only when a pattern is found across several companies.")}
                         </p>
                       </div>
                     </div>
@@ -1377,7 +1430,7 @@ export default function SettingsPage() {
                       type="button"
                       role="switch"
                       aria-checked={contributesToBrain}
-                      aria-label="Contribuer au cerveau collectif"
+                      aria-label={t("Contribuer au cerveau collectif", "Contribute to the collective brain")}
                       disabled={savingBrain}
                       onClick={() => toggleBrain(!contributesToBrain)}
                       className={`relative flex-shrink-0 h-6 w-11 rounded-full transition-colors disabled:opacity-50 ${
@@ -1394,34 +1447,36 @@ export default function SettingsPage() {
                 </Card>
 
                 <Card>
-                  <SectionTitle title="Zone de danger" />
+                  <SectionTitle title={t("Zone de danger", "Danger zone")} />
                   <div className="flex items-center justify-between gap-4 rounded-xl border border-rose-200 bg-rose-50/50 p-4">
                     <div className="flex items-center gap-3 min-w-0">
                       <Trash2 className="w-4 h-4 text-rose-500 flex-shrink-0" />
                       <div>
-                        <p className="text-[13.5px] font-medium text-[#0A0A0A]">Supprimer le compte</p>
-                        <p className="text-[12px] text-[#9A9A97]">Action définitive et irréversible.</p>
+                        <p className="text-[13.5px] font-medium text-[#0A0A0A]">{t("Supprimer le compte", "Delete account")}</p>
+                        <p className="text-[12px] text-[#9A9A97]">{t("Action définitive et irréversible.", "Permanent and irreversible action.")}</p>
                       </div>
                     </div>
                     <button
                       onClick={async () => {
-                        const typed = prompt("Cette action est DÉFINITIVE : compte, conversations et rapports supprimés.\n\nTapez SUPPRIMER pour confirmer :");
-                        if (typed !== "SUPPRIMER") return;
+                        // Le mot à taper est localisé, mais on envoie TOUJOURS "SUPPRIMER" au serveur (contrat API).
+                        const confirmWord = t("SUPPRIMER", "DELETE");
+                        const typed = prompt(t(`Cette action est DÉFINITIVE : compte, conversations et rapports supprimés.\n\nTapez ${confirmWord} pour confirmer :`, `This action is PERMANENT: account, conversations and reports deleted.\n\nType ${confirmWord} to confirm:`));
+                        if (typed !== confirmWord) return;
                         const res = await fetch("/api/account", {
                           method: "DELETE",
                           headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ confirmation: typed }),
+                          body: JSON.stringify({ confirmation: "SUPPRIMER" }),
                         });
                         if (res.ok) {
                           window.location.href = "/";
                         } else {
                           const d = await res.json().catch(() => ({}));
-                          setError(d.error ?? "Suppression impossible. Contactez le support.");
+                          setError(d.error ?? t("Suppression impossible. Contactez le support.", "Deletion failed. Contact support."));
                         }
                       }}
                       className="flex-shrink-0 rounded-full border border-rose-300 bg-white px-3.5 py-1.5 text-[12px] font-semibold text-rose-600 hover:bg-rose-50 transition-colors"
                     >
-                      Supprimer
+                      {t("Supprimer", "Delete")}
                     </button>
                   </div>
                 </Card>

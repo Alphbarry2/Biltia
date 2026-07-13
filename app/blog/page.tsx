@@ -2,8 +2,11 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight } from "lucide-react";
 import { BLOG_POSTS, blogJsonLd, SITE_URL } from "@/lib/blog";
+import { localizePost } from "@/lib/blog-i18n";
 import { Reveal, Spot, InteractiveMesh, SiteNav, SiteFooter } from "@/components/site";
 import JsonLd from "@/components/json-ld";
+import { getLocale } from "@/lib/i18n/server";
+import { pick, type Locale } from "@/lib/i18n/config";
 
 export const metadata: Metadata = {
   title: "Blog : conseils, guides et actualités pour le BTP",
@@ -26,16 +29,21 @@ export const metadata: Metadata = {
   },
 };
 
-function fmtDate(iso: string): string {
-  return new Intl.DateTimeFormat("fr-FR", {
+function fmtDate(iso: string, locale: Locale): string {
+  return new Intl.DateTimeFormat(locale === "en" ? "en-US" : "fr-FR", {
     day: "numeric",
     month: "long",
     year: "numeric",
   }).format(new Date(iso));
 }
 
-export default function BlogIndex() {
-  const posts = [...BLOG_POSTS].sort((a, b) => (a.date < b.date ? 1 : -1));
+export default async function BlogIndex() {
+  const locale = await getLocale();
+  // Le CONTENU des articles (titre, accroche, catégorie) suit la langue, pas
+  // seulement le cadre de la page. Même URL : un robot (sans cookie) lit le FR.
+  const posts = [...BLOG_POSTS]
+    .sort((a, b) => (a.date < b.date ? 1 : -1))
+    .map((p) => localizePost(p, locale));
   const [featured, ...rest] = posts;
 
   return (
@@ -49,14 +57,13 @@ export default function BlogIndex() {
         <div className="relative z-10 max-w-3xl mx-auto text-center">
           <span className="glass inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-[13px] font-medium text-[#4A4A56] mb-8">
             <span className="w-1.5 h-1.5 rounded-full bg-gradient-to-br from-indigo-500 to-pink-500" />
-            Le blog Biltia
+            {pick(locale, "Le blog Biltia", "The Biltia blog")}
           </span>
           <h1 className="text-[42px] sm:text-[64px] md:text-[72px] font-black tracking-[-0.045em] leading-[0.92] text-[#0A0A0A]">
-            Moins d&apos;administratif, <span className="text-gradient">plus de savoir.</span>
+            {pick(locale, "Moins d'administratif, ", "Less paperwork, ")}<span className="text-gradient">{pick(locale, "plus de savoir.", "more know-how.")}</span>
           </h1>
           <p className="text-[17px] sm:text-[19px] text-[#5B5B66] max-w-[600px] mx-auto leading-[1.55] mt-7">
-            Conseils, guides et actualités pour les artisans et entreprises du BTP. Devis, avenants,
-            facturation, réglementation et outils : l&apos;essentiel, sans jargon.
+            {pick(locale, "Conseils, guides et actualités pour les artisans et entreprises du BTP. Devis, avenants, facturation, réglementation et outils : l'essentiel, sans jargon.", "Tips, guides and news for tradespeople and construction firms. Quotes, change orders, invoicing, regulations and tools: the essentials, no jargon.")}
           </p>
         </div>
       </section>
@@ -73,7 +80,7 @@ export default function BlogIndex() {
                       <span className="inline-flex items-center px-2.5 py-1 rounded-full grad-border font-semibold text-[#0A0A0A]">
                         {featured.category}
                       </span>
-                      <span className="text-[#9A9AA6]">{fmtDate(featured.date)}</span>
+                      <span className="text-[#9A9AA6]">{fmtDate(featured.date, locale)}</span>
                       <span className="text-[#9A9AA6]">{featured.readingMinutes} min</span>
                     </div>
                     <h2 className="text-[28px] sm:text-[38px] font-black text-[#0A0A0A] tracking-[-0.03em] leading-[1.02] mb-4">
@@ -83,7 +90,7 @@ export default function BlogIndex() {
                       {featured.excerpt}
                     </p>
                     <span className="inline-flex items-center gap-1.5 text-[14px] font-semibold text-[#0A0A0A] group-hover:gap-2.5 transition-all">
-                      Lire l&apos;article <ArrowRight className="w-4 h-4" />
+                      {pick(locale, "Lire l'article", "Read article")} <ArrowRight className="w-4 h-4" />
                     </span>
                   </div>
                   <div className="hidden lg:flex items-center justify-center">
@@ -118,9 +125,9 @@ export default function BlogIndex() {
                   </h3>
                   <p className="text-[13.5px] text-[#5B5B66] leading-relaxed mb-5 flex-1">{p.excerpt}</p>
                   <div className="flex items-center justify-between">
-                    <span className="text-[12px] text-[#9A9AA6]">{fmtDate(p.date)}</span>
+                    <span className="text-[12px] text-[#9A9AA6]">{fmtDate(p.date, locale)}</span>
                     <span className="inline-flex items-center gap-1 text-[13px] font-semibold text-[#0A0A0A] group-hover:gap-2 transition-all">
-                      Lire <ArrowRight className="w-3.5 h-3.5" />
+                      {pick(locale, "Lire", "Read")} <ArrowRight className="w-3.5 h-3.5" />
                     </span>
                   </div>
                 </Spot>
@@ -137,26 +144,26 @@ export default function BlogIndex() {
         <div className="relative z-10 max-w-2xl mx-auto text-center">
           <Reveal>
             <h2 className="text-[36px] sm:text-[56px] font-black text-[#0A0A0A] tracking-[-0.04em] leading-[0.95] mb-6">
-              Assez lu ? <span className="text-gradient">Passez à l&apos;action.</span>
+              {pick(locale, "Assez lu ? ", "Done reading? ")}<span className="text-gradient">{pick(locale, "Passez à l'action.", "Take action.")}</span>
             </h2>
             <p className="text-[16px] text-[#5B5B66] max-w-md mx-auto mb-9 leading-relaxed">
-              Décrivez votre problème, Biltia livre la solution : document, application, réponse ou automatisation.
+              {pick(locale, "Décrivez votre problème, Biltia livre la solution : document, application, réponse ou automatisation.", "Describe your problem and Biltia delivers the solution: a document, an app, an answer or an automation.")}
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
               <Link
                 href="/signup?from=blog"
                 className="w-full sm:w-auto bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 text-white font-semibold text-[15px] px-7 py-3.5 rounded-full inline-flex items-center justify-center gap-1.5 shadow-[0_8px_24px_rgba(139,92,246,0.4)] hover:shadow-[0_10px_30px_rgba(139,92,246,0.55)] transition-shadow"
               >
-                Commencer avec Biltia <ArrowUpRight className="w-4 h-4" />
+                {pick(locale, "Commencer avec Biltia", "Get started with Biltia")} <ArrowUpRight className="w-4 h-4" />
               </Link>
               <Link
                 href="/tarifs"
                 className="w-full sm:w-auto glass font-semibold text-[15px] px-7 py-3.5 rounded-full text-[#0A0A0A] hover:bg-white transition-colors"
               >
-                Voir les tarifs
+                {pick(locale, "Voir les tarifs", "See pricing")}
               </Link>
             </div>
-            <p className="text-[12px] text-[#9A9AA6] mt-4">Aucune carte bancaire requise.</p>
+            <p className="text-[12px] text-[#9A9AA6] mt-4">{pick(locale, "Aucune carte bancaire requise.", "No credit card required.")}</p>
           </Reveal>
         </div>
       </section>

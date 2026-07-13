@@ -16,11 +16,13 @@ import { createClient } from "@/lib/supabase";
 import { getActiveMembership } from "@/lib/tenant";
 import { enablePushNotifications } from "@/lib/push-client";
 import type { Json } from "@/lib/database.types";
-import { CATEGORIES, ACTIVITY_TYPES } from "@/lib/btp-catalog";
+import { CATEGORIES, ACTIVITY_TYPES, catLabel } from "@/lib/btp-catalog";
+import type { Locale } from "@/lib/i18n/config";
 import { COUNTRIES } from "@/lib/countries";
 import { EASE } from "@/components/site";
 import { Dropdown } from "@/components/dropdown";
 import { ArrowRight, ChevronLeft, Check } from "lucide-react";
+import { useT, useLocale } from "@/lib/i18n/context";
 
 // Icônes retouchées pour l'onboarding : plus lisibles et sans doublon
 // (le 🧱 est réservé au Gros œuvre ; charpente/toiture → bois).
@@ -28,44 +30,55 @@ const METIER_ICON: Record<string, string> = {
   structure_bois_toiture: "🪵",
   isolation_cloisons: "🧊",
 };
-const METIERS = [
-  ...CATEGORIES.map((c) => ({
-    id: c.id,
-    label: c.label,
-    emoji: METIER_ICON[c.id] ?? c.emoji,
-    // Exemples concrets tirés des sous-métiers du catalogue → chacun comprend
-    // ce que couvre la famille, sans jargon ni deviner.
-    examples: c.subTrades
-      .slice(0, 3)
-      .map((s) => s.label.split(" / ")[0])
-      .join(" · "),
-  })),
-  { id: "autre", label: "Autre / Multi-services", emoji: "🧰", examples: "Vous exercez plusieurs métiers" },
-];
+function buildMetiers(t: (fr: string, en: string) => string, locale: Locale) {
+  return [
+    ...CATEGORIES.map((c) => ({
+      id: c.id,
+      label: catLabel(c.label, locale),
+      emoji: METIER_ICON[c.id] ?? c.emoji,
+      // Exemples concrets tirés des sous-métiers du catalogue → chacun comprend
+      // ce que couvre la famille, sans jargon ni deviner.
+      examples: c.subTrades
+        .slice(0, 3)
+        .map((s) => catLabel(s.label, locale).split(" / ")[0])
+        .join(" · "),
+    })),
+    { id: "autre", label: t("Autre / Multi-services", "Other / Multi-services"), emoji: "🧰", examples: t("Vous exercez plusieurs métiers", "You work across several trades") },
+  ];
+}
 
-const GOALS = [
-  { id: "devis_factures", label: "Faire mes devis et factures", emoji: "🧾" },
-  { id: "suivi_chantiers", label: "Suivre mes chantiers", emoji: "🏗️" },
-  { id: "automatiser", label: "Automatiser l'administratif", emoji: "⚡" },
-  { id: "outil_sur_mesure", label: "Créer un outil sur mesure", emoji: "🛠️" },
-  { id: "questions_metier", label: "Réponses TVA, normes, règles", emoji: "📐" },
-  { id: "decouverte", label: "Je découvre, tout simplement", emoji: "👀" },
-];
+function buildGoals(t: (fr: string, en: string) => string) {
+  return [
+    { id: "devis_factures", label: t("Faire mes devis et factures", "Make my quotes and invoices"), emoji: "🧾" },
+    { id: "suivi_chantiers", label: t("Suivre mes chantiers", "Track my job sites"), emoji: "🏗️" },
+    { id: "automatiser", label: t("Automatiser l'administratif", "Automate admin work"), emoji: "⚡" },
+    { id: "outil_sur_mesure", label: t("Créer un outil sur mesure", "Build a custom tool"), emoji: "🛠️" },
+    { id: "questions_metier", label: t("Réponses TVA, normes, règles", "Answers on VAT, standards, rules"), emoji: "📐" },
+    { id: "decouverte", label: t("Je découvre, tout simplement", "I'm just exploring"), emoji: "👀" },
+  ];
+}
 
 // Pays : liste UNIQUE partagée avec les paramètres (lib/countries.ts) — plus
 // d'incohérence « 6 pays à l'inscription, FR/BE en paramètres ».
 
 // Effectif : buckets que le patron reconnaît immédiatement + clé d'analyse admin.
-const HEADCOUNTS = [
-  { id: "solo", label: "Solo" },
-  { id: "2-5", label: "2 à 5" },
-  { id: "6-10", label: "6 à 10" },
-  { id: "11-20", label: "11 à 20" },
-  { id: "20+", label: "20 et +" },
-];
+function buildHeadcounts(t: (fr: string, en: string) => string) {
+  return [
+    { id: "solo", label: t("Solo", "Solo") },
+    { id: "2-5", label: t("2 à 5", "2 to 5") },
+    { id: "6-10", label: t("6 à 10", "6 to 10") },
+    { id: "11-20", label: t("11 à 20", "11 to 20") },
+    { id: "20+", label: t("20 et +", "20+") },
+  ];
+}
 
 export default function OnboardingPage() {
+  const t = useT();
+  const locale = useLocale();
   const router = useRouter();
+  const METIERS = buildMetiers(t, locale);
+  const GOALS = buildGoals(t);
+  const HEADCOUNTS = buildHeadcounts(t);
   const [step, setStep] = useState<0 | 1 | 2>(0);
   const [companyName, setCompanyName] = useState("");
   const [country, setCountry] = useState<string | null>(null);
@@ -217,33 +230,33 @@ export default function OnboardingPage() {
             initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }}
             transition={{ duration: 0.3, ease: EASE }}>
             <h1 className="mb-1.5 text-[26px] font-black leading-tight tracking-[-0.03em] text-[#0A0A0A]">
-              Bienvenue. Parlez-nous de votre entreprise.
+              {t("Bienvenue. Parlez-nous de votre entreprise.", "Welcome. Tell us about your company.")}
             </h1>
-            <p className="mb-6 text-sm text-[#6E6E6C]">Deux infos rapides — ça adapte la TVA, les documents et vos outils.</p>
+            <p className="mb-6 text-sm text-[#6E6E6C]">{t("Deux infos rapides — ça adapte la TVA, les documents et vos outils.", "Two quick details — it tailors VAT, documents and your tools.")}</p>
 
             <div className="space-y-5">
               <div>
-                <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-[#8B8B96]">Nom de votre entreprise</label>
+                <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-[#8B8B96]">{t("Nom de votre entreprise", "Your company name")}</label>
                 <input
                   type="text"
                   value={companyName}
                   onChange={(e) => setCompanyName(e.target.value)}
-                  placeholder="Ex. Barry Élec, SARL Dupont…"
+                  placeholder={t("Ex. Barry Élec, SARL Dupont…", "e.g. Barry Elec, Dupont Ltd…")}
                   className="w-full rounded-xl border border-[#E7E7E4] bg-white px-4 py-3 text-[14px] text-[#0A0A0A] placeholder:text-[#B9B9B6] outline-none transition-all focus:border-[#7C3AED] focus:shadow-[0_0_0_3px_rgba(124,58,246,0.14)]"
                 />
               </div>
 
               <Dropdown
-                label="Votre pays"
+                label={t("Votre pays", "Your country")}
                 value={country}
                 onChange={setCountry}
                 options={COUNTRIES}
-                placeholder="Choisir un pays"
-                ariaLabel="Votre pays"
+                placeholder={t("Choisir un pays", "Choose a country")}
+                ariaLabel={t("Votre pays", "Your country")}
               />
 
               <div>
-                <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-[#8B8B96]">Votre effectif</label>
+                <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-[#8B8B96]">{t("Votre effectif", "Your headcount")}</label>
                 <div className="grid grid-cols-5 gap-2">
                   {HEADCOUNTS.map((h) => (
                     <button
@@ -269,11 +282,11 @@ export default function OnboardingPage() {
               disabled={!companyName.trim() || !country || !headcount}
               className="mt-7 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 py-3 font-semibold text-white shadow-[0_8px_24px_rgba(139,92,246,0.4)] transition-all hover:shadow-[0_10px_30px_rgba(139,92,246,0.55)] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Continuer <ArrowRight className="h-4 w-4" />
+              {t("Continuer", "Continue")} <ArrowRight className="h-4 w-4" />
             </button>
             <button type="button" onClick={() => finish(true)} disabled={saving}
               className="mt-3 w-full text-center text-[13px] font-medium text-[#9A9AA6] transition-colors hover:text-[#0A0A0A]">
-              Passer pour l&apos;instant
+              {t("Passer pour l'instant", "Skip for now")}
             </button>
           </motion.div>
         ) : step === 1 ? (
@@ -282,13 +295,13 @@ export default function OnboardingPage() {
             transition={{ duration: 0.3, ease: EASE }}>
             <button type="button" onClick={() => setStep(0)}
               className="mb-4 flex items-center gap-1 text-[13px] font-medium text-[#9A9AA6] transition-colors hover:text-[#0A0A0A]">
-              <ChevronLeft className="h-4 w-4" /> Retour
+              <ChevronLeft className="h-4 w-4" /> {t("Retour", "Back")}
             </button>
             <h1 className="mb-1.5 text-[26px] font-black leading-tight tracking-[-0.03em] text-[#0A0A0A]">
-              Quel est votre métier ?
+              {t("Quel est votre métier ?", "What's your trade?")}
             </h1>
-            <p className="mb-1 text-sm text-[#6E6E6C]">Biltia adapte ses réponses et ses documents à votre métier.</p>
-            <p className="mb-5 text-[13px] font-medium text-[#7C3AED]">Vous pouvez en sélectionner plusieurs.</p>
+            <p className="mb-1 text-sm text-[#6E6E6C]">{t("Biltia adapte ses réponses et ses documents à votre métier.", "Biltia tailors its answers and documents to your trade.")}</p>
+            <p className="mb-5 text-[13px] font-medium text-[#7C3AED]">{t("Vous pouvez en sélectionner plusieurs.", "You can select several.")}</p>
             <div className="grid grid-cols-1 gap-2.5">
               {METIERS.map((m) => {
                 const active = sectors.includes(m.id);
@@ -341,21 +354,21 @@ export default function OnboardingPage() {
                   <div className="mt-5 space-y-5 border-t border-[#F0EFF4] pt-5">
                     <div>
                       <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-[#8B8B96]">
-                        Précisez votre spécialité <span className="font-medium normal-case text-[#B9B9B6]">(optionnel)</span>
+                        {t("Précisez votre spécialité", "Specify your specialty")} <span className="font-medium normal-case text-[#B9B9B6]">{t("(optionnel)", "(optional)")}</span>
                       </label>
                       <input
                         type="text"
                         value={sectorDetail}
                         onChange={(e) => setSectorDetail(e.target.value)}
-                        placeholder="Ex. électricien spécialisé bornes de recharge"
+                        placeholder={t("Ex. électricien spécialisé bornes de recharge", "e.g. electrician specialized in EV charging")}
                         className="w-full rounded-xl border border-[#E7E7E4] bg-white px-4 py-3 text-[14px] text-[#0A0A0A] placeholder:text-[#B9B9B6] outline-none transition-all focus:border-[#7C3AED] focus:shadow-[0_0_0_3px_rgba(124,58,246,0.14)]"
                       />
-                      <p className="mt-1.5 text-[12px] text-[#9A9AA6]">Biltia parlera précisément votre langage métier.</p>
+                      <p className="mt-1.5 text-[12px] text-[#9A9AA6]">{t("Biltia parlera précisément votre langage métier.", "Biltia will speak your trade's language precisely.")}</p>
                     </div>
 
                     <div>
                       <label className="mb-2 block text-[11px] font-semibold uppercase tracking-wide text-[#8B8B96]">
-                        Vous travaillez plutôt sur… <span className="font-medium normal-case text-[#B9B9B6]">(optionnel)</span>
+                        {t("Vous travaillez plutôt sur…", "You mostly work on…")} <span className="font-medium normal-case text-[#B9B9B6]">{t("(optionnel)", "(optional)")}</span>
                       </label>
                       <div className="grid grid-cols-2 gap-2">
                         {ACTIVITY_TYPES.map((a) => (
@@ -365,7 +378,7 @@ export default function OnboardingPage() {
                             onClick={() => setActivityType((cur) => (cur === a.id ? null : a.id))}
                             className={chip(activityType === a.id)}
                           >
-                            <span className="min-w-0 truncate">{a.label}</span>
+                            <span className="min-w-0 truncate">{catLabel(a.label, locale)}</span>
                           </button>
                         ))}
                       </div>
@@ -381,11 +394,11 @@ export default function OnboardingPage() {
               disabled={sectors.length === 0}
               className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 py-3 font-semibold text-white shadow-[0_8px_24px_rgba(139,92,246,0.4)] transition-all hover:shadow-[0_10px_30px_rgba(139,92,246,0.55)] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Continuer <ArrowRight className="h-4 w-4" />
+              {t("Continuer", "Continue")} <ArrowRight className="h-4 w-4" />
             </button>
             <button type="button" onClick={() => finish(true)} disabled={saving}
               className="mt-3 w-full text-center text-[13px] font-medium text-[#9A9AA6] transition-colors hover:text-[#0A0A0A]">
-              Passer pour l&apos;instant
+              {t("Passer pour l'instant", "Skip for now")}
             </button>
           </motion.div>
         ) : (
@@ -394,12 +407,12 @@ export default function OnboardingPage() {
             transition={{ duration: 0.3, ease: EASE }}>
             <button type="button" onClick={() => setStep(1)}
               className="mb-4 flex items-center gap-1 text-[13px] font-medium text-[#9A9AA6] transition-colors hover:text-[#0A0A0A]">
-              <ChevronLeft className="h-4 w-4" /> Retour
+              <ChevronLeft className="h-4 w-4" /> {t("Retour", "Back")}
             </button>
             <h1 className="mb-1.5 text-[26px] font-black leading-tight tracking-[-0.03em] text-[#0A0A0A]">
-              Qu&apos;est-ce que Biltia doit régler en premier ?
+              {t("Qu'est-ce que Biltia doit régler en premier ?", "What should Biltia tackle first?")}
             </h1>
-            <p className="mb-6 text-sm text-[#6E6E6C]">Plusieurs choix possibles. Ça oriente vos premiers outils.</p>
+            <p className="mb-6 text-sm text-[#6E6E6C]">{t("Plusieurs choix possibles. Ça oriente vos premiers outils.", "Several choices possible. It shapes your first tools.")}</p>
             <div className="grid gap-2.5">
               {GOALS.map((g) => {
                 const active = goals.includes(g.id);
@@ -419,12 +432,12 @@ export default function OnboardingPage() {
               {saving ? (
                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
               ) : (
-                <>C&apos;est parti <ArrowRight className="h-4 w-4" /></>
+                <>{t("C'est parti", "Let's go")} <ArrowRight className="h-4 w-4" /></>
               )}
             </button>
             <button type="button" onClick={() => finish(true)} disabled={saving}
               className="mt-3 w-full text-center text-[13px] font-medium text-[#9A9AA6] transition-colors hover:text-[#0A0A0A]">
-              Passer pour l&apos;instant
+              {t("Passer pour l'instant", "Skip for now")}
             </button>
           </motion.div>
         )}

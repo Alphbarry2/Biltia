@@ -16,6 +16,7 @@ import {
   type ReportResult,
 } from "@/components/report-views";
 import { ChevronLeft, Loader2, MessageCircle } from "lucide-react";
+import { useT } from "@/lib/i18n/context";
 
 type ReportRow = {
   id: string;
@@ -27,6 +28,7 @@ type ReportRow = {
 };
 
 export default function ReportPage({ params }: { params: Promise<{ id: string }> }) {
+  const t = useT();
   const { id } = use(params);
   const [row, setRow] = useState<ReportRow | null>(null);
   const [loading, setLoading] = useState(true);
@@ -52,7 +54,7 @@ export default function ReportPage({ params }: { params: Promise<{ id: string }>
             <ChevronLeft className="h-5 w-5" />
           </Link>
           <h1 className="truncate text-base font-bold tracking-[-0.01em] text-[#0A0A0A]">
-            {row?.title ?? "Rapport"}
+            {row?.title ?? t("Rapport", "Report")}
           </h1>
         </div>
         {row?.conversation_id && (
@@ -61,7 +63,7 @@ export default function ReportPage({ params }: { params: Promise<{ id: string }>
             className="flex flex-shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-[#6E6E6C] transition-colors hover:bg-[#F6F6F9] hover:text-[#0A0A0A]"
           >
             <MessageCircle className="h-3.5 w-3.5" />
-            Rouvrir la conversation
+            {t("Rouvrir la conversation", "Reopen conversation")}
           </Link>
         )}
       </div>
@@ -73,10 +75,10 @@ export default function ReportPage({ params }: { params: Promise<{ id: string }>
           </div>
         ) : !row ? (
           <div className="flex h-full flex-col items-center justify-center px-6 text-center">
-            <p className="mb-2 font-bold text-[#0A0A0A]">Rapport introuvable</p>
-            <p className="mb-5 text-sm text-[#6E6E6C]">Il a peut-être été supprimé, ou vous n&apos;y avez pas accès.</p>
+            <p className="mb-2 font-bold text-[#0A0A0A]">{t("Rapport introuvable", "Report not found")}</p>
+            <p className="mb-5 text-sm text-[#6E6E6C]">{t("Il a peut-être été supprimé, ou vous n'y avez pas accès.", "It may have been deleted, or you don't have access.")}</p>
             <Link href="/library" className="text-[13px] font-semibold text-violet-600 hover:opacity-80">
-              Retour à la bibliothèque
+              {t("Retour à la bibliothèque", "Back to library")}
             </Link>
           </div>
         ) : row.type === "controle" ? (

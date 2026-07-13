@@ -8,6 +8,7 @@
 
 import { CalendarPlus, Calendar, Download } from "lucide-react";
 import { ActionMenu, type ActionItem } from "./action-menu";
+import { useT } from "@/lib/i18n/context";
 import {
   buildGoogleCalendarUrl,
   buildOutlookCalendarUrl,
@@ -17,10 +18,11 @@ import {
 } from "@/lib/integrations";
 
 export function AddToCalendar({ event }: { event: CalendarEvent }) {
+  const t = useT();
   const actions: ActionItem[] = [
     {
       key: "google",
-      label: "Google Agenda",
+      label: t("Google Agenda", "Google Calendar"),
       icon: <Calendar className="h-3.5 w-3.5" />,
       run: () => {
         window.open(buildGoogleCalendarUrl(event), "_blank", "noopener");
@@ -36,8 +38,8 @@ export function AddToCalendar({ event }: { event: CalendarEvent }) {
     },
     {
       key: "ics",
-      label: "Apple / autre (.ics)",
-      hint: "Fichier universel : Apple Calendar, Microsoft 365…",
+      label: t("Apple / autre (.ics)", "Apple / other (.ics)"),
+      hint: t("Fichier universel : Apple Calendar, Microsoft 365…", "Universal file: Apple Calendar, Microsoft 365…"),
       icon: <Download className="h-3.5 w-3.5" />,
       run: () => {
         downloadIcs(event, safeFilename(event.title, "ics"));
@@ -47,7 +49,7 @@ export function AddToCalendar({ event }: { event: CalendarEvent }) {
 
   return (
     <ActionMenu
-      label="Ajouter au calendrier"
+      label={t("Ajouter au calendrier", "Add to calendar")}
       icon={<CalendarPlus className="h-3.5 w-3.5" />}
       actions={actions}
       menuClassName="w-[248px]"

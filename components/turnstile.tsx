@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import { useLocale } from "@/lib/i18n/context";
 
 const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
 export const turnstileEnabled = SITE_KEY.length > 0;
@@ -28,10 +29,13 @@ export const Turnstile = forwardRef<TurnstileHandle, {
   onToken: (token: string | null) => void;
   className?: string;
 }>(function Turnstile({ onToken, className = "" }, ref) {
+  const locale = useLocale();
   const boxRef = useRef<HTMLDivElement>(null);
   const widgetRef = useRef<string | null>(null);
   const onTokenRef = useRef(onToken);
   onTokenRef.current = onToken;
+  const localeRef = useRef(locale);
+  localeRef.current = locale;
 
   useImperativeHandle(ref, () => ({
     // À appeler après un échec d'auth : le token Turnstile est à usage unique.
@@ -51,7 +55,7 @@ export const Turnstile = forwardRef<TurnstileHandle, {
       if (cancelled || widgetRef.current || !boxRef.current || !window.turnstile) return;
       widgetRef.current = window.turnstile.render(boxRef.current, {
         sitekey: SITE_KEY,
-        language: "fr",
+        language: localeRef.current === "en" ? "en" : "fr",
         theme: "light",
         size: "flexible",
         callback: (t: string) => onTokenRef.current(t),

@@ -10,6 +10,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, ChevronDown } from "lucide-react";
+import { useT } from "@/lib/i18n/context";
 
 const EASE = [0.16, 1, 0.3, 1] as const;
 
@@ -30,7 +31,7 @@ export function Dropdown({
   value,
   onChange,
   options,
-  placeholder = "Sélectionner",
+  placeholder,
   label,
   ariaLabel,
   disabled = false,
@@ -48,6 +49,8 @@ export function Dropdown({
   size?: "sm" | "md";
   className?: string;
 }) {
+  const tr = useT();
+  const placeholderText = placeholder ?? tr("Sélectionner", "Select");
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<Placement | null>(null);
   const [hi, setHi] = useState(-1);
@@ -146,7 +149,7 @@ export function Dropdown({
         }}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-label={ariaLabel ?? label ?? placeholder}
+        aria-label={ariaLabel ?? label ?? placeholderText}
         className={`group flex w-full items-center justify-between text-left transition-all duration-200 ${
           sm ? "gap-2 rounded-xl px-3 py-2" : "gap-3 rounded-2xl px-4 py-3"
         } border bg-white ${
@@ -160,7 +163,7 @@ export function Dropdown({
         <span className={`flex min-w-0 items-center ${sm ? "gap-2" : "gap-2.5"}`}>
           {current?.icon && <span className="flex-shrink-0 leading-none">{current.icon}</span>}
           <span className={`truncate ${sm ? "text-[13px]" : "text-[14px]"} ${current ? "font-semibold text-[#0A0A0A]" : "font-medium text-[#9A9AA6]"}`}>
-            {current ? current.label : placeholder}
+            {current ? current.label : placeholderText}
           </span>
         </span>
         <span className={`flex flex-shrink-0 items-center ${sm ? "gap-1.5" : "gap-2.5"}`}>
@@ -182,7 +185,7 @@ export function Dropdown({
               exit={{ opacity: 0, y: pos.bottom ? 8 : -8, scale: 0.98 }}
               transition={{ duration: 0.16, ease: EASE }}
               role="listbox"
-              aria-label={ariaLabel ?? label ?? placeholder}
+              aria-label={ariaLabel ?? label ?? placeholderText}
               className="overflow-y-auto overscroll-contain rounded-2xl border border-[#ECE7F6] bg-white p-1.5 shadow-[0_30px_80px_rgba(60,40,120,0.28)]"
             >
               {groups.map((g, gi) => (

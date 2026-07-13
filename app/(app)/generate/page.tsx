@@ -20,13 +20,16 @@ import {
   ReportView,
   fmtEur,
   type AnalysisResult,
+  type Proposition,
   type ReportResult,
 } from "@/components/report-views";
+import { AnnotationCanvas, type Annotation, type AnnotationDoc } from "@/components/annotation-canvas";
 import type { Json } from "@/lib/database.types";
-import { slugify, shortId } from "@/lib/slug";
 import { useTypewriter } from "@/components/site";
-import { TEMPLATE_PREVIEWS } from "@/lib/template-previews";
+import { TEMPLATE_PREVIEWS, localizeTemplatePreview } from "@/lib/template-previews";
 import { ShareMenu } from "@/components/share-menu";
+import { useT, useLocale } from "@/lib/i18n/context";
+import type { Locale } from "@/lib/i18n/config";
 import {
   Mic,
   Camera,
@@ -125,38 +128,74 @@ const DOC_LABELS: Record<string, string> = {
   bon_de_commande: "Bon de commande",
   levee_reserves: "Levée de réserves",
 };
+const DOC_LABELS_EN: Record<string, string> = {
+  avenant: "Change order",
+  pv_reception: "Handover report",
+  mise_en_demeure: "Formal notice",
+  devis: "Quote",
+  facture: "Invoice",
+  attestation: "Certificate",
+  courrier: "Letter",
+  ordre_de_service: "Work order",
+  bon_de_commande: "Purchase order",
+  levee_reserves: "Snag clearance",
+};
 
-function docLabel(docType: string | null): string {
+function docLabel(docType: string | null, locale: Locale): string {
   if (!docType) return "";
-  return DOC_LABELS[docType] ?? docType.replace(/_/g, " ");
+  const dict = locale === "en" ? DOC_LABELS_EN : DOC_LABELS;
+  return dict[docType] ?? docType.replace(/_/g, " ");
 }
 
-function kindLabel(kind: Kind, docType: string | null): string {
+function kindLabel(kind: Kind, docType: string | null, locale: Locale): string {
   if (kind === "document") {
-    const d = docLabel(docType);
-    return d ? `Document · ${d}` : "Document";
+    const d = docLabel(docType, locale);
+    return d ? (locale === "en" ? `Document · ${d}` : `Document · ${d}`) : "Document";
   }
   return kind === "action" ? "Action" : "Module";
 }
 
-// Intention « remplis / complète un document » sur un fichier joint : on
-// distingue le REMPLISSAGE (produire un document rempli, prévisualisable +
-// téléchargeable) de l'ANALYSE (résumer / vérifier / extraire). Heuristique
-// tolérante aux accents ; en cas de doute, on retombe sur l'analyse (défaut).
-function looksLikeDocumentFill(text: string): boolean {
+// Intention « produis / MODIFIE un document » sur un fichier joint : on distingue
+// la RÉGÉNÉRATION — remplir, compléter, MAIS AUSSI modifier / ajouter / supprimer /
+// reformuler / traduire → document propre, prévisualisable + téléchargeable en PDF —
+// de la simple ANALYSE (résumer, vérifier, « combien de… »). Heuristique tolérante
+// aux accents ; en cas de doute, on retombe sur l'analyse (lecture seule, défaut).
+function looksLikeDocumentEdit(text: string): boolean {
   const t = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   if (!t.trim()) return false;
-  const fillVerb =
-    /(complet|rempli|remplir|redig|etabli|etablir|prepar|gener|fais(?:-| )?(?:moi )?|cree|creer|ecri|refai|mets? a jour)/;
+  // Verbes qui PRODUISENT ou MODIFIENT un document (→ régénération + PDF).
+  const editVerb =
+    /(complet|rempli|remplir|redig|etabli|etablir|prepar|gener|fais(?:-| )?(?:moi )?|cree|creer|ecri|reecri|refai|mets? ?a ?jour|modif|ajout|rajout|supprim|enlev|retir|chang|corrig|remplac|inser|reformul|raccourci|allong|tradui|renomm|transform|adapt)/;
   const docNoun =
-    /(document|devis|facture|attestation|courrier|lettre|contrat|avenant|bon de (commande|livraison)|mise en demeure|ordre de service|recu|avoir|certificat|\bpv\b|proces[- ]verbal|releve|formulaire|cerfa|situation de travaux)/;
-  // « complète-le », « remplis ce document », « complète ce fichier »
-  if (/(complet|rempli|remplir|redig).{0,14}(le|ce|cette|ca|celui|document|fichier|formulaire)/.test(t))
+    /(document|devis|facture|attestation|courrier|lettre|contrat|avenant|clause|article|paragraphe|bon de (commande|livraison)|mise en demeure|ordre de service|recu|avoir|certificat|\bpv\b|proces[- ]verbal|releve|formulaire|cerfa|situation de travaux)/;
+  // « complète-le », « modifie ce document », « supprime le paragraphe », « ajoute la clause »
+  if (
+    /(complet|rempli|remplir|redig|modif|ajout|rajout|supprim|enlev|retir|chang|corrig|remplac|inser|reformul|tradui|adapt).{0,16}(le|la|l|ce|cet|cette|ca|celui|celle|dessus|dedans|ici|document|fichier|formulaire|texte|paragraphe|clause|article)/.test(
+      t
+    )
+  )
     return true;
-  if (fillVerb.test(t) && docNoun.test(t)) return true;
-  // Verbe de remplissage + « le/ce » (sous-entend le fichier joint)
-  if (fillVerb.test(t) && /\b(le|ce|cette|ca)\b/.test(t)) return true;
+  if (editVerb.test(t) && docNoun.test(t)) return true;
+  // Verbe d'édition + anaphore courte (sous-entend le fichier joint).
+  if (editVerb.test(t) && /\b(le|la|l|ce|cet|cette|ca|dessus|dedans|ici)\b/.test(t)) return true;
   return false;
+}
+
+// Intention « annote / repère / numérote / entoure » sur un fichier joint → mode
+// ANNOTATION IA (overlay corrigeable, relié au workspace) — ni analyse, ni édition.
+function looksLikeAnnotate(text: string): boolean {
+  const t = text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  if (!t.trim()) return false;
+  return /(annot|numerot|entour|encadr|surlign|repere|reper|marque(?:-| )|marquer|flech|pointe(?:-| )|localise|montre(?:-| )?moi ou|indique ou|mets? un repere)/.test(t);
+}
+
+// Intention « à la main / moi-même / sans IA » → mode annotation MANUEL : on ouvre
+// la couche vierge sur l'image jointe, sans appel IA ni crédit. À vérifier AVANT
+// l'annotation IA (les deux partagent le mot « annote »).
+function looksLikeManualAnnotate(text: string): boolean {
+  const t = text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  if (!t.trim()) return false;
+  return /(a la main|moi[- ]meme|manuel|manuelle|sans ia|sans l ia|sans l'ia|laisse[- ]moi|je vais annoter|je veux annoter|annoter moi|annote moi)/.test(t);
 }
 
 
@@ -166,15 +205,24 @@ const FORMATS: { id: Format; label: string; icon: React.ReactNode }[] = [
   { id: "desktop", label: "Desktop", icon: <Monitor className="w-3.5 h-3.5" /> },
 ];
 
-const GEN_PLACEHOLDERS = [
+const GEN_PLACEHOLDERS_FR = [
   "Sors-moi l'avenant pour le carrelage validé, 45 m²…",
   "Quels chantiers sont en retard cette semaine ?",
   "Vérifie les prix de ces 30 bons de livraison…",
   "Un suivi de mes chantiers avec l'avancement…",
   "Rédige une mise en demeure pour la facture impayée…",
 ];
+const GEN_PLACEHOLDERS_EN = [
+  "Draft the change order for the approved tiling, 45 m²…",
+  "Which job sites are behind schedule this week?",
+  "Check the prices on these 30 delivery notes…",
+  "A tracker for my job sites with progress…",
+  "Draft a formal notice for the unpaid invoice…",
+];
 
 export default function GeneratePage() {
+  const t = useT();
+  const locale = useLocale();
   const [messages, setMessages] = useState<Message[]>([]);
   // Connexions à proposer dans le fil (null = aucune en cours). Mirroir en ref
   // pour l'avancement depuis les callbacks des cartes sans closure périmée.
@@ -184,18 +232,31 @@ export default function GeneratePage() {
     connectFlowRef.current = connectFlow;
   }, [connectFlow]);
   const [input, setInput] = useState("");
-  const typed = useTypewriter(GEN_PLACEHOLDERS);
+  const typed = useTypewriter(locale === "en" ? GEN_PLACEHOLDERS_EN : GEN_PLACEHOLDERS_FR);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedHTML, setGeneratedHTML] = useState("");
-  const [appName, setAppName] = useState("Mon application");
+  const [appName, setAppName] = useState(locale === "en" ? "My app" : "Mon application");
   const [isSaving, setIsSaving] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(null);
   // Id sauvegardé, lisible dans les callbacks async sans closure périmée.
   const savedIdRef = useRef<string | null>(null);
+  // AppSpec V1 déclarée par le modèle à la dernière génération (Phase 1) →
+  // transmise à /api/modules/save. null hors création (la spec y est dérivée).
+  const appSpecRef = useRef<unknown>(null);
+  // Phase 2 : une seule passe corrective de branchement workspace par demande
+  // utilisateur (anti-boucle). Réinitialisé à chaque génération non-corrective.
+  const wsCorrectionRef = useRef(false);
   const [slug, setSlug] = useState<string | null>(null);
   const [isPublic, setIsPublic] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [copied, setCopied] = useState(false);
+  // Phase 7 : historique des versions + rollback (branche les endpoints Phase 0).
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [versions, setVersions] = useState<
+    { id: string; version: number; changeType: string; description: string; createdAt: string }[]
+  >([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
   const [isListening, setIsListening] = useState(false);
   const [credits, setCredits] = useState<number | null>(null);
   const [format, setFormat] = useState<Format>("auto");
@@ -272,6 +333,11 @@ export default function GeneratePage() {
   const [previewDevice, setPreviewDevice] = useState<"desktop" | "tablet" | "mobile">("desktop");
   const htmlSetAtRef = useRef(0);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
+  // Fichiers de la DERNIÈRE analyse, conservés pour qu'un clic sur une
+  // proposition (« crée l'app de métré ») puisse rebâtir à partir du document.
+  const [analyzedFiles, setAnalyzedFiles] = useState<{ name: string; mediaType: string; data: string }[]>([]);
+  const [annotationDoc, setAnnotationDoc] = useState<AnnotationDoc | null>(null);
+  const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [report, setReport] = useState<ReportResult | null>(null);
   const [savingEntity, setSavingEntity] = useState(false);
   const [entitySaved, setEntitySaved] = useState(false);
@@ -282,10 +348,10 @@ export default function GeneratePage() {
   const previewContainerRef = useRef<HTMLDivElement>(null);
 
   const GENERATION_PHASES = [
-    { label: "Analyse du besoin métier…", sub: "Identification des champs et règles BTP" },
-    { label: "Architecture de l'interface…", sub: "Structure des vues et navigation" },
-    { label: "Construction des fonctionnalités…", sub: "CRUD, calculs, persistance localStorage" },
-    { label: "Finalisation & contrôle qualité…", sub: "Vérification des formules et des données" },
+    { label: t("Analyse du besoin métier…", "Analyzing your business need…"), sub: t("Identification des champs et règles BTP", "Identifying fields and construction rules") },
+    { label: t("Architecture de l'interface…", "Designing the interface…"), sub: t("Structure des vues et navigation", "View structure and navigation") },
+    { label: t("Construction des fonctionnalités…", "Building the features…"), sub: t("CRUD, calculs, persistance localStorage", "CRUD, calculations, localStorage persistence") },
+    { label: t("Finalisation & contrôle qualité…", "Finalizing & quality check…"), sub: t("Vérification des formules et des données", "Checking formulas and data") },
   ];
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -342,7 +408,7 @@ export default function GeneratePage() {
       loadConversation(chatId).then(async (conv) => {
         if (!conv) {
           setMessages([
-            { role: "assistant", content: "Impossible de rouvrir cette conversation (introuvable ou accès refusé). Décrivez votre besoin pour en démarrer une nouvelle." },
+            { role: "assistant", content: t("Impossible de rouvrir cette conversation (introuvable ou accès refusé). Décrivez votre besoin pour en démarrer une nouvelle.", "Couldn't reopen this conversation (not found or access denied). Describe your need to start a new one.") },
           ]);
           return;
         }
@@ -387,7 +453,7 @@ export default function GeneratePage() {
               {
                 role: "assistant",
                 content:
-                  "Impossible de charger cette application (introuvable ou accès refusé). Décrivez l'outil dont vous avez besoin pour en créer une nouvelle.",
+                  t("Impossible de charger cette application (introuvable ou accès refusé). Décrivez l'outil dont vous avez besoin pour en créer une nouvelle.", "Couldn't load this app (not found or access denied). Describe the tool you need to create a new one."),
               },
             ]);
             return;
@@ -433,8 +499,9 @@ export default function GeneratePage() {
     // 1) "Utiliser ce modèle" → on demande d'abord COMMENT démarrer les données
     //    (vierge / import / workspace), puis on instancie avec la portée choisie.
     if (tpl) {
-      const meta = TEMPLATE_PREVIEWS.find((p) => p.id === tpl);
-      const name = meta?.name ?? "Mon application";
+      const metaRaw = TEMPLATE_PREVIEWS.find((p) => p.id === tpl);
+      const meta = metaRaw ? localizeTemplatePreview(metaRaw, locale) : undefined;
+      const name = meta?.name ?? (locale === "en" ? "My app" : "Mon application");
       const accent = meta?.accent ?? "#4F46E5";
       setAppName(name);
       setKind("module");
@@ -442,7 +509,7 @@ export default function GeneratePage() {
       setMessages([
         {
           role: "assistant",
-          content: `**${name}** — choisissez comment démarrer : à partir de zéro, en important un fichier Excel/CSV, ou depuis votre workspace. Tout ce que vous saisirez restera synchronisé dans votre workspace.`,
+          content: t(`**${name}** — choisissez comment démarrer : à partir de zéro, en important un fichier Excel/CSV, ou depuis votre workspace. Tout ce que vous saisirez restera synchronisé dans votre workspace.`, `**${name}** — choose how to start: from scratch, by importing an Excel/CSV file, or from your workspace. Everything you enter stays synced to your workspace.`),
         },
       ]);
       setTplChooser({ id: tpl, name, accent });
@@ -461,7 +528,7 @@ export default function GeneratePage() {
           {
             role: "assistant",
             content:
-              "Décrivez la **mission permanente** que je dois prendre en charge, et je m'en occupe tout seul, en temps et en heure.\n\nPar exemple :\n• « Chaque lundi à 8h, envoie-moi la liste de mes factures impayées »\n• « Relance le client Martin tous les 3 jours tant qu'il n'a pas payé »\n• « Tous les soirs à 18h, fais-moi le récap des heures pointées du jour »\n\nQue voulez-vous me déléguer ?",
+              t("Décrivez la **mission permanente** que je dois prendre en charge, et je m'en occupe tout seul, en temps et en heure.\n\nPar exemple :\n• « Chaque lundi à 8h, envoie-moi la liste de mes factures impayées »\n• « Relance le client Martin tous les 3 jours tant qu'il n'a pas payé »\n• « Tous les soirs à 18h, fais-moi le récap des heures pointées du jour »\n\nQue voulez-vous me déléguer ?", "Describe the **standing mission** you want me to take over, and I'll handle it on my own, on time.\n\nFor example:\n• “Every Monday at 8am, send me the list of my unpaid invoices”\n• “Chase client Martin every 3 days until he pays”\n• “Every evening at 6pm, give me the recap of the day's logged hours”\n\nWhat would you like to delegate to me?"),
           },
         ]);
       }
@@ -706,12 +773,12 @@ export default function GeneratePage() {
         setMessages([
           {
             role: "assistant",
-            content: `Voici le modèle **${name}**, prêt à l'emploi à droite. Dites-moi ce que vous voulez adapter (couleurs, colonnes, champs, textes…). Vos changements créent votre propre version : le modèle d'origine ne bouge pas.`,
+            content: t(`Voici le modèle **${name}**, prêt à l'emploi à droite. Dites-moi ce que vous voulez adapter (couleurs, colonnes, champs, textes…). Vos changements créent votre propre version : le modèle d'origine ne bouge pas.`, `Here is the **${name}** template, ready to use on the right. Tell me what you'd like to adapt (colors, columns, fields, text…). Your changes create your own version: the original template stays unchanged.`),
           },
         ]);
       })
       .catch(() => {
-        setMessages([{ role: "assistant", content: "Impossible de charger ce modèle. Décrivez plutôt l'outil dont vous avez besoin." }]);
+        setMessages([{ role: "assistant", content: t("Impossible de charger ce modèle. Décrivez plutôt l'outil dont vous avez besoin.", "Couldn't load this template. Describe the tool you need instead.") }]);
       });
   }, [injectErrorCapture]);
 
@@ -726,7 +793,7 @@ export default function GeneratePage() {
       ...prev,
       {
         role: 'assistant',
-        content: `🔧 Erreurs détectées, correction automatique en cours (${fixCount + 1}/3)…\n\`\`\`\n${errorSummary}\n\`\`\``,
+        content: t(`🔧 Erreurs détectées, correction automatique en cours (${fixCount + 1}/3)…\n\`\`\`\n${errorSummary}\n\`\`\``, `🔧 Errors detected, auto-fixing (${fixCount + 1}/3)…\n\`\`\`\n${errorSummary}\n\`\`\``),
       },
     ]);
 
@@ -750,15 +817,18 @@ export default function GeneratePage() {
         setAutoFixCount(fixCount + 1);
         setMessages((prev) => [
           ...prev,
-          { role: 'assistant', content: `✓ Correction ${fixCount + 1} appliquée. Vérification…` },
+          { role: 'assistant', content: t(`✓ Correction ${fixCount + 1} appliquée. Vérification…`, `✓ Fix ${fixCount + 1} applied. Checking…`) },
         ]);
-        // L'app vit déjà dans les ateliers → la correction y part aussi (silencieux).
+        // L'app vit déjà dans les ateliers → la correction y part aussi (silencieux),
+        // via le chemin autoritaire : une version « autofix » est enregistrée sans
+        // toucher au nom/à la description (le garde-fou ne bloque pas un auto-fix).
         if (savedIdRef.current) {
-          void createClient()
-            .from('modules')
-            .update({ html_content: data.html, updated_at: new Date().toISOString() })
-            .eq('id', savedIdRef.current)
-            .then(() => {});
+          void saveModuleApi({
+            moduleId: savedIdRef.current,
+            html: data.html,
+            changeType: 'autofix',
+            sourcePrompt: 'Correction automatique',
+          });
         }
       }
     } catch {
@@ -790,13 +860,23 @@ export default function GeneratePage() {
         };
         const ep = (body as { __endpoint?: string } | null)?.__endpoint;
         const apiUrl =
-          ep === 'app-ai' ? '/api/app-ai' : ep === 'email' ? '/api/app-email' : ep === 'sms' ? '/api/app-sms' : '/api/data';
+          ep === 'app-ai' ? '/api/app-ai'
+            : ep === 'email' ? '/api/app-email'
+            : ep === 'document' ? '/api/app-document'
+            : ep === 'sms' ? '/api/app-sms'
+            : ep === 'agents' ? '/api/app-agents'
+            : ep === 'telemetry' ? '/api/app-telemetry'
+            : '/api/data';
         // Aperçu (app pas encore enregistrée) : on joint la portée choisie au
         // questionnaire pour que « vierge » s'affiche VIDE dès l'aperçu (et une
         // sélection reste filtrée). since=maintenant → masque l'existant.
         const previewScope = !ep ? computeStoredScope(dataScopeRef.current, new Date().toISOString()) : null;
         const outBody =
-          !ep && body && typeof body === 'object' ? { ...(body as Record<string, unknown>), dataScope: previewScope } : body;
+          !ep && body && typeof body === 'object'
+            ? { ...(body as Record<string, unknown>), dataScope: previewScope }
+            : (ep === 'agents' || ep === 'telemetry') && body && typeof body === 'object'
+              ? { ...(body as Record<string, unknown>), moduleId: savedIdRef.current }
+              : body;
         fetch(apiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -805,11 +885,11 @@ export default function GeneratePage() {
         })
           .then(async (res) => {
             const result = await res.json().catch(() => null);
-            if (!res.ok) reply({ error: result?.error ?? `Erreur ${res.status}` });
+            if (!res.ok) reply({ error: result?.error ?? t(`Erreur ${res.status}`, `Error ${res.status}`) });
             else reply({ result });
           })
           .catch((err: unknown) => {
-            reply({ error: err instanceof Error ? err.message : 'Réseau indisponible' });
+            reply({ error: err instanceof Error ? err.message : t('Réseau indisponible', 'Network unavailable') });
           });
         return;
       }
@@ -843,8 +923,8 @@ export default function GeneratePage() {
 
       // BILTIA_ELEMENT_CLICKED : Visual Edit — pré-remplir le prompt
       if (event.data?.type === 'BILTIA_ELEMENT_CLICKED') {
-        const desc: string = event.data.desc ?? 'cet élément';
-        setInput(`Modifie ${desc} : `);
+        const desc: string = event.data.desc ?? t('cet élément', 'this element');
+        setInput(t(`Modifie ${desc} : `, `Edit ${desc}: `));
         setVisualEditMode(false);
         iframeRef.current?.contentWindow?.postMessage({ type: 'BILTIA_VISUAL_EDIT_OFF' }, '*');
         textareaRef.current?.focus();
@@ -871,24 +951,24 @@ export default function GeneratePage() {
       const accepted: AttachedFile[] = [];
       for (const f of incoming) {
         if (!ACCEPTED_TYPES.includes(f.type)) {
-          setFileError(`Type non supporté : ${f.name} (PDF, PNG, JPEG, WebP uniquement).`);
+          setFileError(t(`Type non supporté : ${f.name} (PDF, PNG, JPEG, WebP uniquement).`, `Unsupported type: ${f.name} (PDF, PNG, JPEG, WebP only).`));
           continue;
         }
         if (f.size > MAX_FILE_BYTES_CLIENT) {
-          setFileError(`Fichier trop lourd : ${f.name} (3,5 Mo max).`);
+          setFileError(t(`Fichier trop lourd : ${f.name} (3,5 Mo max).`, `File too large: ${f.name} (3.5 MB max).`));
           continue;
         }
         try {
           accepted.push({ name: f.name, mediaType: f.type, data: await fileToBase64(f), size: f.size });
         } catch {
-          setFileError(`Lecture impossible : ${f.name}.`);
+          setFileError(t(`Lecture impossible : ${f.name}.`, `Couldn't read: ${f.name}.`));
         }
       }
       if (accepted.length) {
         setAttached((prev) => {
           const merged = [...prev, ...accepted].slice(0, MAX_FILES_CLIENT);
           if (prev.length + accepted.length > MAX_FILES_CLIENT) {
-            setFileError(`${MAX_FILES_CLIENT} fichiers maximum par analyse.`);
+            setFileError(t(`${MAX_FILES_CLIENT} fichiers maximum par analyse.`, `${MAX_FILES_CLIENT} files maximum per analysis.`));
           }
           return merged;
         });
@@ -917,7 +997,7 @@ export default function GeneratePage() {
         tenant_id: tenantId,
         user_id: user.id,
         type,
-        title: (title || "Rapport").slice(0, 120),
+        title: (title || t("Rapport", "Report")).slice(0, 120),
         file_count: fileCount,
         payload: payload as Json,
         conversation_id: conversationIdRef.current,
@@ -935,7 +1015,7 @@ export default function GeneratePage() {
     if (!founderAccount && credits !== null && credits < creditCost) {
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: "⚠️ Crédits insuffisants. Rechargez votre compte pour continuer." },
+        { role: "assistant", content: t("⚠️ Crédits insuffisants. Rechargez votre compte pour continuer.", "⚠️ Not enough credits. Top up your account to continue.") },
       ]);
       setUpsell({ required: creditCost });
       return;
@@ -950,13 +1030,14 @@ export default function GeneratePage() {
         role: "user",
         content: question
           ? `${question}\n\n📎 ${fileNames}`
-          : `📎 Analyse de ${attached.length} fichier(s) : ${fileNames}`,
+          : t(`📎 Analyse de ${attached.length} fichier(s) : ${fileNames}`, `📎 Analysis of ${attached.length} file(s): ${fileNames}`),
       },
     ]);
     setInput("");
     setAttached([]);
     setAnalysis(null);
     setReport(null);
+    setAnnotationDoc(null);
     setEntitySaved(false);
     setGeneratedHTML("");
     setKind(null);
@@ -974,7 +1055,7 @@ export default function GeneratePage() {
       const data = await res.json();
       if (!res.ok) {
         if (res.status === 402) setUpsell({ required: creditCost });
-        throw new Error(data.error ?? "Erreur inconnue");
+        throw new Error(data.error ?? t("Erreur inconnue", "Unknown error"));
       }
 
       updateCreditsDisplay(data.creditsUsed ?? creditCost);
@@ -987,7 +1068,7 @@ export default function GeneratePage() {
           answer: typeof data.answer === "string" ? data.answer : undefined,
         };
         setReport(rep);
-        void persistReport("controle", question || `Contrôle de ${rep.items.length} fichier(s)`, rep.items.length, rep);
+        void persistReport("controle", question || t(`Contrôle de ${rep.items.length} fichier(s)`, `Check of ${rep.items.length} file(s)`), rep.items.length, rep);
         const n = rep.anomalies.length;
         setMessages((prev) => [
           ...prev,
@@ -995,8 +1076,8 @@ export default function GeneratePage() {
             role: "assistant",
             content:
               n > 0
-                ? `✓ Rapport prêt : **${n} anomalie(s)** détectée(s) sur ${rep.items.length} fichier(s). Détail à droite.`
-                : `✓ Contrôle terminé sur ${rep.items.length} fichier(s) : **aucune anomalie** détectée.`,
+                ? t(`✓ Rapport prêt : **${n} anomalie(s)** détectée(s) sur ${rep.items.length} fichier(s). Détail à droite.`, `✓ Report ready: **${n} anomaly(ies)** found across ${rep.items.length} file(s). Details on the right.`)
+                : t(`✓ Contrôle terminé sur ${rep.items.length} fichier(s) : **aucune anomalie** détectée.`, `✓ Check complete on ${rep.items.length} file(s): **no anomaly** found.`),
           },
         ]);
       } else {
@@ -1004,11 +1085,20 @@ export default function GeneratePage() {
           extraction: data.extraction,
           answer: typeof data.answer === "string" ? data.answer : "",
           fileCount: data.fileCount ?? 1,
+          comptages: Array.isArray(data.comptages) ? data.comptages : [],
+          incertitudes: Array.isArray(data.incertitudes) ? data.incertitudes : [],
+          confiance: data.confiance ?? null,
+          // Ce que Biltia sait tirer de CE document (app de métré depuis un plan…).
+          propositions: Array.isArray(data.propositions) ? data.propositions : [],
         };
         setAnalysis(result);
+        // On GARDE les fichiers analysés : cliquer une proposition doit pouvoir
+        // reconstruire l'app à partir du document (sinon le plan est perdu et
+        // l'app se génère à vide). `attached` a été vidé pour libérer la barre.
+        setAnalyzedFiles(payload);
         void persistReport(
           "analyse",
-          question || `Analyse : ${result.extraction?.type_document ?? "document"} — ${fileNames}`,
+          question || t(`Analyse : ${result.extraction?.type_document ?? "document"} — ${fileNames}`, `Analysis: ${result.extraction?.type_document ?? "document"} — ${fileNames}`),
           result.fileCount,
           result
         );
@@ -1017,8 +1107,8 @@ export default function GeneratePage() {
           {
             role: "assistant",
             content: result.answer
-              ? `✓ ${result.answer}\n\nDétail extrait à droite. Vous pouvez l'enregistrer dans le workspace.`
-              : `✓ Document analysé. L'essentiel est extrait à droite : relisez, puis **Enregistrer dans le workspace**.`,
+              ? t(`✓ ${result.answer}\n\nDétail extrait à droite. Vous pouvez l'enregistrer dans le workspace.`, `✓ ${result.answer}\n\nExtracted details on the right. You can save it to the workspace.`)
+              : t(`✓ Document analysé. L'essentiel est extrait à droite : relisez, puis **Enregistrer dans le workspace**.`, `✓ Document analyzed. The essentials are extracted on the right: review, then **Save to workspace**.`),
           },
         ]);
       }
@@ -1027,11 +1117,124 @@ export default function GeneratePage() {
         ...prev,
         {
           role: "assistant",
-          content: `❌ ${err instanceof Error ? err.message : "Erreur lors de l'analyse. Réessayez."}`,
+          content: `❌ ${err instanceof Error ? err.message : t("Erreur lors de l'analyse. Réessayez.", "Error during analysis. Try again.")}`,
         },
       ]);
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  // Mode ANNOTATION : l'IA propose des repères sur le document joint (overlay
+  // corrigeable, relié au workspace). Un seul document à la fois.
+  const handleAnnotate = async (instruction: string) => {
+    const file = attached[0];
+    if (!file) return;
+    const creditCost = 30;
+    if (!founderAccount && credits !== null && credits < creditCost) {
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: t("⚠️ Crédits insuffisants. Rechargez votre compte pour continuer.", "⚠️ Not enough credits. Top up your account to continue.") },
+      ]);
+      setUpsell({ required: creditCost });
+      return;
+    }
+    setUpsell(null);
+    setMessages((prev) => [...prev, { role: "user", content: `${instruction}\n\n📎 ${file.name}` }]);
+    setInput("");
+    setAttached([]);
+    setAnalysis(null);
+    setReport(null);
+    setGeneratedHTML("");
+    setKind(null);
+    setExpectingBuild(false);
+    setIsGenerating(true);
+    try {
+      const res = await fetch("/api/annotate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file: { name: file.name, mediaType: file.mediaType, data: file.data }, instruction }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (res.status === 402) setUpsell({ required: creditCost });
+        throw new Error(data.error ?? t("Erreur inconnue", "Unknown error"));
+      }
+      updateCreditsDisplay(data.creditsUsed ?? creditCost);
+      const anns: Annotation[] = Array.isArray(data.annotations) ? data.annotations : [];
+      setAnnotations(anns);
+      setAnnotationDoc({ name: file.name, mediaType: file.mediaType, dataUrl: file.data });
+      const uncertain = anns.filter((a) => a.incertain).length;
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: t(`✓ ${data.resume || `${anns.length} repère(s) proposé(s).`}${uncertain ? ` **${uncertain} à vérifier.**` : ""}\n\nAjustez les repères à droite (glisser / ajouter / supprimer), puis reliez-les au workspace (tâche ou réserve).`, `✓ ${data.resume || `${anns.length} marker(s) proposed.`}${uncertain ? ` **${uncertain} to check.**` : ""}\n\nAdjust the markers on the right (drag / add / remove), then link them to the workspace (task or snag).`),
+        },
+      ]);
+    } catch (err) {
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: `❌ ${err instanceof Error ? err.message : t("Erreur d'annotation. Réessayez.", "Annotation error. Try again.")}` },
+      ]);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // Mode ANNOTATION MANUEL : on ouvre la couche d'annotation vierge sur l'image
+  // jointe — l'utilisateur pose ses repères lui-même. Aucun appel IA, aucun crédit.
+  const handleManualAnnotate = () => {
+    const file = attached[0];
+    if (!file) return;
+    const isImg = file.mediaType.startsWith("image/");
+    setMessages((prev) => [...prev, { role: "user", content: `${t("Annoter à la main", "Annotate manually")}\n\n📎 ${file.name}` }]);
+    setInput("");
+    setAttached([]);
+    setAnalysis(null);
+    setReport(null);
+    setGeneratedHTML("");
+    setKind(null);
+    setExpectingBuild(false);
+    setUpsell(null);
+    setAnnotations([]);
+    setAnnotationDoc({ name: file.name, mediaType: file.mediaType, dataUrl: file.data });
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "assistant",
+        content: isImg
+          ? t("✍️ À vous de jouer : cliquez « Ajouter un repère » puis sur le plan pour poser vos annotations, glissez-les pour ajuster, et reliez-les au workspace (tâche / réserve).", "✍️ Your turn: click “Add a marker” then on the plan to place your annotations, drag to adjust, and link them to the workspace (task / snag).")
+          : t("L'annotation à la main nécessite une **image** (photo ou capture du plan) — pour un PDF, l'overlay arrive bientôt.", "Manual annotation needs an **image** (photo or screenshot of the plan) — for a PDF, the overlay is coming soon."),
+      },
+    ]);
+  };
+
+  // ── CLIC SUR UNE PROPOSITION ISSUE DE LA LECTURE DU DOCUMENT ────────────────
+  // Biltia a LU le document et propose ce qu'il sait en tirer (app de métré
+  // depuis un plan, app de gestion depuis un tableau, document depuis un
+  // courrier). Rien ne part sans ce clic : une app coûte 300 crédits, on ne les
+  // dépense JAMAIS par surprise sur un simple dépôt de fichier (décision 2026-07-12).
+  // Les fichiers analysés repartent avec la demande → l'app se bâtit sur le
+  // document réel, jamais à vide.
+  const handleProposition = async (p: Proposition) => {
+    if (isGenerating) return;
+    if (p.action === "extract") {
+      await saveAnalysisToWorkspace();
+      return;
+    }
+    const files = analyzedFiles.length ? analyzedFiles : undefined;
+    setMessages((prev) => [...prev, { role: "user", content: p.prompt }]);
+    setAnalysis(null); // l'atelier remplace l'écran d'analyse
+    setUpsell(null);
+    if (p.action === "module") {
+      setKind("module");
+      kindRef.current = "module";
+      await executeGeneration(p.prompt, { files, appFromFiles: true });
+    } else {
+      setKind("document");
+      kindRef.current = "document";
+      await executeGeneration(p.prompt, { files, docFill: true });
     }
   };
 
@@ -1042,11 +1245,11 @@ export default function GeneratePage() {
     const ex = analysis.extraction;
     const notesParts = [
       ex.resume,
-      ex.montant_ttc != null ? `TTC ${fmtEur(ex.montant_ttc)}` : null,
-      ex.emetteur ? `Émetteur : ${ex.emetteur}` : null,
+      ex.montant_ttc != null ? t(`TTC ${fmtEur(ex.montant_ttc)}`, `Incl. tax ${fmtEur(ex.montant_ttc)}`) : null,
+      ex.emetteur ? t(`Émetteur : ${ex.emetteur}`, `Issuer: ${ex.emetteur}`) : null,
     ].filter(Boolean);
     const values = {
-      nom: ex.reference || ex.type_document || "Document analysé",
+      nom: ex.reference || ex.type_document || t("Document analysé", "Analyzed document"),
       type: ex.type_document || "autre",
       expires_at: ex.echeance || null,
       statut: "valide",
@@ -1060,16 +1263,16 @@ export default function GeneratePage() {
         body: JSON.stringify({ entity: "documents", action: "create", values }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Enregistrement impossible.");
+      if (!res.ok) throw new Error(data.error ?? t("Enregistrement impossible.", "Save failed."));
       setEntitySaved(true);
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: `✓ Enregistré dans le workspace (Documents) : **${values.nom}**.` },
+        { role: "assistant", content: t(`✓ Enregistré dans le workspace (Documents) : **${values.nom}**.`, `✓ Saved to the workspace (Documents): **${values.nom}**.`) },
       ]);
     } catch (err) {
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: `❌ ${err instanceof Error ? err.message : "Enregistrement impossible."}` },
+        { role: "assistant", content: `❌ ${err instanceof Error ? err.message : t("Enregistrement impossible.", "Save failed.")}` },
       ]);
     } finally {
       setSavingEntity(false);
@@ -1080,7 +1283,7 @@ export default function GeneratePage() {
   // qui ré-résout le groupe à frais et envoie. Rapport factuel dans le chat.
   async function executePendingTask(pending: { audience: string; subject: string; body: string }) {
     setIsGenerating(true);
-    setLoadingLabel("J'envoie…");
+    setLoadingLabel(t("J'envoie…", "Sending…"));
     try {
       const res = await fetch("/api/task/execute", {
         method: "POST",
@@ -1094,13 +1297,13 @@ export default function GeneratePage() {
           : typeof data?.error === "string" && data.error
             ? `⚠️ ${data.error}`
             : res.ok
-              ? "Envoi effectué."
-              : "⚠️ Je n'ai pas pu envoyer. Réessaie dans un instant.";
+              ? t("Envoi effectué.", "Sent.")
+              : t("⚠️ Je n'ai pas pu envoyer. Réessaie dans un instant.", "⚠️ I couldn't send it. Try again in a moment.");
       setMessages((prev) => [...prev, { role: "assistant", content: msg }]);
     } catch {
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: "⚠️ Je n'ai pas pu envoyer (réseau). Réessaie dans un instant." },
+        { role: "assistant", content: t("⚠️ Je n'ai pas pu envoyer (réseau). Réessaie dans un instant.", "⚠️ I couldn't send it (network). Try again in a moment.") },
       ]);
     } finally {
       setLoadingLabel(null);
@@ -1118,7 +1321,7 @@ export default function GeneratePage() {
     if (attached.length > 0 && generatedHTML && kindRef.current !== "document") {
       const files = attached.map((f) => ({ name: f.name, mediaType: f.mediaType, data: f.data }));
       const fileNames = attached.map((f) => f.name).join(", ");
-      const instruction = trimmed || "Regarde les fichiers joints et corrige le problème qu'ils montrent.";
+      const instruction = trimmed || t("Regarde les fichiers joints et corrige le problème qu'ils montrent.", "Look at the attached files and fix the problem they show.");
       setMessages((prev) => [...prev, { role: "user", content: `${instruction}\n\n📎 ${fileNames}` }]);
       setInput("");
       setAttached([]);
@@ -1127,26 +1330,105 @@ export default function GeneratePage() {
       return;
     }
 
-    // Fichier joint + intention « complète / remplis ce document » (sans app
-    // ouverte) → on REMPLIT le document : génération d'un document propre,
-    // prévisualisable + téléchargeable, avec les infos entreprise + workspace.
-    // Ce qui manque VRAIMENT est demandé (porte contexte), jamais inventé.
-    if (attached.length > 0 && !generatedHTML && looksLikeDocumentFill(trimmed)) {
-      const files = attached.map((f) => ({ name: f.name, mediaType: f.mediaType, data: f.data }));
-      const fileNames = attached.map((f) => f.name).join(", ");
-      setMessages((prev) => [...prev, { role: "user", content: `${trimmed}\n\n📎 ${fileNames}` }]);
-      setInput("");
-      setAttached([]);
-      setUpsell(null);
-      setKind("document");
-      kindRef.current = "document";
-      await executeGeneration(trimmed, { files, docFill: true });
+    // Fichier joint + intention « à la main / sans IA » → mode ANNOTATION MANUEL :
+    // couche vierge sur l'image, l'utilisateur pose ses repères (aucun crédit).
+    // Reste une REGEX à dessein : consigne explicite, zéro IA, zéro crédit.
+    if (attached.length > 0 && !generatedHTML && looksLikeManualAnnotate(trimmed)) {
+      handleManualAnnotate();
       return;
     }
 
-    // Fichiers joints → analyse (1) ou automatisation par lot (≥2).
-    // Si un contrôle a été demandé AVANT de joindre les fichiers, on reprend
-    // cette instruction mémorisée (promesse « décrivez le contrôle »).
+    // ── FICHIER(S) JOINT(S), SANS APP OUVERTE : L'AIGUILLEUR DÉCIDE ────────────
+    // Quatre portes : ANALYSER (lecture seule) · ANNOTER · en tirer un DOCUMENT ·
+    // en tirer une APPLICATION. Ce choix se faisait par regex (verbe d'édition +
+    // petit mot) : « CRÉE-moi une app à partir de CE fichier » partait en
+    // régénération de PDF, et aucun chemin ne menait au générateur d'app.
+    // Désormais /api/file-intent tranche (même modèle que le reste de
+    // l'aiguillage) ; les regex ne servent plus que de REPLI si l'API échoue.
+    if (attached.length > 0 && !generatedHTML) {
+      const files = attached.map((f) => ({ name: f.name, mediaType: f.mediaType, data: f.data }));
+      const fileNames = attached.map((f) => f.name).join(", ");
+
+      let intent: "analyze" | "annotate" | "document" | "module" | null = null;
+      if (trimmed) {
+        setLoadingLabel(t("J'analyse votre demande…", "Analyzing your request…"));
+        setExpectingBuild(false);
+        setIsGenerating(true);
+        try {
+          const ctrl = new AbortController();
+          const to = setTimeout(() => ctrl.abort(), 20000);
+          try {
+            const res = await fetch("/api/file-intent", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ prompt: trimmed }),
+              signal: ctrl.signal,
+            });
+            clearTimeout(to);
+            const data = await res.json();
+            if (res.ok && (data.intent === "analyze" || data.intent === "annotate" || data.intent === "document" || data.intent === "module")) {
+              intent = data.intent;
+            }
+          } catch {
+            clearTimeout(to);
+          }
+        } finally {
+          setLoadingLabel(null);
+          setIsGenerating(false);
+        }
+      }
+
+      // Repli déterministe si l'aiguilleur n'a pas répondu (API lente/KO) :
+      // les anciennes heuristiques, dans leur ordre historique.
+      if (!intent) {
+        intent = looksLikeAnnotate(trimmed)
+          ? "annotate"
+          : looksLikeDocumentEdit(trimmed)
+            ? "document"
+            : "analyze";
+      }
+
+      if (intent === "annotate") {
+        await handleAnnotate(trimmed);
+        return;
+      }
+
+      // DOCUMENT : feuille A4 propre, prévisualisable + téléchargeable en PDF,
+      // reconstruite à partir du fichier source + fiche entreprise + workspace.
+      if (intent === "document") {
+        setMessages((prev) => [...prev, { role: "user", content: `${trimmed}\n\n📎 ${fileNames}` }]);
+        setInput("");
+        setAttached([]);
+        setUpsell(null);
+        setKind("document");
+        kindRef.current = "document";
+        await executeGeneration(trimmed, { files, docFill: true });
+        return;
+      }
+
+      // MODULE : une VRAIE application dont les données sortent du fichier joint
+      // (le chemin qui n'existait pas). Le fichier part en contexte multimodal.
+      if (intent === "module") {
+        setMessages((prev) => [...prev, { role: "user", content: `${trimmed}\n\n📎 ${fileNames}` }]);
+        setInput("");
+        setAttached([]);
+        setUpsell(null);
+        setKind("module");
+        kindRef.current = "module";
+        await executeGeneration(trimmed, { files, appFromFiles: true });
+        return;
+      }
+
+      // ANALYSE (défaut) : 1 fichier → /api/analyze, ≥2 → /api/automate.
+      // Si un contrôle a été demandé AVANT de joindre les fichiers, on reprend
+      // cette instruction mémorisée (promesse « décrivez le contrôle »).
+      const instruction = trimmed || pendingActionRef.current;
+      pendingActionRef.current = "";
+      await handleFiles(instruction);
+      return;
+    }
+
+    // Fichiers joints (app ouverte gérée plus haut) → analyse / automatisation.
     if (attached.length > 0) {
       const instruction = trimmed || pendingActionRef.current;
       pendingActionRef.current = "";
@@ -1187,7 +1469,7 @@ export default function GeneratePage() {
     if (!founderAccount && credits !== null && credits < 10) {
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: "⚠️ Crédits insuffisants. Rechargez votre compte pour continuer." },
+        { role: "assistant", content: t("⚠️ Crédits insuffisants. Rechargez votre compte pour continuer.", "⚠️ Not enough credits. Top up your account to continue.") },
       ]);
       setUpsell({}); // coût exact inconnu à ce stade (question 10 / app 300)
       return;
@@ -1204,7 +1486,7 @@ export default function GeneratePage() {
     // d'app. Si l'API ne répond pas, on bascule sur les questions statiques
     // locales — on ne construit JAMAIS sans être passé par les questions.
     if (!isModification && classifyKindHeuristic(trimmed).kind === "module") {
-      setLoadingLabel("J'analyse votre besoin…");
+      setLoadingLabel(t("J'analyse votre besoin…", "Analyzing your need…"));
       setExpectingBuild(false);
       setIsGenerating(true);
       try {
@@ -1238,7 +1520,7 @@ export default function GeneratePage() {
           clearTimeout(clarifyTimeout);
         }
         // API en échec ou trop lente → questionnaire statique local, sans réseau.
-        setClarify({ questions: buildStaticClarifyQuestions(), prompt: trimmed });
+        setClarify({ questions: buildStaticClarifyQuestions(locale), prompt: trimmed });
         return;
       } finally {
         setLoadingLabel(null);
@@ -1313,7 +1595,7 @@ export default function GeneratePage() {
       : "# PRÉCISIONS DE L'UTILISATEUR (questionnaire avant création)";
 
     if (answersText) {
-      setMessages((prev) => [...prev, { role: "user", content: `📋 Mes réponses :\n${answersText}` }]);
+      setMessages((prev) => [...prev, { role: "user", content: t(`📋 Mes réponses :\n${answersText}`, `📋 My answers:\n${answersText}`) }]);
       void executeGeneration(`${base}\n\n${header}\n${answersText}`, genOpts);
     } else {
       void executeGeneration(base, genOpts);
@@ -1344,7 +1626,7 @@ export default function GeneratePage() {
       return;
     }
     setConnectFlow(null);
-    setMessages((prev) => [...prev, { role: "assistant", content: "Parfait, tout est connecté ✅. Je continue." }]);
+    setMessages((prev) => [...prev, { role: "assistant", content: t("Parfait, tout est connecté ✅. Je continue.", "Perfect, everything is connected ✅. Continuing.") }]);
     void executeGeneration(cf.resumePrompt);
   };
 
@@ -1353,7 +1635,7 @@ export default function GeneratePage() {
     setConnectFlow(null);
     setMessages((prev) => [
       ...prev,
-      { role: "assistant", content: "Pas de souci — dis-moi si tu changes d'avis, ou demande-moi autre chose." },
+      { role: "assistant", content: t("Pas de souci — dis-moi si tu changes d'avis, ou demande-moi autre chose.", "No worries — tell me if you change your mind, or ask me something else.") },
     ]);
   };
 
@@ -1370,12 +1652,23 @@ export default function GeneratePage() {
       // Remplissage d'un document joint : force kind=document côté serveur pour
       // qu'un fichier + « complète-le » produise le document (et pas une réponse).
       docFill?: boolean;
+      // App CONSTRUITE À PARTIR d'un fichier joint (Excel/CSV/PDF/photo) : force
+      // kind=module côté serveur, sinon « crée une app à partir de ce fichier »
+      // retombait en document ou en analyse. Les données sortent du fichier.
+      appFromFiles?: boolean;
+      // Phase 2 : cette passe est une CORRECTION automatique de branchement (ne
+      // réinitialise pas le budget anti-boucle, ne se re-corrige pas elle-même).
+      isCorrection?: boolean;
     }
   ) => {
     const isModification = generatedHTML.length > 0;
     const creditCost = isModification ? 60 : 300;
+    // Nouvelle demande utilisateur → budget de correction workspace remis à neuf.
+    if (!opts?.isCorrection) wsCorrectionRef.current = false;
     // Toute nouvelle demande supersède un flux de connexion resté ouvert.
     setConnectFlow(null);
+    // Une génération d'app/document reprend la main sur un panneau d'annotation.
+    if (!isModification) setAnnotationDoc(null);
     setExpectingBuild(!looksLikePureQuestion(apiPrompt));
     setIsGenerating(true);
     const effectiveFormat = opts?.formatOverride ?? format;
@@ -1392,8 +1685,15 @@ export default function GeneratePage() {
           previousHTML: isModification ? generatedHTML : undefined,
           format: effectiveFormat,
           // En itération, on conserve le format d'origine (pas de reclassement).
-          // Remplissage de document : on force kind=document dès la création.
-          kind: isModification ? kind ?? undefined : opts?.docFill ? "document" : undefined,
+          // Remplissage de document → kind=document ; app tirée d'un fichier →
+          // kind=module (sinon le serveur reclasse et on repart en document/analyse).
+          kind: isModification
+            ? kind ?? undefined
+            : opts?.docFill
+              ? "document"
+              : opts?.appFromFiles
+                ? "module"
+                : undefined,
           docType: isModification ? docType ?? undefined : undefined,
           contextProvided: opts?.contextProvided,
           // Captures / documents joints comme contexte de la demande.
@@ -1573,7 +1873,7 @@ export default function GeneratePage() {
           {
             role: "assistant",
             content:
-              "⚡ C'est un contrôle par lot. Glissez vos fichiers dans la barre ci-dessous (PDF, photos de bons de livraison, factures…) ou cliquez sur le trombone, puis envoyez : je vérifie tout d'un coup et je signale les écarts — prix incohérents, références inconnues, doublons.",
+              t("⚡ C'est un contrôle par lot. Glissez vos fichiers dans la barre ci-dessous (PDF, photos de bons de livraison, factures…) ou cliquez sur le trombone, puis envoyez : je vérifie tout d'un coup et je signale les écarts — prix incohérents, références inconnues, doublons.", "⚡ This is a batch check. Drop your files into the bar below (PDF, photos of delivery notes, invoices…) or click the paperclip, then send: I check everything at once and flag discrepancies — inconsistent prices, unknown references, duplicates."),
           },
         ]);
         return;
@@ -1609,6 +1909,9 @@ export default function GeneratePage() {
         updateCreditsDisplay(data.creditsUsed ?? creditCost);
         if (data.tenantId) setTenantId(data.tenantId);
 
+        // AppSpec V1 déclarée par le modèle (création) → mémorisée pour la sauvegarde.
+        appSpecRef.current = data.appSpec ?? null;
+
         // Sauvegarde automatique : généré = enregistré, immédiatement.
         const autoSaved = await autoSaveGenerated({
           html: finalHtml,
@@ -1619,44 +1922,110 @@ export default function GeneratePage() {
           fmt: effectiveFormat,
         });
 
-        const saveNote = autoSaved
-          ? newKind === "document"
-            ? " Enregistré dans votre bibliothèque."
-            : " Enregistrée dans vos ateliers."
-          : "";
+        const saveNote =
+          autoSaved === true
+            ? newKind === "document"
+              ? t(" Enregistré dans votre bibliothèque.", " Saved to your library.")
+              : t(" Enregistrée dans vos ateliers.", " Saved to your workspaces.")
+            : "";
         let content: string;
         if (isModification) {
           content =
             newKind === "document"
-              ? `✓ Document mis à jour.${saveNote} Consultez-le à droite, puis **Imprimer / Enregistrer en PDF**.`
-              : `✓ Modification appliquée et sauvegardée. Consultez la prévisualisation à droite. Vous pouvez continuer à itérer.`;
+              ? t(`✓ Document mis à jour.${saveNote} Consultez-le à droite, puis **Imprimer / Enregistrer en PDF**.`, `✓ Document updated.${saveNote} View it on the right, then **Print / Save as PDF**.`)
+              : t(`✓ Modification appliquée et sauvegardée.${data.specDiff ? ` ✏️ *${data.specDiff}.*` : ""} Consultez la prévisualisation à droite. Vous pouvez continuer à itérer.`, `✓ Change applied and saved.${data.specDiff ? ` ✏️ *${data.specDiff}.*` : ""} Check the preview on the right. You can keep iterating.`);
         } else if (newKind === "document") {
-          content = `✓ **${data.name}** prêt.${saveNote} Ouvrez-le à droite : bouton **Imprimer / Enregistrer en PDF**, et signez du bout du doigt dans les cadres prévus. Dites-moi quoi ajuster.`;
+          content = t(`✓ **${data.name}** prêt.${saveNote} Ouvrez-le à droite : bouton **Imprimer / Enregistrer en PDF**, et signez du bout du doigt dans les cadres prévus. Dites-moi quoi ajuster.`, `✓ **${data.name}** ready.${saveNote} Open it on the right: **Print / Save as PDF** button, and sign with your fingertip in the boxes provided. Tell me what to adjust.`);
         } else if (data.actionFallback) {
-          content = `✓ **${data.name}** générée.${saveNote} ⚡ Demande de *traitement par lot* reconnue : pour contrôler des fichiers, glissez-les directement dans la barre. En attendant, voici un module opérationnel.`;
+          content = t(`✓ **${data.name}** générée.${saveNote} ⚡ Demande de *traitement par lot* reconnue : pour contrôler des fichiers, glissez-les directement dans la barre. En attendant, voici un module opérationnel.`, `✓ **${data.name}** generated.${saveNote} ⚡ *Batch processing* request recognized: to check files, drop them straight into the bar. In the meantime, here's a working module.`);
         } else {
-          content = `✓ Application **${data.name}** générée.${saveNote} Elle est entièrement fonctionnelle : ajoutez, modifiez, supprimez des données — tout est sauvegardé. Dites-moi ce que vous voulez ajuster.`;
+          content = t(`✓ Application **${data.name}** générée.${saveNote} Elle est entièrement fonctionnelle : ajoutez, modifiez, supprimez des données — tout est sauvegardé. Dites-moi ce que vous voulez ajuster.`, `✓ App **${data.name}** generated.${saveNote} It's fully functional: add, edit, delete data — everything is saved. Tell me what you'd like to adjust.`);
         }
         setMessages((prev) => [...prev, { role: "assistant", content }]);
-        if (!autoSaved) {
+        if (autoSaved === "declined") {
           setMessages((prev) => [
             ...prev,
             {
               role: "assistant",
               content:
-                "⚠️ Sauvegarde automatique impossible (droits d'équipe ou espace de travail introuvable). Utilisez le bouton **Sauvegarder** en haut à droite.",
+                t("⚠️ Modification **non enregistrée** : elle supprimait des éléments importants de l'application (une vue, un formulaire ou la connexion aux données). L'aperçu la montre quand même. Cliquez **Sauvegarder** pour la forcer, ou reformulez votre demande.", "⚠️ Change **not saved**: it removed important parts of the app (a view, a form, or the data connection). The preview still shows it. Click **Save** to force it, or rephrase your request."),
+            },
+          ]);
+        } else if (autoSaved === false) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "assistant",
+              content:
+                t("⚠️ Sauvegarde automatique impossible (droits d'équipe ou espace de travail introuvable). Utilisez le bouton **Sauvegarder** en haut à droite.", "⚠️ Auto-save failed (team permissions or workspace not found). Use the **Save** button at the top right."),
             },
           ]);
         }
+
+        // ── VALIDATION POST-GÉNÉRATION (Phase 2) ── une erreur CRITIQUE de
+        // branchement workspace déclenche UNE passe corrective automatique
+        // (bornée par wsCorrectionRef → jamais de boucle). Les warnings, eux,
+        // ne dérangent pas l'utilisateur (télémétrie serveur uniquement).
+        if (
+          newKind === "module" &&
+          !opts?.isCorrection &&
+          !wsCorrectionRef.current &&
+          data.validation?.critical &&
+          typeof data.validation.correctionPrompt === "string"
+        ) {
+          wsCorrectionRef.current = true;
+          const correctionPrompt = data.validation.correctionPrompt as string;
+          trackUsage("generation_auto_fixed", { coverage: data.validation.coverageScore });
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "assistant",
+              content: t("🔧 Le branchement aux données du workspace était incomplet — je corrige automatiquement…", "🔧 The connection to workspace data was incomplete — fixing it automatically…"),
+            },
+          ]);
+          // Laisser l'état se stabiliser (generatedHTML posé) avant de ré-entrer.
+          setTimeout(() => {
+            void executeGeneration(correctionPrompt, { isCorrection: true });
+          }, 500);
+        }
+
+        // ── SUGGESTIONS D'AUTOMATISATION (mission 12.4) ── à la création d'une app,
+        // si le contrat déclare des automatisations utiles, on les PROPOSE (l'utilisateur
+        // valide en langage naturel → flux agent existant). On n'active jamais tout seul.
+        if (
+          newKind === "module" &&
+          !isModification &&
+          !opts?.isCorrection &&
+          data.appSpec &&
+          Array.isArray(data.appSpec.suggestedAutomations) &&
+          data.appSpec.suggestedAutomations.length
+        ) {
+          const sugg = data.appSpec.suggestedAutomations
+            .slice(0, 3)
+            .filter((s: { title?: string }) => s && typeof s.title === "string" && s.title.trim());
+          if (sugg.length) {
+            trackUsage("automation_suggested", { count: sugg.length });
+            const list = sugg
+              .map((s: { title: string; purpose?: string }) => `- **${s.title}**${s.purpose ? ` — ${s.purpose}` : ""}`)
+              .join("\n");
+            setMessages((prev) => [
+              ...prev,
+              {
+                role: "assistant",
+                content: t(`💡 **Automatisations possibles** pour cette app :\n${list}\n\nDites-moi « active [le titre] » et je recrute l'agent qui s'en occupe (rien n'est activé sans votre accord).`, `💡 **Possible automations** for this app:\n${list}\n\nTell me “activate [the title]” and I'll hire the agent that handles it (nothing is activated without your consent).`),
+              },
+            ]);
+          }
+        }
       } else {
-        throw new Error(data.error ?? "Erreur inconnue");
+        throw new Error(data.error ?? t("Erreur inconnue", "Unknown error"));
       }
     } catch (err) {
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content: `❌ ${err instanceof Error ? err.message : "Erreur lors de la génération. Réessayez."}`,
+          content: `❌ ${err instanceof Error ? err.message : t("Erreur lors de la génération. Réessayez.", "Error during generation. Try again.")}`,
         },
       ]);
     } finally {
@@ -1668,6 +2037,98 @@ export default function GeneratePage() {
   // ateliers / la bibliothèque, sans cliquer « Sauvegarder » (exigence produit).
   // L'utilisateur peut supprimer ensuite ; la base est : généré = enregistré.
   // Valeurs passées en arguments (jamais lues depuis l'état : closures périmées).
+  // ── CHEMIN D'ÉCRITURE AUTORITAIRE (Phase 0) ──────────────────────────────────
+  // Toute persistance d'app passe désormais par /api/modules/save : le serveur
+  // versionne (module_versions), incrémente modules.version et applique le
+  // garde-fou anti-réécriture destructive. On ne touche PLUS `modules` en direct
+  // (sauf data_scope, métadonnée non versionnée).
+  type SaveOk = { ok: true; moduleId: string; version: number; slug?: string; createdAt?: string };
+  type SaveErr = { ok: false; needsConfirmation?: boolean; losses?: string[]; error?: string };
+  const saveModuleApi = async (a: {
+    moduleId: string | null;
+    name?: string;
+    html: string;
+    description?: string;
+    fmt?: Format;
+    kindValue?: Kind | null;
+    sourcePrompt?: string;
+    changeType?: "create" | "full_rewrite" | "manual_edit" | "autofix" | "patch";
+    confirmDestructive?: boolean;
+    appSpec?: unknown;
+  }): Promise<SaveOk | SaveErr> => {
+    try {
+      const res = await fetch("/api/modules/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          moduleId: a.moduleId ?? undefined,
+          name: a.name,
+          html: a.html,
+          description: a.description,
+          format: a.fmt,
+          kind: a.kindValue === "document" ? "document" : a.kindValue ? "app" : undefined,
+          sourcePrompt: a.sourcePrompt,
+          changeType: a.changeType,
+          confirmDestructive: a.confirmDestructive,
+          appSpec: a.appSpec,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.status === 409 && data?.needsConfirmation) {
+        return { ok: false, needsConfirmation: true, losses: data.losses ?? [] };
+      }
+      if (!res.ok || !data?.ok) return { ok: false, error: data?.error ?? t(`Erreur ${res.status}`, `Error ${res.status}`) };
+      return { ok: true, moduleId: data.moduleId, version: data.version, slug: data.slug, createdAt: data.createdAt };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : t("Réseau indisponible", "Network unavailable") };
+    }
+  };
+
+  // Garde-fou 4.4 : si le serveur bloque une modification destructive, on demande
+  // une confirmation EXPLICITE puis on ré-applique avec le drapeau de forçage.
+  const saveWithGuardrail = async (
+    a: Parameters<typeof saveModuleApi>[0]
+  ): Promise<SaveOk | SaveErr> => {
+    let r = await saveModuleApi(a);
+    if (!r.ok && r.needsConfirmation) {
+      const list = (r.losses ?? []).map((l) => `• ${l}`).join("\n");
+      const forced =
+        typeof window !== "undefined" &&
+        window.confirm(
+          t(`⚠️ Cette mise à jour supprimerait :\n\n${list}\n\nElle n'a pas été appliquée. L'appliquer quand même ?`, `⚠️ This update would remove:\n\n${list}\n\nIt was not applied. Apply it anyway?`)
+        );
+      if (!forced) return r; // refus → l'app n'est PAS écrasée
+      r = await saveModuleApi({ ...a, confirmDestructive: true });
+    }
+    return r;
+  };
+
+  // Applique la portée des données (métadonnée) après création — non versionné.
+  const applyDataScope = async (moduleId: string, createdAt?: string) => {
+    const stored = computeStoredScope(dataScopeRef.current, String(createdAt ?? ""));
+    if (!stored) return;
+    try {
+      const supabase = createClient();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (supabase.from("modules") as any).update({ data_scope: stored }).eq("id", moduleId);
+    } catch {
+      /* best-effort */
+    }
+  };
+
+  // Télémétrie d'usage (Phase 10) : événements côté atelier (best-effort, jamais bloquant).
+  const trackUsage = (type: string, meta?: Record<string, unknown>) => {
+    try {
+      void fetch("/api/app-telemetry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ events: [{ type, meta: meta ?? {} }], moduleId: savedIdRef.current }),
+      });
+    } catch {
+      /* best-effort */
+    }
+  };
+
   const autoSaveGenerated = async (args: {
     html: string;
     name: string;
@@ -1675,69 +2136,72 @@ export default function GeneratePage() {
     tid: string | null;
     description: string;
     fmt: Format;
-  }): Promise<boolean> => {
-    try {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return false;
-      const dbKind = args.kindValue === "document" ? "document" : "app";
-
-      if (savedIdRef.current) {
-        const { error } = await supabase
-          .from("modules")
-          .update({
-            name: args.name,
-            html_content: args.html,
-            description: args.description,
-            format: args.fmt,
-            kind: dbKind,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", savedIdRef.current);
-        return !error;
-      }
-
-      if (!args.tid) return false;
-      const newSlug = `${slugify(args.name)}-${shortId()}`;
-      const { data: row, error } = await supabase
-        .from("modules")
-        .insert({
-          user_id: user.id,
-          tenant_id: args.tid,
-          created_by: user.id,
-          name: args.name,
-          description: args.description,
-          html_content: args.html,
-          format: args.fmt,
-          kind: dbKind,
-          slug: newSlug,
-          is_public: false,
-        })
-        .select("id, slug, created_at")
-        .single();
-      if (error || !row) return false;
-      savedIdRef.current = row.id;
-      setSavedId(row.id);
-      setSlug(row.slug);
-      // Portée des données choisie au questionnaire (vierge/import/workspace).
-      const stored = computeStoredScope(dataScopeRef.current, String(row.created_at));
-      if (stored) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (supabase.from("modules") as any).update({ data_scope: stored }).eq("id", row.id);
-      }
-      return true;
-    } catch {
-      return false;
+  }): Promise<boolean | "declined"> => {
+    if (!savedIdRef.current && !args.tid) return false;
+    const isNew = !savedIdRef.current;
+    const r = await saveWithGuardrail({
+      moduleId: savedIdRef.current,
+      name: args.name,
+      html: args.html,
+      description: args.description,
+      fmt: args.fmt,
+      kindValue: args.kindValue,
+      sourcePrompt: args.description,
+      changeType: isNew ? "create" : "full_rewrite",
+      appSpec: appSpecRef.current,
+    });
+    if (!r.ok) return r.needsConfirmation ? "declined" : false;
+    if (isNew) {
+      savedIdRef.current = r.moduleId;
+      setSavedId(r.moduleId);
+      if (r.slug) setSlug(r.slug);
+      await applyDataScope(r.moduleId, r.createdAt);
     }
+    return true;
+  };
+
+  // ── HISTORIQUE & ROLLBACK (Phase 7) ── consomme /api/modules/versions + restore.
+  const openHistory = async () => {
+    if (!savedId) return;
+    setShareOpen(false);
+    setHistoryOpen(true);
+    setHistoryLoading(true);
+    try {
+      const res = await fetch(`/api/modules/versions?moduleId=${savedId}`);
+      const data = await res.json().catch(() => null);
+      setVersions(Array.isArray(data?.versions) ? data.versions : []);
+    } catch {
+      setVersions([]);
+    }
+    setHistoryLoading(false);
+  };
+
+  const restoreVersion = async (versionId: string) => {
+    if (!savedId || restoringId) return;
+    setRestoringId(versionId);
+    try {
+      const res = await fetch("/api/modules/restore", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ moduleId: savedId, versionId }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.ok && typeof data.html === "string") {
+        setGeneratedHTML(injectErrorCapture(data.html));
+        setHistoryOpen(false);
+        setMessages((prev) => [...prev, { role: "assistant", content: t("↩ Version restaurée. L'aperçu a été mis à jour.", "↩ Version restored. The preview has been updated.") }]);
+      } else {
+        setMessages((prev) => [...prev, { role: "assistant", content: t(`❌ Restauration impossible${data?.error ? ` : ${data.error}` : ""}.`, `❌ Restore failed${data?.error ? `: ${data.error}` : ""}.`) }]);
+      }
+    } catch {
+      setMessages((prev) => [...prev, { role: "assistant", content: t("❌ Restauration impossible (réseau).", "❌ Restore failed (network).") }]);
+    }
+    setRestoringId(null);
   };
 
   const handleSave = async () => {
     if (!generatedHTML || isSaving) return;
     setIsSaving(true);
-
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setIsSaving(false); return; }
 
     const description = messages.find((m) => m.role === "user")?.content ?? "";
 
@@ -1748,52 +2212,39 @@ export default function GeneratePage() {
         ...prev,
         {
           role: "assistant",
-          content: `❌ Sauvegarde impossible${detail ? ` : ${detail}` : ""}. Si vous êtes membre d'une équipe, seuls les rôles Manager, Admin et Propriétaire peuvent enregistrer des applications.`,
+          content: t(`❌ Sauvegarde impossible${detail ? ` : ${detail}` : ""}. Si vous êtes membre d'une équipe, seuls les rôles Manager, Admin et Propriétaire peuvent enregistrer des applications.`, `❌ Save failed${detail ? `: ${detail}` : ""}. If you're on a team, only Manager, Admin and Owner roles can save apps.`),
         },
       ]);
     };
 
-    if (savedId) {
-      const { error } = await supabase
-        .from("modules")
-        .update({ name: appName, html_content: generatedHTML, description, format, kind: kind === "document" ? "document" : "app", updated_at: new Date().toISOString() })
-        .eq("id", savedId);
-      if (error) saveFailed(error.message);
-    } else {
-      if (!tenantId) {
-        saveFailed("aucun espace de travail trouvé");
-        setIsSaving(false);
-        return;
+    if (!savedId && !tenantId) {
+      saveFailed(t("aucun espace de travail trouvé", "no workspace found"));
+      setIsSaving(false);
+      return;
+    }
+
+    const r = await saveWithGuardrail({
+      moduleId: savedId,
+      name: appName,
+      html: generatedHTML,
+      description,
+      fmt: format,
+      kindValue: kind,
+      sourcePrompt: description,
+      changeType: savedId ? "manual_edit" : "create",
+      appSpec: appSpecRef.current,
+    });
+
+    if (r.ok) {
+      if (!savedId) {
+        setSavedId(r.moduleId);
+        savedIdRef.current = r.moduleId;
+        if (r.slug) setSlug(r.slug);
+        await applyDataScope(r.moduleId, r.createdAt);
       }
-      const newSlug = `${slugify(appName)}-${shortId()}`;
-      const { data, error } = await supabase
-        .from("modules")
-        .insert({
-          user_id: user.id,
-          tenant_id: tenantId,
-          created_by: user.id,
-          name: appName,
-          description,
-          html_content: generatedHTML,
-          format,
-          kind: kind === "document" ? "document" : "app",
-          slug: newSlug,
-          is_public: false,
-        })
-        .select("id, slug, created_at")
-        .single();
-      if (data) {
-        setSavedId(data.id);
-        savedIdRef.current = data.id;
-        setSlug(data.slug);
-        const stored = computeStoredScope(dataScopeRef.current, String(data.created_at));
-        if (stored) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (supabase.from("modules") as any).update({ data_scope: stored }).eq("id", data.id);
-        }
-      } else {
-        saveFailed(error?.message);
-      }
+    } else if (!r.needsConfirmation) {
+      // needsConfirmation refusé par l'utilisateur = choix volontaire, pas une erreur.
+      saveFailed(r.error);
     }
 
     setIsSaving(false);
@@ -1832,7 +2283,7 @@ export default function GeneratePage() {
       if (data.url) {
         setDeploymentUrl(data.url);
       } else {
-        alert(data.error ?? "Erreur de déploiement.");
+        alert(data.error ?? t("Erreur de déploiement.", "Deployment error."));
       }
     } finally {
       setIsDeploying(false);
@@ -1867,8 +2318,8 @@ export default function GeneratePage() {
         {
           role: "assistant",
           content: next
-            ? `✓ **${appName}** est en ligne. Toute personne disposant du lien peut l'utiliser : ${publicUrl}`
-            : `✓ **${appName}** est repassée en privé. Le lien public est désactivé.`,
+            ? t(`✓ **${appName}** est en ligne. Toute personne disposant du lien peut l'utiliser : ${publicUrl}`, `✓ **${appName}** is online. Anyone with the link can use it: ${publicUrl}`)
+            : t(`✓ **${appName}** est repassée en privé. Le lien public est désactivé.`, `✓ **${appName}** is private again. The public link is disabled.`),
         },
       ]);
     }
@@ -1896,7 +2347,7 @@ export default function GeneratePage() {
     if (next) {
       setMessages((prev) => [
         ...prev,
-        { role: 'assistant', content: '👆 Cliquez sur un élément de l\'application pour le modifier.' },
+        { role: 'assistant', content: t('👆 Cliquez sur un élément de l\'application pour le modifier.', '👆 Click an element of the app to edit it.') },
       ]);
     }
   };
@@ -1907,7 +2358,7 @@ export default function GeneratePage() {
     setUpsell(null);
     setMessages([]);
     setGeneratedHTML("");
-    setAppName("Mon application");
+    setAppName(locale === "en" ? "My app" : "Mon application");
     setSavedId(null);
     savedIdRef.current = null;
     setSlug(null);
@@ -1928,11 +2379,12 @@ export default function GeneratePage() {
   // ChatGPT) tant que rien n'est produit ; ATELIER en écran scindé dès qu'on
   // produit quelque chose (app, document, analyse, rapport).
   const showStudio =
-    Boolean(generatedHTML) || Boolean(analysis) || Boolean(report) || (isGenerating && expectingBuild);
+    Boolean(generatedHTML) || Boolean(analysis) || Boolean(report) || Boolean(annotationDoc) || (isGenerating && expectingBuild);
 
   return (
     <div
       ref={rootRef}
+      data-no-swipe-back
       className="flex flex-col md:flex-row h-full bg-[#FCFCFD]"
       onTouchStart={(e) => { swipeStartX.current = e.touches[0]?.clientX ?? null; }}
       onTouchEnd={(e) => {
@@ -1944,7 +2396,7 @@ export default function GeneratePage() {
     >
       {/* ── Panneau conversation (plein écran en mode chat) ── */}
       <div
-        className={`flex-col flex-shrink-0 ${resizing ? "" : "transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"} ${
+        className={`flex-col flex-shrink-0 pt-safe md:pt-0 ${resizing ? "" : "transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"} ${
           !showStudio || previewHidden
             ? "flex w-full h-full bg-[#FCFCFD]"
             : sidebarOpen
@@ -1963,7 +2415,7 @@ export default function GeneratePage() {
             <Link href="/dashboard" className="text-[#6E6E6C] hover:text-[#0A0A0A] transition-colors">
               <ChevronLeft className="w-5 h-5" />
             </Link>
-            <h1 className="font-bold tracking-[-0.01em] text-[#0A0A0A] text-[15px] truncate min-w-0">{showStudio ? (appName || "Atelier") : "Assistant"}</h1>
+            <h1 className="font-bold tracking-[-0.01em] text-[#0A0A0A] text-[15px] truncate min-w-0">{showStudio ? (appName || t("Atelier", "Studio")) : t("Assistant", "Assistant")}</h1>
           </div>
           <div className="flex items-center gap-1.5 flex-shrink-0">
             {/* Mobile : flèche → application (pas de texte, pas de crédits). */}
@@ -1971,7 +2423,7 @@ export default function GeneratePage() {
               <button
                 onClick={() => setMobileView("app")}
                 className="md:hidden grid h-9 w-9 place-items-center rounded-full bg-[#0A0A0A] text-white active:scale-95 transition-transform"
-                title="Voir l'application"
+                title={t("Voir l'application", "View the app")}
               >
                 <ArrowRight className="w-[18px] h-[18px]" />
               </button>
@@ -1980,16 +2432,16 @@ export default function GeneratePage() {
               <button
                 onClick={() => setPreviewHidden(false)}
                 className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-[#0A0A0A] text-white transition-all"
-                title="Réafficher l'application"
+                title={t("Réafficher l'application", "Show the app again")}
               >
-                <LayoutTemplate className="w-3.5 h-3.5" /> Aperçu
+                <LayoutTemplate className="w-3.5 h-3.5" /> {t("Aperçu", "Preview")}
               </button>
             )}
             {showStudio && !previewHidden && (
               <button
                 onClick={() => setSidebarOpen(false)}
                 className="hidden md:flex p-1.5 text-[#6E6E6C] hover:text-[#0A0A0A] rounded-lg hover:bg-[#F6F6F9] transition-colors"
-                title="Réduire le panneau"
+                title={t("Réduire le panneau", "Collapse panel")}
               >
                 <PanelLeftClose className="w-4 h-4" />
               </button>
@@ -2006,10 +2458,10 @@ export default function GeneratePage() {
                 <Sparkles className="w-6 h-6 text-white" />
               </div>
               <h2 className={`text-[#0A0A0A] mb-2 ${!showStudio ? "text-[26px] font-black tracking-[-0.02em]" : "text-lg font-bold tracking-[-0.01em]"}`}>
-                Quel problème réglons-nous ?
+                {t("Quel problème réglons-nous ?", "What problem are we solving?")}
               </h2>
               <p className={`text-[#6E6E6C] leading-relaxed ${!showStudio ? "text-[15px] max-w-[440px]" : "text-sm max-w-[280px]"}`}>
-                Posez une question, dictez un document, décrivez un outil ou glissez des fichiers à contrôler. Biltia choisit la bonne forme : réponse, PDF, application ou rapport.
+                {t("Posez une question, dictez un document, décrivez un outil ou glissez des fichiers à contrôler. Biltia choisit la bonne forme : réponse, PDF, application ou rapport.", "Ask a question, dictate a document, describe a tool, or drop in files to check. Biltia picks the right form: answer, PDF, app, or report.")}
               </p>
             </div>
           )}
@@ -2073,7 +2525,7 @@ export default function GeneratePage() {
                 <div className="flex items-center gap-2">
                   <Loader2 className="w-4 h-4 text-[#7C3AED] animate-spin" />
                   <span className="text-sm text-[#6E6E6C]">
-                    {loadingLabel ?? (expectingBuild ? "Biltia construit votre solution…" : "Biltia vous répond…")}
+                    {loadingLabel ?? (expectingBuild ? t("Biltia construit votre solution…", "Biltia is building your solution…") : t("Biltia vous répond…", "Biltia is replying…"))}
                   </span>
                 </div>
               </div>
@@ -2088,7 +2540,7 @@ export default function GeneratePage() {
               <div className="bg-amber-50 border border-amber-200 px-4 py-3 rounded-2xl rounded-tl-sm">
                 <div className="flex items-center gap-2">
                   <Loader2 className="w-4 h-4 text-amber-600 animate-spin" />
-                  <span className="text-sm text-amber-600">Correction automatique des erreurs…</span>
+                  <span className="text-sm text-amber-600">{t("Correction automatique des erreurs…", "Auto-fixing errors…")}</span>
                 </div>
               </div>
             </div>
@@ -2102,7 +2554,10 @@ export default function GeneratePage() {
             sidebar sur grand écran, barre d'onglets/burger sur mobile, automatiquement. */}
 
         {/* Input area */}
-        <div className={`px-4 pb-4 pt-2 flex-shrink-0 ${showStudio ? "border-t border-[#ECECF2]" : ""}`}>
+        <div
+          className={`px-4 pt-2 flex-shrink-0 ${showStudio ? "border-t border-[#ECECF2]" : ""}`}
+          style={{ paddingBottom: "calc(1rem + var(--safe-bottom))" }}
+        >
         <div className={!showStudio ? "mx-auto w-full max-w-[760px]" : undefined}>
           {/* Chips fichiers joints */}
           {attached.length > 0 && (
@@ -2117,7 +2572,7 @@ export default function GeneratePage() {
                   <button
                     onClick={() => removeAttached(i)}
                     className="flex-shrink-0 p-0.5 rounded hover:bg-violet-500/15"
-                    title="Retirer"
+                    title={t("Retirer", "Remove")}
                   >
                     <X className="w-3 h-3" />
                   </button>
@@ -2195,13 +2650,13 @@ export default function GeneratePage() {
                 placeholder={
                   attached.length > 0
                     ? attached.length > 1
-                      ? "Contrôle à faire (ex : détecte les doublons)…"
-                      : "Question sur le document, ou laissez vide pour extraire…"
+                      ? t("Contrôle à faire (ex : détecte les doublons)…", "Check to run (e.g. detect duplicates)…")
+                      : t("Question sur le document, ou laissez vide pour extraire…", "Question about the document, or leave empty to extract…")
                     : !input && !generatedHTML && messages.length === 0
                     ? ""
                     : generatedHTML
-                    ? "Dites ce que vous voulez modifier…"
-                    : "Décrivez votre outil BTP… (Entrée pour envoyer)"
+                    ? t("Dites ce que vous voulez modifier…", "Tell me what you want to change…")
+                    : t("Décrivez votre outil BTP… (Entrée pour envoyer)", "Describe your construction tool… (Enter to send)")
                 }
                 rows={1}
                 className="relative block w-full bg-transparent text-[#0A0A0A] placeholder-[#9A9AA6] text-sm resize-none focus:outline-none min-h-[26px] max-h-[240px] overflow-y-auto leading-relaxed"
@@ -2219,7 +2674,7 @@ export default function GeneratePage() {
               <div className="relative">
                 <button
                   onClick={() => setPlusOpen((v) => !v)}
-                  aria-label="Ajouter une pièce jointe"
+                  aria-label={t("Ajouter une pièce jointe", "Add an attachment")}
                   aria-expanded={plusOpen}
                   className={`relative w-9 h-9 flex items-center justify-center rounded-full active:scale-95 transition-all ${plusOpen ? "bg-black/[0.06] text-[#0A0A0A]" : "text-[#4A4A56] hover:bg-black/[0.05]"}`}
                 >
@@ -2233,9 +2688,9 @@ export default function GeneratePage() {
                     <div className="fixed inset-0 z-20" onClick={() => setPlusOpen(false)} />
                     <div className="absolute bottom-full left-0 mb-2 z-30 w-56 origin-bottom-left animate-scale-in bg-white border border-[#ECECF2] rounded-2xl shadow-[0_16px_50px_rgba(60,40,120,0.16)] p-1.5">
                       {([
-                        { icon: Camera, label: "Prendre une photo", onClick: () => { setPlusOpen(false); cameraInputRef.current?.click(); } },
-                        { icon: ImageIcon, label: "Importer une photo", onClick: () => { setPlusOpen(false); fileInputRef.current?.click(); } },
-                        { icon: Paperclip, label: "Joindre un document (PDF)", onClick: () => { setPlusOpen(false); fileInputRef.current?.click(); } },
+                        { icon: Camera, label: t("Prendre une photo", "Take a photo"), onClick: () => { setPlusOpen(false); cameraInputRef.current?.click(); } },
+                        { icon: ImageIcon, label: t("Importer une photo", "Import a photo"), onClick: () => { setPlusOpen(false); fileInputRef.current?.click(); } },
+                        { icon: Paperclip, label: t("Joindre un document (PDF)", "Attach a document (PDF)"), onClick: () => { setPlusOpen(false); fileInputRef.current?.click(); } },
                       ] as const).map(({ icon: Icon, label, onClick }) => (
                         <button
                           key={label}
@@ -2254,8 +2709,8 @@ export default function GeneratePage() {
               <div className="flex items-center gap-1.5">
                 <button
                   onClick={() => setIsListening(true)}
-                  aria-label="Dictée vocale"
-                  title="Parler (dictée)"
+                  aria-label={t("Dictée vocale", "Voice dictation")}
+                  title={t("Parler (dictée)", "Speak (dictation)")}
                   className="w-9 h-9 flex items-center justify-center rounded-full text-[#4A4A56] hover:bg-black/[0.05] active:scale-95 transition-all"
                 >
                   <Mic className="w-[18px] h-[18px]" />
@@ -2263,7 +2718,7 @@ export default function GeneratePage() {
                 <button
                   onClick={() => handleGenerate()}
                   disabled={(!input.trim() && attached.length === 0) || isGenerating}
-                  aria-label="Envoyer"
+                  aria-label={t("Envoyer", "Send")}
                   className="flex-shrink-0 w-9 h-9 flex items-center justify-center bg-gradient-to-br from-indigo-500 via-violet-500 to-pink-500 text-white rounded-full shadow-[0_6px_20px_rgba(139,92,246,0.4)] hover:shadow-[0_8px_28px_rgba(139,92,246,0.55)] active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
                 >
                   <Send className="w-4 h-4" />
@@ -2285,7 +2740,7 @@ export default function GeneratePage() {
         <div
           onPointerDown={startResize}
           className="hidden md:flex w-[9px] flex-shrink-0 cursor-col-resize items-center justify-center group border-l border-r border-[#ECECF2] bg-white hover:bg-[#F3EFFC] transition-colors select-none touch-none"
-          title="Glisser pour redimensionner · jusqu'au bord pour fermer un panneau"
+          title={t("Glisser pour redimensionner · jusqu'au bord pour fermer un panneau", "Drag to resize · to the edge to close a panel")}
         >
           <div className="w-[3px] h-12 rounded-full bg-[#D6D6DE] group-hover:bg-[#A78BFA] transition-colors" />
         </div>
@@ -2293,7 +2748,7 @@ export default function GeneratePage() {
 
       {/* ── Atelier : prévisualisation, uniquement quand on produit ── */}
       {showStudio && !previewHidden && (
-      <div ref={previewContainerRef} className={`flex-col flex-1 min-w-0 bg-[#FCFCFD] md:flex md:h-full ${mobileView === "app" ? "flex h-full w-full" : "hidden"}`}>
+      <div ref={previewContainerRef} className={`flex-col flex-1 min-w-0 bg-[#FCFCFD] pt-safe md:pt-0 md:flex md:h-full ${mobileView === "app" ? "flex h-full w-full" : "hidden"}`}>
         {/* Preview header — DESKTOP uniquement (sur mobile, barre flottante en bas). */}
         <div className="hidden md:flex items-center justify-between px-5 h-14 border-b border-[#ECECF2] bg-white flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -2301,7 +2756,7 @@ export default function GeneratePage() {
               <button
                 onClick={() => setSidebarOpen(true)}
                 className="hidden md:flex p-1.5 text-[#6E6E6C] hover:text-[#0A0A0A] rounded-lg hover:bg-[#F6F6F9] transition-colors flex-shrink-0"
-                title="Ouvrir le panneau"
+                title={t("Ouvrir le panneau", "Open panel")}
               >
                 <PanelLeftOpen className="w-4 h-4" />
               </button>
@@ -2310,7 +2765,7 @@ export default function GeneratePage() {
               value={appName}
               onChange={(e) => setAppName(e.target.value)}
               className="min-w-0 flex-1 bg-transparent px-1 py-1 text-[15px] font-semibold text-[#0A0A0A] focus:outline-none truncate"
-              placeholder="Nom de l'application"
+              placeholder={t("Nom de l'application", "App name")}
             />
             {generatedHTML && isAutoFixing && (
               <Loader2 className="w-4 h-4 text-amber-500 animate-spin flex-shrink-0" />
@@ -2320,7 +2775,7 @@ export default function GeneratePage() {
           <div className="flex items-center justify-center flex-shrink-0">
             {generatedHTML && (
               <div className="flex items-center gap-0.5 bg-[#F6F6F9] rounded-full p-0.5">
-                {([["desktop", Monitor, "Vue bureau"], ["tablet", Tablet, "Vue tablette"], ["mobile", Smartphone, "Vue mobile"]] as const).map(([d, Icon, label]) => (
+                {([["desktop", Monitor, t("Vue bureau", "Desktop view")], ["tablet", Tablet, t("Vue tablette", "Tablet view")], ["mobile", Smartphone, t("Vue mobile", "Mobile view")]] as const).map(([d, Icon, label]) => (
                   <button
                     key={d}
                     onClick={() => setPreviewDevice(d)}
@@ -2335,19 +2790,19 @@ export default function GeneratePage() {
           </div>
           <div className="flex items-center gap-1.5 flex-1 justify-end">
             {generatedHTML && (
-              <button onClick={() => setReloadNonce((n) => n + 1)} title="Actualiser l'aperçu" className="p-1.5 text-[#6E6E6C] hover:text-[#0A0A0A] rounded-lg hover:bg-[#F6F6F9] transition-colors">
+              <button onClick={() => setReloadNonce((n) => n + 1)} title={t("Actualiser l'aperçu", "Refresh preview")} className="p-1.5 text-[#6E6E6C] hover:text-[#0A0A0A] rounded-lg hover:bg-[#F6F6F9] transition-colors">
                 <RefreshCw className="w-4 h-4" />
               </button>
             )}
             {generatedHTML && savedId && (
-              <a href={`/apps/${savedId}`} target="_blank" rel="noopener" title="Ouvrir en plein écran" className="p-1.5 text-[#6E6E6C] hover:text-[#0A0A0A] rounded-lg hover:bg-[#F6F6F9] transition-colors">
+              <a href={`/apps/${savedId}`} target="_blank" rel="noopener" title={t("Ouvrir en plein écran", "Open full screen")} className="p-1.5 text-[#6E6E6C] hover:text-[#0A0A0A] rounded-lg hover:bg-[#F6F6F9] transition-colors">
                 <ExternalLink className="w-4 h-4" />
               </a>
             )}
             {generatedHTML && !isGenerating && (
               <button
                 onClick={toggleVisualEdit}
-                title={visualEditMode ? "Arrêter l'édition visuelle" : "Édition visuelle (cliquer un élément)"}
+                title={visualEditMode ? t("Arrêter l'édition visuelle", "Stop visual editing") : t("Édition visuelle (cliquer un élément)", "Visual editing (click an element)")}
                 className={`p-2 rounded-full transition-colors ${
                   visualEditMode
                     ? "bg-gradient-to-br from-indigo-500 via-violet-500 to-pink-500 text-white"
@@ -2362,7 +2817,7 @@ export default function GeneratePage() {
                 onClick={() => setShareOpen(true)}
                 className="flex items-center gap-1.5 px-3.5 py-2 bg-[#0A0A0A] text-white text-[13px] font-semibold rounded-full active:scale-95 transition-transform"
               >
-                <Share2 className="w-4 h-4" /> Partager
+                <Share2 className="w-4 h-4" /> {t("Partager", "Share")}
               </button>
             )}
           </div>
@@ -2376,36 +2831,42 @@ export default function GeneratePage() {
             <div className="fixed z-50 inset-x-0 bottom-0 sm:inset-auto sm:right-4 sm:top-16 sm:w-[340px] bg-white rounded-t-3xl sm:rounded-2xl border border-[#ECECF2] shadow-[0_-10px_50px_rgba(0,0,0,0.18)] animate-reveal-up">
               <div className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-[#E7E7E4] sm:hidden" />
               <div className="flex items-center justify-between px-5 pt-4 pb-1">
-                <p className="text-[16px] font-bold text-[#0A0A0A]">Partager le projet</p>
+                <p className="text-[16px] font-bold text-[#0A0A0A]">{t("Partager le projet", "Share the project")}</p>
                 <button onClick={() => setShareOpen(false)} className="p-1 text-[#9A9AA6] hover:text-[#0A0A0A] transition-colors"><X className="w-5 h-5" /></button>
               </div>
               <div className="px-3 pb-6 sm:pb-3">
                 {savedId ? (
                   <button onClick={togglePublish} disabled={isPublishing} className="flex w-full items-center gap-3 px-3 py-3 rounded-2xl hover:bg-[#F6F6F9] transition-colors text-left disabled:opacity-60">
                     <span className="grid h-9 w-9 place-items-center rounded-full bg-[#F3EFFC] text-[#7C3AED] flex-shrink-0">{isPublishing ? <Loader2 className="w-[18px] h-[18px] animate-spin" /> : <Globe className="w-[18px] h-[18px]" />}</span>
-                    <span className="min-w-0"><span className="block text-[14px] font-semibold text-[#0A0A0A]">{isPublic ? "En ligne — retirer le lien" : "Mettre en ligne"}</span><span className="block text-[12px] text-[#9A9AA6] truncate">{isPublic ? publicUrl.replace(/^https?:\/\//, "") : "Lien partageable à votre équipe"}</span></span>
+                    <span className="min-w-0"><span className="block text-[14px] font-semibold text-[#0A0A0A]">{isPublic ? t("En ligne — retirer le lien", "Online — remove the link") : t("Mettre en ligne", "Publish online")}</span><span className="block text-[12px] text-[#9A9AA6] truncate">{isPublic ? publicUrl.replace(/^https?:\/\//, "") : t("Lien partageable à votre équipe", "Shareable link for your team")}</span></span>
                   </button>
                 ) : (
                   <button onClick={handleSave} disabled={isSaving} className="flex w-full items-center gap-3 px-3 py-3 rounded-2xl hover:bg-[#F6F6F9] transition-colors text-left disabled:opacity-60">
                     <span className="grid h-9 w-9 place-items-center rounded-full bg-[#F6F6F9] text-[#0A0A0A] flex-shrink-0">{isSaving ? <Loader2 className="w-[18px] h-[18px] animate-spin" /> : <Save className="w-[18px] h-[18px]" />}</span>
-                    <span className="text-[14px] font-semibold text-[#0A0A0A]">Sauvegarder dans mes ateliers</span>
+                    <span className="text-[14px] font-semibold text-[#0A0A0A]">{t("Sauvegarder dans mes ateliers", "Save to my workspaces")}</span>
                   </button>
                 )}
                 {isPublic && slug && (
                   <button onClick={copyLink} className="flex w-full items-center gap-3 px-3 py-3 rounded-2xl hover:bg-[#F6F6F9] transition-colors text-left">
                     <span className="grid h-9 w-9 place-items-center rounded-full bg-[#F6F6F9] text-[#0A0A0A] flex-shrink-0">{copied ? <CheckCircle className="w-[18px] h-[18px] text-emerald-500 animate-scale-in" /> : <Link2 className="w-[18px] h-[18px]" />}</span>
-                    <span className="text-[14px] font-semibold text-[#0A0A0A]">{copied ? "Lien copié !" : "Copier le lien"}</span>
+                    <span className="text-[14px] font-semibold text-[#0A0A0A]">{copied ? t("Lien copié !", "Link copied!") : t("Copier le lien", "Copy link")}</span>
                   </button>
                 )}
                 {savedId && (
                   <a href={`/apps/${savedId}`} target="_blank" rel="noopener" onClick={() => setShareOpen(false)} className="flex w-full items-center gap-3 px-3 py-3 rounded-2xl hover:bg-[#F6F6F9] transition-colors text-left">
                     <span className="grid h-9 w-9 place-items-center rounded-full bg-[#F6F6F9] text-[#0A0A0A] flex-shrink-0"><ExternalLink className="w-[18px] h-[18px]" /></span>
-                    <span className="text-[14px] font-semibold text-[#0A0A0A]">Ouvrir en plein écran</span>
+                    <span className="text-[14px] font-semibold text-[#0A0A0A]">{t("Ouvrir en plein écran", "Open full screen")}</span>
                   </a>
+                )}
+                {savedId && (
+                  <button onClick={openHistory} className="flex w-full items-center gap-3 px-3 py-3 rounded-2xl hover:bg-[#F6F6F9] transition-colors text-left">
+                    <span className="grid h-9 w-9 place-items-center rounded-full bg-[#F6F6F9] text-[#0A0A0A] flex-shrink-0"><RotateCcw className="w-[18px] h-[18px]" /></span>
+                    <span className="min-w-0"><span className="block text-[14px] font-semibold text-[#0A0A0A]">{t("Historique & restaurer", "History & restore")}</span><span className="block text-[12px] text-[#9A9AA6] truncate">{t("Revenir à une version précédente", "Go back to a previous version")}</span></span>
+                  </button>
                 )}
                 <button onClick={handleDeploy} disabled={isDeploying} className="flex w-full items-center gap-3 px-3 py-3 rounded-2xl hover:bg-[#F6F6F9] transition-colors text-left disabled:opacity-60">
                   <span className="grid h-9 w-9 place-items-center rounded-full bg-[#F6F6F9] text-[#0A0A0A] flex-shrink-0">{isDeploying ? <Loader2 className="w-[18px] h-[18px] animate-spin" /> : deploymentUrl ? <CheckCircle className="w-[18px] h-[18px] text-emerald-500" /> : <Globe className="w-[18px] h-[18px]" />}</span>
-                  <span className="min-w-0"><span className="block text-[14px] font-semibold text-[#0A0A0A]">{isDeploying ? "Déploiement…" : deploymentUrl ? "Redéployer" : "Déployer (hébergement dédié)"}</span>{deploymentUrl && <span className="block text-[12px] text-[#9A9AA6] truncate">{deploymentUrl}</span>}</span>
+                  <span className="min-w-0"><span className="block text-[14px] font-semibold text-[#0A0A0A]">{isDeploying ? t("Déploiement…", "Deploying…") : deploymentUrl ? t("Redéployer", "Redeploy") : t("Déployer (hébergement dédié)", "Deploy (dedicated hosting)")}</span>{deploymentUrl && <span className="block text-[12px] text-[#9A9AA6] truncate">{deploymentUrl}</span>}</span>
                 </button>
                 {kind === "document" && (
                   <div className="px-3 pt-2"><ShareMenu getDocument={() => iframeRef.current?.contentDocument ?? null} title={appName} /></div>
@@ -2480,10 +2941,10 @@ export default function GeneratePage() {
                 </div>
                 <p className="mt-3 text-center text-[11.5px] text-[#9A9AA6] leading-relaxed">
                   {buildSeconds < 30
-                    ? "Biltia écrit votre application ligne par ligne…"
+                    ? t("Biltia écrit votre application ligne par ligne…", "Biltia is writing your app line by line…")
                     : buildSeconds < 75
-                    ? "Une application complète prend 1 à 2 minutes. Tout avance normalement."
-                    : "Application riche en cours de finition — encore quelques instants."}
+                    ? t("Une application complète prend 1 à 2 minutes. Tout avance normalement.", "A full app takes 1 to 2 minutes. Everything is going fine.")
+                    : t("Application riche en cours de finition — encore quelques instants.", "A rich app is being finished — just a few more moments.")}
                 </p>
               </div>
             </div>
@@ -2493,11 +2954,13 @@ export default function GeneratePage() {
           {visualEditMode && (
             <div className="absolute top-0 inset-x-0 z-20 flex items-center justify-center gap-2 py-2 bg-[#7C3AED]/90 text-white text-xs font-semibold pointer-events-none">
               <Pencil className="w-3.5 h-3.5" />
-              Cliquez sur un élément pour le modifier
+              {t("Cliquez sur un élément pour le modifier", "Click an element to edit it")}
             </div>
           )}
 
-          {report ? (
+          {annotationDoc ? (
+            <AnnotationCanvas doc={annotationDoc} initial={annotations} resume={undefined} startAdding={annotations.length === 0} />
+          ) : report ? (
             <ReportView report={report} />
           ) : analysis ? (
             <AnalysisView
@@ -2505,6 +2968,8 @@ export default function GeneratePage() {
               onSave={saveAnalysisToWorkspace}
               saving={savingEntity}
               saved={entitySaved}
+              onPropose={handleProposition}
+              proposing={isGenerating}
             />
           ) : generatedHTML ? (
             <div className={`h-full w-full ${previewDevice === "desktop" ? "" : "flex items-center justify-center overflow-auto p-4 sm:p-6"}`}>
@@ -2524,7 +2989,7 @@ export default function GeneratePage() {
                   sandbox="allow-scripts allow-forms allow-same-origin allow-modals"
                   allow="camera; microphone; geolocation; clipboard-write"
                   className={`w-full h-full border-0 ${resizing ? "pointer-events-none" : ""}`}
-                  title="Application générée"
+                  title={t("Application générée", "Generated app")}
                 />
               </div>
             </div>
@@ -2533,37 +2998,40 @@ export default function GeneratePage() {
               <div className="w-16 h-16 rounded-2xl bg-white border border-[#ECECF2] flex items-center justify-center mb-4 shadow-[0_4px_14px_rgba(60,40,120,0.08)]">
                 <Wrench className="w-7 h-7 text-[#6E6E6C]" />
               </div>
-              <h3 className="font-semibold tracking-[-0.01em] text-[#0A0A0A] mb-2">Prévisualisation</h3>
+              <h3 className="font-semibold tracking-[-0.01em] text-[#0A0A0A] mb-2">{t("Prévisualisation", "Preview")}</h3>
               <p className="text-sm text-[#6E6E6C] max-w-xs leading-relaxed">
-                Décrivez votre outil dans le panneau gauche. L&apos;application
-                apparaîtra ici, prête à l&apos;emploi.
+                {t("Décrivez votre outil dans le panneau gauche. L'application apparaîtra ici, prête à l'emploi.", "Describe your tool in the left panel. The app will appear here, ready to use.")}
               </p>
             </div>
           )}
         </div>
 
-        {/* Barre flottante mobile : ‹ Chat + actualiser + Partager (façon Lovable). */}
-        <div className="md:hidden flex items-center justify-between gap-2 px-3 py-2.5 border-t border-[#ECECF2] bg-white flex-shrink-0">
+        {/* Barre flottante mobile : ‹ Chat + actualiser + Partager (façon Lovable).
+            Boutons pleins et contrastés (lisibles d'un coup d'œil), zone home
+            indicator réservée en bas (pb-bar-safe) pour ne pas être coupée. */}
+        <div className="md:hidden flex items-center justify-between gap-2 px-3 pt-2.5 pb-bar-safe border-t border-[#ECECF2] bg-white flex-shrink-0">
           <button
             onClick={() => setMobileView("chat")}
-            className="flex items-center gap-1 pl-2 pr-3.5 py-2 rounded-full bg-[#F6F6F9] text-[13px] font-semibold text-[#0A0A0A] active:scale-95 transition-transform"
+            className="flex items-center gap-1 pl-3 pr-4 h-11 rounded-full bg-[#0A0A0A] text-[14px] font-semibold text-white shadow-[0_2px_8px_rgba(0,0,0,0.18)] active:scale-95 transition-transform"
           >
-            <ChevronLeft className="w-4 h-4" /> Chat
+            <ChevronLeft className="w-4 h-4" /> {t("Chat", "Chat")}
           </button>
           <div className="flex items-center gap-2.5">
             <button
               onClick={() => setReloadNonce((n) => n + 1)}
-              title="Actualiser l'aperçu"
-              className="grid h-10 w-10 place-items-center rounded-full border border-[#E7E7E4] text-[#4A4A56] active:scale-95 transition-all"
+              title={t("Actualiser l'aperçu", "Refresh preview")}
+              aria-label={t("Actualiser l'aperçu", "Refresh preview")}
+              className="grid h-11 w-11 place-items-center rounded-full bg-[#F1F1F4] text-[#0A0A0A] shadow-[0_1px_3px_rgba(0,0,0,0.08)] active:scale-90 active:bg-[#E7E7EC] transition-all"
             >
-              <RefreshCw className="w-[17px] h-[17px]" />
+              <RefreshCw className="w-[18px] h-[18px]" />
             </button>
             <button
               onClick={() => setShareOpen(true)}
-              title="Partager"
-              className="grid h-10 w-10 place-items-center rounded-full border border-[#E7E7E4] text-[#4A4A56] active:scale-95 transition-all"
+              title={t("Partager", "Share")}
+              aria-label={t("Partager", "Share")}
+              className="grid h-11 w-11 place-items-center rounded-full bg-gradient-to-br from-indigo-500 via-violet-500 to-pink-500 text-white shadow-[0_4px_14px_rgba(139,92,246,0.4)] active:scale-90 transition-all"
             >
-              <Upload className="w-[17px] h-[17px]" />
+              <Upload className="w-[18px] h-[18px]" />
             </button>
           </div>
         </div>
@@ -2588,6 +3056,71 @@ export default function GeneratePage() {
           }}
         />
       )}
+
+      {/* Phase 7 — Historique des versions & rollback */}
+      {historyOpen && (
+        <div
+          className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm sm:p-5"
+          onClick={() => setHistoryOpen(false)}
+        >
+          <div
+            className="w-full sm:max-w-lg bg-white rounded-t-3xl sm:rounded-3xl max-h-[85vh] overflow-y-auto shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 pt-4 pb-2 sticky top-0 bg-white">
+              <p className="text-[16px] font-bold text-[#0A0A0A]">{t("Historique des versions", "Version history")}</p>
+              <button onClick={() => setHistoryOpen(false)} className="p-1 text-[#9A9AA6] hover:text-[#0A0A0A] transition-colors"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="px-3 pb-6 sm:pb-3">
+              {historyLoading ? (
+                <div className="py-10 text-center text-[#9A9AA6]"><Loader2 className="w-5 h-5 animate-spin inline" /></div>
+              ) : versions.length === 0 ? (
+                <p className="px-3 py-8 text-center text-[13px] text-[#9A9AA6]">{t("Aucune version enregistrée pour l'instant. Chaque modification sauvegardée en créera une.", "No version saved yet. Each saved change will create one.")}</p>
+              ) : (
+                versions.map((v, i) => (
+                  <div key={v.id} className="flex items-center gap-3 px-3 py-3 rounded-2xl hover:bg-[#F6F6F9] transition-colors">
+                    <span className="grid h-9 w-9 place-items-center rounded-full bg-[#F6F6F9] text-[#0A0A0A] text-[12px] font-bold flex-shrink-0">v{v.version}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13.5px] font-semibold text-[#0A0A0A] truncate">
+                        {(locale === "en" ? CHANGE_LABEL_EN : CHANGE_LABEL)[v.changeType] ?? t("Modification", "Change")}{v.description ? ` — ${v.description}` : ""}
+                      </span>
+                      <span className="block text-[11.5px] text-[#9A9AA6]">{new Date(v.createdAt).toLocaleString(locale === "en" ? "en-US" : "fr-FR")}</span>
+                    </span>
+                    {i === 0 ? (
+                      <span className="text-[11px] font-semibold text-emerald-600 flex-shrink-0">{t("actuelle", "current")}</span>
+                    ) : (
+                      <button
+                        onClick={() => restoreVersion(v.id)}
+                        disabled={!!restoringId}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#0A0A0A] text-white text-[12px] font-semibold hover:bg-[#26262E] transition-colors disabled:opacity-60 flex-shrink-0"
+                      >
+                        {restoringId === v.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />} {t("Restaurer", "Restore")}
+                      </button>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+const CHANGE_LABEL: Record<string, string> = {
+  create: "Création",
+  full_rewrite: "Réécriture complète",
+  patch: "Modification ciblée",
+  manual_edit: "Édition",
+  rollback: "Restauration",
+  autofix: "Correction automatique",
+};
+const CHANGE_LABEL_EN: Record<string, string> = {
+  create: "Created",
+  full_rewrite: "Full rewrite",
+  patch: "Targeted change",
+  manual_edit: "Edit",
+  rollback: "Restore",
+  autofix: "Auto-fix",
+};

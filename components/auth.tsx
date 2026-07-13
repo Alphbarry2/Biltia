@@ -10,6 +10,7 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase";
 import { useTypewriter } from "@/components/site";
+import { useT, useLocale } from "@/lib/i18n/context";
 import { Check, Mic, ArrowUpRight, FileText } from "lucide-react";
 
 export const AUTH_INPUT =
@@ -38,6 +39,7 @@ export function OAuthButtons({ next = "/dashboard", onError, disabled = false }:
   /** Bloque le bouton tant qu'une condition n'est pas remplie (ex. CGU non acceptées). */
   disabled?: boolean;
 }) {
+  const t = useT();
   const [pending, setPending] = useState(false);
 
   const go = async () => {
@@ -50,7 +52,7 @@ export function OAuthButtons({ next = "/dashboard", onError, disabled = false }:
     });
     if (error) {
       setPending(false);
-      onError?.("La connexion avec Google a échoué. Réessayez.");
+      onError?.(t("La connexion avec Google a échoué. Réessayez.", "Sign-in with Google failed. Please try again."));
     }
   };
 
@@ -64,16 +66,18 @@ export function OAuthButtons({ next = "/dashboard", onError, disabled = false }:
       {pending
         ? <span className="h-4 w-4 rounded-full border-2 border-[#D6D0E4] border-t-[#7C3AED] animate-spin" />
         : <GoogleLogo />}
-      Continuer avec Google
+      {t("Continuer avec Google", "Continue with Google")}
     </button>
   );
 }
 
-export function OrDivider({ label = "ou avec votre email" }: { label?: string }) {
+export function OrDivider({ label }: { label?: string }) {
+  const t = useT();
+  const l = label ?? t("ou avec votre email", "or with your email");
   return (
     <div className="my-6 flex items-center gap-3" aria-hidden>
       <span className="h-px flex-1 bg-[#ECECF2]" />
-      <span className="text-[12px] font-medium text-[#9A9AA6]">{label}</span>
+      <span className="text-[12px] font-medium text-[#9A9AA6]">{l}</span>
       <span className="h-px flex-1 bg-[#ECECF2]" />
     </div>
   );
@@ -81,15 +85,23 @@ export function OrDivider({ label = "ou avec votre email" }: { label?: string })
 
 // ── Panneau droit : mesh Biltia + mini-conversation ───────────────────────────
 
-const SCENE_PROMPTS = [
+const SCENE_PROMPTS_FR = [
   "Fais-moi un outil de suivi pour mes 4 chantiers en cours…",
   "Rédige le PV de réception du chantier Morel…",
   "Quel taux de TVA pour une extension de maison ?",
   "Relance les 3 clients qui n'ont pas signé leur devis…",
 ];
+const SCENE_PROMPTS_EN = [
+  "Build me a tracker for my 4 ongoing job sites…",
+  "Draft the handover report for the Morel job site…",
+  "What VAT rate applies to a house extension?",
+  "Chase the 3 clients who haven't signed their quote…",
+];
 
 export function AuthScene() {
-  const typed = useTypewriter(SCENE_PROMPTS, { type: 42, del: 18, pause: 2100 });
+  const t = useT();
+  const locale = useLocale();
+  const typed = useTypewriter(locale === "en" ? SCENE_PROMPTS_EN : SCENE_PROMPTS_FR, { type: 42, del: 18, pause: 2100 });
 
   return (
     <div className="relative flex h-full flex-col items-center justify-center overflow-hidden rounded-[30px]">
@@ -103,23 +115,23 @@ export function AuthScene() {
 
       {/* Pastilles flottantes (réparties dans les 4 coins, dégagées du centre) */}
       <span className="glass animate-float absolute left-[5%] top-[9%] z-10 inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[12px] font-semibold text-[#4A4A56]">
-        <span className="h-1.5 w-1.5 rounded-full bg-gradient-to-br from-indigo-500 to-violet-500" /> 300 crédits offerts
+        <span className="h-1.5 w-1.5 rounded-full bg-gradient-to-br from-indigo-500 to-violet-500" /> {t("300 crédits offerts", "300 free credits")}
       </span>
       <span className="glass animate-float delay-300 absolute right-[5%] top-[8%] z-10 inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[12px] font-semibold text-[#4A4A56]">
-        <span className="h-1.5 w-1.5 rounded-full bg-gradient-to-br from-pink-500 to-rose-500" /> Devis PDF en 2 min
+        <span className="h-1.5 w-1.5 rounded-full bg-gradient-to-br from-pink-500 to-rose-500" /> {t("Devis PDF en 2 min", "PDF quote in 2 min")}
       </span>
       <span className="glass animate-float delay-500 absolute left-[6%] bottom-[16%] z-10 inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[12px] font-semibold text-[#4A4A56]">
-        <span className="h-1.5 w-1.5 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500" /> Agents autonomes
+        <span className="h-1.5 w-1.5 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500" /> {t("Agents autonomes", "Autonomous agents")}
       </span>
       <span className="glass animate-float delay-600 absolute right-[6%] bottom-[13%] z-10 inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[12px] font-semibold text-[#4A4A56]">
-        <span className="h-1.5 w-1.5 rounded-full bg-gradient-to-br from-orange-400 to-amber-500" /> Suivi de chantier
+        <span className="h-1.5 w-1.5 rounded-full bg-gradient-to-br from-orange-400 to-amber-500" /> {t("Suivi de chantier", "Job site tracking")}
       </span>
 
       {/* Mini-conversation (décorative) */}
       <div className="relative z-10 w-[86%] max-w-[480px]" aria-hidden>
         <div className="animate-reveal-up delay-200 mb-3.5 flex justify-end">
           <div className="max-w-[85%] rounded-3xl rounded-br-lg bg-[#0A0A0A] px-[18px] py-3 text-[13.5px] leading-relaxed text-white shadow-[0_16px_40px_rgba(10,10,10,0.25)]">
-            Fais-moi le devis pour la salle de bain de M. Costa, 8 m², rénovation complète.
+            {t("Fais-moi le devis pour la salle de bain de M. Costa, 8 m², rénovation complète.", "Draft the quote for Mr Costa's bathroom, 8 m², full renovation.")}
           </div>
         </div>
 
@@ -129,10 +141,10 @@ export function AuthScene() {
               <span className="grid h-5 w-5 flex-shrink-0 place-items-center rounded-full bg-gradient-to-br from-indigo-500 to-pink-500">
                 <Check className="h-3 w-3 text-white" strokeWidth={3.5} />
               </span>
-              <p className="text-[13.5px] font-bold text-[#0A0A0A]">Devis prêt.</p>
+              <p className="text-[13.5px] font-bold text-[#0A0A0A]">{t("Devis prêt.", "Quote ready.")}</p>
             </div>
             <p className="mt-1.5 text-[12.5px] leading-relaxed text-[#5B5B66]">
-              Rénovation SDB 8 m² · TVA 10 % appliquée · marge vérifiée.
+              {t("Rénovation SDB 8 m² · TVA 10 % appliquée · marge vérifiée.", "Bathroom reno 8 m² · 10% VAT applied · margin checked.")}
             </p>
             <span className="mt-2.5 inline-flex items-center gap-1.5 rounded-lg border border-[#ECECF2] bg-white px-2.5 py-1.5 text-[11.5px] font-semibold text-[#4A4A56]">
               <FileText className="h-3.5 w-3.5 text-[#7C3AED]" /> devis-costa.pdf
@@ -152,7 +164,7 @@ export function AuthScene() {
               </div>
               <div className="flex items-center justify-between gap-3 px-2 pb-1">
                 <span className="flex items-center gap-1.5 rounded-full border border-black/[0.06] bg-black/[0.04] px-3.5 py-2 text-[12.5px] font-medium text-[#4A4A56]">
-                  <Mic className="h-3.5 w-3.5" /> Voix
+                  <Mic className="h-3.5 w-3.5" /> {t("Voix", "Voice")}
                 </span>
                 <span className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-full bg-gradient-to-br from-indigo-500 via-violet-500 to-pink-500 text-white shadow-[0_6px_20px_rgba(139,92,246,0.4)]">
                   <ArrowUpRight className="h-[17px] w-[17px]" />
@@ -164,7 +176,7 @@ export function AuthScene() {
       </div>
 
       <p className="absolute bottom-7 z-10 px-6 text-center text-[13px] font-medium text-[#5B5B66]">
-        Décrivez votre problème. Biltia livre la solution, vos agents s&apos;occupent du reste.
+        {t("Décrivez votre problème. Biltia livre la solution, vos agents s'occupent du reste.", "Describe your problem. Biltia delivers the solution, your agents handle the rest.")}
       </p>
     </div>
   );

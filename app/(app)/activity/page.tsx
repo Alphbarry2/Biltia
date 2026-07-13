@@ -15,6 +15,8 @@ import {
   Plus,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { useT, useLocale } from "@/lib/i18n/context";
+import type { Locale } from "@/lib/i18n/config";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Activité — « Ce que Biltia a fait pour vous ».
@@ -43,31 +45,34 @@ const ACTION_STYLE: Record<string, { icon: LucideIcon; cls: string }> = {
 const styleFor = (action: string) =>
   ACTION_STYLE[action] ?? { icon: ActivityIcon, cls: "text-[#6E6E6C] bg-black/[0.04]" };
 
-function humanize(log: Log) {
+function humanize(log: Log, t: (fr: string, en: string) => string) {
   if (log.description) return log.description;
   const verbs: Record<string, string> = {
-    create: "Création", generate: "Génération", update: "Mise à jour",
-    delete: "Suppression", export: "Export", send: "Envoi",
+    create: t("Création", "Created"), generate: t("Génération", "Generated"), update: t("Mise à jour", "Updated"),
+    delete: t("Suppression", "Deleted"), export: t("Export", "Export"), send: t("Envoi", "Sent"),
   };
   const verb = verbs[log.action] ?? log.action;
   return `${verb} · ${log.entity_type}`;
 }
 
-function dayLabel(iso: string) {
+function dayLabel(iso: string, t: (fr: string, en: string) => string, locale: Locale) {
   const d = new Date(iso);
   const today = new Date();
   const midnight = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
   const diff = Math.round((midnight(today) - midnight(d)) / 86400000);
-  if (diff === 0) return "Aujourd'hui";
-  if (diff === 1) return "Hier";
-  if (diff < 7) return d.toLocaleDateString("fr-FR", { weekday: "long" });
-  return d.toLocaleDateString("fr-FR", { day: "numeric", month: "long" });
+  const loc = locale === "en" ? "en-US" : "fr-FR";
+  if (diff === 0) return t("Aujourd'hui", "Today");
+  if (diff === 1) return t("Hier", "Yesterday");
+  if (diff < 7) return d.toLocaleDateString(loc, { weekday: "long" });
+  return d.toLocaleDateString(loc, { day: "numeric", month: "long" });
 }
 
-const fmtTime = (iso: string) =>
-  new Date(iso).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+const fmtTime = (iso: string, locale: Locale) =>
+  new Date(iso).toLocaleTimeString(locale === "en" ? "en-US" : "fr-FR", { hour: "2-digit", minute: "2-digit" });
 
 export default function ActivityPage() {
+  const t = useT();
+  const locale = useLocale();
   const [logs, setLogs] = useState<Log[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -91,7 +96,7 @@ export default function ActivityPage() {
   // Regroupement par jour, en préservant l'ordre décroissant
   const groups: { label: string; items: Log[] }[] = [];
   for (const log of logs) {
-    const label = dayLabel(log.created_at);
+    const label = dayLabel(log.created_at, t, locale);
     const last = groups[groups.length - 1];
     if (last && last.label === label) last.items.push(log);
     else groups.push({ label, items: [log] });
@@ -105,9 +110,9 @@ export default function ActivityPage() {
           <span className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500/15 to-pink-500/10 flex items-center justify-center flex-shrink-0">
             <ActivityIcon className="w-5 h-5 text-violet-600" />
           </span>
-          <h1 className="text-xl sm:text-2xl font-black text-[#0A0A0A] tracking-[-0.03em]">Activité</h1>
+          <h1 className="text-xl sm:text-2xl font-black text-[#0A0A0A] tracking-[-0.03em]">{t("Activité", "Activity")}</h1>
         </div>
-        <p className="text-[14px] text-[#6E6E6C] mb-8 ml-0 sm:ml-12">Tout ce que Biltia a réalisé pour vous.</p>
+        <p className="text-[14px] text-[#6E6E6C] mb-8 ml-0 sm:ml-12">{t("Tout ce que Biltia a réalisé pour vous.", "Everything Biltia has done for you.")}</p>
 
         {loading ? (
           <div className="flex items-center justify-center py-24 text-[#9A9A97]">
@@ -118,13 +123,12 @@ export default function ActivityPage() {
             <div className="w-16 h-16 rounded-2xl border border-[#E7E7EE] bg-[#FAFAFC] flex items-center justify-center mb-5">
               <ActivityIcon className="w-7 h-7 text-violet-600" strokeWidth={1.5} />
             </div>
-            <h3 className="text-lg font-bold text-[#0A0A0A] mb-2 tracking-[-0.01em]">Aucune activité pour l&apos;instant</h3>
+            <h3 className="text-lg font-bold text-[#0A0A0A] mb-2 tracking-[-0.01em]">{t("Aucune activité pour l'instant", "No activity yet")}</h3>
             <p className="text-sm text-[#6E6E6C] max-w-sm leading-relaxed mb-6">
-              Dès que Biltia créera un document, enverra un devis ou générera une application,
-              vous le verrez apparaître ici, jour après jour.
+              {t("Dès que Biltia créera un document, enverra un devis ou générera une application, vous le verrez apparaître ici, jour après jour.", "As soon as Biltia creates a document, sends a quote or generates an app, you'll see it appear here, day by day.")}
             </p>
             <Link href="/dashboard" className="text-[13px] font-semibold text-violet-600 hover:opacity-80 transition-opacity">
-              Résoudre un premier problème
+              {t("Résoudre un premier problème", "Solve a first problem")}
             </Link>
           </div>
         ) : (
@@ -146,10 +150,10 @@ export default function ActivityPage() {
                             <Icon className="w-[18px] h-[18px]" />
                           </span>
                           <div className="flex-1 min-w-0">
-                            <p className="text-[14px] text-[#0A0A0A] leading-snug">{humanize(log)}</p>
+                            <p className="text-[14px] text-[#0A0A0A] leading-snug">{humanize(log, t)}</p>
                           </div>
                           <span className="text-[12px] text-[#9A9A97] tabular-nums flex-shrink-0">
-                            {fmtTime(log.created_at)}
+                            {fmtTime(log.created_at, locale)}
                           </span>
                         </div>
                       );

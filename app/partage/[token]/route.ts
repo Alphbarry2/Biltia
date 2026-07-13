@@ -16,23 +16,34 @@ import { injectPoweredBy, publicNotFoundPage } from "@/lib/powered-by";
 import { injectShareBridge } from "@/lib/share-bridge";
 import { isShareToken, isLinkLive } from "@/lib/share";
 import { renderPublicForm } from "@/lib/public-form";
+import { getLocale } from "@/lib/i18n/server";
+import { pick, type Locale } from "@/lib/i18n/config";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type LooseClient = { from: (table: string) => any };
 
-function notFound() {
+function notFound(locale: Locale) {
   return new Response(
-    publicNotFoundPage("Lien indisponible", "Ce lien de partage n'existe pas, a expiré ou a été révoqué."),
+    publicNotFoundPage(
+      pick(locale, "Lien indisponible", "Link unavailable"),
+      pick(
+        locale,
+        "Ce lien de partage n'existe pas, a expiré ou a été révoqué.",
+        "This share link does not exist, has expired or has been revoked."
+      ),
+      locale
+    ),
     { status: 404, headers: { "content-type": "text/html; charset=utf-8", "x-robots-tag": "noindex" } }
   );
 }
 
 export async function GET(_req: Request, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  if (!isShareToken(token)) return notFound();
+  const locale = await getLocale();
+  if (!isShareToken(token)) return notFound(locale);
 
   const admin = createAdminClient();
-  if (!admin) return new Response("Service non configuré.", { status: 503 });
+  if (!admin) return new Response(pick(locale, "Service non configuré.", "Service not configured."), { status: 503 });
 
   // 1) Résout le lien par son token, vérifie qu'il est vivant.
   const { data: link } = await (admin as unknown as LooseClient)
@@ -41,12 +52,12 @@ export async function GET(_req: Request, { params }: { params: Promise<{ token: 
     .eq("token", token)
     .maybeSingle();
 
-  if (!link || !isLinkLive(link, Date.now())) return notFound();
+  if (!link || !isLinkLive(link, Date.now())) return notFound(locale);
 
   // Lien 'form' : sert un FORMULAIRE public autonome (aucun module à charger).
   // La soumission poste vers /api/share/submit avec le token (zero-trust serveur).
   if (link.kind === "form") {
-    return new Response(renderPublicForm(token, link.scope), {
+    return new Response(renderPublicForm(token, link.scope, locale), {
       status: 200,
       headers: {
         "content-type": "text/html; charset=utf-8",
@@ -64,13 +75,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ token: 
     .eq("id", link.module_id)
     .maybeSingle();
 
-  if (!mod || !mod.html_content || mod.status === "archived") return notFound();
+  if (!mod || !mod.html_content || mod.status === "archived") return notFound(locale);
 
   // SÉCURITÉ (zero-trust) : le module DOIT appartenir au même tenant que le lien.
   // Défense au niveau lecture contre une ligne app_share_links forgée (insert
   // PostgREST direct) pointant vers le module PRIVÉ d'un autre tenant. Sans ce
   // contrôle, service_role servirait le HTML d'autrui. Ne jamais retirer.
-  if (mod.tenant_id !== link.tenant_id) return notFound();
+  if (mod.tenant_id !== link.tenant_id) return notFound(locale);
 
   // Lien 'client' : on branche le bridge de données scopées (window.biltia →
   // /api/share/data avec le token). 'preview' reste sans données (aperçu seul).
