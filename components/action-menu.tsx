@@ -7,11 +7,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useEffect, useRef, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { useT } from "@/lib/i18n/context";
 
-const EASE = [0.16, 1, 0.3, 1] as const;
 
 export type ActionItem = {
   key: string;
@@ -95,15 +93,11 @@ export function ActionMenu({
         {icon}
         {label}
       </button>
-      <AnimatePresence>
+      <>
         {open && (
-          <motion.div
+          <div
             role="menu"
-            initial={{ opacity: 0, y: -6, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -6, scale: 0.98 }}
-            transition={{ duration: 0.16, ease: EASE }}
-            className={`absolute right-0 top-full mt-2 z-50 rounded-2xl border border-[#ECE7F6] bg-white p-1.5 shadow-[0_30px_80px_rgba(60,40,120,0.28)] ${menuClassName}`}
+            className={`anim-pop-down absolute right-0 top-full mt-2 z-50 rounded-2xl border border-[#ECE7F6] bg-white p-1.5 shadow-[0_30px_80px_rgba(60,40,120,0.28)] ${menuClassName}`}
           >
             {actions.map((a) => (
               <button
@@ -128,9 +122,9 @@ export function ActionMenu({
                 {note}
               </p>
             )}
-          </motion.div>
+          </div>
         )}
-      </AnimatePresence>
+      </>
     </div>
   );
 }

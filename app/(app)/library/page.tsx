@@ -23,6 +23,7 @@ import {
   AppWindow as AppLinkIcon,
 } from "lucide-react";
 import type { ChatMessage } from "@/lib/conversations";
+import { useSession } from "@/components/session-provider";
 import { useT, useLocale } from "@/lib/i18n/context";
 import type { Locale } from "@/lib/i18n/config";
 
@@ -294,12 +295,14 @@ export default function LibraryPage() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<(typeof FILTERS)[number]["key"]>("apps");
 
+  // getUser() + getActiveMembership() étaient DEUX allers-retours en série AVANT que
+  // la moindre donnée ne parte. La session partagée les a déjà résolus : il ne reste
+  // que le Promise.all des trois vraies requêtes (qui, lui, était déjà bien écrit).
+  const { membership, loading: sessionLoading } = useSession();
+
   const fetchApps = async () => {
     const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
     // Apps, conversations et rapports appartiennent au workspace actif : on cloisonne.
-    const membership = await getActiveMembership(supabase, user.id);
     if (!membership?.tenant_id) {
       setApps([]); setConversations([]); setReports([]); setLoading(false); return;
     }
@@ -336,7 +339,11 @@ export default function LibraryPage() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchApps(); }, []);
+  useEffect(() => {
+    if (sessionLoading) return; // on attend la session partagée
+    fetchApps();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionLoading, membership?.tenant_id]);
 
   const handleDelete = async (id: string) => {
     if (!confirm(t("Supprimer cette création ?", "Delete this creation?"))) return;

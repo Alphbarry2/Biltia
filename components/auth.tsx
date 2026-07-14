@@ -10,7 +10,7 @@
 import { useState } from "react";
 import { SIGNUP_FREE_CREDITS } from "@/lib/plans";
 import { createClient } from "@/lib/supabase";
-import { useTypewriter } from "@/components/site";
+import { useTypewriter } from "@/components/site-fx";
 import { useT, useLocale } from "@/lib/i18n/context";
 import { Check, Mic, ArrowUpRight, FileText } from "lucide-react";
 

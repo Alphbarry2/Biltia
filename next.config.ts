@@ -92,6 +92,22 @@ export default withSentryConfig(nextConfig, {
   org: "biltia",
   project: "javascript-nextjs",
 
+  // ── POIDS DU SDK ───────────────────────────────────────────────────────────
+  // Sentry pesait 172 kB des 229 kB de JavaScript payés par CHAQUE page du site —
+  // y compris une page légale statique de 400 octets. C'était, et de loin, le
+  // premier poste de poids du produit.
+  // Ces drapeaux retirent du bundle du code dont on ne se sert pas :
+  //   • les messages de débogage du SDK (inutiles en prod) ;
+  //   • trois greffons de Replay qu'on n'active jamais (Shadow DOM, iframes,
+  //     worker de compression). Le Replay lui-même n'est plus bundlé du tout : il
+  //     est chargé à la demande (voir instrumentation-client.ts).
+  bundleSizeOptimizations: {
+    excludeDebugStatements: true,
+    excludeReplayShadowDom: true,
+    excludeReplayIframe: true,
+    excludeReplayWorker: true,
+  },
+
   // Silencieux en local, verbeux en CI : c'est en CI qu'on veut savoir pourquoi
   // un téléversement de sources a échoué.
   silent: !process.env.CI,

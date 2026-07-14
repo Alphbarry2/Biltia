@@ -2,13 +2,12 @@
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Dropdown maison Biltia — même langage que le sélecteur de crédits des tarifs
-// (portail fixe, animation framer-motion, listbox accessible, clavier complet).
+// (portail fixe, animation CSS, listbox accessible, clavier complet).
 // À utiliser partout à la place des <select> natifs.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { motion, AnimatePresence } from "framer-motion";
 import { Check, ChevronDown } from "lucide-react";
 import { useT } from "@/lib/i18n/context";
 
@@ -175,18 +174,14 @@ export function Dropdown({
       </button>
 
       {typeof document !== "undefined" && createPortal(
-        <AnimatePresence>
+        <>
           {open && pos && (
-            <motion.div
+            <div
               ref={menuRef}
               style={{ position: "fixed", top: pos.top, bottom: pos.bottom, left: pos.left, width: pos.width, maxHeight: pos.maxHeight, zIndex: 100 }}
-              initial={{ opacity: 0, y: pos.bottom ? 8 : -8, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: pos.bottom ? 8 : -8, scale: 0.98 }}
-              transition={{ duration: 0.16, ease: EASE }}
               role="listbox"
               aria-label={ariaLabel ?? label ?? placeholderText}
-              className="overflow-y-auto overscroll-contain rounded-2xl border border-[#ECE7F6] bg-white p-1.5 shadow-[0_30px_80px_rgba(60,40,120,0.28)]"
+              className={`${pos.bottom ? "anim-pop-up" : "anim-pop-down"} overflow-y-auto overscroll-contain rounded-2xl border border-[#ECE7F6] bg-white p-1.5 shadow-[0_30px_80px_rgba(60,40,120,0.28)]`}
             >
               {groups.map((g, gi) => (
                 <div key={`${g.label ?? "_"}-${gi}`} className="mb-0.5 last:mb-0">
@@ -221,9 +216,9 @@ export function Dropdown({
                   })}
                 </div>
               ))}
-            </motion.div>
+            </div>
           )}
-        </AnimatePresence>,
+        </>,
         document.body
       )}
     </div>

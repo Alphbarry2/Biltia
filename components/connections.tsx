@@ -14,7 +14,6 @@ import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { createPortal } from "react-dom";
-import { motion, AnimatePresence } from "framer-motion";
 import {
   Plug,
   Puzzle,
@@ -321,21 +320,14 @@ export function ConnectionsWidget({ open, onClose }: { open: boolean; onClose: (
 
   if (typeof document === "undefined") return null;
   return createPortal(
-    <AnimatePresence>
+    <>
       {open && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/30 backdrop-blur-[2px]"
+        <div
+          className="anim-fade-in fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/30 backdrop-blur-[2px]"
           onClick={onClose}
         >
-          <motion.div
-            initial={{ opacity: 0, y: 16, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 16, scale: 0.98 }}
-            transition={{ duration: 0.22, ease: EASE }}
-            className="w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl border border-[#ECE7F6] bg-white p-6 shadow-[0_30px_80px_rgba(60,40,120,0.28)]"
+          <div
+            className="anim-modal-in w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl border border-[#ECE7F6] bg-white p-6 shadow-[0_30px_80px_rgba(60,40,120,0.28)]"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3 mb-1">
@@ -360,10 +352,10 @@ export function ConnectionsWidget({ open, onClose }: { open: boolean; onClose: (
                 {t("Voir la page Connecteurs", "See the Connectors page")} <ArrowRight className="w-3.5 h-3.5" />
               </Link>
             </div>
-          </motion.div>
-        </motion.div>
+          </div>
+        </div>
       )}
-    </AnimatePresence>,
+    </>,
     document.body
   );
 }

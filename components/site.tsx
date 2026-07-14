@@ -19,7 +19,12 @@ import { LanguageSwitcher } from "@/components/language-switcher";
 import { useT, useLocale } from "@/lib/i18n/context";
 import type { Locale } from "@/lib/i18n/config";
 
-export const EASE = [0.16, 1, 0.3, 1] as const;
+// EASE, useTypewriter et InteractiveMesh vivent désormais dans site-fx.tsx (ZÉRO
+// dépendance lourde). Un import ES tire le module ENTIER : les pages de l'app qui
+// demandaient juste `useTypewriter` embarquaient tout CE fichier — framer-motion,
+// le catalogue produits, la réservation de démo. On les réexporte pour la landing.
+export { EASE, useTypewriter, InteractiveMesh } from "@/components/site-fx";
+import { EASE } from "@/components/site-fx";
 export const BLACK = "bg-[#0A0A0A] text-white hover:bg-[#222] transition-colors";
 export const GRAD = "bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 text-white";
 
@@ -74,75 +79,9 @@ export function Magnetic({ children, className = "" }: { children: React.ReactNo
 }
 
 // Effet machine à écrire : écrit une phrase, l'efface, passe à la suivante, en boucle.
-export function useTypewriter(phrases: string[], opts?: { type?: number; del?: number; pause?: number }) {
-  const { type = 45, del = 22, pause = 1600 } = opts ?? {};
-  const [text, setText] = useState("");
-  const reduce = useReducedMotion();
-  useEffect(() => {
-    if (reduce) { setText(phrases[0] ?? ""); return; }
-    let p = 0, c = 0, deleting = false;
-    let t: ReturnType<typeof setTimeout>;
-    const step = () => {
-      const phrase = phrases[p] ?? "";
-      if (!deleting) {
-        c++;
-        setText(phrase.slice(0, c));
-        if (c >= phrase.length) { deleting = true; t = setTimeout(step, pause); return; }
-        t = setTimeout(step, type);
-      } else {
-        c--;
-        setText(phrase.slice(0, c));
-        if (c <= 0) { deleting = false; p = (p + 1) % phrases.length; t = setTimeout(step, 350); return; }
-        t = setTimeout(step, del);
-      }
-    };
-    t = setTimeout(step, 500);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reduce]);
-  return text;
-}
 
 // ── Fond : mesh multicolore + grille interactive qui s'illumine au curseur ───
 
-export function InteractiveMesh({ strong = false, grid = true }: { strong?: boolean; grid?: boolean }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = ref.current; if (!el) return;
-    const onMove = (e: PointerEvent) => {
-      const r = el.getBoundingClientRect();
-      el.style.setProperty("--gx", `${e.clientX - r.left}px`);
-      el.style.setProperty("--gy", `${e.clientY - r.top}px`);
-    };
-    window.addEventListener("pointermove", onMove, { passive: true });
-    window.addEventListener("pointerdown", onMove, { passive: true });
-    return () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerdown", onMove);
-    };
-  }, []);
-  const o = strong ? 1 : 0.8;
-  return (
-    <div ref={ref} className="absolute inset-0 isolate overflow-hidden pointer-events-none">
-      <div className="absolute inset-0 bg-[#FCFCFD]" />
-      {/* Wash pastel multicolore (couleurs Biltia), volontairement doux pour laisser voir la grille */}
-      <div className="mesh-blob absolute -top-[16%] -left-[8%] w-[62vw] h-[62vw] max-w-[820px] rounded-full blur-[120px] animate-drift-a" style={{ background: `radial-gradient(circle, rgba(99,102,241,${0.26 * o}), transparent 68%)` }} />
-      <div className="mesh-blob absolute -top-[6%] right-[-10%] w-[56vw] h-[56vw] max-w-[740px] rounded-full blur-[130px] animate-drift-c" style={{ background: `radial-gradient(circle, rgba(168,85,247,${0.22 * o}), transparent 68%)` }} />
-      <div className="mesh-blob absolute bottom-[-22%] left-[6%] w-[60vw] h-[60vw] max-w-[800px] rounded-full blur-[130px] animate-drift-b" style={{ background: `radial-gradient(circle, rgba(236,72,153,${0.22 * o}), transparent 68%)` }} />
-      <div className="mesh-blob absolute bottom-[-16%] right-[2%] w-[50vw] h-[50vw] max-w-[660px] rounded-full blur-[130px] animate-drift-d" style={{ background: `radial-gradient(circle, rgba(251,146,60,${0.18 * o}), transparent 68%)` }} />
-      {grid && (
-        <>
-          {/* Quadrillage très discret, teinté marque */}
-          <div className="absolute inset-0" style={{ backgroundImage: "linear-gradient(to right, rgba(99,102,241,0.07) 1px, transparent 1px), linear-gradient(to bottom, rgba(99,102,241,0.07) 1px, transparent 1px)", backgroundSize: "40px 40px" }} />
-          {/* Le quadrillage s'illumine (doux) autour du curseur */}
-          <div className="absolute inset-0" style={{ backgroundImage: "linear-gradient(to right, rgba(109,74,255,0.4) 1px, transparent 1px), linear-gradient(to bottom, rgba(236,72,153,0.38) 1px, transparent 1px)", backgroundSize: "40px 40px", WebkitMaskImage: "radial-gradient(circle 280px at var(--gx,-400px) var(--gy,-400px), #000 0%, rgba(0,0,0,0.35) 55%, transparent 80%)", maskImage: "radial-gradient(circle 280px at var(--gx,-400px) var(--gy,-400px), #000 0%, rgba(0,0,0,0.35) 55%, transparent 80%)" }} />
-          {/* Halo coloré (léger) autour du curseur */}
-          <div className="absolute inset-0" style={{ background: "radial-gradient(320px circle at var(--gx,-400px) var(--gy,-400px), rgba(139,92,246,0.1), rgba(236,72,153,0.06) 48%, transparent 76%)" }} />
-        </>
-      )}
-    </div>
-  );
-}
 
 // Mesh simple (overlays sans grille, ex. menu mobile).
 export function Mesh() {

@@ -27,9 +27,10 @@ import {
 } from "@/components/report-views";
 import { AnnotationCanvas, type Annotation, type AnnotationDoc } from "@/components/annotation-canvas";
 import type { Json } from "@/lib/database.types";
-import { useTypewriter } from "@/components/site";
+import { useTypewriter } from "@/components/site-fx";
 import { TEMPLATE_PREVIEWS, localizeTemplatePreview } from "@/lib/template-previews";
 import { ShareMenu } from "@/components/share-menu";
+import { useSession } from "@/components/session-provider";
 import { useT, useLocale } from "@/lib/i18n/context";
 import type { Locale } from "@/lib/i18n/config";
 // ⚠️ Le navigateur LIT la grille, il n'en garde pas de copie. Il en gardait une, et
@@ -751,32 +752,34 @@ export default function GeneratePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bootPrompt]);
 
+  // L'utilisateur, le workspace ET le solde de crédits sont DÉJÀ résolus par la
+  // session partagée (getUser était un appel réseau sérialisé par un verrou global).
+  // Il ne reste ici qu'une seule vraie requête : l'identité visuelle.
+  const { user: sessionUser, membership: sessionMembership, billing, loading: sessionLoading } = useSession();
+
   useEffect(() => {
+    if (sessionLoading || !sessionUser) return;
+    setFounderAccount(isFounderEmail(sessionUser.email));
+    // Solde total = abonnement (balance) + packs (topup_balance, non expirable).
+    if (billing) setCredits(billing.credits);
+    if (!sessionMembership?.tenant_id) return;
+    setTenantId(sessionMembership.tenant_id);
+
+    // Identité visuelle : l'aperçu doit montrer le logo de l'artisan dès la première
+    // seconde, comme l'app une fois ouverte.
     const supabase = createClient();
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user) return;
-      setFounderAccount(isFounderEmail(user.email));
-
-      const [{ data: creditsData }, membership] = await Promise.all([
-        supabase.from("user_credits").select("balance, topup_balance").eq("user_id", user.id).single(),
-        getActiveMembership(supabase, user.id),
-      ]);
-
-      // Solde total = abonnement (balance) + packs (topup_balance, non expirable).
-      if (creditsData) setCredits((creditsData.balance ?? 0) + (creditsData.topup_balance ?? 0));
-      if (membership) {
-        setTenantId(membership.tenant_id);
-        // Identité visuelle : l'aperçu doit montrer le logo de l'artisan dès la
-        // première seconde, comme l'app une fois ouverte.
-        const { data: tenant } = await supabase
-          .from("tenants")
-          .select("name, logo_url, company_info")
-          .eq("id", membership.tenant_id)
-          .maybeSingle();
-        if (tenant) setBrandKit(brandFromTenant(tenant));
-      }
-    });
-  }, []);
+    let cancelled = false;
+    supabase
+      .from("tenants")
+      .select("name, logo_url, company_info")
+      .eq("id", sessionMembership.tenant_id)
+      .maybeSingle()
+      .then(({ data: tenant }) => {
+        if (!cancelled && tenant) setBrandKit(brandFromTenant(tenant));
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionLoading, sessionUser?.id, sessionMembership?.tenant_id, billing?.credits]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });

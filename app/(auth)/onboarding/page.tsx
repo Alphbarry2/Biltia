@@ -19,7 +19,7 @@ import type { Json } from "@/lib/database.types";
 import { CATEGORIES, ACTIVITY_TYPES, catLabel } from "@/lib/btp-catalog";
 import type { Locale } from "@/lib/i18n/config";
 import { COUNTRIES } from "@/lib/countries";
-import { EASE } from "@/components/site";
+import { EASE } from "@/components/site-fx";
 import { Dropdown } from "@/components/dropdown";
 import { ArrowRight, ChevronLeft, Check } from "lucide-react";
 import { useT, useLocale } from "@/lib/i18n/context";

@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase";
 import { getActiveMembership } from "@/lib/tenant";
 import { can } from "@/lib/permissions";
 import { SubscriptionBanner } from "@/components/subscription-banner";
+import { SessionProvider, useSession } from "@/components/session-provider";
 import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 import { BiltiaLogo } from "@/components/brand";
 import { CreditPacksDialog } from "@/components/credit-packs";
@@ -46,48 +47,25 @@ function Sidebar({
   const locale = useLocale();
   const pathname = usePathname();
   const router = useRouter();
-  const [credits, setCredits] = useState<number | null>(null);
   const [packsOpen, setPacksOpen] = useState(false);
   const [refOpen, setRefOpen] = useState(false);
-  const [email, setEmail] = useState("");
-  const [userName, setUserName] = useState("");
-  const [isPaid, setIsPaid] = useState(false);
+
+  // TOUT vient de la session partagée (components/session-provider). La sidebar
+  // faisait avant sa PROPRE chaîne : getUser() → user_credits → membership →
+  // subscriptions, soit 4 allers-retours dupliqués avec ceux du bandeau et de la
+  // page. Le getUser() est un appel réseau SÉRIALISÉ par un verrou global : chaque
+  // composant qui le refaisait allongeait la file d'attente de tous les autres.
+  const { user, membership, billing } = useSession();
+  const email = user?.email ?? "";
+  const userName = user?.name ?? "";
+  const credits = billing ? billing.credits : null;
   // Seul le propriétaire gère la facturation → le CTA « Passer à Pro » ne
   // s'affiche que pour lui (un employé/lecteur ne peut pas souscrire).
-  const [canBill, setCanBill] = useState(false);
-
-  useEffect(() => {
-    const supabase = createClient();
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user) return;
-      setEmail(user.email ?? "");
-      const name = user.user_metadata?.full_name ?? user.email?.split("@")[0] ?? "";
-      setUserName(name);
-      supabase
-        .from("user_credits")
-        .select("balance, topup_balance")
-        .eq("user_id", user.id)
-        .single()
-        .then(({ data }) => {
-          // Solde total = abonnement (balance) + packs (topup_balance, non expirable).
-          if (data) setCredits((data.balance ?? 0) + (data.topup_balance ?? 0));
-        });
-
-      // Abonnement actif ? → masque le CTA « Passer à Pro ».
-      const membership = await getActiveMembership(supabase, user.id);
-      if (membership?.tenant_id) {
-        setCanBill(can(membership.role, "billing.manage"));
-        const { data: sub } = await supabase
-          .from("subscriptions")
-          .select("plan, status")
-          .eq("tenant_id", membership.tenant_id)
-          .maybeSingle();
-        if (sub && sub.plan !== "free" && (sub.status === "active" || sub.status === "trialing")) {
-          setIsPaid(true);
-        }
-      }
-    });
-  }, []);
+  const canBill = membership ? can(membership.role, "billing.manage") : false;
+  const isPaid =
+    !!billing?.plan &&
+    billing.plan !== "free" &&
+    (billing.status === "active" || billing.status === "trialing");
 
   const handleLogout = async () => {
     const supabase = createClient();
@@ -274,17 +252,19 @@ function Sidebar({
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  // La session est déjà résolue par le fournisseur — plus de getUser() ici (c'était
+  // le PREMIER de la file d'attente, celui qui retardait tous les autres).
+  const { user, loading } = useSession();
+
+  useEffect(() => {
+    if (!loading && !user) router.replace("/login");
+  }, [loading, user, router]);
 
   useEffect(() => {
     const supabase = createClient();
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user) router.replace("/login");
-    });
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_OUT") router.replace("/login");
     });
-
     return () => subscription.unsubscribe();
   }, [router]);
 
@@ -321,6 +301,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     });
 
   return (
+    // La session est résolue UNE fois ici, puis partagée. Tout ce qui est en dessous
+    // (garde d'auth, sidebar, bandeau, pages) la LIT au lieu de la redemander.
+    <SessionProvider>
     <AuthGuard>
       <div className="flex h-dvh bg-[#FCFCFD] overflow-hidden">
         {/* Desktop sidebar (masquée sur /generate) */}
@@ -370,5 +353,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
       </div>
     </AuthGuard>
+    </SessionProvider>
   );
 }

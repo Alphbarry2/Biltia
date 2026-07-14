@@ -6,10 +6,24 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import { getActiveMembership } from "@/lib/tenant";
 import { toPreviewHtml } from "@/lib/app-preview";
-import { InteractiveMesh, useTypewriter, TemplateGallery } from "@/components/site";
-import { AgentTemplateGallery } from "@/components/agent-templates";
+import dynamic from "next/dynamic";
+import { InteractiveMesh, useTypewriter } from "@/components/site-fx";
+
+// Les deux galeries ne s'affichent que si l'utilisateur bascule sur l'onglet
+// « modèles » — et TemplateGallery vit dans site.tsx, qui traîne framer-motion, le
+// catalogue produits et la réservation de démo. Les charger À LA DEMANDE sort tout
+// ce graphe du bundle initial du tableau de bord : on ne paie que si on regarde.
+const TemplateGallery = dynamic(
+  () => import("@/components/site").then((m) => m.TemplateGallery),
+  { ssr: false }
+);
+const AgentTemplateGallery = dynamic(
+  () => import("@/components/agent-templates").then((m) => m.AgentTemplateGallery),
+  { ssr: false }
+);
 import { VoiceRecorder } from "@/components/voice-recorder";
 import { ConnectToolsBadge } from "@/components/connections";
+import { useSession } from "@/components/session-provider";
 import { useT, useLocale } from "@/lib/i18n/context";
 import type { Locale } from "@/lib/i18n/config";
 import {
@@ -317,18 +331,17 @@ export default function DashboardPage() {
     window.open("https://drive.google.com", "_blank", "noopener,noreferrer");
   };
 
+  // La page enchaînait getUser() → getActiveMembership() → modules : TROIS allers-
+  // retours EN SÉRIE avant d'afficher la moindre app. Les deux premiers sont
+  // désormais résolus une seule fois par la session partagée — il ne reste que la
+  // vraie requête. Et le getUser() de la page ne bloque plus la file d'attente du
+  // verrou d'auth pour la sidebar et le bandeau.
+  const { user, membership, loading: sessionLoading } = useSession();
+
   const fetchApps = async () => {
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    // Prénom = premier mot du nom saisi à l'inscription (user_metadata.full_name).
-    // Jamais le début de l'email : « Quel problème réglons-nous, mwiatou.barry224 ? »
-    // n'a aucun sens. Sans nom → greeting neutre (« … aujourd'hui ? »).
-    const nm = ((user.user_metadata?.full_name as string) || "").trim();
-    setFirstName(nm.split(" ")[0] ?? "");
-    // Une app appartient à un workspace : on ne montre que celles du workspace actif.
-    const membership = await getActiveMembership(supabase, user.id);
     if (!membership?.tenant_id) { setApps([]); setLoading(false); return; }
+    const supabase = createClient();
+    // Une app appartient à un workspace : on ne montre que celles du workspace actif.
     const { data } = await supabase
       .from("modules")
       .select("id, name, slug, description, html_content, created_at, updated_at")
@@ -340,7 +353,17 @@ export default function DashboardPage() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchApps(); }, []);
+  // Prénom = premier mot du nom saisi à l'inscription. Jamais le début de l'email :
+  // « Quel problème réglons-nous, mwiatou.barry224 ? » n'a aucun sens.
+  useEffect(() => {
+    setFirstName((user?.name ?? "").trim().split(" ")[0] ?? "");
+  }, [user]);
+
+  useEffect(() => {
+    if (sessionLoading) return;      // on attend que la session soit résolue
+    fetchApps();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionLoading, membership?.tenant_id]);
   useEffect(() => {
     try { setFavorites(new Set(JSON.parse(localStorage.getItem("biltia_favorites") || "[]"))); } catch {}
   }, []);
@@ -349,7 +372,16 @@ export default function DashboardPage() {
   // INSTANTANÉMENT. En dev, ces requêtes compilent la page et la route des
   // questions à l'avance ; en prod, elles priment le cache. Fire-and-forget.
   useEffect(() => {
+    // `router.prefetch` est LÉGER (Next ne récupère que le payload de la route) et
+    // utile en prod : on le garde.
     router.prefetch("/generate");
+    // ⚠️ Les DEUX appels ci-dessous étaient des réchauffages de COMPILATION, et ils
+    // n'avaient AUCUNE garde d'environnement : ils tournaient donc chez les clients.
+    // Le `fetch("/generate")` téléchargeait le HTML COMPLET d'une autre page, et le
+    // POST /api/clarify réveillait une fonction serveur — à chaque visite du tableau
+    // de bord, en volant de la bande passante et des connexions aux VRAIES requêtes.
+    // En prod, tout est déjà compilé : ils ne servaient à rien. Dev uniquement.
+    if (process.env.NODE_ENV !== "development") return;
     fetch("/generate").catch(() => {});
     fetch("/api/clarify", {
       method: "POST",

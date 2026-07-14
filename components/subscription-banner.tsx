@@ -20,11 +20,9 @@
 // `trial_ends_at` est NULL tant qu'il n'a rien construit : le chrono n'a pas démarré,
 // on ne lui met aucune pression, on lui montre juste ses crédits.
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase";
-import { getActiveMembership } from "@/lib/tenant";
 import { useT } from "@/lib/i18n/context";
+import { useSession } from "@/components/session-provider";
 import { AlertTriangle, Lock, Sparkles } from "lucide-react";
 
 const FROZEN = new Set(["canceled", "unpaid", "incomplete", "incomplete_expired", "paused"]);
@@ -45,45 +43,30 @@ function daysUntil(iso: string): number {
 
 export function SubscriptionBanner() {
   const t = useT();
-  const [state, setState] = useState<BannerState>({ kind: "ok" });
+  // Plus AUCUN appel réseau ici. Ce bandeau refaisait sa propre chaîne complète
+  // (getUser → membership → subscriptions → tenants + user_credits), en doublon
+  // strict avec la sidebar — et son getUser() allongeait la file d'attente du
+  // verrou d'auth, retardant TOUTE la page. Il lit maintenant la session partagée.
+  const { billing, loading } = useSession();
 
-  useEffect(() => {
-    const supabase = createClient();
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user) return;
-      const membership = await getActiveMembership(supabase, user.id);
-      if (!membership?.tenant_id) return;
+  const state: BannerState = (() => {
+    if (loading || !billing) return { kind: "ok" };
+    const status = billing.status;
 
-      const { data: sub } = await supabase
-        .from("subscriptions")
-        .select("status")
-        .eq("tenant_id", membership.tenant_id)
-        .maybeSingle();
-      const status: string | undefined = sub?.status;
+    // ── ABONNÉ (payant, ou ex-payant) ────────────────────────────────────────
+    if (status) {
+      if (FROZEN.has(status)) return { kind: "frozen" };
+      if (status === "past_due") return { kind: "grace" };
+      return { kind: "ok" };
+    }
 
-      // ── ABONNÉ (payant, ou ex-payant) ──────────────────────────────────────
-      if (status) {
-        if (FROZEN.has(status)) setState({ kind: "frozen" });
-        else if (status === "past_due") setState({ kind: "grace" });
-        return;
-      }
-
-      // ── AUCUN ABONNEMENT → ESSAI GRATUIT ───────────────────────────────────
-      const [{ data: tenant }, { data: credit }] = await Promise.all([
-        supabase.from("tenants").select("trial_ends_at").eq("id", membership.tenant_id).maybeSingle(),
-        supabase.from("user_credits").select("balance").eq("user_id", user.id).maybeSingle(),
-      ]);
-
-      const endsAt: string | null = (tenant as { trial_ends_at?: string | null } | null)?.trial_ends_at ?? null;
-      const credits: number = credit?.balance ?? 0;
-      const daysLeft = endsAt ? daysUntil(endsAt) : null;
-
-      // Essai terminé = le chrono a démarré ET il est écoulé. Les crédits épuisés,
-      // eux, sont déjà refusés par deduct_credits — inutile d'en faire un état à part.
-      if (daysLeft === 0) setState({ kind: "trial-over" });
-      else setState({ kind: "trial", credits, daysLeft });
-    });
-  }, []);
+    // ── AUCUN ABONNEMENT → ESSAI GRATUIT ─────────────────────────────────────
+    const daysLeft = billing.trialEndsAt ? daysUntil(billing.trialEndsAt) : null;
+    // Essai terminé = le chrono a démarré ET il est écoulé. Les crédits épuisés,
+    // eux, sont déjà refusés par deduct_credits — inutile d'en faire un état à part.
+    if (daysLeft === 0) return { kind: "trial-over" };
+    return { kind: "trial", credits: billing.credits, daysLeft };
+  })();
 
   if (state.kind === "ok") return null;
 

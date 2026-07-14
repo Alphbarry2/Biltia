@@ -488,3 +488,38 @@ button, a, [role="button"], input[type="button"], input[type="submit"], summary,
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ── Ouvertures de menus / modales, en CSS pur ────────────────────────────────
+   Ces quatre animations remplacent framer-motion dans workspace-switcher,
+   dropdown, action-menu et connections. Le moteur pesait 42 kB de JavaScript,
+   téléchargés et analysés sur CHAQUE page de l'application — via la sidebar, qui
+   est dans le layout — pour animer un fondu de menu déroulant. Le compositeur du
+   navigateur fait exactement la même chose, gratuitement.
+
+   On perd l'animation de FERMETURE (framer la gardait montée le temps de sortir).
+   Un menu qui se ferme instantanément est imperceptible : personne ne regarde un
+   menu qu'il vient de quitter. */
+@keyframes pop-down {
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+@keyframes pop-up {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.anim-pop-down { animation: pop-down 160ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.anim-pop-up   { animation: pop-up   160ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.anim-modal-in { animation: modal-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.anim-fade-in  { animation: fade-in  220ms ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-pop-down, .anim-pop-up, .anim-modal-in, .anim-fade-in { animation: none; }
+}

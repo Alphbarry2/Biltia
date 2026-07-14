@@ -8,17 +8,18 @@
 //   • Renomme un espace (owner/admin) — édition inline dans le menu.
 //   • Crée une nouvelle entreprise (elle naît en plan Free et devient active).
 //
-// Même langage visuel que components/dropdown.tsx (portail fixe, framer-motion).
+// Même langage visuel que components/dropdown.tsx (portail fixe, animation CSS).
+// L'animation était en framer-motion : 42 kB de JS téléchargés sur CHAQUE page de
+// l'application (ce composant est dans le layout) pour un fondu de menu. C'est
+// désormais une classe CSS (.anim-pop-down, cf. globals.css).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { motion, AnimatePresence } from "framer-motion";
 import { Check, ChevronsUpDown, Pencil, Plus, Loader2 } from "lucide-react";
 import { writeActiveTenantCookie } from "@/lib/tenant";
 import { useT, useLocale } from "@/lib/i18n/context";
 
-const EASE = [0.16, 1, 0.3, 1] as const;
 
 const ROLE_LABELS: Record<string, string> = {
   owner: "Propriétaire",
@@ -193,18 +194,14 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
 
       {typeof document !== "undefined" &&
         createPortal(
-          <AnimatePresence>
+          <>
             {open && pos && (
-              <motion.div
+              <div
                 ref={menuRef}
                 style={{ position: "fixed", top: pos.top, left: pos.left, width: pos.width, zIndex: 100 }}
-                initial={{ opacity: 0, y: -8, scale: 0.98 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -8, scale: 0.98 }}
-                transition={{ duration: 0.16, ease: EASE }}
                 role="menu"
                 aria-label={tr("Espaces de travail", "Workspaces")}
-                className="overflow-hidden rounded-2xl border border-[#ECE7F6] bg-white p-1.5 shadow-[0_30px_80px_rgba(60,40,120,0.28)]"
+                className="anim-pop-down overflow-hidden rounded-2xl border border-[#ECE7F6] bg-white p-1.5 shadow-[0_30px_80px_rgba(60,40,120,0.28)]"
               >
                 <p className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-[0.08em] text-[#B4ADC4]">
                   {tr("Espaces de travail", "Workspaces")}
@@ -323,9 +320,9 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
                 )}
 
                 {error && <p className="px-3 pb-1.5 pt-1 text-[11px] font-medium text-red-500">{error}</p>}
-              </motion.div>
+              </div>
             )}
-          </AnimatePresence>,
+          </>,
           document.body
         )}
     </>

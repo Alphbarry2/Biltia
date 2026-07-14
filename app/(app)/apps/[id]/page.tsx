@@ -8,6 +8,7 @@ import { injectAppBrand } from "@/lib/app-brand";
 import { brandFromTenant } from "@/lib/brand";
 import { ShareMenu } from "@/components/share-menu";
 import { type ShareLink } from "@/lib/share";
+import { useSession } from "@/components/session-provider";
 import { useT } from "@/lib/i18n/context";
 import { ChevronLeft, Pencil, Loader2, AlertCircle, ExternalLink, Maximize2, Globe, Copy, CheckCircle, Share2, Trash2, X, Eye, HardHat } from "lucide-react";
 
@@ -160,48 +161,73 @@ export default function AppViewerPage() {
     }
   };
 
+  // Ouvrir une app enchaînait TROIS allers-retours EN SÉRIE : getUser() → modules →
+  // tenants. Le dernier ne sert qu'au LOGO, et il était imbriqué DANS le .then() du
+  // module : l'application entière attendait une décoration.
+  //
+  // Maintenant : getUser() vient de la session partagée (zéro réseau), et le module
+  // et l'identité visuelle partent EN PARALLÈLE — on connaît déjà le workspace actif.
+  // Cas rare (app d'un AUTRE workspace que l'actif) : on rattrape avec une seconde
+  // requête, mais on ne fait plus payer ce détour à tout le monde.
+  const { user, membership, loading: sessionLoading } = useSession();
+
   useEffect(() => {
+    if (sessionLoading) return;
+    if (!user) {
+      setError(t("Authentification requise.", "Authentication required."));
+      setLoading(false);
+      return;
+    }
     const supabase = createClient();
-    // Vérifier d'abord que l'user est authentifié
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user) {
-        setError(t("Authentification requise.", "Authentication required."));
+    let cancelled = false;
+
+    (async () => {
+      const brandOf = (tid: string) =>
+        supabase.from("tenants").select("name, logo_url, company_info").eq("id", tid).maybeSingle();
+
+      // La RLS garantit que seules les apps du tenant de l'user sont accessibles.
+      const [mod, tenantGuess] = await Promise.all([
+        supabase
+          .from("modules")
+          .select("id, name, description, html_content, kind, created_at, tenant_id")
+          .eq("id", id)
+          .neq("status", "archived")
+          .single(),
+        membership?.tenant_id
+          ? brandOf(membership.tenant_id)
+          : Promise.resolve({ data: null as Record<string, unknown> | null }),
+      ]);
+      if (cancelled) return;
+
+      const { data, error } = mod;
+      if (error || !data) {
+        setError(t("Application introuvable ou accès refusé.", "App not found or access denied."));
         setLoading(false);
         return;
       }
-      // La RLS garantit que seules les apps du tenant de l'user sont accessibles
-      supabase
-        .from("modules")
-        .select("id, name, description, html_content, kind, created_at, tenant_id")
-        .eq("id", id)
-        .neq("status", "archived")
-        .single()
-        .then(async ({ data, error }) => {
-          if (error || !data) {
-            setError(t("Application introuvable ou accès refusé.", "App not found or access denied."));
-            setLoading(false);
-            return;
-          }
-          // Le logo de l'entreprise coiffe l'en-tête, même sur une app créée AVANT
-          // que l'artisan ne le pose (on injecte à l'affichage, pas à la génération).
-          let html = data.html_content as string;
-          try {
-            if (data.tenant_id) {
-              const { data: tenant } = await supabase
-                .from("tenants")
-                .select("name, logo_url, company_info")
-                .eq("id", data.tenant_id)
-                .maybeSingle();
-              if (tenant) html = injectAppBrand(html, brandFromTenant(tenant));
-            }
-          } catch {
-            /* pas d'identité visuelle → l'en-tête garde le nom de l'entreprise */
-          }
-          setApp({ ...data, html_content: html });
-          setLoading(false);
-        });
-    });
-  }, [id]);
+
+      // Le logo de l'entreprise coiffe l'en-tête, même sur une app créée AVANT que
+      // l'artisan ne le pose (on injecte à l'affichage, pas à la génération).
+      let html = data.html_content as string;
+      try {
+        let tenant = tenantGuess.data;
+        // L'app appartient à un AUTRE workspace que l'actif → notre pari était faux,
+        // on va chercher la bonne identité. Chemin rare, jamais sur le trajet normal.
+        if (data.tenant_id && data.tenant_id !== membership?.tenant_id) {
+          tenant = (await brandOf(data.tenant_id)).data;
+        }
+        if (tenant) html = injectAppBrand(html, brandFromTenant(tenant));
+      } catch {
+        /* pas d'identité visuelle → l'en-tête garde le nom de l'entreprise */
+      }
+      if (cancelled) return;
+      setApp({ ...data, html_content: html });
+      setLoading(false);
+    })();
+
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, sessionLoading, user, membership?.tenant_id]);
 
   // Pont app↔serveur : window.biltia (données + IA) doit fonctionner dans une app
   // OUVERTE/DÉPLOYÉE, pas seulement dans le générateur. L'iframe ne fait jamais
