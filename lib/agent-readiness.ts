@@ -19,6 +19,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getCapabilityStatuses, type CapabilityId } from "./agent-capabilities";
+import { WATCHER_PROBE } from "./agent-feasibility";
 import type { AgentActionType, AgentRecipientKind } from "./agent-rules";
 import type { WatcherKey } from "./agent-watchers";
 import { pick, type Locale } from "./i18n/config";
@@ -69,16 +70,22 @@ type Requirement = {
 function requiredCapabilities(plan: AgentReadinessPlan, locale: Locale): Requirement[] {
   const reqs: Requirement[] = [];
 
-  // Écrire à un client / à l'équipe → il faut un canal d'envoi. Pas de repli : block.
-  if (plan.actionType === "send_email" || plan.actionType === "team_planning") {
+  // Écrire à un TIERS (client, fournisseur, équipe) EN VOTRE NOM → il faut VOTRE
+  // boîte. Une relance de facture qui part d'une adresse Biltia n'est pas la vôtre :
+  // le client ne peut pas y répondre, et votre relance ne ressemble plus à vous.
+  // Aucun repli acceptable → block. (C'est ce contrôle qui ne se déclenchait jamais :
+  // il interrogeait un « ok » vrai dès que Resend était configuré, donc toujours.)
+  const writesToThirdParty =
+    (plan.actionType === "send_email" && plan.recipientKind !== "me") || plan.actionType === "team_planning";
+  if (writesToThirdParty) {
     reqs.push({
       cap: "email_send",
       severity: "block",
-      title: pick(locale, "Aucun moyen d'envoyer des emails", "No way to send emails"),
+      title: pick(locale, "Votre messagerie n'est pas connectée", "Your mailbox isn't connected"),
       detail: pick(
         locale,
-        "Cet agent écrit à votre place, mais aucune boîte d'envoi n'est branchée. Connectez votre Gmail pour qu'il envoie depuis votre adresse.",
-        "This agent writes on your behalf, but no outbox is connected. Connect your Gmail so it can send from your address."
+        "Cet agent écrit en votre nom. Sans votre messagerie branchée, le message ne partirait pas de votre adresse et votre destinataire ne pourrait pas vous répondre. Connectez Gmail ou Outlook.",
+        "This agent writes on your behalf. Without your mailbox connected, the message wouldn't come from your address and your recipient couldn't reply to you. Connect Gmail or Outlook."
       ),
     });
   }
@@ -220,7 +227,44 @@ export async function checkAgentReadiness(opts: {
     }
   }
 
-  // Y a-t-il quelque chose à surveiller ? (le veilleur stock exige un seuil.)
+  // ── « EST-CE QU'IL A LA DATA ? » (incident 2026-07-14) ──────────────────────
+  // Un agent « relance mes impayés » sur un Workspace SANS AUCUNE FACTURE
+  // s'affichait « Actif » et ne se déclenchait jamais. Le preflight ne sondait que
+  // employees et materials : tout le reste passait au travers.
+  //
+  // On ne sonde QUE les veilleurs d'ÉTAT (WATCHER_PROBE) : ceux qui examinent le
+  // stock existant. Les veilleurs d'ARRIVÉE (« dès qu'un nouveau client est créé »)
+  // attendent le FUTUR — table vide aujourd'hui, c'est normal, on ne bloque rien.
+  const probe = plan.watcher ? WATCHER_PROBE[plan.watcher] : undefined;
+  if (probe) {
+    try {
+      const { count } = await supabase
+        .from(probe.table)
+        .select("id", { count: "exact", head: true })
+        .eq("tenant_id", tenantId);
+      if ((count ?? 0) === 0) {
+        gaps.push({
+          code: "data_empty",
+          severity: "block",
+          title: pick(
+            locale,
+            `Aucun ${probe.noun} dans votre Workspace`,
+            `No ${probe.noun} in your Workspace`
+          ),
+          detail: pick(
+            locale,
+            `Cet agent se base sur vos ${probe.noun}s pour travailler, or votre Workspace n'en contient aucun : il ne se déclencherait jamais. Ajoutez ou importez vos ${probe.noun}s, puis redemandez-moi cet agent.`,
+            `This agent works from your ${probe.noun}s, but your Workspace has none: it would never fire. Add or import your ${probe.noun}s, then ask me for this agent again.`
+          ),
+          fix: { label: pick(locale, "Ouvrir le Workspace", "Open the Workspace"), href: HREF_WORKSPACE },
+        });
+      }
+    } catch {
+      // table illisible → on ne bloque pas (fail-open)
+    }
+  }
+
+  // Y a-t-il quelque chose à surveiller ? (le veilleur stock exige EN PLUS un seuil.)
   if (plan.watcher === "stock_bas") {
     try {
       const { count } = await supabase

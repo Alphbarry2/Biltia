@@ -29,6 +29,7 @@ import { isFounderEmail } from "./founder";
 import { WATCHER_KEYS, getWatcher, isSupplierRelanceWatcher, type WatcherKey } from "./agent-watchers";
 import type { AgentTemplate } from "./agent-templates";
 import { checkAgentReadiness, summarizeGaps, type CapabilityGap } from "./agent-readiness";
+import { judgeFeasibility, describeWatcher } from "./agent-feasibility";
 import type { Locale } from "./i18n/config";
 import { buildSpec, coerceConditionGroup, coerceRecipientTargets, type ParsedActionStep, type ConditionGroup, type RecipientResolver } from "./agent-model";
 import { buildEventWatcherDescription } from "./watcher-parser-docs";
@@ -199,6 +200,18 @@ export type ParsedRule = {
   v2Recipients?: RecipientResolver[];
   /** Phase 7 (gaté runner) : déclencheur GÉNÉRIQUE sur date (« N jours avant/après … »), quand aucun veilleur nommé ne colle. Absent sinon. */
   relativeDate?: RelativeDateConfig;
+  /** false = Biltia ne sait pas CAPTER le déclencheur demandé (agenda, Twitter, votre réveil…). */
+  feasible: boolean;
+  /** Si feasible=false : ce que Biltia ne sait pas capter, en une phrase pour l'artisan. */
+  blockerReason: string;
+  /**
+   * L'artisan a demandé une SURVEILLANCE (« dès que… ») mais aucun capteur valide
+   * n'a pu être retenu. Avant l'incident du 2026-07-14, ce cas basculait EN SILENCE
+   * en agent planifié à 09:00 : le « dès que » disparaissait sans que personne ne le
+   * dise. Pire, cette dégradation POUSSAIT le modèle à inventer un veilleur (le seul
+   * moyen, pour lui, de préserver l'intention). On le remonte désormais.
+   */
+  eventWithoutSensor: boolean;
   usage?: { model: string; inputTokens: number; outputTokens: number };
 };
 
@@ -412,8 +425,24 @@ const PARSE_TOOL: Anthropic.Tool = {
         description:
           "Paramètre en jours du veilleur si trigger_type=event (0 = défaut). devis_non_signe : jours d'attente avant de relancer (défaut 7). devis_expire_bientot : fenêtre d'alerte AVANT la date de validité (défaut 7). facture_echeance_proche : fenêtre d'alerte AVANT la date d'échéance (défaut 7). facture_impayee : jours de tolérance après l'échéance (défaut 0). echeance_proche : fenêtre d'alerte avant l'échéance (défaut 30). chantier_en_retard : jours de tolérance (défaut 0). chantier_fin_proche : fenêtre d'alerte AVANT la date de fin prévue (défaut 7). chantier_sans_activite : jours sans activité avant l'alerte (défaut 3). chantier_sans_devis : jours de tolérance après le démarrage (défaut 0). conflit_planning : horizon en jours du planning surveillé (défaut 14). intervention_annulee : jours de rattrapage après l'annulation (défaut 3). tache_en_retard : jours de tolérance après l'échéance (défaut 0). tache_terminee : jours de rattrapage après la clôture (défaut 3). equipe_surchargee : EXCEPTION — ce nombre est le SEUIL d'éléments ouverts par personne au-delà duquel alerter (défaut 8). tache_sans_responsable / chantier_sans_responsable : paramètre ignoré (défaut 0). client_inactif : jours sans activité avant de le signaler (défaut 90). pointage_manquant : jours récents examinés (fenêtre sans pointage, défaut 3). heures_a_valider : ancienneté minimale en jours avant de réclamer la validation (défaut 7). heures_incoherentes : EXCEPTION — ce nombre est le SEUIL d'heures/jour au-delà duquel c'est jugé incohérent (défaut 12). chantier_trop_heures : EXCEPTION — ce nombre est le SEUIL d'heures cumulées par chantier au-delà duquel alerter (défaut 200). document_a_regulariser / assurance_expiree / clients_doublons : paramètre ignoré (défaut 0). client_mauvais_payeur : EXCEPTION — ce nombre est le SEUIL de factures échues impayées au-delà duquel signaler le client (défaut 2). sous_traitant_a_probleme : EXCEPTION — ce nombre est le SEUIL de réserves ouvertes au-delà duquel signaler le sous-traitant (défaut 2). sous_traitant_sans_assurance / documents_a_classer / chantier_sans_photo / intervention_sans_responsable / intervention_sans_date : paramètre ignoré (défaut 0). intervention_en_retard : jours de tolérance après la date prévue (défaut 0). commande_en_retard : jours de tolérance après la date de livraison prévue (défaut 0). facture_fournisseur_a_payer : jours de tolérance après l'échéance de paiement (défaut 0). achat_non_affecte / chantier_sans_budget : paramètre ignoré (défaut 0). chantier_hors_budget : EXCEPTION — ce nombre est un POURCENTAGE de dépassement toléré (ex : « au-delà de 10 % » → 10 ; défaut 0 = dès le premier euro). Mets 0 si l'utilisateur ne précise rien.",
       },
+      // ── LE DROIT DE DIRE NON (incident 2026-07-14) ─────────────────────────
+      // Sans ce champ, le modèle n'avait AUCUN moyen d'exprimer « je ne sais pas
+      // faire ça » : sommé de choisir un veilleur, il en inventait un. « Préviens-moi
+      // dès qu'un événement est ajouté à mon agenda » est devenu un agent qui
+      // surveillait les nouvelles fiches CLIENT. Un agent qui ment sur ce qu'il
+      // surveille est pire qu'un agent absent.
+      feasible: {
+        type: "boolean",
+        description:
+          "false si Biltia NE PEUT PAS détecter le déclencheur demandé, avec les veilleurs listés ci-dessus. Mets false SANS HÉSITER quand la mission suppose de capter quelque chose qui N'EST PAS dans le Workspace Biltia : l'agenda Google/Outlook, la boîte mail entrante, un réseau social, un SMS ou un appel reçu, la météo, la banque, le logiciel de compta, ou l'état de l'utilisateur lui-même (« quand je me réveille », « quand j'arrive sur le chantier »). Il vaut MILLE FOIS mieux répondre false que de rapprocher la demande d'un veilleur qui surveille autre chose. Si feasible=false, remplis blocker_reason et laisse event_watcher vide.",
+      },
+      blocker_reason: {
+        type: "string",
+        description:
+          "Si feasible=false : ce que Biltia ne sait pas capter, en UNE phrase, dans les mots de l'artisan, sans jargon et sans promettre de date (« je ne vois pas ce que vous publiez sur Twitter », « rien ne me prévient quand un événement est ajouté à votre agenda »). Vide si feasible=true.",
+      },
     },
-    required: ["title", "action_type", "recipient_kind", "recipient_name", "time", "days", "content_instruction", "content_missing", "data_focus", "complexity", "trigger_type", "event_watcher", "event_days"],
+    required: ["title", "action_type", "recipient_kind", "recipient_name", "time", "days", "content_instruction", "content_missing", "data_focus", "complexity", "trigger_type", "event_watcher", "event_days", "feasible", "blocker_reason"],
     additionalProperties: false,
   },
 };
@@ -424,7 +453,11 @@ COMPRENDS LE CONCEPT, PAS LE MOT (ESSENTIEL). L'artisan parle avec SES mots, jam
 - Personnes : salarié = ouvrier = compagnon = collaborateur = « mon gars » / « les gars » = « mon équipe » → les EMPLOYÉS. « le client » = « le particulier » = « le proprio » = « le donneur d'ordre » → les CLIENTS.
 - Travail / objet : « son travail » = « sa tâche » = « son boulot » = « sa mission » = « ce qu'il fait » = « son intervention » → une INTERVENTION (ou une tâche) assignée. « affaire » = « projet » = « le chantier » → les CHANTIERS. « le devis » = « l'offre » = « la propale » = « le chiffrage » → les DEVIS. « la facture » = « la note » → les FACTURES. « le matériel » = « les fournitures » = « le stock » → les MATÉRIAUX.
 - États : « fini » = « bouclé » = « livré » = « clôturé » = « ça y est c'est fait » → TERMINÉ. « validé » = « signé » = « accepté » = « OK client » → ACCEPTÉ. « payé » = « réglé » = « encaissé » = « viré » → PAYÉE. « en retard » = « à la bourre » = « dépassé » → RETARD.
-RÈGLE D'OR : rapproche TOUJOURS l'intention du veilleur / de l'entité RÉEL le plus proche, même si aucun mot exact ne colle. Exemple type : « quand un salarié finit son travail / sa tâche sur un chantier, préviens-moi » = une INTERVENTION assignée à cet employé qui passe en TERMINÉ → event, event_watcher=visite_terminee, action_type=notify. Si l'intention ne correspond VRAIMENT à aucun veilleur, ne force pas un mauvais veilleur : prends le plus proche raisonnable et mets le reste de la mission dans content_instruction (elle guidera l'exécution).
+TEST DE VÉRITÉ (le plus important de toute cette consigne). Traduire le VOCABULAIRE, oui. Changer d'OBJET, jamais. Le veilleur que tu choisis doit surveiller LE MÊME OBJET et LE MÊME ÉVÉNEMENT que la demande. Avant de rendre un event_watcher, relis la demande et pose-toi la question : « la fiche qui va déclencher cet agent, est-ce bien CELLE dont l'artisan parle ? »
+- OUI → « quand un salarié finit son travail / sa tâche sur un chantier, préviens-moi » = une INTERVENTION assignée qui passe en TERMINÉ. Même objet, autres mots → event_watcher=visite_terminee. C'est exactement le travail attendu de toi.
+- NON → « préviens-moi dès qu'un ÉVÉNEMENT est ajouté à mon AGENDA » n'est PAS « une fiche CLIENT est créée ». Ce sont deux objets différents. Le fait que les deux soient « quelque chose qui vient d'être ajouté » ne les rend pas équivalents.
+
+TU AS LE DROIT DE DIRE NON, et c'est souvent la bonne réponse. Aucun veilleur ne lit ton agenda Google/Outlook, ta boîte mail entrante, tes réseaux sociaux, tes SMS, tes appels, la météo, ta banque ou ton logiciel de compta : les 51 veilleurs regardent UNIQUEMENT les fiches du Workspace Biltia (chantiers, devis, factures, clients, interventions, tâches, employés, pointages, matériaux, documents, fournisseurs, commandes). Si la mission suppose de capter autre chose, mets feasible=false + blocker_reason, et laisse event_watcher vide. NE RAPPROCHE JAMAIS la demande d'un veilleur « à peu près » : un agent qui surveille autre chose que ce qu'on lui a demandé est un mensonge, et l'artisan croira son entreprise couverte alors qu'elle ne l'est pas. Un refus honnête est TOUJOURS préférable.
 
 REPÈRES :
 - « relance/écris/envoie un mail à [client X] » → send_email, recipient_kind=client.
@@ -779,6 +812,14 @@ export function parseInstructionHeuristic(instruction: string): ParsedRule {
     eventWatcher = null;
   }
 
+  // L'artisan a dicté une SURVEILLANCE (« dès que… ») mais aucune regex n'a reconnu
+  // de veilleur : le repli servait alors un agent quotidien à 09:00, sans jamais dire
+  // que le « dès que » avait disparu. On le remonte (cf. eventWithoutSensor).
+  const wantedEvent =
+    triggerType === "schedule" &&
+    !eventWatcher &&
+    /(des que|chaque fois que|a chaque fois|quand |lorsqu)/.test(text);
+
   return {
     title: instruction.slice(0, 60),
     actionType,
@@ -794,6 +835,11 @@ export function parseInstructionHeuristic(instruction: string): ParsedRule {
     triggerType,
     eventWatcher,
     eventDays: 0,
+    // Le repli n'a pas de jugement de faisabilité (pas de LLM) : c'est le contrôle
+    // déterministe de createAgentRule (sources non détectables + cohérence) qui tranche.
+    feasible: true,
+    blockerReason: "",
+    eventWithoutSensor: wantedEvent,
   };
 }
 
@@ -851,6 +897,9 @@ export async function parseInstruction(instruction: string): Promise<ParsedRule>
       v2On && !eventWatcher && i.trigger_type === "event" ? coerceRelativeDate(i.relative_date) : null;
     const triggerType: AgentTriggerType =
       i.trigger_type === "event" && (eventWatcher || relativeDate) ? "event" : "schedule";
+    // Le « dès que » demandé n'a pas trouvé de capteur. On ne le fait plus disparaître
+    // en douce derrière un agent quotidien : createAgentRule s'arrêtera et demandera.
+    const eventWithoutSensor = i.trigger_type === "event" && !eventWatcher && !relativeDate;
     const eventDays = triggerType === "event" && typeof i.event_days === "number" && i.event_days >= 0
       ? Math.min(365, Math.floor(i.event_days))
       : 0;
@@ -887,6 +936,9 @@ export async function parseInstruction(instruction: string): Promise<ParsedRule>
       v2Conditions,
       v2Recipients: v2Recipients.length ? v2Recipients : undefined,
       relativeDate: relativeDate ?? undefined,
+      feasible: i.feasible !== false,
+      blockerReason: typeof i.blocker_reason === "string" ? i.blocker_reason.trim().slice(0, 400) : "",
+      eventWithoutSensor,
       usage: {
         model: PARSE_MODEL,
         inputTokens: msg.usage.input_tokens,
@@ -1196,6 +1248,29 @@ export async function createAgentRule(opts: {
 
   const parsed = await parseInstruction(instruction);
 
+  // ── PORTE DE FAISABILITÉ (incident 2026-07-14) : « est-ce que je sais VRAIMENT
+  //    détecter ce qu'on me demande de surveiller ? » Posée AVANT les gates de plan :
+  //    répondre « passez à Pro » pour un agent de toute façon impossible serait une
+  //    seconde tromperie. Le doute ne produit JAMAIS d'agent (cf. lib/agent-feasibility).
+  const feasibility = judgeFeasibility({
+    instruction,
+    triggerType: parsed.triggerType,
+    eventWatcher: parsed.eventWatcher,
+    feasible: parsed.feasible,
+    blockerReason: parsed.blockerReason,
+    eventWithoutSensor: parsed.eventWithoutSensor,
+    locale,
+  });
+  if (feasibility.verdict !== "ok") {
+    return {
+      ok: false,
+      ruleId: null,
+      blocked: false,
+      message: feasibility.message,
+      usage: parsed.usage,
+    };
+  }
+
   // ── PLAN : sur Free, un agent qui AGIT (relance email, compte-rendu, rapport,
   //    planning équipe) est réservé à Pro. L'ALERTE (notify) reste gratuite —
   //    « le Free goûte, le Pro exécute ». Fondateur exempté (test). ──────────────
@@ -1279,20 +1354,36 @@ export async function createAgentRule(opts: {
     plan: { actionType: planAction, recipientKind: planRecipient, watcher: planWatcher },
     locale,
   });
-  if (!readiness.ok) {
+  // ── QUE FAIRE DES MANQUES BLOQUANTS ? Deux natures, deux traitements. ────────
+  //  • Il manque une CONNEXION (messagerie, agenda) : l'artisan peut la brancher en
+  //    un clic, tout de suite, depuis le chat. On CRÉE l'agent mais BLOQUÉ — il
+  //    apparaît dans /agents avec ses boutons, le cron n'y touche pas, et il
+  //    s'active tout seul dès la connexion faite. Rien ne se perd s'il ferme l'onglet.
+  //  • Il manque des DONNÉES (aucune facture à relancer, aucun employé joignable) :
+  //    aucun bouton ne règle ça, et un agent qui attend indéfiniment de la donnée
+  //    serait un agent-fantôme de plus. On refuse, en disant précisément quoi faire.
+  const blockingGaps = readiness.gaps.filter((g) => g.severity === "block");
+  const CONNECTABLE = new Set(["email_send", "email_send_self", "calendar_read"]);
+  const dataGaps = blockingGaps.filter((g) => !CONNECTABLE.has(g.code));
+  if (dataGaps.length > 0) {
     return {
       ok: false,
       ruleId: null,
       blocked: false,
       gaps: readiness.gaps,
       message:
-        `Je peux mettre en place « ${parsed.title} », mais il me manque de quoi le faire tourner : ` +
-        `**${summarizeGaps(readiness.gaps.filter((g) => g.severity === "block"))}**. ` +
-        `Réglez cela (voir ci-dessous) puis redemandez-moi — je démarre aussitôt.`,
+        `Je peux mettre en place « ${parsed.title} », mais l'agent tournerait à vide : ` +
+        `**${summarizeGaps(dataGaps)}**. ` +
+        `Je préfère ne pas l'activer plutôt que de vous laisser croire qu'il veille. ` +
+        `Complétez cela (voir ci-dessous) puis redemandez-moi, je le mets en place aussitôt.`,
       usage: parsed.usage,
     };
   }
-  const warnNote = readiness.gaps.length ? ` À finir pour un fonctionnement optimal : ${summarizeGaps(readiness.gaps)}.` : "";
+  /** Il ne manque QUE des connexions : l'agent naît bloqué, pas actif. */
+  const pendingConnection = blockingGaps.length > 0;
+  const warnNote = readiness.gaps.length && !pendingConnection
+    ? ` À finir pour un fonctionnement optimal : ${summarizeGaps(readiness.gaps)}.`
+    : "";
 
   // ── DÉCLENCHEUR SUR DATE (relative_date, générique) — GATÉ sur le runner V2 ───
   // Non représentable par les colonnes legacy : la règle n'existe QUE dans le spec.
@@ -1472,8 +1563,11 @@ export async function createAgentRule(opts: {
           trigger: trigger as unknown as Record<string, unknown>,
           schedule: {} as unknown as Record<string, unknown>,
           action: action as unknown as Record<string, unknown>,
-          status: "active",
-          next_run_at: new Date().toISOString(), // évalué dès le prochain tick (≤ 5 min)
+          // Il manque une connexion → l'agent existe mais n'est PAS actif : le cron
+          // ne touche pas un agent 'blocked'. Il s'activera seul dès la connexion.
+          status: pendingConnection ? "blocked" : "active",
+          blocked_reason: pendingConnection ? PENDING_CONNECTION_REASON : null,
+          next_run_at: pendingConnection ? null : new Date().toISOString(), // sinon évalué dès le prochain tick (≤ 5 min)
         })
         .select("id")
         .single();

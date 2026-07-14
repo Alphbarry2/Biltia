@@ -184,12 +184,12 @@ function PaidCard({ name, includedLine, features, tiers, checkoutPlan, cycle, ba
 // Deux invariants VÉRIFIÉS : chaque panier tombe PILE sur le volume vendu, et aucune
 // ligne ne RÉGRESSE quand on monte de palier (payer plus ne peut pas donner moins).
 const MONTH_MIX: { vol: number; agents: number; apps: number; docs: number; photos: number; questions: number }[] = [
-  // 1100 + 300 + 300 + 150 + 150 = 2000 — le solo : 1 agent, 1 app, et rien qui dépasse
-  { vol: 2000, agents: 1, apps: 1, docs: 10, photos: 15, questions: 50 },
-  // 1100 + 300 + 1050 + 250 + 300 = 3000 — 1 agent, mais un gros volume de paperasse
-  { vol: 3000, agents: 1, apps: 1, docs: 35, photos: 25, questions: 100 },
-  // 2200 + 600 + 1440 + 280 + 480 = 5000 — le solo ÉQUIPÉ : 2 agents qui tournent
-  { vol: 5000, agents: 2, apps: 2, docs: 48, photos: 28, questions: 160 },
+  // 880 + 300 + 450 + 130 + 240 = 2000 — l'artisan SOLO
+  { vol: 2000, agents: 1, apps: 1, docs: 15, photos: 13, questions: 80 },
+  // 1760 + 300 + 540 + 160 + 240 = 3000 — le solo INTENSIF : un 2ᵉ agent
+  { vol: 3000, agents: 2, apps: 1, docs: 18, photos: 16, questions: 80 },
+  // 2640 + 600 + 1200 + 260 + 300 = 5000 — le solo ÉQUIPÉ / la TPE : 3 agents
+  { vol: 5000, agents: 3, apps: 2, docs: 40, photos: 26, questions: 100 },
 ];
 
 function MonthTicket() {

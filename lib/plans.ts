@@ -120,11 +120,26 @@ export const CREDIT_COST_EUR = 0.003;
 // cher (il est irremplaçable). Une app à 600 cr faisait l'inverse : elle taxait
 // l'acquisition et laissait l'agent — le vrai actif — à 13 € par mois.
 //
-// L'échelle qui en découle, pour un solo avec son courant (10 devis, 15 photos,
-// 50 questions = 600 cr/mois) :
-//   • 1 agent + 1 app  → 2 000 cr → 49 €  (il l'utilise, et il sent le mur)
-//   • 1 agent + usage intensif (35 devis) → 3 000 cr → 89 €
-//   • 2 à 4 agents     → 5 000 cr → 129 € (le solo équipé passe au-dessus de 100 €)
+// ── LA RÈGLE DE CONCEPTION DES PALIERS (user, 2026-07-14) ────────────────────
+//
+// « Chaque plan doit suffire à 90 % à celui à qui il est destiné. Il doit être
+//   satisfait, mais toujours avoir ce petit truc au fond de lui pour passer au
+//   suivant. »
+//
+// Ça se vérifie, ce n'est pas une intention. Le persona du palier doit en consommer
+// ~90 %, et l'AGENT SUIVANT ne doit pas rentrer. C'est ce qui fixe agent_redaction
+// au crédit près (voir plus bas) — et c'est ce que le test de lib/plans vérifie :
+//
+//   49 € (2 000) · artisan solo      → 1 800 cr · 90 % · un 2ᵉ agent ne rentre pas
+//   89 € (3 000) · solo intensif     → 2 800 cr · 93 % · un 3ᵉ agent ne rentre pas
+//  129 € (5 000) · solo équipé / TPE → 4 600 cr · 92 % · un 4ᵉ agent ne rentre pas
+//
+// À chaque palier, c'est l'agent suivant qui débloque le suivant. Sans jamais brider
+// quoi que ce soit : l'échelle est une échelle d'AGENTS, pas une grille de features.
+//
+// Corollaire sur les applications : à 300 cr, le forfait d'entrée en paie 6 par mois.
+// Un solo n'en créera pas 20 DANS SA VIE. L'app ne contraint donc JAMAIS personne —
+// et c'est voulu : elle sert à l'accrocher, pas à le facturer.
 //
 // Une question reste à 3 cr : quasi gratuite. C'est elle qui crée l'habitude, elle
 // ne doit JAMAIS faire hésiter.
@@ -151,11 +166,25 @@ export const ACTION_CREDITS = {
    *  aucun token, l'exécuteur ne débite pas. */
   agent_passage: 20,
   /** Un passage d'agent qui RÉDIGE (relance client, compte-rendu, rapport).
-   *  ⚠️ C'EST LE PRIX LE PLUS IMPORTANT DU PRODUIT. × 22 jours ouvrés = 1 100 cr/mois,
-   *  soit ~27 € du forfait d'entrée. C'est le seul poste qui revient TOUS LES MOIS,
-   *  donc le seul qui fait monter un client de palier. Le mettre trop bas (25 cr, soit
-   *  550/mois) laissait le forfait à 49 € absorber 3 agents : plus personne ne montait. */
-  agent_redaction: 50,
+   *
+   *  ⚠️ C'EST LE PRIX LE PLUS IMPORTANT DU PRODUIT, et il est calibré au crédit près.
+   *  × 22 jours ouvrés = 880 cr/mois. C'est le seul poste qui revient TOUS LES MOIS
+   *  (une app, une fois créée, ne consomme plus rien), donc le seul qui fait monter
+   *  un client de palier.
+   *
+   *  Il est coincé entre deux murs, et il n'y a pas beaucoup de place entre les deux :
+   *   • TROP BAS (25 cr → 550/mois) : le forfait à 49 € absorbe 3 agents. Plus personne
+   *     ne monte, l'ARPU s'écrase sur le palier d'entrée.
+   *   • TROP HAUT (50 cr → 1 100/mois) : le courant d'un solo (15 devis + 80 questions
+   *     + 13 photos + 1 retouche = 920 cr) plus UN agent fait 2 020 — il dépasse son
+   *     forfait dès le premier mois, avec un seul agent. Le plan vendu aux solos ne
+   *     tient même pas l'agent qu'on lui vend. C'est une promesse trahie, pas un levier.
+   *
+   *  À 40 : 920 + 880 = 1 800, soit 90 % du forfait à 49 €. Le solo est servi, et le
+   *  DEUXIÈME agent ne rentre pas. C'est la règle de conception du user (2026-07-14) :
+   *  « chaque plan doit suffire à 90 % à celui à qui il est destiné, en lui laissant
+   *  toujours ce petit truc au fond de lui pour passer au suivant ». */
+  agent_redaction: 40,
   /** Un passage d'agent qui AGIT : boucle agentique (outils workspace, jusqu'à 10
    *  itérations × 4 fiches). Coût réel au plafond : 0,165 $ ≈ 0,15 € — 10× une simple
    *  relance, et de loin l'action la plus coûteuse du produit. C'est aussi la plus

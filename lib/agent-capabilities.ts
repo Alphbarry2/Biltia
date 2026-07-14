@@ -18,8 +18,22 @@ import { canSendSms } from "./outbound-sms";
 import { calendarConnected } from "./calendar";
 import { pick, type Locale } from "./i18n/config";
 
-/** Les outils qu'un agent peut mobiliser. Étendre ici quand un connecteur arrive. */
-export type CapabilityId = "email_send" | "sms_send" | "calendar_read" | "push_notify";
+/**
+ * Les outils qu'un agent peut mobiliser. Étendre ici quand un connecteur arrive.
+ *
+ * ⚠️ DEUX capacités d'email, et la distinction n'est pas cosmétique (incident 2026-07-14) :
+ *   • email_send      = écrire à un TIERS (client, fournisseur, employé) EN VOTRE NOM.
+ *                       Exige la boîte de l'artisan (Gmail/Outlook) : une relance de
+ *                       facture qui part d'une adresse Biltia n'est pas la vôtre, et
+ *                       le client ne peut pas y répondre normalement.
+ *   • email_send_self = vous écrire À VOUS. Biltia peut le faire depuis sa propre
+ *                       adresse (Resend), aucun connecteur requis.
+ * Avant, une seule capacité `email_send` interrogeait canSendOutbound().ok — or ce
+ * `.ok` est vrai dès que Resend est configuré, c'est-à-dire TOUJOURS. Résultat : le
+ * seul manque BLOQUANT lié à un connecteur ne se produisait JAMAIS, et un agent
+ * « relance mes clients » s'affichait « Actif » sans aucune boîte branchée.
+ */
+export type CapabilityId = "email_send" | "email_send_self" | "sms_send" | "calendar_read" | "push_notify";
 
 export type CapabilityStatus = {
   id: CapabilityId;
@@ -50,10 +64,17 @@ export async function getCapabilityStatuses(opts: {
 }): Promise<Record<CapabilityId, CapabilityStatus>> {
   const { supabase, tenantId, userId, locale = "fr" } = opts;
 
-  // Email sortant : Gmail connecté OU envoi Biltia (Resend) configuré.
-  let emailConnected = false;
+  // Email sortant. On garde les DEUX réponses séparées :
+  //   mailbox.gmail || mailbox.outlook = la boîte DE L'ARTISAN est branchée (seule
+  //     façon d'écrire à un tiers en son nom) ;
+  //   mailbox.ok = n'importe quel canal, Resend compris (suffit pour lui écrire À LUI).
+  // Confondre les deux, c'est le bug qui a rendu le preflight inopérant.
+  let mailboxConnected = false; // boîte de l'artisan (Gmail/Outlook)
+  let anyEmailChannel = false; // au moins un moyen d'envoyer un email, Biltia compris
   try {
-    emailConnected = (await canSendOutbound(tenantId, userId)).ok;
+    const mailbox = await canSendOutbound(tenantId, userId);
+    mailboxConnected = mailbox.gmail || mailbox.outlook;
+    anyEmailChannel = mailbox.ok;
   } catch {
     /* indéterminé → non connecté */
   }
@@ -87,11 +108,20 @@ export async function getCapabilityStatuses(opts: {
   return {
     email_send: {
       id: "email_send",
-      label: pick(locale, "envoi d'emails", "sending emails"),
+      label: pick(locale, "envoi d'emails en votre nom", "sending emails on your behalf"),
       supported: true,
-      connected: emailConnected,
+      connected: mailboxConnected,
       // Gmail OU Outlook : nommer un seul fournisseur enverrait un artisan sous
       // Microsoft 365 ouvrir un compte chez le concurrent de sa messagerie.
+      fix: { label: pick(locale, "Connecter votre messagerie", "Connect your mailbox"), href: HREF_CONNECTORS },
+    },
+    email_send_self: {
+      id: "email_send_self",
+      label: pick(locale, "vous écrire par email", "emailing you"),
+      supported: true,
+      // Biltia sait vous écrire depuis sa propre adresse : rien à connecter dans le
+      // cas normal. Ne devient un manque que si AUCUN canal d'envoi n'existe.
+      connected: anyEmailChannel,
       fix: { label: pick(locale, "Connecter votre messagerie", "Connect your mailbox"), href: HREF_CONNECTORS },
     },
     calendar_read: {
