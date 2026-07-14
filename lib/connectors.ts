@@ -237,12 +237,12 @@ export const CONNECTORS: Connector[] = [
     cannot: [
       "Renvoyer dans Biltia les modifications faites dans le fichier.",
       "Se rafraîchir automatiquement : il faut re-exporter pour avoir les données du jour.",
-      "Se déposer tout seul dans un Drive ou un OneDrive (voir « En cours d'intégration »).",
+      "Se déposer tout seul dans un Drive : c'est le classement automatique (Google Drive / OneDrive) qui fait ça, et seulement pour les documents générés.",
     ],
     cannotEn: [
       "Push edits made in the file back into Biltia.",
       "Refresh automatically: re-export to get today's data.",
-      "Drop itself into a Drive or OneDrive on its own (see “Coming soon”).",
+      "Drop itself into a Drive on its own: automatic filing (Google Drive / OneDrive) does that, and only for generated documents.",
     ],
     href: "/api/export?entity=all&format=xlsx",
     hrefLabel: "Exporter maintenant",
@@ -280,53 +280,72 @@ export const CONNECTORS: Connector[] = [
     scopeNoteEn: "Everything goes through a one-off browser permission (camera, location, mic), which you can revoke at any time in your phone settings.",
   },
 
-  // ── SOON : déclarés, PAS branchés. Bouton désactivé + API fail-closed. ─────
-  // Aucun client Microsoft Graph, aucun upload Drive n'existe dans le code.
-  // Ne PAS repasser en "live" sans avoir écrit le client correspondant.
   {
     id: "outlook",
     name: "Outlook",
     kind: "oauth",
-    status: "soon",
+    status: "live",
     provider: "microsoft",
     scopes: ["https://graph.microsoft.com/Mail.Send"],
-    desc: "Envoyer vos documents depuis votre adresse Outlook / Microsoft 365.",
-    descEn: "Send your documents from your Outlook / Microsoft 365 address.",
+    desc: "Biltia envoie vos devis, PV et relances directement depuis votre adresse Outlook / Microsoft 365.",
+    descEn: "Biltia sends your quotes, sign-off sheets and follow-ups straight from your Outlook / Microsoft 365 address.",
     can: [
-      "Ce qu'il fera : envoyer devis, factures et relances depuis votre adresse Outlook, exactement comme Gmail le fait aujourd'hui.",
+      "Envoyer un email depuis VOTRE adresse Outlook : le client reçoit un mail de vous, et il vous répond directement.",
+      "Joindre le PDF généré (devis, facture, PV de réception).",
+      "Laisser vos agents envoyer tout seuls : relance de devis, planning du lundi, rappel d'échéance.",
     ],
     canEn: [
-      "What it will do: send quotes, invoices and follow-ups from your Outlook address, exactly as Gmail does today.",
+      "Send an email from YOUR Outlook address: the client gets a mail from you, and replies straight to you.",
+      "Attach the generated PDF (quote, invoice, sign-off sheet).",
+      "Let your agents send on their own: quote follow-ups, Monday planning, due-date reminders.",
     ],
     cannot: [
-      "En attendant : Biltia envoie déjà vos emails, depuis sa propre adresse d'expédition. Rien ne vous bloque.",
+      "Lire votre boîte de réception. Aucun de vos emails reçus n'est visible par Biltia, jamais.",
+      "Chercher, ouvrir, modifier ou supprimer un email existant.",
+      "Créer des brouillons, gérer vos dossiers, accéder à vos contacts Microsoft.",
     ],
     cannotEn: [
-      "In the meantime: Biltia already sends your emails, from its own sending address. Nothing is blocking you.",
+      "Read your inbox. None of your incoming email is ever visible to Biltia.",
+      "Search, open, edit or delete an existing email.",
+      "Create drafts, manage your folders, or access your Microsoft contacts.",
     ],
+    scopeNote: "Biltia demande un seul droit : Mail.Send. Microsoft n'accorde avec lui AUCUN accès en lecture. Techniquement, Biltia ne peut pas voir vos emails, même s'il le voulait. Une pièce jointe de plus de 3 Mo repasse par l'envoi Biltia (limite de Microsoft, pas la nôtre).",
+    scopeNoteEn: "Biltia requests a single permission: Mail.Send. Microsoft grants NO read access with it. Technically, Biltia cannot see your email, even if it wanted to. An attachment over 3 MB falls back to Biltia's own sending (Microsoft's limit, not ours).",
+    works: "Sans connexion : Biltia envoie quand même, depuis sa propre adresse d'expédition. Connecter Outlook fait simplement partir le mail de chez vous.",
+    worksEn: "Without connecting: Biltia still sends, from its own sending address. Connecting Outlook simply makes the mail leave from your own address.",
     logo: "/logos/outlook.webp",
   },
   {
     id: "outlook-calendar",
     name: "Outlook Calendar",
     kind: "oauth",
-    status: "soon",
+    status: "live",
     provider: "microsoft",
     scopes: ["https://graph.microsoft.com/Calendars.ReadWrite"],
-    desc: "Les mêmes rendez-vous, créés dans votre agenda Outlook.",
-    descEn: "The same appointments, created in your Outlook calendar.",
+    desc: "Biltia crée vos rendez-vous, visites et réceptions de chantier dans votre agenda Outlook.",
+    descEn: "Biltia creates your appointments, site visits and handovers in your Outlook calendar.",
     can: [
-      "Ce qu'il fera : créer vos RDV, visites et réceptions dans Outlook, comme Google Calendar le fait aujourd'hui.",
+      "Créer un événement dans votre agenda : titre, heure de début et de fin, adresse du chantier.",
+      "Lire vos 7 prochains jours, pour répondre à « qu'est-ce que j'ai demain ? » et éviter de vous caler deux RDV en même temps.",
+      "Nourrir le planning d'équipe : l'agent croise votre agenda et vos interventions avant d'envoyer la semaine.",
     ],
     canEn: [
-      "What it will do: create your appointments, site visits and handovers in Outlook, as Google Calendar does today.",
+      "Create an event in your calendar: title, start and end time, job site address.",
+      "Read your next 7 days, to answer “what do I have tomorrow?” and avoid double-booking you.",
+      "Feed the team planning: the agent cross-checks your calendar and your jobs before sending out the week.",
     ],
     cannot: [
-      "En attendant : le bouton « Ajouter au calendrier » produit un fichier .ics qu'Outlook ouvre sans problème.",
+      "Toucher aux événements que vous avez créés vous-même : Biltia ajoute, il ne réécrit pas votre passé.",
+      "Voir vos contacts, ou les détails au-delà de la fenêtre de 7 jours.",
     ],
     cannotEn: [
-      "In the meantime: the “Add to calendar” button produces an .ics file that Outlook opens without any trouble.",
+      "Touch the events you created yourself: Biltia adds, it does not rewrite your past.",
+      "See your contacts, or anything beyond the 7-day window.",
     ],
+    scopeNote: "Droit demandé : Calendars.ReadWrite, sur votre agenda. Biltia y ajoute des événements et lit la semaine à venir.",
+    scopeNoteEn: "Permission requested: Calendars.ReadWrite, on your calendar. Biltia adds events to it and reads the week ahead.",
+    works: "Sans connexion : bouton « Ajouter au calendrier » sur vos interventions et tâches (fichier .ics universel, qu'Outlook ouvre sans problème).",
+    worksEn: "Without connecting: an “Add to calendar” button on your jobs and tasks (universal .ics file, which Outlook opens without any trouble).",
     logo: "/logos/outlook.webp",
   },
   {
@@ -362,47 +381,69 @@ export const CONNECTORS: Connector[] = [
     id: "onedrive",
     name: "OneDrive",
     kind: "oauth",
-    status: "soon",
+    status: "live",
     provider: "microsoft",
-    scopes: ["https://graph.microsoft.com/Files.ReadWrite"],
-    desc: "Classer automatiquement vos PDF générés dans OneDrive.",
-    descEn: "File your generated PDFs into OneDrive automatically.",
+    // AppFolder, PAS Files.ReadWrite : le droit large donnerait accès à TOUT le
+    // OneDrive de l'utilisateur, et le « il ne voit que ses propres fichiers »
+    // ci-dessous deviendrait un mensonge. C'est l'équivalent exact du drive.file
+    // de Google : Biltia n'a de vue que sur son propre dossier d'application.
+    scopes: ["https://graph.microsoft.com/Files.ReadWrite.AppFolder"],
+    desc: "Classer vos PDF (devis, factures, PV…) dans OneDrive, rangés par chantier.",
+    descEn: "File your PDFs (quotes, invoices, sign-off sheets…) into OneDrive, sorted by job site.",
     can: [
-      "Ce qu'il fera : déposer chaque PDF généré dans OneDrive, rangé par chantier.",
+      "Déposer un document généré dans votre OneDrive, rangé dans « Biltia / <chantier> ».",
+      "Classer automatiquement chaque devis et chaque facture que vous envoyez.",
+      "Renvoyer un devis corrigé remplace le PDF existant : un seul fichier par document, jamais dix versions.",
     ],
     canEn: [
-      "What it will do: drop every generated PDF into OneDrive, filed by job site.",
+      "Drop a generated document into your OneDrive, filed under “Biltia / <job site>”.",
+      "Automatically file every quote and invoice you send.",
+      "Re-sending a corrected quote replaces the existing PDF: one file per document, never ten versions.",
     ],
     cannot: [
-      "En attendant : chaque document se télécharge en PDF, et l'export sort tout le workspace d'un coup.",
+      "Il ne voit QUE les fichiers qu'il a lui-même créés, dans son propre dossier d'application. Le reste de votre OneDrive lui est invisible, techniquement, pas seulement par politesse.",
+      "Il ne supprime rien et ne touche à aucun de vos dossiers existants.",
     ],
     cannotEn: [
-      "In the meantime: every document downloads as a PDF, and the export pulls the whole workspace at once.",
+      "It only ever sees the files it created itself, inside its own app folder. The rest of your OneDrive is invisible to it, technically, not just as a courtesy.",
+      "It deletes nothing and never touches any of your existing folders.",
     ],
+    scopeNote: "Droit demandé : Files.ReadWrite.AppFolder — le dossier d'application, et rien d'autre. Biltia ne peut pas ouvrir vos autres fichiers OneDrive, même par erreur.",
+    scopeNoteEn: "Permission requested: Files.ReadWrite.AppFolder — the app folder, and nothing else. Biltia cannot open your other OneDrive files, not even by mistake.",
     logo: "/logos/onedrive.webp",
   },
   {
     id: "sms",
     name: "SMS",
-    // Ni OAuth ni vraiment natif : l'envoi passe par Twilio au niveau plateforme
-    // (clés d'environnement), pas par une connexion utilisateur. "builtin" évite
-    // d'inventer un 3e `kind` ; `status: "soon"` empêche le badge « Intégré ».
+    // Ni OAuth ni natif : l'envoi passe par Twilio au niveau PLATEFORME (clés
+    // d'environnement), pas par une connexion utilisateur. D'où "builtin" : il n'y
+    // a rien à connecter, l'envoi est déjà armé. Le seul prérequis est le plan Pro.
     kind: "builtin",
-    status: "soon",
-    desc: "Relances et rappels de RDV par SMS, envoyés par vos agents.",
-    descEn: "Follow-ups and appointment reminders by text, sent by your agents.",
+    status: "live",
+    desc: "Relances et rappels de RDV par SMS, envoyés par vos agents. Rien à connecter.",
+    descEn: "Follow-ups and appointment reminders by text, sent by your agents. Nothing to connect.",
     can: [
-      "Ce qu'il fera : rappeler un RDV la veille, relancer un devis, prévenir l'équipe, par SMS et sans que vous y pensiez.",
+      "Rappeler un RDV la veille, relancer un devis, prévenir l'équipe, par SMS et sans que vous y pensiez.",
+      "Partir tout seul depuis un agent : c'est le canal qui atteint un client qui ne lit pas ses mails.",
+      "Être déclenché depuis une app générée (rappel de livraison, alerte de stock).",
     ],
     canEn: [
-      "What it will do: remind a client the day before, chase a quote, alert the crew, by text and without you thinking about it.",
+      "Remind a client the day before, chase a quote, alert the crew, by text and without you thinking about it.",
+      "Go out on its own from an agent: it's the channel that reaches a client who never reads their email.",
+      "Be triggered from a generated app (delivery reminder, stock alert).",
     ],
     cannot: [
-      "En attendant : l'email et WhatsApp couvrent les mêmes relances, et vos agents savent déjà les envoyer.",
+      "Recevoir des réponses : le SMS part de Biltia, il ne revient pas. Pour une conversation, l'email et WhatsApp restent les bons canaux.",
+      "Être envoyé en masse : chaque envoi est plafonné (message long découpé, nombre de destinataires borné) pour qu'une consigne mal formulée ne vide pas votre budget.",
+      "Fonctionner sur le plan Gratuit : l'envoi de SMS demande un abonnement Pro.",
     ],
     cannotEn: [
-      "In the meantime: email and WhatsApp cover the same follow-ups, and your agents already know how to send them.",
+      "Receive replies: the text goes out from Biltia, it does not come back. For a conversation, email and WhatsApp remain the right channels.",
+      "Be sent in bulk: every send is capped (long messages are split, recipient count is bounded) so a badly worded instruction cannot drain your budget.",
+      "Work on the Free plan: sending texts requires a Pro subscription.",
     ],
+    scopeNote: "Aucune connexion, aucun compte à créer : l'envoi passe par l'opérateur de Biltia. Vous n'avez ni clé ni contrat à fournir.",
+    scopeNoteEn: "No connection, no account to create: sending goes through Biltia's carrier. You have no key and no contract to provide.",
   },
 ];
 
@@ -424,19 +465,24 @@ export function isConnectable(c: Connector): boolean {
   return c.kind === "oauth" && c.status === "live";
 }
 
-// ── Capacité d'agent (lib/agent-capabilities) → connecteur à proposer ────────
-// Quand un manque de capacité se règle par une CONNEXION, on sait quelle carte
+// ── Capacité d'agent (lib/agent-capabilities) → connecteurs à proposer ───────
+// Quand un manque de capacité se règle par une CONNEXION, on sait quelles cartes
 // afficher inline. Les manques non-OAuth (notifications, équipe vide, seuil de
 // stock) n'ont pas d'entrée ici → pas de bouton « Connecter » (ils gardent leur
-// lien « aller régler »). Clé = CapabilityId, valeur = id de connecteur.
-const CONNECTOR_FOR_CAPABILITY: Record<string, string> = {
-  email_send: "gmail",
-  calendar_read: "google-calendar",
+// lien « aller régler »). Clé = CapabilityId, valeur = ids de connecteurs.
+//
+// PLUSIEURS connecteurs par capacité : un artisan sous Microsoft 365 n'a pas de
+// Gmail. Lui proposer « Connecter Gmail » comme unique issue, c'est lui demander
+// d'ouvrir un compte chez un concurrent de sa messagerie. On propose les deux, il
+// choisit la sienne. L'ordre compte : la première carte est la plus mise en avant.
+const CONNECTORS_FOR_CAPABILITY: Record<string, string[]> = {
+  email_send: ["gmail", "outlook"],
+  calendar_read: ["google-calendar", "outlook-calendar"],
 };
 
-/** Le connecteur à proposer pour un code de manque, ou undefined si non-OAuth. */
-export function connectorForCapability(code: string): string | undefined {
-  return CONNECTOR_FOR_CAPABILITY[code];
+/** Les connecteurs à proposer pour un code de manque. Vide si non-OAuth. */
+export function connectorsForCapability(code: string): string[] {
+  return CONNECTORS_FOR_CAPABILITY[code] ?? [];
 }
 
 // ── Statut d'un connecteur à partir des connexions de l'utilisateur ─────────
@@ -450,6 +496,31 @@ export type ConnectionInfo = {
 
 export type ConnectorStatus = "soon" | "builtin" | "connected" | "disconnected";
 
+/**
+ * Forme canonique d'un scope, pour COMPARER demandé vs accordé.
+ *
+ * Azure AD accepte la forme longue (« https://graph.microsoft.com/Mail.Send »)
+ * mais renvoie la forme COURTE (« Mail.Send ») dans le jeton. Comparer les deux
+ * telles quelles échoue toujours : la carte Outlook resterait « à connecter »
+ * pour l'éternité, alors même que l'utilisateur vient de donner son consentement.
+ * Le préfixe Graph est donc retiré des deux côtés. Les scopes Google sont des URI
+ * complètes sans préfixe commun : ils traversent cette fonction inchangés.
+ *
+ * Exporté : les clients Graph (lib/msgraph.ts) doivent comparer de la même façon,
+ * sinon on ré-introduit le bug un étage plus bas.
+ */
+const GRAPH_SCOPE_PREFIX = "https://graph.microsoft.com/";
+export function normalizeScope(scope: string): string {
+  const s = scope.startsWith(GRAPH_SCOPE_PREFIX) ? scope.slice(GRAPH_SCOPE_PREFIX.length) : scope;
+  return s.toLowerCase();
+}
+
+/** Le jeu de scopes accordés contient-il TOUS ceux demandés ? (comparaison canonique) */
+export function scopesCover(granted: string[], required: string[]): boolean {
+  const have = new Set(granted.map(normalizeScope));
+  return required.every((s) => have.has(normalizeScope(s)));
+}
+
 export function connectorStatus(c: Connector, connections: ConnectionInfo[]): ConnectorStatus {
   // « soon » l'emporte sur tout : tant que rien ne lit le jeton, on n'affiche ni
   // « Connecter », ni « Connecté », ni « Intégré ». On dit la vérité : « Bientôt ».
@@ -457,6 +528,5 @@ export function connectorStatus(c: Connector, connections: ConnectionInfo[]): Co
   if (c.kind === "builtin") return "builtin";
   const conn = connections.find((x) => x.provider === c.provider);
   if (!conn) return "disconnected";
-  const granted = new Set(conn.scopes);
-  return (c.scopes ?? []).every((s) => granted.has(s)) ? "connected" : "disconnected";
+  return scopesCover(conn.scopes, c.scopes ?? []) ? "connected" : "disconnected";
 }

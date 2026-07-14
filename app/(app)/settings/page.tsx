@@ -972,8 +972,8 @@ export default function SettingsPage() {
                 <SectionTitle
                   title={t("Identité visuelle", "Visual identity")}
                   desc={t(
-                    "Votre logo, vos couleurs et vos mentions légales sur tout ce qui part chez vos clients : devis, factures, emails.",
-                    "Your logo, colors and legal information on everything sent to your clients: quotes, invoices, emails."
+                    "Votre logo et votre couleur sur tout ce qui part chez vos clients : devis, factures, emails. Vos informations légales restent dans l'onglet Entreprise.",
+                    "Your logo and color on everything sent to your clients: quotes, invoices, emails. Your legal details stay in the Company tab."
                   )}
                 />
                 <BrandSettings tenantId={tenantId} canEdit={roleCan("workspace.settings")} t={t} />

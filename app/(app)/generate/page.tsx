@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase";
 import { getActiveMembership } from "@/lib/tenant";
+import { injectAppBrand } from "@/lib/app-brand";
+import { brandFromTenant, type BrandKit } from "@/lib/brand";
 import { isFounderEmail } from "@/lib/founder";
 import { saveConversation, loadConversation } from "@/lib/conversations";
 import { looksLikePureQuestion, classifyKindHeuristic } from "@/lib/kind-heuristic";
@@ -30,6 +32,13 @@ import { TEMPLATE_PREVIEWS, localizeTemplatePreview } from "@/lib/template-previ
 import { ShareMenu } from "@/components/share-menu";
 import { useT, useLocale } from "@/lib/i18n/context";
 import type { Locale } from "@/lib/i18n/config";
+// ⚠️ Le navigateur LIT la grille, il n'en garde pas de copie. Il en gardait une, et
+// elle avait dérivé sur QUATRE lignes : app 300 (serveur : 600), modification 60
+// (150), fichier 25 (10), annotation 30 (15). Conséquences réelles : l'écran de
+// recharge annonçait le mauvais montant (l'artisan rechargeait, réessayait, se
+// faisait refuser à nouveau), et le pré-contrôle bloquait des gens qui avaient
+// pourtant assez de crédits. Un prix écrit en dur ment tôt ou tard.
+import { ACTION_CREDITS } from "@/lib/plans";
 import {
   Mic,
   Camera,
@@ -357,6 +366,18 @@ export default function GeneratePage() {
   const [kind, setKind] = useState<Kind | null>(null);
   const [docType, setDocType] = useState<string | null>(null);
   const [tenantId, setTenantId] = useState<string | null>(null);
+  // Identité visuelle du tenant : sert à coiffer l'APERÇU du logo de l'artisan.
+  // Jamais « cuite » dans le HTML enregistré — sinon changer de logo laisserait
+  // l'ancien gravé dans toutes les apps déjà créées.
+  const [brandKit, setBrandKit] = useState<BrandKit | null>(null);
+
+  // Ce que montre l'iframe : le HTML généré, coiffé du logo de l'artisan. Le HTML
+  // ENREGISTRÉ, lui, reste vierge de toute URL de logo — l'injection se fait à
+  // l'affichage, pour que changer de logo mette à jour TOUTES les apps d'un coup.
+  const previewHTML = useMemo(
+    () => (brandKit && generatedHTML ? injectAppBrand(generatedHTML, brandKit) : generatedHTML),
+    [generatedHTML, brandKit]
+  );
   const [isAutoFixing, setIsAutoFixing] = useState(false);
   const [autoFixCount, setAutoFixCount] = useState(0);
   const [visualEditMode, setVisualEditMode] = useState(false);
@@ -724,7 +745,17 @@ export default function GeneratePage() {
 
       // Solde total = abonnement (balance) + packs (topup_balance, non expirable).
       if (creditsData) setCredits((creditsData.balance ?? 0) + (creditsData.topup_balance ?? 0));
-      if (membership) setTenantId(membership.tenant_id);
+      if (membership) {
+        setTenantId(membership.tenant_id);
+        // Identité visuelle : l'aperçu doit montrer le logo de l'artisan dès la
+        // première seconde, comme l'app une fois ouverte.
+        const { data: tenant } = await supabase
+          .from("tenants")
+          .select("name, logo_url, company_info")
+          .eq("id", membership.tenant_id)
+          .maybeSingle();
+        if (tenant) setBrandKit(brandFromTenant(tenant));
+      }
     });
   }, []);
 
@@ -1119,7 +1150,7 @@ export default function GeneratePage() {
     setAttached((prev) => prev.filter((_, i) => i !== idx));
 
   // Analyse (1 fichier) ou automatisation par lot (≥2 fichiers).
-  // Miroir des holds serveur : 25 crédits par fichier (réconcilié au coût réel).
+  // Le tarif vient de la grille : lecture_fichier, PAR FICHIER.
   // Persistance Bibliothèque (onglets Rapports / Automatisations) — best-effort.
   const persistReport = async (
     type: "analyse" | "controle",
@@ -1148,7 +1179,7 @@ export default function GeneratePage() {
   const handleFiles = async (question: string) => {
     const isBatch = attached.length > 1;
     const endpoint = isBatch ? "/api/automate" : "/api/analyze";
-    const creditCost = attached.length * 25;
+    const creditCost = attached.length * ACTION_CREDITS.lecture_fichier;
 
     if (!founderAccount && credits !== null && credits < creditCost) {
       setMessages((prev) => [
@@ -1268,7 +1299,7 @@ export default function GeneratePage() {
   const handleAnnotate = async (instruction: string) => {
     const file = attached[0];
     if (!file) return;
-    const creditCost = 30;
+    const creditCost = ACTION_CREDITS.annotation;
     if (!founderAccount && credits !== null && credits < creditCost) {
       setMessages((prev) => [
         ...prev,
@@ -1600,17 +1631,17 @@ export default function GeneratePage() {
       pendingTaskRef.current = null;
     }
 
-    // Miroir des holds serveur (app/api/generate) : 300 création / 60 modification /
-    // 10 question, réconciliés au coût réel. Le serveur aiguille (une question ne
-    // coûte que ~10 crédits) : côté client on ne bloque qu'en dessous du minimum.
+    // Le serveur aiguille (question, document, app…) et c'est lui qui décide du
+    // tarif. Côté client on ne bloque donc qu'en dessous du MINIMUM possible — le
+    // prix d'une question — sans quoi on refuserait des demandes payables.
     const isModification = generatedHTML.length > 0;
 
-    if (!founderAccount && credits !== null && credits < 10) {
+    if (!founderAccount && credits !== null && credits < ACTION_CREDITS.question) {
       setMessages((prev) => [
         ...prev,
         { role: "assistant", content: t("⚠️ Crédits insuffisants. Rechargez votre compte pour continuer.", "⚠️ Not enough credits. Top up your account to continue.") },
       ]);
-      setUpsell({}); // coût exact inconnu à ce stade (question 10 / app 300)
+      setUpsell({}); // le coût exact dépend de l'aiguillage serveur, pas encore connu
       return;
     }
 
@@ -1777,7 +1808,7 @@ export default function GeneratePage() {
     if (!opts?.isCorrection) lastAttemptRef.current = { prompt: apiPrompt, opts };
 
     const isModification = generatedHTML.length > 0;
-    const creditCost = isModification ? 60 : 300;
+    const creditCost = isModification ? ACTION_CREDITS.modification_app : ACTION_CREDITS.application;
     // Nouvelle demande utilisateur → budget de correction workspace remis à neuf.
     if (!opts?.isCorrection) wsCorrectionRef.current = false;
     // Toute nouvelle demande supersède un flux de connexion resté ouvert.
@@ -3230,7 +3261,7 @@ export default function GeneratePage() {
                 <iframe
                   ref={iframeRef}
                   key={`${generatedHTML.slice(0, 50)}-${reloadNonce}`}
-                  srcDoc={generatedHTML}
+                  srcDoc={previewHTML}
                   sandbox="allow-scripts allow-forms allow-same-origin allow-modals"
                   allow="camera; microphone; geolocation; clipboard-write"
                   className={`w-full h-full border-0 ${resizing ? "pointer-events-none" : ""}`}

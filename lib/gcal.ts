@@ -1,16 +1,29 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// GOOGLE AGENDA — lecture de l'agenda de l'utilisateur (« qu'est-ce que j'ai
-// cette semaine ? »). Réutilise le jeton Google géré par lib/gmail.ts (refresh
-// automatique). STRICTEMENT côté serveur. Ne throw jamais : renvoie un résultat
-// typé pour que l'agent réagisse (agenda / pas connecté / scope manquant).
+// GOOGLE AGENDA — le CLIENT Google, et rien d'autre : lire les événements à
+// venir, créer un rendez-vous. Réutilise le jeton Google géré par lib/gmail.ts
+// (refresh automatique). STRICTEMENT côté serveur. Ne throw jamais.
+//
+// Il n'y a PAS de texte destiné à l'utilisateur ici : la mise en forme (« voici
+// ta semaine ») vit dans lib/calendar-format.ts, et le choix du fournisseur dans
+// lib/calendar.ts. Ce fichier a un pendant strictement symétrique côté Microsoft
+// (lib/msgraph.ts) — toute divergence entre les deux se paie en bugs qui ne
+// touchent qu'une moitié des clients.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { getValidGoogleToken } from "./gmail";
 import { createAdminClient } from "./supabase-admin";
+import type { CalEventLite } from "./calendar-format";
 
 const CALENDAR_SCOPES = [
   "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/calendar.readonly",
+  "https://www.googleapis.com/auth/calendar",
+];
+
+// L'écriture exige un scope d'écriture (calendar.events ou calendar), pas
+// calendar.readonly.
+const CALENDAR_WRITE_SCOPES = [
+  "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/calendar",
 ];
 
@@ -19,7 +32,7 @@ const CALENDAR_SCOPES = [
  * (lecture des scopes en base, sans appel réseau) — pour le preflight d'un agent
  * qui transmet le planning. Motif gmailStatus (lib/gmail.ts). Ne throw jamais.
  */
-export async function calendarConnected(tenantId: string, userId: string): Promise<boolean> {
+export async function googleCalendarConnected(tenantId: string, userId: string): Promise<boolean> {
   const admin = createAdminClient();
   if (!admin) return false;
   const { data } = await admin
@@ -33,32 +46,27 @@ export async function calendarConnected(tenantId: string, userId: string): Promi
   return scopes.some((s) => CALENDAR_SCOPES.includes(s));
 }
 
-export type CalReadResult =
-  | { ok: true; summary: string }
+export type GoogleEventsResult =
+  | { ok: true; events: CalEventLite[] }
   | { ok: false; reason: "not_connected" | "missing_scope" | "no_service" | "read_failed"; detail?: string };
 
-type CalEvent = {
+type GoogleEvent = {
   summary?: string;
   location?: string;
   start?: { dateTime?: string; date?: string };
 };
 
-function fmtDay(d: Date): string {
-  return d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
-}
-function fmtTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
-}
-
-/** Lit les événements des `days` prochains jours de l'agenda principal. */
-export async function readAgenda(opts: {
+/** Événements des `days` prochains jours de l'agenda principal. */
+export async function readGoogleEvents(opts: {
   tenantId: string;
   userId: string;
   days?: number;
-}): Promise<CalReadResult> {
+  max?: number;
+}): Promise<GoogleEventsResult> {
   const tok = await getValidGoogleToken(opts.tenantId, opts.userId);
   if (!tok.ok) {
-    const reason = tok.reason === "no_service" ? "no_service" : tok.reason === "not_connected" ? "not_connected" : "read_failed";
+    const reason =
+      tok.reason === "no_service" ? "no_service" : tok.reason === "not_connected" ? "not_connected" : "read_failed";
     return { ok: false, reason, detail: tok.detail };
   }
   if (!tok.scopes.some((s) => CALENDAR_SCOPES.includes(s))) {
@@ -73,120 +81,55 @@ export async function readAgenda(opts: {
     timeMax: end.toISOString(),
     singleEvents: "true",
     orderBy: "startTime",
-    maxResults: "50",
+    maxResults: String(opts.max ?? 80),
   });
-  const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params.toString()}`, {
-    headers: { Authorization: `Bearer ${tok.accessToken}` },
-  });
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params.toString()}`,
+    { headers: { Authorization: `Bearer ${tok.accessToken}` } }
+  );
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
     return { ok: false, reason: "read_failed", detail: `${res.status} ${detail.slice(0, 200)}` };
   }
-  const json = (await res.json().catch(() => ({}))) as { items?: CalEvent[] };
-  const items = json.items ?? [];
-  if (items.length === 0) {
-    return { ok: true, summary: `Rien de prévu dans les ${days} prochains jours. Ton agenda est libre.` };
-  }
 
-  // Grouper par jour, dans l'ordre chronologique.
-  const byDay = new Map<string, string[]>();
-  for (const ev of items) {
-    const startIso = ev.start?.dateTime ?? ev.start?.date;
-    if (!startIso) continue;
-    const key = fmtDay(new Date(startIso));
-    const time = ev.start?.dateTime ? fmtTime(ev.start.dateTime) : "journée";
-    const line = `- ${time} · ${ev.summary ?? "(sans titre)"}${ev.location ? ` (${ev.location})` : ""}`;
-    const arr = byDay.get(key) ?? [];
-    arr.push(line);
-    byDay.set(key, arr);
+  const json = (await res.json().catch(() => ({}))) as { items?: GoogleEvent[] };
+  const events: CalEventLite[] = [];
+  for (const ev of json.items ?? []) {
+    const startISO = ev.start?.dateTime ?? ev.start?.date;
+    if (!startISO) continue;
+    events.push({
+      startISO,
+      allDay: !ev.start?.dateTime,
+      summary: ev.summary,
+      location: ev.location,
+    });
   }
-  const blocks = [...byDay.entries()].map(
-    ([day, lines]) => `${day.charAt(0).toUpperCase() + day.slice(1)}\n${lines.join("\n")}`
-  );
-  return { ok: true, summary: `Voici ton agenda des ${days} prochains jours :\n\n${blocks.join("\n\n")}` };
+  return { ok: true, events };
 }
 
-/**
- * Variante « planning d'équipe » : même lecture, mais texte NEUTRE (pas « ton
- * agenda ») destiné à être transmis aux employés. Renvoie le planning groupé par
- * jour, ou { ok:false } si non lisible (pas connecté / scope / erreur / vide).
- */
-export async function readTeamAgenda(opts: {
-  tenantId: string;
-  userId: string;
-  days?: number;
-}): Promise<{ ok: true; text: string } | { ok: false; reason: string }> {
-  const tok = await getValidGoogleToken(opts.tenantId, opts.userId);
-  if (!tok.ok) return { ok: false, reason: tok.reason ?? "not_connected" };
-  if (!tok.scopes.some((s) => CALENDAR_SCOPES.includes(s))) return { ok: false, reason: "missing_scope" };
-
-  const days = opts.days ?? 7;
-  const now = new Date();
-  const end = new Date(now.getTime() + days * 86_400_000);
-  const params = new URLSearchParams({
-    timeMin: now.toISOString(),
-    timeMax: end.toISOString(),
-    singleEvents: "true",
-    orderBy: "startTime",
-    maxResults: "80",
-  });
-  const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params.toString()}`, {
-    headers: { Authorization: `Bearer ${tok.accessToken}` },
-  });
-  if (!res.ok) return { ok: false, reason: "read_failed" };
-  const json = (await res.json().catch(() => ({}))) as { items?: CalEvent[] };
-  const items = json.items ?? [];
-  if (items.length === 0) return { ok: false, reason: "empty" };
-
-  const byDay = new Map<string, string[]>();
-  for (const ev of items) {
-    const startIso = ev.start?.dateTime ?? ev.start?.date;
-    if (!startIso) continue;
-    const key = fmtDay(new Date(startIso));
-    const time = ev.start?.dateTime ? fmtTime(ev.start.dateTime) : "journée";
-    const line = `- ${time} · ${ev.summary ?? "(sans titre)"}${ev.location ? ` (${ev.location})` : ""}`;
-    const arr = byDay.get(key) ?? [];
-    arr.push(line);
-    byDay.set(key, arr);
-  }
-  const blocks = [...byDay.entries()].map(
-    ([day, lines]) => `${day.charAt(0).toUpperCase() + day.slice(1)}\n${lines.join("\n")}`
-  );
-  return { ok: true, text: blocks.join("\n\n") };
-}
-
-// ── CRÉATION D'ÉVÉNEMENT ──────────────────────────────────────────────────────
-// L'écriture exige un scope d'écriture (calendar.events ou calendar), pas
-// calendar.readonly. Les dates arrivent en heure locale « YYYY-MM-DDTHH:MM:SS »
-// (résolues par le classifieur à partir de la date du jour) et sont envoyées avec
-// timeZone Europe/Paris — Google interprète l'heure locale correctement.
-const CALENDAR_WRITE_SCOPES = [
-  "https://www.googleapis.com/auth/calendar.events",
-  "https://www.googleapis.com/auth/calendar",
-];
-
-export type CalCreateResult =
-  | { ok: true; summary: string; whenLabel: string }
+export type GoogleCreateResult =
+  | { ok: true }
   | { ok: false; reason: "not_connected" | "missing_scope" | "no_service" | "create_failed"; detail?: string };
 
-function whenLabel(startISO: string): string {
-  // « 2026-07-07T14:00:00 » → « 07/07 à 14:00 » (affichage simple, sans piège de fuseau).
-  const m = startISO.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
-  return m ? `${m[3]}/${m[2]} à ${m[4]}h${m[5]}` : startISO;
-}
-
-/** Crée un événement dans l'agenda principal. Ne throw jamais. */
-export async function createEvent(opts: {
+/**
+ * Crée un événement dans l'agenda principal. Ne throw jamais.
+ *
+ * Les dates arrivent en heure locale « YYYY-MM-DDTHH:MM:SS » (résolues par le
+ * classifieur à partir de la date du jour) et partent avec timeZone Europe/Paris :
+ * Google interprète alors l'heure locale correctement.
+ */
+export async function createGoogleEvent(opts: {
   tenantId: string;
   userId: string;
   summary: string;
   startISO: string;
   endISO?: string;
   location?: string;
-}): Promise<CalCreateResult> {
+}): Promise<GoogleCreateResult> {
   const tok = await getValidGoogleToken(opts.tenantId, opts.userId);
   if (!tok.ok) {
-    const reason = tok.reason === "no_service" ? "no_service" : tok.reason === "not_connected" ? "not_connected" : "create_failed";
+    const reason =
+      tok.reason === "no_service" ? "no_service" : tok.reason === "not_connected" ? "not_connected" : "create_failed";
     return { ok: false, reason, detail: tok.detail };
   }
   if (!tok.scopes.some((s) => CALENDAR_WRITE_SCOPES.includes(s))) {
@@ -210,5 +153,5 @@ export async function createEvent(opts: {
     const detail = await res.text().catch(() => "");
     return { ok: false, reason: "create_failed", detail: `${res.status} ${detail.slice(0, 200)}` };
   }
-  return { ok: true, summary: opts.summary, whenLabel: whenLabel(opts.startISO) };
+  return { ok: true };
 }

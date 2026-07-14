@@ -12,7 +12,7 @@ import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase-server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
-import { exchangeCode, OAUTH_STATE_COOKIE } from "@/lib/oauth";
+import { exchangeCode, refreshAccessToken, OAUTH_STATE_COOKIE } from "@/lib/oauth";
 import type { OAuthProvider } from "@/lib/connectors";
 import { getLocale } from "@/lib/i18n/server";
 import { pick, type Locale } from "@/lib/i18n/config";
@@ -111,17 +111,43 @@ export async function GET(req: Request) {
 
     const scopes = [...new Set([...(existing?.scopes ?? []), ...grantedScopes])];
 
+    // Chez Microsoft, le jeton qu'on vient de recevoir ne porte QUE les scopes du
+    // connecteur qu'on vient d'autoriser : il est aveugle aux droits accordés
+    // AVANT (connecter OneDrive écraserait le jeton d'Outlook, et l'envoi de mail
+    // tomberait en 403 avec une carte affichant « Connecté »). Dès qu'il y a des
+    // droits antérieurs, on re-frappe donc le jeton sur l'UNION. Google est
+    // cumulatif (include_granted_scopes) : rien à faire pour lui.
+    let access = tokens.access_token;
+    let refresh = tokens.refresh_token ?? existing?.refresh_token ?? null;
+    let expiresIn = tokens.expires_in;
+    if (expected.provider === "microsoft" && refresh && scopes.length > grantedScopes.length) {
+      try {
+        const merged = await refreshAccessToken({
+          provider: "microsoft",
+          refreshToken: refresh,
+          scopes,
+        });
+        access = merged.access_token;
+        refresh = merged.refresh_token ?? refresh;
+        expiresIn = merged.expires_in;
+      } catch {
+        // Union refusée (droit révoqué côté Azure) → on garde le jeton fraîchement
+        // obtenu. Le prochain refresh, lui, retentera l'union. Mieux vaut un
+        // connecteur qui marche qu'aucun.
+      }
+    }
+
     const { error } = await admin.from("user_connections").upsert(
       {
         tenant_id: membership.tenant_id,
         user_id: user.id,
         provider: expected.provider,
         scopes,
-        access_token: tokens.access_token,
+        access_token: access,
         // Google n'émet pas toujours un nouveau refresh_token : garder l'ancien.
-        refresh_token: tokens.refresh_token ?? existing?.refresh_token ?? null,
-        token_expires_at: tokens.expires_in
-          ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
+        refresh_token: refresh,
+        token_expires_at: expiresIn
+          ? new Date(Date.now() + expiresIn * 1000).toISOString()
           : null,
         updated_at: new Date().toISOString(),
       },

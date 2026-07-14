@@ -18,6 +18,8 @@
 // écrasé par celui du config. Voir lib/security-headers.ts.
 import { createAdminClient } from "@/lib/supabase-admin";
 import { injectPoweredBy, publicNotFoundPage } from "@/lib/powered-by";
+import { injectAppBrand } from "@/lib/app-brand";
+import { getBrandKit } from "@/lib/brand";
 import { injectShareBridge } from "@/lib/share-bridge";
 import { isShareToken, isLinkLive } from "@/lib/share";
 import { renderPublicForm } from "@/lib/public-form";
@@ -92,6 +94,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ token: 
   // /api/share/data avec le token). 'preview' reste sans données (aperçu seul).
   let out = mod.html_content as string;
   if (link.kind === "client") out = injectShareBridge(out, token);
+
+  // Le portail que voit le CLIENT porte le logo de l'artisan, pas un nom en petit.
+  try {
+    out = injectAppBrand(out, await getBrandKit(admin, link.tenant_id));
+  } catch {
+    /* pas d'identité visuelle → l'en-tête garde le nom de l'entreprise */
+  }
 
   return new Response(injectPoweredBy(out), {
     status: 200,

@@ -97,22 +97,41 @@ export const CREDIT_COST_EUR = 0.003;
 // Une fois le débit détaché du coût, il restait à décider ce que vaut une action.
 // Le coût ne peut pas répondre : à 98-99 % de marge, TOUTES les réponses sont
 // rentables. Un crédit se vend 0,0196 € net (49 € TTC / 2 000 cr, hors TVA 21 % et
-// Stripe) ; une app coûte 0,02 à 0,15 € à produire. Le vrai critère, c'est donc :
+// Stripe) ; une app coûte 0,042 € à produire. Le vrai critère, c'est donc :
 // qu'est-ce qui fait monter un client de palier ?
 //
 // Deux architectures étaient possibles : plafonner (N apps, N agents par plan) ou
 // compter (crédits seuls). Le user a tranché pour LES CRÉDITS SEULS : « tout est
-// inclus, seul le volume change » — aucune fonctionnalité bridée, aucun quota. Le
-// compteur est donc le SEUL levier, ce qui l'oblige à dire la vérité sur la valeur :
+// inclus, seul le volume change » — aucune fonctionnalité bridée, aucun quota.
 //
-//   • une app sur mesure vaut 600 cr (14,70 € au tarif d'entrée). Une agence la
-//     facturerait 2 000 €. À 250 cr elle était bradée, et le forfait 49 € en offrait
-//     8 par mois — soit bien plus que ce dont un artisan a besoin dans une vie.
-//   • une question reste à 3 cr : quasi gratuite. C'est elle qui crée l'habitude,
-//     elle ne doit JAMAIS faire hésiter.
+// ── L'APPLICATION EST L'HAMEÇON, L'AGENT EST LE MOTEUR ───────────────────────
 //
-// Ces valeurs sont exactement celles annoncées sur /tarifs (MONTH_MIX) : le panier
-// affiché y est recalculé depuis cette constante et tombe PILE sur le volume vendu.
+// Le compteur étant le seul levier, la question devient : QUEL poste doit le faire
+// tourner ? Une application est un ACHAT : créée une fois, gardée, retouchée. Après
+// le premier mois elle ne consomme plus rien — s'en servir est gratuit (CRUD, devis,
+// factures, PDF, imports : zéro token). Un artisan équipé de ses 4 apps ne rapporte
+// plus jamais un crédit sur ce poste.
+//
+// Un agent, lui, est un ABONNEMENT DANS L'ABONNEMENT. Il tourne tous les matins, il
+// fait un travail que quelqu'un faisait avant, et le jour où on l'éteint la corvée
+// revient. C'est le SEUL poste qui se paie tous les mois, pour toujours.
+//
+// Donc : app bon marché (elle amène le workspace, qui nourrit les agents), agent
+// cher (il est irremplaçable). Une app à 600 cr faisait l'inverse : elle taxait
+// l'acquisition et laissait l'agent — le vrai actif — à 13 € par mois.
+//
+// L'échelle qui en découle, pour un solo avec son courant (10 devis, 15 photos,
+// 50 questions = 600 cr/mois) :
+//   • 1 agent + 1 app  → 2 000 cr → 49 €  (il l'utilise, et il sent le mur)
+//   • 1 agent + usage intensif (35 devis) → 3 000 cr → 89 €
+//   • 2 à 4 agents     → 5 000 cr → 129 € (le solo équipé passe au-dessus de 100 €)
+//
+// Une question reste à 3 cr : quasi gratuite. C'est elle qui crée l'habitude, elle
+// ne doit JAMAIS faire hésiter.
+//
+// Ces valeurs sont exactement celles annoncées sur /tarifs : le bloc « Ce que ça
+// coûte » ET le panier y sont recalculés depuis cette constante, et le panier tombe
+// PILE sur le volume vendu. Un prix écrit en dur ment tôt ou tard.
 // ─────────────────────────────────────────────────────────────────────────────
 export const ACTION_CREDITS = {
   /** Une question au copilote (réponse texte). */
@@ -127,39 +146,52 @@ export const ACTION_CREDITS = {
   annotation: 15,
   /** Un livrable officiel : devis PDF, facture, courrier, PV, attestation. */
   document: 30,
-  /** Un passage d'agent (veille simple, sans rédaction IA). */
-  agent_passage: 10,
-  /** Un passage d'agent qui RÉDIGE (relance, e-mail, rapport). */
-  agent_redaction: 25,
+  /** Un passage d'agent qui LIT chaque nouvelle fiche pour juger si elle mérite une
+   *  alerte. Une alerte par GABARIT (« ce devis n'est pas signé ») ne coûte RIEN :
+   *  aucun token, l'exécuteur ne débite pas. */
+  agent_passage: 20,
+  /** Un passage d'agent qui RÉDIGE (relance client, compte-rendu, rapport).
+   *  ⚠️ C'EST LE PRIX LE PLUS IMPORTANT DU PRODUIT. × 22 jours ouvrés = 1 100 cr/mois,
+   *  soit ~27 € du forfait d'entrée. C'est le seul poste qui revient TOUS LES MOIS,
+   *  donc le seul qui fait monter un client de palier. Le mettre trop bas (25 cr, soit
+   *  550/mois) laissait le forfait à 49 € absorber 3 agents : plus personne ne montait. */
+  agent_redaction: 50,
   /** Un passage d'agent qui AGIT : boucle agentique (outils workspace, jusqu'à 10
    *  itérations × 4 fiches). Coût réel au plafond : 0,165 $ ≈ 0,15 € — 10× une simple
-   *  relance. À 25 crédits la marge tombait à 75 %, sous la cible de 85-88 %. C'est
-   *  aussi l'action la plus VALUABLE du produit (« occupe-t'en » : l'agent fait le
-   *  travail, pas seulement l'alerte) : 50 crédits ≈ 1,22 € → marge ~88 %. */
-  agent_action: 50,
+   *  relance, et de loin l'action la plus coûteuse du produit. C'est aussi la plus
+   *  précieuse (« occupe-t'en » : l'agent FAIT le travail, il n'alerte pas).
+   *  100 crédits ≈ 1,96 € net → marge ~92 %. */
+  agent_action: 100,
   /** Un rendu client (« voilà à quoi ressemblera votre salle de bain »), joint au devis.
    *  Coût réel MESURÉ : 0,0388 $ ≈ 0,036 € — de loin l'action la plus CHÈRE du produit
    *  hors génération d'app (une question au copilote coûte 0,003 $, soit 13× moins).
    *  40 crédits ≈ 0,98 € au tarif d'entrée → marge ~96 %, et le prix reste juste : un
    *  artisan qui MONTRE le résultat gagne le chantier. Ça vaut plus qu'un document. */
   rendu_client: 40,
-  /** Modifier une application existante (≈ 1/4 du prix d'une création). */
-  modification_app: 150,
-  /** Créer une application sur mesure. LE livrable phare du produit — voir l'en-tête. */
-  application: 600,
+  /** Modifier une application existante.
+   *  ⚠️ Le COÛT réel dit l'inverse : une modification coûte PLUS cher qu'une création
+   *  (0,070 $ contre 0,046 $ — on renvoie tout le HTML au modèle à chaque tour). La
+   *  facturer au tiers d'une création est un choix PRODUIT, pas un calcul : un artisan
+   *  qui hésite à retoucher son application finit par l'abandonner. */
+  modification_app: 100,
+  /** Créer une application sur mesure. L'HAMEÇON — voir l'en-tête : une app bon marché
+   *  amène le workspace, et le workspace nourrit les agents, qui sont le vrai moteur.
+   *  300 crédits ≈ 7,35 € au tarif d'entrée. */
+  application: 300,
 } as const;
 
 export type ActionCredit = keyof typeof ACTION_CREDITS;
 
 /** Crédits offerts à la création d'un compte Free (miroir de handle_new_user).
  *
- *  DOIT rester ≥ ACTION_CREDITS.application : le plan Free promet « Créez votre
- *  première application », et le hold est prélevé d'AVANCE. À 300 crédits pour une
- *  app à 600, l'essai gratuit se serait heurté à un mur « crédits insuffisants »
- *  avant d'avoir rien produit — la pire première impression possible.
- *  700 = 1 app (600) + de quoi poser quelques questions ensuite.
- *  ⚠️ Miroir SQL : supabase/migrations/052_signup_credits_700.sql. */
-export const SIGNUP_FREE_CREDITS = 700;
+ *  DOIT rester > ACTION_CREDITS.application : le plan Free promet « Créez votre
+ *  première application », et le hold est prélevé d'AVANCE. Si le solde offert ne
+ *  couvre pas une app, l'essai gratuit se heurte à « crédits insuffisants » avant
+ *  d'avoir rien produit — la pire première impression possible, et rien dans le code
+ *  ne relie les deux constantes.
+ *  400 = 1 app (300) + une trentaine de questions ensuite.
+ *  ⚠️ Miroir SQL : supabase/migrations/053_signup_credits.sql. */
+export const SIGNUP_FREE_CREDITS = 400;
 
 // ── Paliers de crédits ───────────────────────────────────────────────────────
 // Un seul plan payant en self-service (Pro). Toutes les fonctionnalités produit

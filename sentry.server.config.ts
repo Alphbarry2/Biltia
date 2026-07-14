@@ -1,5 +1,10 @@
 // Sentry — runtime Node (route handlers, rendu serveur).
 //
+// ⚠️ RELANCER LE WIZARD SENTRY ÉCRASE CE FICHIER sans prévenir et le remet aux
+// défauts (tracesSampleRate: 1, enableLogs: true, dataCollection vide = TOUT
+// collecté). Après tout `npx @sentry/wizard`, vérifier que les deux imports
+// ci-dessous sont toujours là. C'est déjà arrivé une fois.
+//
 // La politique de collecte vit dans lib/sentry-policy.ts, avec le POURQUOI de
 // chaque restriction. Ne rien durcir ici : ce serait invisible pour les deux
 // autres runtimes (client, edge) et la divergence passerait inaperçue.

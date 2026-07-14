@@ -1,5 +1,9 @@
 // Sentry — runtime Edge (middleware, routes edge).
 //
+// ⚠️ RELANCER LE WIZARD SENTRY ÉCRASE CE FICHIER sans prévenir et le remet aux
+// défauts. Après tout `npx @sentry/wizard`, vérifier que les deux imports
+// ci-dessous sont toujours là. C'est déjà arrivé une fois.
+//
 // Ce runtime exécute middleware.ts, qui lit le cookie de session à chaque
 // requête : c'est précisément l'endroit où une collecte trop large capturerait
 // des jetons. La politique commune (lib/sentry-policy.ts) coupe déjà cookies et

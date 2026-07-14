@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, ChevronDown, ArrowRight, CalendarDays, MessageCircle, Camera, FileText, LayoutGrid, Bot, Gift } from "lucide-react";
+import { Check, ChevronDown, ArrowRight, CalendarDays, MessageCircle, Camera, FileText, LayoutGrid, Bot, Gift, Wrench } from "lucide-react";
 import {
   getPlan, getTier, formatEur, ENTERPRISE, EQUIPE, SIGNUP_FREE_CREDITS,
   tierDisplayMonthlyEur, annualTotalEur, localizeEnterprise, localizeEquipe,
@@ -181,13 +181,15 @@ function PaidCard({ name, includedLine, features, tiers, checkoutPlan, cycle, ba
 //
 // L'ancien panier comptait l'agent à 300/mois : il promettait 2 450 crédits de
 // valeur pour un forfait de 2 000. Un client qui compte ses crédits l'aurait vu.
+// Deux invariants VÉRIFIÉS : chaque panier tombe PILE sur le volume vendu, et aucune
+// ligne ne RÉGRESSE quand on monte de palier (payer plus ne peut pas donner moins).
 const MONTH_MIX: { vol: number; agents: number; apps: number; docs: number; photos: number; questions: number }[] = [
-  // 550 + 600 + 450 + 100 + 300 = 2000
-  { vol: 2000, agents: 1, apps: 1, docs: 15, photos: 10, questions: 100 },
-  // 550 + 1200 + 750 + 200 + 300 = 3000
-  { vol: 3000, agents: 1, apps: 2, docs: 25, photos: 20, questions: 100 },
-  // 1100 + 1800 + 1200 + 300 + 600 = 5000
-  { vol: 5000, agents: 2, apps: 3, docs: 40, photos: 30, questions: 200 },
+  // 1100 + 300 + 300 + 150 + 150 = 2000 — le solo : 1 agent, 1 app, et rien qui dépasse
+  { vol: 2000, agents: 1, apps: 1, docs: 10, photos: 15, questions: 50 },
+  // 1100 + 300 + 1050 + 250 + 300 = 3000 — 1 agent, mais un gros volume de paperasse
+  { vol: 3000, agents: 1, apps: 1, docs: 35, photos: 25, questions: 100 },
+  // 2200 + 600 + 1440 + 280 + 480 = 5000 — le solo ÉQUIPÉ : 2 agents qui tournent
+  { vol: 5000, agents: 2, apps: 2, docs: 48, photos: 28, questions: 160 },
 ];
 
 function MonthTicket() {
@@ -397,12 +399,21 @@ export default function TarifsPage() {
               <div className="glass rounded-[26px] p-6 sm:p-7 h-full">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-[#7C3AED] mb-4">{tr("Ce que ça coûte", "What it costs")}</p>
                 <div className="divide-y divide-black/[0.05]">
+                  {/* PRIX EXACTS, LUS DANS LA GRILLE (lib/plans.ts → ACTION_CREDITS).
+                      Ce bloc affichait des FOURCHETTES écrites en dur (« une application :
+                      150 à 300 »)... pendant que le panier juste à côté en comptait 600 et
+                      que le serveur en débitait 600. La page se contredisait elle-même.
+                      Et une fourchette dit « ça dépend » — or le prix ne dépend justement
+                      plus de rien : ni du modèle, ni de la difficulté de la demande. La
+                      SEULE fourchette légitime est le passage d'agent, parce que là ça
+                      dépend vraiment de ce que l'agent FAIT (alerter, rédiger, agir). */}
                   {[
-                    { Icon: MessageCircle, grad: "from-indigo-500 to-violet-500", label: tr("Une question", "A question"), c: tr("1 à 10", "1 to 10") },
-                    { Icon: Camera, grad: "from-sky-500 to-cyan-500", label: tr("Analyser une photo, un document", "Analyze a photo, a document"), c: tr("5 à 15", "5 to 15") },
-                    { Icon: FileText, grad: "from-violet-500 to-fuchsia-500", label: tr("Un devis, un document", "A quote, a document"), c: tr("30 à 60", "30 to 60") },
-                    { Icon: LayoutGrid, grad: "from-fuchsia-500 to-pink-500", label: tr("Une application", "An app"), c: tr("150 à 300", "150 to 300") },
-                    { Icon: Bot, grad: "from-cyan-500 to-indigo-500", label: tr("Un passage d'agent", "An agent run"), c: tr("10 à 50", "10 to 50") },
+                    { Icon: MessageCircle, grad: "from-indigo-500 to-violet-500", label: tr("Une question", "A question"), c: `${ACTION_CREDITS.question}` },
+                    { Icon: Camera, grad: "from-sky-500 to-cyan-500", label: tr("Lire une photo, un document", "Read a photo, a document"), c: `${ACTION_CREDITS.lecture_fichier}` },
+                    { Icon: FileText, grad: "from-violet-500 to-fuchsia-500", label: tr("Un devis, une facture, un courrier", "A quote, an invoice, a letter"), c: `${ACTION_CREDITS.document}` },
+                    { Icon: LayoutGrid, grad: "from-fuchsia-500 to-pink-500", label: tr("Une application sur mesure", "A custom app"), c: `${ACTION_CREDITS.application}` },
+                    { Icon: Wrench, grad: "from-amber-500 to-orange-500", label: tr("La modifier", "Change it"), c: `${ACTION_CREDITS.modification_app}` },
+                    { Icon: Bot, grad: "from-cyan-500 to-indigo-500", label: tr("Un passage d'agent", "An agent run"), c: tr(`0 à ${ACTION_CREDITS.agent_action}`, `0 to ${ACTION_CREDITS.agent_action}`) },
                   ].map((r) => (
                     <div key={r.label} className="flex items-center gap-3.5 py-4 first:pt-0 last:pb-0">
                       <span className={`grid h-10 w-10 flex-shrink-0 place-items-center rounded-xl bg-gradient-to-br ${r.grad} text-white shadow-[0_6px_16px_rgba(139,92,246,0.28)]`}>
@@ -413,6 +424,14 @@ export default function TarifsPage() {
                     </div>
                   ))}
                 </div>
+                {/* La seule fourchette du produit, et elle s'EXPLIQUE : le prix suit ce
+                    que l'agent fait, pas une « complexité » devinée à sa création. */}
+                <p className="mt-4 pt-4 border-t border-black/[0.05] text-[12.5px] leading-relaxed text-[#6E6E7A]">
+                  {tr(
+                    `Un agent qui vous alerte ne coûte rien. Il coûte ${ACTION_CREDITS.agent_passage} crédits s'il lit chaque fiche pour juger, ${ACTION_CREDITS.agent_redaction} s'il rédige (une relance, un compte-rendu), et ${ACTION_CREDITS.agent_action} s'il agit lui-même dans votre workspace. Le reste — saisir, facturer, importer, exporter — est gratuit.`,
+                    `An agent that just alerts you costs nothing. It costs ${ACTION_CREDITS.agent_passage} credits if it reads every record to judge, ${ACTION_CREDITS.agent_redaction} if it writes (a follow-up, a report), and ${ACTION_CREDITS.agent_action} if it acts in your workspace itself. Everything else — entering, invoicing, importing, exporting — is free.`
+                  )}
+                </p>
               </div>
             </Reveal>
 

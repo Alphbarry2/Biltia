@@ -1,84 +1,57 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // BRAND KIT — l'identité visuelle de l'ARTISAN (pas celle de Biltia).
 //
-// Source unique de vérité pour tout ce qui SORT vers un client : devis, facture,
-// email d'accompagnement, page publique « Voir et accepter ». Un devis est la
-// vitrine de l'artisan : il porte SON logo, SES couleurs, SES mentions légales.
+// VOLONTAIREMENT MINIMAL : logo, UNE couleur, téléphone, email. Rien d'autre.
+// C'est une identité visuelle, pas une fiche d'entreprise — et surtout, aucun de
+// ces quatre champs n'est propre à un pays.
+//
+// Tout ce qui est LÉGAL (raison sociale, adresse, SIRET / n° BCE, TVA) vit déjà
+// dans Réglages → Entreprise, qui s'adapte au pays. Les documents vont l'y
+// chercher : on ne redemande jamais à l'artisan ce qu'il a déjà saisi, et on
+// n'invente surtout pas d'obligations françaises pour un artisan belge.
+//
 // Le badge « Powered by Biltia » reste sur l'INTERFACE (apps, portails) et ne
-// touche JAMAIS un document commercial.
+// touche JAMAIS un document commercial : le devis est la vitrine de l'artisan.
 //
 // Stockage :
-//   • tenants.logo_url          → URL publique du logo (bucket `brand`, migr. 047)
-//   • tenants.company_info.brand → couleurs + coordonnées + mentions (JSONB libre)
-//   • tenants.company_info.*     → siret/vat/address déjà saisis dans Réglages
+//   • tenants.logo_url           → URL publique du logo (bucket `brand`, migr. 047)
+//   • tenants.company_info.brand → { primary, phone, email }
+//   • tenants.company_info.*     → pays / siret / vat / address (onglet Entreprise)
 //   • tenants.name               → raison sociale
 //
-// Champ vide = champ ABSENT du document. On n'invente jamais un SIRET ni une
-// assurance décennale : un document faux est pire qu'un document incomplet.
+// Champ vide = champ ABSENT du document. On n'invente jamais un SIRET : un
+// document faux est pire qu'un document incomplet.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-/** Couleurs par défaut : NOIR ET BLANC. Un devis monochrome est toujours élégant ;
- *  un devis mal colorié ne l'est jamais. La couleur n'apparaît que si l'artisan
- *  l'a choisie — jamais un violet Biltia posé d'office sur SON document. */
+/** Couleur par défaut : NOIR. Un devis monochrome est toujours élégant ; un devis
+ *  mal colorié ne l'est jamais. La couleur n'apparaît que si l'artisan l'a choisie
+ *  — jamais un violet Biltia posé d'office sur SON document. */
 export const DEFAULT_PRIMARY = "#111114";
-export const DEFAULT_ACCENT = "#111114";
 
 export type BrandKit = {
   /** Raison sociale (tenants.name, ou company_info.company_name s'il diffère). */
   entreprise: string;
   /** URL publique du logo (bucket `brand`). Null → on retombe sur le nom en toutes lettres. */
   logoUrl: string | null;
-  /** Couleur principale : bandeau, titres, ligne de total. */
+  /** LA couleur de l'entreprise : bandeau, titres, total. Une seule — deux, c'est
+   *  déjà une charte graphique, et personne ne sait quoi mettre dans la seconde. */
   primary: string;
-  /** Couleur secondaire : liserés, badges, boutons. */
-  accent: string;
 
-  // ── Coordonnées ────────────────────────────────────────────────────────────
-  address: string;
+  /** Coordonnées affichées en tête de document et en signature d'email. */
   phone: string;
   email: string;
-  website: string;
-  country: "FR" | "BE";
 
-  // ── Mentions légales (FR/BE) ───────────────────────────────────────────────
+  // ── Repris de l'onglet Entreprise (pas ressaisis ici) ──────────────────────
+  address: string;
+  /** SIRET (FR) ou numéro BCE (BE) — même champ, libellé différent selon le pays. */
   siret: string;
   vat: string;
-  rcs: string;
-  ape: string;
-  capital: string;
-  /** Assurance décennale — obligatoire sur un devis BTP en France. */
-  assurance: string;
-
-  // ── Paiement ───────────────────────────────────────────────────────────────
-  iban: string;
-  bic: string;
-  /** Conditions de règlement (« Acompte 30 % à la commande, solde à réception »). */
-  conditionsPaiement: string;
-
-  /** Pied de page libre (une ligne, sous les mentions). */
-  footer: string;
+  country: "FR" | "BE";
 };
 
-type BrandJson = Partial<
-  Record<
-    | "primary"
-    | "accent"
-    | "phone"
-    | "email"
-    | "website"
-    | "rcs"
-    | "ape"
-    | "capital"
-    | "assurance"
-    | "iban"
-    | "bic"
-    | "conditions_paiement"
-    | "footer",
-    unknown
-  >
->;
+type BrandJson = Partial<Record<"primary" | "phone" | "email", unknown>>;
 
 type CompanyInfo = {
   company_name?: unknown;
@@ -90,6 +63,12 @@ type CompanyInfo = {
 };
 
 const HEX = /^#[0-9a-f]{6}$/i;
+
+/** Le libellé de l'identifiant d'entreprise dépend du PAYS. Un artisan belge n'a
+ *  pas de SIRET, il a un numéro BCE. Une seule fonction, utilisée partout. */
+export function companyIdLabel(country: "FR" | "BE"): string {
+  return country === "BE" ? "N° BCE" : "SIRET";
+}
 
 /** Normalise une couleur saisie (#abc, ABCDEF, #ABCDEF) en #rrggbb minuscule.
  *  Toute saisie douteuse retombe sur le défaut : jamais de CSS cassé dans un PDF. */
@@ -125,7 +104,7 @@ export function readableOn(hex: string): string {
   return luminance(hex) > 0.55 ? "#111114" : "#FFFFFF";
 }
 
-/** Version très pâle d'une couleur (fond de tableau, bandeau de totaux). */
+/** Version très pâle d'une couleur (fond du bandeau de totaux). */
 export function tintOf(hex: string, alpha = 0.08): string {
   const c = hex.replace("#", "");
   const mix = (i: number) => {
@@ -144,42 +123,26 @@ export function brandFromTenant(row: {
 }): BrandKit {
   const info = (row.company_info ?? {}) as CompanyInfo;
   const brand = ((info.brand ?? {}) as BrandJson) || {};
-  const country = str(info.country) === "BE" ? "BE" : "FR";
 
   return {
     entreprise: str(info.company_name, 120) || str(row.name, 120),
     logoUrl: typeof row.logo_url === "string" && row.logo_url.startsWith("http") ? row.logo_url : null,
     primary: normalizeHex(brand.primary, DEFAULT_PRIMARY),
-    accent: normalizeHex(brand.accent, DEFAULT_ACCENT),
 
-    address: str(info.address, 240),
     phone: str(brand.phone, 40),
     email: str(brand.email, 120),
-    website: str(brand.website, 120),
-    country,
 
+    address: str(info.address, 240),
     siret: str(info.siret, 40),
     vat: str(info.vat, 40),
-    rcs: str(brand.rcs, 80),
-    ape: str(brand.ape, 20),
-    capital: str(brand.capital, 40),
-    assurance: str(brand.assurance, 240),
-
-    iban: str(brand.iban, 40),
-    bic: str(brand.bic, 20),
-    conditionsPaiement: str(brand.conditions_paiement, 400),
-
-    footer: str(brand.footer, 240),
+    country: str(info.country) === "BE" ? "BE" : "FR",
   };
 }
 
 /** Lit le Brand Kit du tenant. `client` peut être un client RLS (utilisateur
  *  connecté) OU le client service_role (page publique où le visiteur n'a pas de
  *  session). Ne throw jamais : un tenant sans fiche renvoie un kit vide mais valide. */
-export async function getBrandKit(
-  client: SupabaseClient,
-  tenantId: string
-): Promise<BrandKit> {
+export async function getBrandKit(client: SupabaseClient, tenantId: string): Promise<BrandKit> {
   const { data } = await client
     .from("tenants")
     .select("name, logo_url, company_info")
@@ -189,17 +152,16 @@ export async function getBrandKit(
   return brandFromTenant((data as { name?: string; logo_url?: string; company_info?: unknown } | null) ?? {});
 }
 
-/** Ce qui MANQUE pour un document commercial irréprochable. Sert à afficher un
- *  rappel honnête dans les Réglages plutôt que de laisser partir un devis nu.
- *  L'assurance décennale n'est réclamée qu'en France (obligation légale FR). */
+/** Ce qui manque pour que le document ne parte pas nu. On ne réclame que ce qui
+ *  vaut pour LES DEUX pays : l'identifiant d'entreprise change de nom, pas de
+ *  nature. Aucune obligation franco-française n'est imposée à un artisan belge. */
 export function brandGaps(kit: BrandKit): string[] {
   const gaps: string[] = [];
   if (!kit.logoUrl) gaps.push("logo");
   if (!kit.entreprise) gaps.push("raison sociale");
   if (!kit.address) gaps.push("adresse");
-  if (!kit.siret) gaps.push(kit.country === "BE" ? "numéro BCE" : "SIRET");
+  if (!kit.siret) gaps.push(companyIdLabel(kit.country));
   if (!kit.vat) gaps.push("numéro de TVA");
-  if (kit.country === "FR" && !kit.assurance) gaps.push("assurance décennale");
   return gaps;
 }
 

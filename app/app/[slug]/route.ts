@@ -4,7 +4,10 @@
 // next.config.ts (règle /app/:slug*), PAS ici : un en-tête de route est écrasé
 // par celui du config. Voir lib/security-headers.ts.
 import { createClient } from "@/lib/supabase-server";
+import { createAdminClientUntyped } from "@/lib/supabase-admin";
 import { injectPoweredBy, publicNotFoundPage } from "@/lib/powered-by";
+import { injectAppBrand } from "@/lib/app-brand";
+import { getBrandKit } from "@/lib/brand";
 import { getLocale } from "@/lib/i18n/server";
 import { pick } from "@/lib/i18n/config";
 
@@ -26,7 +29,7 @@ export async function GET(
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("modules")
-    .select("html_content, is_public, name, status")
+    .select("html_content, is_public, name, status, tenant_id")
     .eq("slug", slug)
     .maybeSingle();
 
@@ -47,7 +50,20 @@ export async function GET(
     );
   }
 
-  return new Response(injectPoweredBy(data.html_content), {
+  // Le logo de l'artisan est posé AU MOMENT DE SERVIR (comme le badge Biltia) :
+  // les apps déjà créées en profitent sans être régénérées. Le visiteur est anonyme
+  // ici → lecture de la marque en service_role, bornée au tenant de l'app.
+  let html = data.html_content;
+  const admin = createAdminClientUntyped();
+  if (admin && data.tenant_id) {
+    try {
+      html = injectAppBrand(html, await getBrandKit(admin, data.tenant_id));
+    } catch {
+      /* pas d'identité visuelle → l'en-tête garde le nom de l'entreprise */
+    }
+  }
+
+  return new Response(injectPoweredBy(html), {
     status: 200,
     headers: {
       "content-type": "text/html; charset=utf-8",

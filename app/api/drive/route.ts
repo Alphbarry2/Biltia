@@ -14,7 +14,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase-server";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
-import { archiveToDrive, driveStatus } from "@/lib/gdrive";
+import { archiveDocument, archiveStatus } from "@/lib/file-archive";
 import { getLocale } from "@/lib/i18n/server";
 import { pick } from "@/lib/i18n/config";
 
@@ -66,7 +66,7 @@ export async function GET() {
   const ctx = await requireContext();
   if ("error" in ctx) return ctx.error;
 
-  const status = await driveStatus(ctx.tenantId, ctx.user.id);
+  const status = await archiveStatus(ctx.tenantId, ctx.user.id);
   return NextResponse.json(status);
 }
 
@@ -106,7 +106,7 @@ export async function POST(req: Request) {
   const rawFolder = form.get("folder");
   const folder = typeof rawFolder === "string" && rawFolder.trim() ? rawFolder.trim() : null;
 
-  const result = await archiveToDrive({
+  const result = await archiveDocument({
     tenantId: ctx.tenantId,
     userId: ctx.user.id,
     filename: file.name || "document.pdf",
@@ -118,16 +118,18 @@ export async function POST(req: Request) {
   if (!result.ok) {
     // Chaque échec dit quoi FAIRE. « Échec du classement » n'aide personne :
     // l'utilisateur doit savoir s'il lui manque une connexion ou une autorisation.
+    // Aucun fournisseur n'est nommé : le classeur peut être Drive OU OneDrive, et
+    // envoyer un artisan sous Microsoft « reconnecter Google Drive » le bloquerait.
     const messages: Record<typeof result.reason, string> = {
       not_connected: pick(
         locale,
-        "Google Drive n'est pas connecté. Allez dans Connecteurs pour l'activer.",
-        "Google Drive isn't connected. Go to Connectors to enable it."
+        "Aucun classeur connecté. Allez dans Connecteurs pour activer Google Drive ou OneDrive.",
+        "No filing space connected. Go to Connectors to enable Google Drive or OneDrive."
       ),
       missing_scope: pick(
         locale,
-        "Biltia n'a pas encore l'autorisation d'écrire dans votre Drive. Reconnectez Google Drive depuis Connecteurs.",
-        "Biltia doesn't have permission to write to your Drive yet. Reconnect Google Drive from Connectors."
+        "Biltia n'a pas encore l'autorisation de classer vos documents. Reconnectez votre Drive (Google Drive ou OneDrive) depuis Connecteurs.",
+        "Biltia doesn't have permission to file your documents yet. Reconnect your drive (Google Drive or OneDrive) from Connectors."
       ),
       no_service: pick(
         locale,
@@ -136,8 +138,8 @@ export async function POST(req: Request) {
       ),
       drive_failed: pick(
         locale,
-        "Google Drive a refusé le dépôt. Réessayez dans un instant.",
-        "Google Drive rejected the upload. Try again in a moment."
+        "Votre Drive a refusé le dépôt. Réessayez dans un instant.",
+        "Your drive rejected the upload. Try again in a moment."
       ),
     };
     const status = result.reason === "no_service" ? 503 : result.reason === "drive_failed" ? 502 : 409;
@@ -146,6 +148,7 @@ export async function POST(req: Request) {
 
   return NextResponse.json({
     ok: true,
+    provider: result.provider,
     url: result.url,
     folder: result.folder,
     updated: result.updated,

@@ -34,7 +34,7 @@ import { isRichV2, evaluateConditions, interpolateParams } from "./agent-workflo
 import { resolveRecipientsV2 } from "./agent-recipients";
 import { executeOperation, type OpContext } from "./agent-operations";
 import { evaluateRelativeDate } from "./agent-triggers";
-import { readTeamAgenda } from "./gcal";
+import { readTeamAgenda } from "./calendar";
 import { buildDocumentSystemPrompt, injectDocumentRuntime } from "./document-generator";
 import { sendOutboundEmail, canSendOutbound } from "./outbound-email";
 import { canSendSms } from "./outbound-sms";

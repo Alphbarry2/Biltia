@@ -1,14 +1,17 @@
 "use client";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// IDENTITÉ VISUELLE — l'artisan pose son logo, ses couleurs, ses mentions.
+// IDENTITÉ VISUELLE — logo, UNE couleur, téléphone, email. Quatre champs.
 //
-// Ce n'est pas de la décoration : ces éléments partent sur ses DEVIS et ses
-// FACTURES, chez ses clients. D'où l'aperçu en direct — il doit voir ce que son
-// client verra, avant d'envoyer, pas après.
+// C'est une identité visuelle, pas une fiche d'entreprise : le SIRET / n° BCE,
+// la TVA et l'adresse sont déjà dans l'onglet Entreprise (qui s'adapte au pays)
+// et les documents vont les y chercher. On ne redemande rien.
+//
+// Règle tenue dans l'aperçu : tout ce qu'on demande ici SE VOIT sur le document.
+// Un champ qu'on saisit sans jamais le retrouver nulle part n'a pas lieu d'être.
 //
 // Écriture : le logo passe par /api/brand/logo (bucket protégé, service_role) ;
-// le reste va dans tenants.company_info.brand via RLS (owner/admin).
+// la couleur et les coordonnées vont dans tenants.company_info.brand (RLS owner/admin).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -26,99 +29,23 @@ type Props = {
 
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
 
-/** Les champs libres du Brand Kit, tels que stockés dans company_info.brand. */
-type BrandForm = {
-  primary: string;
-  accent: string;
-  phone: string;
-  email: string;
-  website: string;
-  rcs: string;
-  ape: string;
-  capital: string;
-  assurance: string;
-  iban: string;
-  bic: string;
-  conditions_paiement: string;
-  footer: string;
-};
+type BrandForm = { primary: string; phone: string; email: string };
 
-const EMPTY: BrandForm = {
-  primary: DEFAULT_PRIMARY,
-  accent: DEFAULT_PRIMARY,
-  phone: "",
-  email: "",
-  website: "",
-  rcs: "",
-  ape: "",
-  capital: "",
-  assurance: "",
-  iban: "",
-  bic: "",
-  conditions_paiement: "",
-  footer: "",
-};
-
-function Field({
-  label,
-  value,
-  onChange,
-  placeholder,
-  disabled,
-  hint,
-  textarea,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  disabled?: boolean;
-  hint?: string;
-  textarea?: boolean;
-}) {
-  const cls =
-    "mt-1.5 w-full rounded-xl border border-[#ECECF0] bg-white px-3.5 py-2.5 text-sm text-[#0A0A0A] outline-none transition placeholder:text-[#B4B4BE] focus:border-[#6E56CF] disabled:bg-[#F6F6F8] disabled:text-[#9A9AA6]";
-  return (
-    <label className="block">
-      <span className="text-xs font-semibold text-[#63636B]">{label}</span>
-      {textarea ? (
-        <textarea
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          disabled={disabled}
-          rows={2}
-          className={cls}
-        />
-      ) : (
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          disabled={disabled}
-          className={cls}
-        />
-      )}
-      {hint ? <span className="mt-1 block text-[11px] text-[#9A9AA6]">{hint}</span> : null}
-    </label>
-  );
-}
+/** Quelques couleurs sûres, pour l'artisan qui n'a pas envie d'ouvrir un
+ *  sélecteur de couleur — le cas le plus fréquent. Le noir reste le défaut. */
+const PRESETS = ["#111114", "#0B4F6C", "#1F6F43", "#B54708", "#8B2942", "#3B3A6B"];
 
 export default function BrandSettings({ tenantId, canEdit, t }: Props) {
   const fileRef = useRef<HTMLInputElement | null>(null);
 
-  const [form, setForm] = useState<BrandForm>(EMPTY);
+  const [form, setForm] = useState<BrandForm>({ primary: DEFAULT_PRIMARY, phone: "", email: "" });
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
-  const [companyName, setCompanyName] = useState("");
   const [kit, setKit] = useState<BrandKit | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
-
-  const set = <K extends keyof BrandForm>(k: K, v: BrandForm[K]) => setForm((f) => ({ ...f, [k]: v }));
 
   const load = useCallback(async () => {
     if (!tenantId) return;
@@ -131,25 +58,13 @@ export default function BrandSettings({ tenantId, canEdit, t }: Props) {
 
     const row = (data ?? {}) as { name?: string; logo_url?: string | null; company_info?: unknown };
     const b = ((row.company_info as { brand?: Record<string, unknown> } | null)?.brand ?? {}) as Record<string, unknown>;
-    const s = (k: string) => (typeof b[k] === "string" ? (b[k] as string) : "");
 
     setForm({
       primary: normalizeHex(b.primary, DEFAULT_PRIMARY),
-      accent: normalizeHex(b.accent, DEFAULT_PRIMARY),
-      phone: s("phone"),
-      email: s("email"),
-      website: s("website"),
-      rcs: s("rcs"),
-      ape: s("ape"),
-      capital: s("capital"),
-      assurance: s("assurance"),
-      iban: s("iban"),
-      bic: s("bic"),
-      conditions_paiement: s("conditions_paiement"),
-      footer: s("footer"),
+      phone: typeof b.phone === "string" ? b.phone : "",
+      email: typeof b.email === "string" ? b.email : "",
     });
     setLogoUrl(row.logo_url ?? null);
-    setCompanyName(row.name ?? "");
     setKit(brandFromTenant(row));
     setLoading(false);
   }, [tenantId]);
@@ -184,7 +99,6 @@ export default function BrandSettings({ tenantId, canEdit, t }: Props) {
         return;
       }
       setLogoUrl(json.logoUrl);
-      setKit((k) => (k ? { ...k, logoUrl: json.logoUrl! } : k));
       setMsg({ kind: "ok", text: t("Logo enregistré.", "Logo saved.") });
     } catch {
       setMsg({ kind: "err", text: t("Envoi impossible.", "Upload failed.") });
@@ -204,7 +118,6 @@ export default function BrandSettings({ tenantId, canEdit, t }: Props) {
         return;
       }
       setLogoUrl(null);
-      setKit((k) => (k ? { ...k, logoUrl: null } : k));
     } finally {
       setUploading(false);
     }
@@ -216,15 +129,15 @@ export default function BrandSettings({ tenantId, canEdit, t }: Props) {
     setMsg(null);
     try {
       const supabase = createClient();
-      // On refusionne le JSON complet : company_info porte aussi la fiche
-      // entreprise (SIRET, TVA, adresse) et les réponses d'inscription.
+      // On refusionne le JSON COMPLET : company_info porte aussi la fiche
+      // entreprise (pays, SIRET/BCE, TVA, adresse) et les réponses d'inscription.
       const { data } = await supabase.from("tenants").select("company_info").eq("id", tenantId).maybeSingle();
       const full = ((data?.company_info ?? {}) as Record<string, unknown>) || {};
 
-      const brand: BrandForm = {
-        ...form,
+      const brand = {
         primary: normalizeHex(form.primary, DEFAULT_PRIMARY),
-        accent: normalizeHex(form.accent, DEFAULT_PRIMARY),
+        phone: form.phone.trim(),
+        email: form.email.trim(),
       };
 
       const { error } = await supabase
@@ -249,20 +162,19 @@ export default function BrandSettings({ tenantId, canEdit, t }: Props) {
     }
   }
 
-  if (loading) {
-    return <div className="h-40 animate-pulse rounded-2xl bg-[#F6F6F8]" />;
-  }
+  if (loading) return <div className="h-40 animate-pulse rounded-2xl bg-[#F6F6F8]" />;
 
   const primary = normalizeHex(form.primary, DEFAULT_PRIMARY);
-  const accent = normalizeHex(form.accent, DEFAULT_PRIMARY);
   const onPrimary = readableOn(primary);
-  // Le kit vient de la BASE (donc les champs déjà enregistrés), mais on y injecte
-  // les couleurs EN COURS d'édition pour que l'aperçu réagisse au color-picker.
+  const entreprise = kit?.entreprise ?? "";
   const gaps = kit ? brandGaps({ ...kit, logoUrl }) : [];
+  const inputCls =
+    "mt-1.5 w-full rounded-xl border border-[#ECECF0] bg-white px-3.5 py-2.5 text-sm text-[#0A0A0A] outline-none transition placeholder:text-[#B4B4BE] focus:border-[#6E56CF] disabled:bg-[#F6F6F8] disabled:text-[#9A9AA6]";
 
   return (
     <div className="space-y-5">
-      {/* Aperçu : ce que le client verra en haut du devis */}
+      {/* Aperçu : le haut du devis tel que le client le recevra. Tout ce qu'on
+          demande ci-dessous s'y retrouve — logo, couleur, téléphone, email. */}
       <div className="overflow-hidden rounded-2xl border border-[#ECECF0] bg-white">
         <div style={{ background: primary }} className="h-1.5 w-full" />
         <div className="flex flex-wrap items-start justify-between gap-3 px-5 pt-5">
@@ -270,10 +182,11 @@ export default function BrandSettings({ tenantId, canEdit, t }: Props) {
             // eslint-disable-next-line @next/next/no-img-element
             <img src={logoUrl} alt="" className="h-10 w-auto max-w-[150px] object-contain" />
           ) : (
-            <div className="text-base font-extrabold text-[#0A0A0A]">{companyName || "—"}</div>
+            <div className="text-base font-extrabold text-[#0A0A0A]">{entreprise || "—"}</div>
           )}
           <div className="text-right text-[11px] leading-relaxed text-[#63636B]">
-            {logoUrl && companyName ? <div className="font-bold text-[#0A0A0A]">{companyName}</div> : null}
+            {logoUrl && entreprise ? <div className="font-bold text-[#0A0A0A]">{entreprise}</div> : null}
+            {kit?.address ? <div>{kit.address}</div> : null}
             {form.phone || form.email ? <div>{[form.phone, form.email].filter(Boolean).join(" · ")}</div> : null}
           </div>
         </div>
@@ -284,10 +197,7 @@ export default function BrandSettings({ tenantId, canEdit, t }: Props) {
             </div>
             <div className="text-sm font-bold text-[#0A0A0A]">D-2026-001</div>
           </div>
-          <div
-            className="text-[10px] font-bold uppercase tracking-widest"
-            style={{ color: accent }}
-          >
+          <div className="text-[10px] font-bold uppercase tracking-widest text-[#B4B4BE]">
             {t("Aperçu", "Preview")}
           </div>
         </div>
@@ -296,7 +206,9 @@ export default function BrandSettings({ tenantId, canEdit, t }: Props) {
             className="flex items-center justify-between rounded-lg px-4 py-2.5"
             style={{ background: primary, color: onPrimary }}
           >
-            <span className="text-[10px] font-bold uppercase tracking-widest">{t("Total TTC", "Total incl. VAT")}</span>
+            <span className="text-[10px] font-bold uppercase tracking-widest">
+              {t("Total TTC", "Total incl. VAT")}
+            </span>
             <span className="text-base font-extrabold">7 686,00 €</span>
           </div>
         </div>
@@ -309,8 +221,8 @@ export default function BrandSettings({ tenantId, canEdit, t }: Props) {
             {t("Il manque sur vos documents : ", "Missing on your documents: ")}
             <strong>{gaps.join(", ")}</strong>.{" "}
             {t(
-              "Un devis incomplet se défend mal auprès d'un client.",
-              "An incomplete quote is hard to defend with a client."
+              "Le reste se remplit dans l'onglet Entreprise.",
+              "The rest is filled in the Company tab."
             )}
           </p>
         </div>
@@ -320,10 +232,7 @@ export default function BrandSettings({ tenantId, canEdit, t }: Props) {
       <div className="rounded-2xl border border-[#ECECF0] bg-white p-5">
         <h3 className="text-sm font-bold text-[#0A0A0A]">{t("Logo", "Logo")}</h3>
         <p className="mt-1 text-[13px] text-[#63636B]">
-          {t(
-            "PNG ou JPEG, 2 Mo maximum. Il apparaît en haut de vos devis, factures et emails.",
-            "PNG or JPEG, 2 MB max. It appears at the top of your quotes, invoices and emails."
-          )}
+          {t("PNG ou JPEG, 2 Mo maximum.", "PNG or JPEG, 2 MB max.")}
         </p>
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <input
@@ -346,7 +255,7 @@ export default function BrandSettings({ tenantId, canEdit, t }: Props) {
             {uploading
               ? t("Envoi…", "Uploading…")
               : logoUrl
-                ? t("Remplacer le logo", "Replace logo")
+                ? t("Remplacer", "Replace")
                 : t("Choisir un logo", "Choose a logo")}
           </button>
           {logoUrl ? (
@@ -363,113 +272,74 @@ export default function BrandSettings({ tenantId, canEdit, t }: Props) {
         </div>
       </div>
 
-      {/* Couleurs */}
+      {/* Couleur — une seule */}
       <div className="rounded-2xl border border-[#ECECF0] bg-white p-5">
-        <h3 className="text-sm font-bold text-[#0A0A0A]">{t("Couleurs", "Colors")}</h3>
+        <h3 className="text-sm font-bold text-[#0A0A0A]">{t("Couleur", "Color")}</h3>
         <p className="mt-1 text-[13px] text-[#63636B]">
           {t(
-            "Par défaut, vos documents sont en noir et blanc — toujours élégant. Choisissez vos couleurs pour les personnaliser.",
-            "By default your documents are black and white — always elegant. Pick your colors to personalize them."
+            "Par défaut vos documents sont en noir — toujours élégant.",
+            "By default your documents are black — always elegant."
+          )}
+        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-2.5">
+          {PRESETS.map((c) => (
+            <button
+              key={c}
+              type="button"
+              disabled={!canEdit}
+              onClick={() => setForm((f) => ({ ...f, primary: c }))}
+              aria-label={c}
+              className={`h-9 w-9 rounded-full transition disabled:opacity-50 ${
+                primary === c ? "ring-2 ring-[#0A0A0A] ring-offset-2" : "hover:scale-110"
+              }`}
+              style={{ background: c }}
+            />
+          ))}
+          <label className="ml-1 inline-flex items-center gap-2">
+            <span className="text-[13px] font-semibold text-[#63636B]">{t("Autre", "Other")}</span>
+            <input
+              type="color"
+              value={primary}
+              disabled={!canEdit}
+              onChange={(e) => setForm((f) => ({ ...f, primary: e.target.value }))}
+              className="h-9 w-11 cursor-pointer rounded-lg border border-[#ECECF0] bg-white p-1 disabled:opacity-50"
+            />
+          </label>
+        </div>
+      </div>
+
+      {/* Coordonnées — les deux seules qui s'affichent sur le document */}
+      <div className="rounded-2xl border border-[#ECECF0] bg-white p-5">
+        <h3 className="text-sm font-bold text-[#0A0A0A]">{t("Contact", "Contact")}</h3>
+        <p className="mt-1 text-[13px] text-[#63636B]">
+          {t(
+            "Affiché en haut de vos documents et sous vos emails, pour que le client puisse vous joindre.",
+            "Shown at the top of your documents and under your emails, so the client can reach you."
           )}
         </p>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          {([
-            ["primary", t("Couleur principale", "Primary color"), t("Bandeau, titres, total TTC.", "Band, titles, total.")],
-            ["accent", t("Couleur secondaire", "Accent color"), t("Intitulés, liserés.", "Labels, accents.")],
-          ] as const).map(([key, label, hint]) => (
-            <div key={key}>
-              <span className="text-xs font-semibold text-[#63636B]">{label}</span>
-              <div className="mt-1.5 flex items-center gap-2.5">
-                <input
-                  type="color"
-                  value={normalizeHex(form[key], DEFAULT_PRIMARY)}
-                  disabled={!canEdit}
-                  onChange={(e) => set(key, e.target.value)}
-                  className="h-10 w-12 shrink-0 cursor-pointer rounded-lg border border-[#ECECF0] bg-white p-1 disabled:opacity-50"
-                />
-                <input
-                  type="text"
-                  value={form[key]}
-                  disabled={!canEdit}
-                  onChange={(e) => set(key, e.target.value)}
-                  placeholder="#111114"
-                  className="w-full rounded-xl border border-[#ECECF0] bg-white px-3.5 py-2.5 font-mono text-sm text-[#0A0A0A] outline-none transition focus:border-[#6E56CF] disabled:bg-[#F6F6F8]"
-                />
-              </div>
-              <span className="mt-1 block text-[11px] text-[#9A9AA6]">{hint}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Coordonnées affichées sur les documents */}
-      <div className="rounded-2xl border border-[#ECECF0] bg-white p-5">
-        <h3 className="text-sm font-bold text-[#0A0A0A]">{t("Coordonnées", "Contact details")}</h3>
-        <p className="mt-1 text-[13px] text-[#63636B]">
-          {t("Affichées en haut de vos documents et dans la signature de vos emails.", "Shown at the top of your documents and in your email signature.")}
-        </p>
-        <div className="mt-4 grid gap-4 sm:grid-cols-3">
-          <Field label={t("Téléphone", "Phone")} value={form.phone} onChange={(v) => set("phone", v)} placeholder="06 12 34 56 78" disabled={!canEdit} />
-          <Field label={t("Email", "Email")} value={form.email} onChange={(v) => set("email", v)} placeholder="contact@entreprise.fr" disabled={!canEdit} />
-          <Field label={t("Site web", "Website")} value={form.website} onChange={(v) => set("website", v)} placeholder="entreprise.fr" disabled={!canEdit} />
-        </div>
-      </div>
-
-      {/* Mentions légales */}
-      <div className="rounded-2xl border border-[#ECECF0] bg-white p-5">
-        <h3 className="text-sm font-bold text-[#0A0A0A]">{t("Mentions légales", "Legal information")}</h3>
-        <p className="mt-1 text-[13px] text-[#63636B]">
-          {t(
-            "Le SIRET, la TVA et l'adresse viennent de l'onglet Entreprise. Complétez ici le reste du pied de page.",
-            "SIRET, VAT and address come from the Company tab. Complete the rest of the footer here."
-          )}
-        </p>
-        <div className="mt-4 grid gap-4 sm:grid-cols-3">
-          <Field label="RCS" value={form.rcs} onChange={(v) => set("rcs", v)} placeholder="Marseille B 912 345 678" disabled={!canEdit} />
-          <Field label={t("Code APE", "APE code")} value={form.ape} onChange={(v) => set("ape", v)} placeholder="4321A" disabled={!canEdit} />
-          <Field label={t("Capital social", "Share capital")} value={form.capital} onChange={(v) => set("capital", v)} placeholder="10 000 €" disabled={!canEdit} />
-        </div>
-        <div className="mt-4">
-          <Field
-            label={t("Assurance décennale", "Ten-year liability insurance")}
-            value={form.assurance}
-            onChange={(v) => set("assurance", v)}
-            placeholder={t("AXA France — contrat n° 4412887 — France entière", "AXA France — policy no. 4412887 — nationwide")}
-            disabled={!canEdit}
-            hint={t(
-              "Obligatoire sur un devis BTP en France : assureur, n° de contrat et zone couverte.",
-              "Mandatory on a French construction quote: insurer, policy number and coverage area."
-            )}
-          />
-        </div>
-      </div>
-
-      {/* Paiement */}
-      <div className="rounded-2xl border border-[#ECECF0] bg-white p-5">
-        <h3 className="text-sm font-bold text-[#0A0A0A]">{t("Règlement", "Payment")}</h3>
-        <p className="mt-1 text-[13px] text-[#63636B]">
-          {t("L'IBAN n'apparaît que sur les FACTURES, jamais sur un devis.", "The IBAN only appears on INVOICES, never on a quote.")}
-        </p>
-        <div className="mt-4 grid gap-4 sm:grid-cols-[2fr_1fr]">
-          <Field label="IBAN" value={form.iban} onChange={(v) => set("iban", v)} placeholder="FR76 3000 1007 9412 3456 7890 185" disabled={!canEdit} />
-          <Field label="BIC" value={form.bic} onChange={(v) => set("bic", v)} placeholder="BDFEFRPPCCT" disabled={!canEdit} />
-        </div>
-        <div className="mt-4">
-          <Field
-            label={t("Conditions de règlement", "Payment terms")}
-            value={form.conditions_paiement}
-            onChange={(v) => set("conditions_paiement", v)}
-            placeholder={t(
-              "Acompte de 30 % à la commande, solde à réception des travaux.",
-              "30% deposit on order, balance on completion."
-            )}
-            disabled={!canEdit}
-            textarea
-            hint={t(
-              "Utilisées quand le document n'a pas ses propres conditions.",
-              "Used when the document has no conditions of its own."
-            )}
-          />
+          <label className="block">
+            <span className="text-xs font-semibold text-[#63636B]">{t("Téléphone", "Phone")}</span>
+            <input
+              type="text"
+              value={form.phone}
+              disabled={!canEdit}
+              onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+              placeholder="06 12 34 56 78"
+              className={inputCls}
+            />
+          </label>
+          <label className="block">
+            <span className="text-xs font-semibold text-[#63636B]">{t("Email", "Email")}</span>
+            <input
+              type="email"
+              value={form.email}
+              disabled={!canEdit}
+              onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+              placeholder="contact@entreprise.fr"
+              className={inputCls}
+            />
+          </label>
         </div>
       </div>
 
@@ -494,7 +364,10 @@ export default function BrandSettings({ tenantId, canEdit, t }: Props) {
         ) : null}
         {!canEdit ? (
           <span className="text-[13px] text-[#9A9AA6]">
-            {t("Seuls le Propriétaire et l'Admin peuvent modifier l'identité visuelle.", "Only Owner and Admin can change the visual identity.")}
+            {t(
+              "Seuls le Propriétaire et l'Admin peuvent modifier l'identité visuelle.",
+              "Only Owner and Admin can change the visual identity."
+            )}
           </span>
         ) : null}
       </div>

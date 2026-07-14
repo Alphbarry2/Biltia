@@ -113,21 +113,33 @@ export async function exchangeCode(opts: {
 /**
  * Rafraîchit un access_token à partir du refresh_token stocké. Throw en cas
  * d'échec (refresh_token révoqué/expiré → l'appelant redemandera une connexion).
+ *
+ * `scopes` : indispensable chez Microsoft, inutile chez Google. Un jeton Azure ne
+ * porte QUE les scopes demandés au moment où il est frappé — il n'est PAS
+ * cumulatif (Google, lui, l'est via include_granted_scopes). Sans ce paramètre,
+ * connecter OneDrive après Outlook rendrait le jeton aveugle à Mail.Send et
+ * l'envoi tomberait en 403 alors que la carte afficherait « Connecté ».
+ * On re-frappe donc toujours le jeton sur l'UNION des droits déjà consentis.
  */
 export async function refreshAccessToken(opts: {
   provider: OAuthProvider;
   refreshToken: string;
+  scopes?: string[];
 }): Promise<TokenResponse> {
   const c = conf(opts.provider);
+  const body = new URLSearchParams({
+    client_id: c.clientId,
+    client_secret: c.clientSecret,
+    grant_type: "refresh_token",
+    refresh_token: opts.refreshToken,
+  });
+  if (opts.scopes?.length) {
+    body.set("scope", [...new Set([...c.baseScopes, ...opts.scopes])].join(" "));
+  }
   const res = await fetch(c.tokenEndpoint, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: c.clientId,
-      client_secret: c.clientSecret,
-      grant_type: "refresh_token",
-      refresh_token: opts.refreshToken,
-    }),
+    body,
   });
   const json = (await res.json().catch(() => ({}))) as TokenResponse & { error?: string };
   if (!res.ok || !json.access_token) {

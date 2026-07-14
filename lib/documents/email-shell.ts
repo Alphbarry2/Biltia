@@ -15,7 +15,7 @@
 // Aucune marque Biltia ici : c'est le mail de l'artisan à SON client.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { type BrandKit, readableOn, tintOf } from "@/lib/brand";
+import { type BrandKit, readableOn, tintOf, companyIdLabel } from "@/lib/brand";
 
 export type EmailFact = { label: string; value: string; strong?: boolean };
 
@@ -37,10 +37,10 @@ function esc(s: string): string {
 
 /** Ligne de mentions légales, uniquement avec les champs RENSEIGNÉS. */
 function legalLine(brand: BrandKit): string {
-  const idLabel = brand.country === "BE" ? "BCE" : "SIRET";
   const bits: string[] = [];
   if (brand.address) bits.push(brand.address);
-  if (brand.siret) bits.push(`${idLabel} ${brand.siret}`);
+  // Le libellé suit le PAYS : un artisan belge a un n° BCE, pas un SIRET.
+  if (brand.siret) bits.push(`${companyIdLabel(brand.country)} ${brand.siret}`);
   if (brand.vat) bits.push(`TVA ${brand.vat}`);
   return bits.join(" · ");
 }
@@ -51,7 +51,6 @@ function signature(brand: BrandKit): string[] {
   if (brand.entreprise) out.push(brand.entreprise);
   const contact = [brand.phone, brand.email].filter(Boolean).join(" · ");
   if (contact) out.push(contact);
-  if (brand.website) out.push(brand.website);
   return out;
 }
 

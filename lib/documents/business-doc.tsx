@@ -14,7 +14,7 @@
 
 import React from "react";
 import { Document, Page, Text, View, Image, StyleSheet, renderToBuffer } from "@react-pdf/renderer";
-import { type BrandKit, readableOn, tintOf, fetchLogoBuffer } from "@/lib/brand";
+import { type BrandKit, readableOn, tintOf, fetchLogoBuffer, companyIdLabel } from "@/lib/brand";
 import { money, qty, fmtDate } from "@/lib/documents/format";
 
 export type DocLine = {
@@ -149,7 +149,7 @@ function sheet(brand: BrandKit) {
     blockLabel: {
       fontSize: 7,
       fontFamily: "Helvetica-Bold",
-      color: brand.accent,
+      color: brand.primary,
       letterSpacing: 1,
       textTransform: "uppercase",
       marginBottom: 5,
@@ -253,17 +253,14 @@ function titleFor(doc: BusinessDoc): string {
   }
 }
 
-/** Le pied de page légal, assemblé à partir des SEULS champs renseignés.
- *  Un champ vide n'imprime pas « SIRET : — » : il disparaît. */
+/** Le pied de page légal, assemblé à partir des SEULS champs renseignés (onglet
+ *  Entreprise). Un champ vide n'imprime pas « SIRET : — » : il disparaît.
+ *  Le libellé de l'identifiant suit le PAYS : un artisan belge a un n° BCE. */
 function legalFooter(brand: BrandKit): string {
-  const idLabel = brand.country === "BE" ? "BCE" : "SIRET";
   const bits: string[] = [];
   if (brand.entreprise) bits.push(brand.entreprise);
   if (brand.address) bits.push(brand.address);
-  if (brand.siret) bits.push(`${idLabel} ${brand.siret}`);
-  if (brand.rcs) bits.push(`RCS ${brand.rcs}`);
-  if (brand.ape) bits.push(`APE ${brand.ape}`);
-  if (brand.capital) bits.push(`Capital ${brand.capital}`);
+  if (brand.siret) bits.push(`${companyIdLabel(brand.country)} ${brand.siret}`);
   if (brand.vat) bits.push(`TVA ${brand.vat}`);
   return bits.join(" · ");
 }
@@ -276,11 +273,7 @@ function BusinessDocPdf({ doc, lines, client, brand, logo }: Props) {
   const reste = t.ttc - (doc.montantPaye ?? 0);
   const legal = legalFooter(brand);
 
-  const emitterMeta = [
-    brand.address,
-    [brand.phone, brand.email].filter(Boolean).join(" · "),
-    brand.website,
-  ].filter(Boolean);
+  const emitterMeta = [brand.address, [brand.phone, brand.email].filter(Boolean).join(" · ")].filter(Boolean);
 
   return (
     <Document
@@ -425,25 +418,15 @@ function BusinessDocPdf({ doc, lines, client, brand, logo }: Props) {
           </View>
         </View>
 
-        {/* Conditions de règlement / coordonnées bancaires */}
-        {doc.conditions || brand.conditionsPaiement ? (
+        {/* Conditions : celles PORTÉES PAR LA FICHE (délai de paiement, acompte…).
+            Aucune mention légale n'est fabriquée ici : les pénalités de retard, le
+            taux et l'indemnité forfaitaire diffèrent entre la France et la Belgique,
+            et un texte de loi inventé sur un document commercial est un risque, pas
+            une fonctionnalité. L'artisan écrit ses conditions, on les imprime. */}
+        {doc.conditions ? (
           <View style={s.note} wrap={false}>
             <Text style={s.noteLabel}>Conditions</Text>
-            <Text style={s.noteText}>{doc.conditions || brand.conditionsPaiement}</Text>
-          </View>
-        ) : null}
-
-        {!isDevis && brand.iban ? (
-          <View style={s.note} wrap={false}>
-            <Text style={s.noteLabel}>Règlement par virement</Text>
-            <Text style={s.noteText}>
-              IBAN {brand.iban}
-              {brand.bic ? ` · BIC ${brand.bic}` : ""}
-            </Text>
-            <Text style={[s.noteText, { color: "#9A9AA6", marginTop: 3, fontSize: 7.5 }]}>
-              Pénalités de retard : 3 fois le taux d&apos;intérêt légal. Indemnité forfaitaire pour frais de
-              recouvrement : 40 €.
-            </Text>
+            <Text style={s.noteText}>{doc.conditions}</Text>
           </View>
         ) : null}
 
@@ -463,17 +446,9 @@ function BusinessDocPdf({ doc, lines, client, brand, logo }: Props) {
           </View>
         ) : null}
 
-        {/* Assurance décennale — obligation légale sur un devis BTP en France */}
-        {brand.assurance ? (
-          <View style={{ marginTop: 12 }} wrap={false}>
-            <Text style={{ fontSize: 7.5, color: "#63636B" }}>Assurance décennale : {brand.assurance}</Text>
-          </View>
-        ) : null}
-
         {/* Pied de page légal, répété */}
         <View style={s.footer} fixed>
           <Text style={s.footerText}>{legal}</Text>
-          {brand.footer ? <Text style={s.footerText}>{brand.footer}</Text> : null}
         </View>
         <Text
           style={s.pageNum}

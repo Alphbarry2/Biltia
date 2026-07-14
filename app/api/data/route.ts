@@ -42,6 +42,7 @@ import { can } from "@/lib/permissions";
 import { getEntitlementsForTenant, frozenMessage } from "@/lib/entitlements";
 import { logActivity } from "@/lib/activity";
 import { recordSignal } from "@/lib/collective-brain";
+import { attachRelationLabels } from "@/lib/data-labels";
 
 // CERVEAU COLLECTIF — capte un signal de succès/échec quand une entité atteint un
 // statut terminal signifiant (devis tranché, facture payée). Anonymisé, privé au
@@ -529,11 +530,16 @@ export async function POST(req: Request) {
         const { data, error, count } = await q;
         if (error) throw error;
         const total = typeof count === "number" ? count : null;
+        // Un artisan ne doit JAMAIS voir « 84da6925-5d86-40bf… » dans une colonne
+        // « Client ». On joint le nom à côté de l'id (client_id_label), le serveur
+        // sachant déjà nommer une fiche (RELATION_DISPLAY).
+        await attachRelationLabels(from, tenantId, entity, data as Record<string, unknown>[]);
         return NextResponse.json({ data, total, hasMore: total != null ? from0 + (data?.length ?? 0) < total : false });
       }
       q = q.limit(limit);
       const { data, error } = await q;
       if (error) throw error;
+      await attachRelationLabels(from, tenantId, entity, data as Record<string, unknown>[]);
       return NextResponse.json({ data });
     }
 
@@ -549,6 +555,7 @@ export async function POST(req: Request) {
           .in(perimeterCol, allowedChantierIds)
           .maybeSingle();
         if (error) throw error;
+        if (data) await attachRelationLabels(from, tenantId, entity, [data as Record<string, unknown>]);
         return NextResponse.json({ data: data ?? null });
       }
       const { data, error } = await from(def.table)
@@ -557,6 +564,8 @@ export async function POST(req: Request) {
         .eq("id", body.id)
         .single();
       if (error) throw error;
+      // La fiche détail affiche « Client : Alpha Barry », jamais l'uuid.
+      if (data) await attachRelationLabels(from, tenantId, entity, [data as Record<string, unknown>]);
       return NextResponse.json({ data });
     }
 

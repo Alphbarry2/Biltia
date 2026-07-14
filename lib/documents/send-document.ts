@@ -21,7 +21,7 @@ import { sendOutboundEmail, type OutboundEmailResult } from "@/lib/outbound-emai
 import { renderBusinessDocPdf, pdfFileName, computeTotals, type BusinessDoc, type DocLine, type DocParty } from "@/lib/documents/business-doc";
 import { renderBrandedEmail, type EmailFact } from "@/lib/documents/email-shell";
 import { money, fmtDate } from "@/lib/documents/format";
-import { archiveToDrive } from "@/lib/gdrive";
+import { archiveDocument } from "@/lib/file-archive";
 
 export type DocumentKind = "devis" | "facture";
 
@@ -324,15 +324,16 @@ export async function sendBusinessDocument(args: {
       .eq("tenant_id", tenantId);
   }
 
-  // Classement Drive : le PDF est déjà rendu, on le range dans « Biltia / <chantier> »
-  // (doc.objet porte le nom du chantier). Volontairement APRÈS l'envoi et sans
-  // pouvoir le faire échouer : le devis est parti chez le client, c'est ça qui
-  // compte. Drive pas connecté → on ne dit rien, ce n'est pas une erreur.
-  // Un agent qui agit à 3 h du matin n'a pas d'userId : pas de Drive personnel
+  // Classement : le PDF est déjà rendu, on le range dans « Biltia / <chantier> »
+  // du classeur connecté — Google Drive ou OneDrive (doc.objet porte le nom du
+  // chantier). Volontairement APRÈS l'envoi et sans pouvoir le faire échouer : le
+  // devis est parti chez le client, c'est ça qui compte. Aucun classeur connecté →
+  // on ne dit rien, ce n'est pas une erreur.
+  // Un agent qui agit à 3 h du matin n'a pas d'userId : pas de classeur personnel
   // à alimenter, on passe.
   let drive: { url: string; folder: string } | undefined;
   if (userId) {
-    const filed = await archiveToDrive({
+    const filed = await archiveDocument({
       tenantId,
       userId,
       filename: attachment,

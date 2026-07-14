@@ -4,6 +4,8 @@ import { useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase";
+import { injectAppBrand } from "@/lib/app-brand";
+import { brandFromTenant } from "@/lib/brand";
 import { ShareMenu } from "@/components/share-menu";
 import { type ShareLink } from "@/lib/share";
 import { useT } from "@/lib/i18n/context";
@@ -170,16 +172,32 @@ export default function AppViewerPage() {
       // La RLS garantit que seules les apps du tenant de l'user sont accessibles
       supabase
         .from("modules")
-        .select("id, name, description, html_content, kind, created_at")
+        .select("id, name, description, html_content, kind, created_at, tenant_id")
         .eq("id", id)
         .neq("status", "archived")
         .single()
-        .then(({ data, error }) => {
+        .then(async ({ data, error }) => {
           if (error || !data) {
             setError(t("Application introuvable ou accès refusé.", "App not found or access denied."));
-          } else {
-            setApp(data);
+            setLoading(false);
+            return;
           }
+          // Le logo de l'entreprise coiffe l'en-tête, même sur une app créée AVANT
+          // que l'artisan ne le pose (on injecte à l'affichage, pas à la génération).
+          let html = data.html_content as string;
+          try {
+            if (data.tenant_id) {
+              const { data: tenant } = await supabase
+                .from("tenants")
+                .select("name, logo_url, company_info")
+                .eq("id", data.tenant_id)
+                .maybeSingle();
+              if (tenant) html = injectAppBrand(html, brandFromTenant(tenant));
+            }
+          } catch {
+            /* pas d'identité visuelle → l'en-tête garde le nom de l'entreprise */
+          }
+          setApp({ ...data, html_content: html });
           setLoading(false);
         });
     });

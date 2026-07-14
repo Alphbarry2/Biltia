@@ -79,6 +79,15 @@ const nextConfig: NextConfig = {
 // Sentry. Ce qui SORT du produit (prompts, corps HTTP, cookies, variables
 // locales) est décidé dans lib/sentry-policy.ts, pas ici : ce bloc ne règle que
 // le BUILD (téléversement des sources, tunnel réseau).
+// Sentry.
+//
+// ⚠️ RELANCER LE WIZARD SENTRY RÉÉCRIT CE BLOC aux défauts (il l'annonce lui-même :
+// « you probably want to clean this up a bit! »). Après tout `npx @sentry/wizard`,
+// re-vérifier les trois points commentés ci-dessous. C'est déjà arrivé une fois.
+//
+// Ce qui SORT du produit (prompts, corps HTTP, cookies, variables locales) est
+// décidé dans lib/sentry-policy.ts, pas ici : ce bloc ne règle que le BUILD
+// (téléversement des sources, tunnel réseau).
 export default withSentryConfig(nextConfig, {
   org: "biltia",
   project: "javascript-nextjs",
@@ -89,8 +98,8 @@ export default withSentryConfig(nextConfig, {
 
   // Sans les sources, une pile de production est illisible (code minifié). Le
   // téléversement exige SENTRY_AUTH_TOKEN : il est dans .env.sentry-build-plugin
-  // en local (ignoré par git) et DOIT être ajouté aux variables du projet Vercel,
-  // sinon le build passe mais toutes les erreurs prod arrivent illisibles.
+  // en local (ignoré par git) et DOIT être présent côté Vercel, sinon le build
+  // passe mais toutes les erreurs de prod arrivent illisibles.
   widenClientFileUpload: true,
 
   // Les bloqueurs de pub (uBlock, Brave) coupent les requêtes vers sentry.io :

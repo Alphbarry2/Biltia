@@ -114,7 +114,7 @@ export type TaskSendResult = {
   failed: number;
   skippedNoEmail: number;
   deferred: number;
-  via: "gmail" | "resend" | null;
+  via: "gmail" | "outlook" | "resend" | null;
 };
 
 /**
@@ -135,7 +135,7 @@ export async function sendTaskEmails(opts: {
 
   let sent = 0;
   let failed = 0;
-  let via: "gmail" | "resend" | null = null;
+  let via: "gmail" | "outlook" | "resend" | null = null;
 
   for (const r of batch) {
     const res = await sendOutboundEmail({

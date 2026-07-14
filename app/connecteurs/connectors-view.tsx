@@ -337,31 +337,37 @@ export default function ConnectorsView() {
       </section>
 
       {/* ── En cours d'intégration (honnêteté : rien à connecter pour l'instant) */}
+      {/* Section CONDITIONNELLE : tous les connecteurs sont branchés aujourd'hui, la
+          liste est donc vide. Sans cette garde, la page publique afficherait un titre
+          « En cours d'intégration » suivi d'un paragraphe… et d'aucune carte. Elle
+          reviendra d'elle-même le jour où un connecteur repassera en « soon ». */}
       {/* `relative` obligatoire : InteractiveMesh est en `absolute`, donc il peint
           au-dessus de tout contenu statique. Sans ça, la section est invisible. */}
-      <section className="relative px-5 sm:px-8 pb-20">
-        <div className="max-w-5xl mx-auto">
-          <Reveal>
-            <h2 className="text-[26px] sm:text-[32px] font-bold tracking-[-0.02em]">
-              {tr("En cours d'intégration", "Coming soon")}
-            </h2>
-            <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-[#5B5B66]">
-              {tr(
-                "Autant le dire franchement : ces connecteurs ne sont pas encore branchés. Vous ne trouverez donc pas de bouton « Connecter » qui ne servirait à rien, et rien de tout ça ne vous manque pour travailler dès aujourd'hui.",
-                "Let us be blunt: these connectors are not wired up yet. So you will not find a “Connect” button that does nothing, and none of this is missing for you to work today.",
-              )}
-            </p>
-          </Reveal>
+      {SOON_CONNECTORS.length > 0 && (
+        <section className="relative px-5 sm:px-8 pb-20">
+          <div className="max-w-5xl mx-auto">
+            <Reveal>
+              <h2 className="text-[26px] sm:text-[32px] font-bold tracking-[-0.02em]">
+                {tr("En cours d'intégration", "Coming soon")}
+              </h2>
+              <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-[#5B5B66]">
+                {tr(
+                  "Autant le dire franchement : ces connecteurs ne sont pas encore branchés. Vous ne trouverez donc pas de bouton « Connecter » qui ne servirait à rien, et rien de tout ça ne vous manque pour travailler dès aujourd'hui.",
+                  "Let us be blunt: these connectors are not wired up yet. So you will not find a “Connect” button that does nothing, and none of this is missing for you to work today.",
+                )}
+              </p>
+            </Reveal>
 
-          <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {SOON_CONNECTORS.map((c, i) => (
-              <Reveal key={c.id} delay={Math.min(i, 3) * 0.05} className="h-full">
-                <SoonCard c={c} locale={locale} tr={tr} />
-              </Reveal>
-            ))}
+            <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {SOON_CONNECTORS.map((c, i) => (
+                <Reveal key={c.id} delay={Math.min(i, 3) * 0.05} className="h-full">
+                  <SoonCard c={c} locale={locale} tr={tr} />
+                </Reveal>
+              ))}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       {/* ── FAQ ─────────────────────────────────────────────────────────────── */}
       {/* `relative` obligatoire : InteractiveMesh est en `absolute`, donc il peint

@@ -15,7 +15,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { canSendOutbound } from "./outbound-email";
 import { canSendSms } from "./outbound-sms";
-import { calendarConnected } from "./gcal";
+import { calendarConnected } from "./calendar";
 import { pick, type Locale } from "./i18n/config";
 
 /** Les outils qu'un agent peut mobiliser. Étendre ici quand un connecteur arrive. */
@@ -58,7 +58,7 @@ export async function getCapabilityStatuses(opts: {
     /* indéterminé → non connecté */
   }
 
-  // Agenda Google (lecture du planning) : scope calendrier présent.
+  // Agenda (lecture du planning) : Google Agenda OU Outlook Calendar connecté.
   let calendarConn = false;
   try {
     if (userId) calendarConn = await calendarConnected(tenantId, userId);
@@ -90,11 +90,13 @@ export async function getCapabilityStatuses(opts: {
       label: pick(locale, "envoi d'emails", "sending emails"),
       supported: true,
       connected: emailConnected,
-      fix: { label: pick(locale, "Connecter Gmail", "Connect Gmail"), href: HREF_CONNECTORS },
+      // Gmail OU Outlook : nommer un seul fournisseur enverrait un artisan sous
+      // Microsoft 365 ouvrir un compte chez le concurrent de sa messagerie.
+      fix: { label: pick(locale, "Connecter votre messagerie", "Connect your mailbox"), href: HREF_CONNECTORS },
     },
     calendar_read: {
       id: "calendar_read",
-      label: pick(locale, "agenda Google", "Google Calendar"),
+      label: pick(locale, "agenda", "calendar"),
       supported: true,
       connected: calendarConn,
       fix: { label: pick(locale, "Connecter l'agenda", "Connect the calendar"), href: HREF_CONNECTORS },

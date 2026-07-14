@@ -32,7 +32,7 @@ import {
   CheckCircle,
 } from "lucide-react";
 import { AGENT_TEMPLATES, localizeAgentTemplate, type AgentTemplate } from "@/lib/agent-templates";
-import { connectorForCapability } from "@/lib/connectors";
+import { connectorsForCapability } from "@/lib/connectors";
 import { connectViaPopup } from "@/lib/connect-popup";
 import { useT, useLocale } from "@/lib/i18n/context";
 
@@ -359,14 +359,21 @@ function GateDialog({
                 <div className="min-w-0 flex-1">
                   <p className="text-[13px] font-semibold text-[#1A1A1A] leading-tight">{g.title}</p>
                   <p className="text-[12px] text-[#7A7A85] leading-snug mt-0.5">{g.detail}</p>
-                  {connectorForCapability(g.code) ? (
-                    // Manque réglable par connexion → bouton inline (popup), puis
-                    // relance de l'activation à la connexion.
-                    <GapConnectButton
-                      connectorId={connectorForCapability(g.code) as string}
-                      accent={c}
-                      onConnected={onRetry}
-                    />
+                  {connectorsForCapability(g.code).length > 0 ? (
+                    // Manque réglable par connexion → boutons inline (popup), puis
+                    // relance de l'activation à la connexion. Plusieurs boutons quand
+                    // plusieurs fournisseurs conviennent (Gmail OU Outlook) : l'artisan
+                    // branche la messagerie qu'il a déjà, pas celle qu'on préfère.
+                    <div className="flex flex-wrap items-center gap-2">
+                      {connectorsForCapability(g.code).map((connectorId) => (
+                        <GapConnectButton
+                          key={connectorId}
+                          connectorId={connectorId}
+                          accent={c}
+                          onConnected={onRetry}
+                        />
+                      ))}
+                    </div>
                   ) : (
                     g.fix && (
                       <a

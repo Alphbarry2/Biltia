@@ -14,7 +14,7 @@ import { notFound } from "next/navigation";
 import { resolvePublicDocument, markDocumentViewed } from "@/lib/documents/public-doc";
 import { computeTotals } from "@/lib/documents/business-doc";
 import { money, qty, fmtDate } from "@/lib/documents/format";
-import { readableOn } from "@/lib/brand";
+import { readableOn, companyIdLabel } from "@/lib/brand";
 import AcceptCard from "./accept-card";
 
 export const runtime = "nodejs";
@@ -48,15 +48,14 @@ export default async function DocumentPage({ params }: { params: Promise<{ token
   const onPrimary = readableOn(primary);
   const title = titleFor(doc.kind, doc.type);
 
-  const emitterMeta = [brand.address, [brand.phone, brand.email].filter(Boolean).join(" · "), brand.website].filter(
-    Boolean
-  );
+  const emitterMeta = [brand.address, [brand.phone, brand.email].filter(Boolean).join(" · ")].filter(Boolean);
 
+  // Mentions issues de l'onglet Entreprise. Le libellé de l'identifiant suit le
+  // PAYS : un artisan belge a un n° BCE, pas un SIRET.
   const legalBits: string[] = [];
   if (brand.entreprise) legalBits.push(brand.entreprise);
-  if (brand.siret) legalBits.push(`${brand.country === "BE" ? "BCE" : "SIRET"} ${brand.siret}`);
+  if (brand.siret) legalBits.push(`${companyIdLabel(brand.country)} ${brand.siret}`);
   if (brand.vat) legalBits.push(`TVA ${brand.vat}`);
-  if (brand.rcs) legalBits.push(`RCS ${brand.rcs}`);
 
   return (
     <main className="min-h-dvh bg-[#F2F2F5] pb-16">
@@ -111,7 +110,7 @@ export default async function DocumentPage({ params }: { params: Promise<{ token
 
           <div className="grid gap-4 px-6 py-6 sm:grid-cols-2 sm:px-8">
             <div className="rounded-xl border border-[#ECECF0] p-4">
-              <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: brand.accent }}>
+              <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: brand.primary }}>
                 {isDevis ? "Devis établi pour" : "Facturé à"}
               </div>
               <div className="mt-1.5 font-bold text-[#111114]">{client?.nom || "—"}</div>
@@ -123,7 +122,7 @@ export default async function DocumentPage({ params }: { params: Promise<{ token
               </div>
             </div>
             <div className="rounded-xl border border-[#ECECF0] p-4">
-              <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: brand.accent }}>
+              <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: brand.primary }}>
                 Objet des travaux
               </div>
               <div className="mt-1.5 font-bold text-[#111114]">{doc.objet || "Prestation"}</div>
@@ -209,24 +208,12 @@ export default async function DocumentPage({ params }: { params: Promise<{ token
             </div>
           </div>
 
-          {doc.conditions || brand.conditionsPaiement ? (
+          {/* Les conditions portées par la FICHE. Aucune mention légale n'est
+              fabriquée ici : elle différerait entre la France et la Belgique. */}
+          {doc.conditions ? (
             <div className="mx-6 mb-6 rounded-xl bg-[#F6F6F8] p-4 sm:mx-8">
               <div className="text-[10px] font-bold uppercase tracking-widest text-[#63636B]">Conditions</div>
-              <p className="mt-1.5 whitespace-pre-line text-sm text-[#2A2A31]">
-                {doc.conditions || brand.conditionsPaiement}
-              </p>
-            </div>
-          ) : null}
-
-          {!isDevis && brand.iban ? (
-            <div className="mx-6 mb-6 rounded-xl bg-[#F6F6F8] p-4 sm:mx-8">
-              <div className="text-[10px] font-bold uppercase tracking-widest text-[#63636B]">
-                Règlement par virement
-              </div>
-              <p className="mt-1.5 text-sm text-[#2A2A31]">
-                IBAN {brand.iban}
-                {brand.bic ? ` · BIC ${brand.bic}` : ""}
-              </p>
+              <p className="mt-1.5 whitespace-pre-line text-sm text-[#2A2A31]">{doc.conditions}</p>
             </div>
           ) : null}
         </article>
@@ -258,14 +245,9 @@ export default async function DocumentPage({ params }: { params: Promise<{ token
           </div>
         ) : null}
 
-        {brand.assurance ? (
-          <p className="mt-6 text-center text-xs text-[#9A9AA6]">Assurance décennale : {brand.assurance}</p>
-        ) : null}
-
         {legalBits.length ? (
-          <footer className="mt-4 text-center text-[11px] leading-relaxed text-[#9A9AA6]">
+          <footer className="mt-6 text-center text-[11px] leading-relaxed text-[#9A9AA6]">
             {legalBits.join(" · ")}
-            {brand.footer ? <div>{brand.footer}</div> : null}
           </footer>
         ) : null}
       </div>

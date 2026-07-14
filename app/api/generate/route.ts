@@ -4,8 +4,7 @@ import { routeRequest } from "@/lib/router";
 import { getCategory } from "@/lib/sectors";
 import { buildKnowledgeBlock } from "@/lib/btp-catalog";
 import { classifyKind, coerceKind, looksLikePureQuestion, extractCalendarEvent, type BiltiaKind } from "@/lib/kind-router";
-import { gmailStatus, sendGmail } from "@/lib/gmail";
-import { readAgenda, createEvent } from "@/lib/gcal";
+import { readAgenda, createEvent, CALENDAR_CONNECTORS } from "@/lib/calendar";
 import { loadPlannedInterventions, findFreeSlots, formatSlotFr } from "@/lib/planning-slots";
 import { classifyQuestionTopic } from "@/lib/question-topics";
 import { buildDocumentSystemPrompt, injectDocumentRuntime } from "@/lib/document-generator";
@@ -39,9 +38,9 @@ import { isFounderEmail } from "@/lib/founder";
 import { logActivity } from "@/lib/activity";
 import { sendPushToUser } from "@/lib/push";
 import { createAgentRule } from "@/lib/agent-rules";
-import { connectorForCapability } from "@/lib/connectors";
+import { connectorsForCapability } from "@/lib/connectors";
 import { runAgentLoop, buildWorkspaceToolsSystem } from "@/lib/agent-tools";
-import { canSendOutbound } from "@/lib/outbound-email";
+import { canSendOutbound, sendOutboundEmail } from "@/lib/outbound-email";
 import { resolveAudience, isTaskAudience, audienceLabels, SEND_CAP } from "@/lib/task-now";
 import { pick } from "@/lib/i18n/config";
 import {
@@ -507,6 +506,16 @@ RÈGLES :
   refermé, virgules entre les arguments. Relis mentalement tout le \`<script>\` — il doit
   s'exécuter sans UNE SEULE SyntaxError (sinon l'app est morte à l'ouverture).
 
+## JAMAIS UN IDENTIFIANT À L'ÉCRAN (règle non négociable)
+Un champ qui finit par \`_id\` (\`client_id\`, \`chantier_id\`, \`devis_id\`…) contient un uuid du genre
+\`84da6925-5d86-40bf-93f0-34fb603e41ac\`. Un artisan ne doit JAMAIS voir ça : une colonne « Client »
+remplie d'uuid, c'est une app cassée.
+Le serveur renvoie DÉJÀ le nom à côté de l'id, dans un champ suffixé \`_label\` :
+\`{ client_id:'84da…', client_id_label:'Alpha Barry', chantier_id_label:'Réfection toiture' }\`.
+- Pour AFFICHER (tableau, carte, fiche, en-tête de modale) → utilise \`row.client_id_label\`.
+- Pour LIER / FILTRER / ENREGISTRER → utilise \`row.client_id\` (l'id, jamais le label).
+Si le label est absent (fiche liée supprimée), affiche « — », JAMAIS l'uuid.
+
 ## PERSISTANCE CLOUD (window.biltia — déjà injectée, backend géré automatiquement)
 TOUTES les données se sauvegardent dans le CLOUD (partagé entre appareils et membres de
 l'entreprise), JAMAIS en localStorage. Choisis UN nom de collection court en snake_case
@@ -515,7 +524,9 @@ par type de donnée (ex : 'bons', 'pointages', 'interventions') :
 - \`await biltia.create('bons', { ...champs })\` → ligne créée (avec \`id\`) ; n'envoie jamais \`id\` ni les dates, le serveur les gère
 - \`await biltia.update('bons', id, { ...champs })\` · \`await biltia.remove('bons', id)\`
 - \`await biltia.extract(photoDataUrl, { fields:[...] })\` (photo → champs) · \`await biltia.transcribe(audioDataUrl, { fields:[...] })\` (dictée → champs)
-- \`await biltia.sendEmail({ to:'client@ex.fr', subject:'Votre devis', body:'Bonjour...' })\` → ENVOIE un email au nom de l'entreprise (Gmail connecté de l'utilisateur si dispo, sinon envoi Biltia). \`to\` accepte une adresse ou un tableau. Résout \`{ ok, via }\` (échec → toast auto). Dès qu'un document commercial (devis, facture) ou un message client est en jeu, propose un bouton « Envoyer par email » qui appelle ceci : vérifie qu'une adresse existe (sinon demande-la, ne l'invente JAMAIS), affiche « Envoi… », puis un retour clair. C'est la connexion du COMPTE (pas de l'app) : aucun réglage à faire dans l'app.
+- \`await biltia.sendDocument({ kind:'devis', id: d.id })\` → **LA SEULE ET UNIQUE façon d'envoyer un DEVIS ou une FACTURE.** \`kind\` vaut 'devis' ou 'facture', \`id\` est l'id de la fiche. Le serveur produit un PDF au LOGO et aux COULEURS de l'entreprise, le joint au message, ajoute un lien « Voir et accepter » où le client signe, et bascule le statut de la fiche. Résout \`{ ok, via, url, attachment }\` (échec → toast auto : pas d'email client, plan, canal…).
+  INTERDIT ABSOLU : fabriquer le corps d'un devis à la main (« Bonjour, veuillez trouver ci-dessous notre devis… » suivi des lignes en texte) et l'envoyer avec \`sendEmail\`. Un devis envoyé en texte brut, sans logo et sans PDF, décrédibilise l'artisan devant SON client — c'est exactement ce qu'on ne veut plus jamais voir. Le bouton « Envoyer » d'un devis ou d'une facture appelle \`sendDocument\`, POINT.
+- \`await biltia.sendEmail({ to:'client@ex.fr', subject:'…', body:'Bonjour...' })\` → email libre au nom de l'entreprise (Gmail/Outlook connecté de l'utilisateur si dispo, sinon envoi Biltia). \`to\` accepte une adresse ou un tableau. Résout \`{ ok, via }\` (échec → toast auto). Réservé aux messages qui NE SONT PAS un devis ni une facture (mot au client, confirmation de RDV, information de chantier). Vérifie qu'une adresse existe (sinon demande-la, ne l'invente JAMAIS), affiche « Envoi… », puis un retour clair. C'est la connexion du COMPTE (pas de l'app) : aucun réglage à faire dans l'app.
 - \`await biltia.sendSms({ to:'+33612345678', body:'Rappel : RDV demain 9h' })\` → ENVOIE un SMS au nom de l'entreprise (numéro au format +33…). Idéal pour une relance de facture ou une confirmation de RDV quand le client ne lit pas ses mails. Résout \`{ ok, sent }\` (échec → toast auto). Propose un bouton « Relancer par SMS » / « Confirmer par SMS » là où c'est pertinent ; vérifie qu'un numéro existe, ne l'invente JAMAIS.
 Au démarrage : \`load()\` via \`biltia.list\` dans un try/catch + état de chargement. Après
 une action, tu mets à jour l'ÉTAT LOCAL et tu réaffiches TOUT DE SUITE (voir « MISE À JOUR
@@ -1416,23 +1427,32 @@ export async function POST(req: Request) {
         });
       }
 
-      const status = await gmailStatus(tenantId, user.id);
-      if (!status.connected || !status.canSend) {
+      // Ici, l'email doit partir de la boîte de l'artisan (le client doit pouvoir
+      // lui répondre). Gmail OU Outlook font l'affaire ; l'expédition Biltia, non.
+      const mailbox = await canSendOutbound(tenantId, user.id);
+      if (!mailbox.gmail && !mailbox.outlook) {
         return Response.json({
           kind: "email",
           status: "not_connected",
-          // Carte de connexion inline (Bloc « étape par étape ») : l'utilisateur
-          // connecte Gmail juste ici, puis je renvoie la demande et j'envoie.
-          connectors: ["gmail"],
+          // Cartes de connexion inline (Bloc « étape par étape ») : l'utilisateur
+          // connecte SA messagerie juste ici, puis je renvoie la demande et j'envoie.
+          connectors: ["gmail", "outlook"],
           message: pick(
             locale,
-            `Il me faut d'abord connecter votre **Gmail** pour l'envoyer à votre place — c'est juste ci-dessous.\n\nEn attendant, voici le message prêt à copier :\n\nÀ : ${to}\nObjet : ${subject}\n\n${bodyText}`,
-            `I first need to connect your **Gmail** to send it on your behalf — it's right below.\n\nIn the meantime, here's the message ready to copy:\n\nTo: ${to}\nSubject: ${subject}\n\n${bodyText}`
+            `Il me faut d'abord connecter votre **messagerie** (Gmail ou Outlook) pour l'envoyer à votre place — c'est juste ci-dessous.\n\nEn attendant, voici le message prêt à copier :\n\nÀ : ${to}\nObjet : ${subject}\n\n${bodyText}`,
+            `I first need to connect your **mailbox** (Gmail or Outlook) to send it on your behalf — it's right below.\n\nIn the meantime, here's the message ready to copy:\n\nTo: ${to}\nSubject: ${subject}\n\n${bodyText}`
           ),
         });
       }
 
-      const sent = await sendGmail({ tenantId, userId: user.id, to, subject, body: bodyText });
+      const sent = await sendOutboundEmail({
+        tenantId,
+        userId: user.id,
+        fromEmail: user.email,
+        to: [to],
+        subject,
+        body: bodyText,
+      });
       if (sent.ok) {
         return Response.json({
           kind: "email",
@@ -1444,21 +1464,13 @@ export async function POST(req: Request) {
           ),
         });
       }
-      const why =
-        sent.reason === "missing_scope"
-          ? pick(
-              locale,
-              "l'autorisation d'envoi Gmail n'est pas accordée — reconnectez votre compte Google",
-              "the Gmail send permission is not granted — reconnect your Google account"
-            )
-          : pick(locale, "l'envoi a échoué côté Gmail", "the send failed on Gmail's side");
       return Response.json({
         kind: "email",
         status: "error",
         message: pick(
           locale,
-          `Je n'ai pas pu envoyer l'email (${why}). Voici le message prêt à copier :\n\nÀ : ${to}\nObjet : ${subject}\n\n${bodyText}`,
-          `I couldn't send the email (${why}). Here's the message ready to copy:\n\nTo: ${to}\nSubject: ${subject}\n\n${bodyText}`
+          `Je n'ai pas pu envoyer l'email (${sent.reason}). Voici le message prêt à copier :\n\nÀ : ${to}\nObjet : ${subject}\n\n${bodyText}`,
+          `I couldn't send the email (${sent.reason}). Here's the message ready to copy:\n\nTo: ${to}\nSubject: ${subject}\n\n${bodyText}`
         ),
       });
     }
@@ -1658,14 +1670,14 @@ export async function POST(req: Request) {
           created.reason === "not_connected"
             ? pick(
                 locale,
-                "Il me faut d'abord connecter ton **agenda Google** — c'est juste ci-dessous, puis j'ajoute le rendez-vous.",
-                "I first need to connect your **Google Calendar** — it's right below, then I'll add the appointment."
+                "Il me faut d'abord connecter ton **agenda** (Google ou Outlook) — c'est juste ci-dessous, puis j'ajoute le rendez-vous.",
+                "I first need to connect your **calendar** (Google or Outlook) — it's right below, then I'll add the appointment."
               )
             : created.reason === "missing_scope"
               ? pick(
                   locale,
-                  "L'autorisation d'écriture de l'agenda manque : reconnecte ton **agenda Google** ci-dessous et j'ajoute le rendez-vous.",
-                  "The calendar write permission is missing: reconnect your **Google Calendar** below and I'll add the appointment."
+                  "L'autorisation d'écriture de l'agenda manque : reconnecte ton **agenda** ci-dessous et j'ajoute le rendez-vous.",
+                  "The calendar write permission is missing: reconnect your **calendar** below and I'll add the appointment."
                 )
               : pick(
                   locale,
@@ -1676,7 +1688,7 @@ export async function POST(req: Request) {
           kind: "calendar",
           status: created.reason,
           message: why,
-          ...(needsCalendar ? { connectors: ["google-calendar"] } : {}),
+          ...(needsCalendar ? { connectors: CALENDAR_CONNECTORS } : {}),
         });
       }
 
@@ -1690,14 +1702,14 @@ export async function POST(req: Request) {
         cal.reason === "not_connected"
           ? pick(
               locale,
-              "Il me faut d'abord connecter ton **agenda Google** — c'est juste ci-dessous, puis je te lis ta semaine.",
-              "I first need to connect your **Google Calendar** — it's right below, then I'll read your week to you."
+              "Il me faut d'abord connecter ton **agenda** (Google ou Outlook) — c'est juste ci-dessous, puis je te lis ta semaine.",
+              "I first need to connect your **calendar** (Google or Outlook) — it's right below, then I'll read your week to you."
             )
           : cal.reason === "missing_scope"
             ? pick(
                 locale,
-                "L'autorisation de lecture de l'agenda manque : reconnecte ton **agenda Google** ci-dessous et je te lis ta semaine.",
-                "The calendar read permission is missing: reconnect your **Google Calendar** below and I'll read your week to you."
+                "L'autorisation de lecture de l'agenda manque : reconnecte ton **agenda** ci-dessous et je te lis ta semaine.",
+                "The calendar read permission is missing: reconnect your **calendar** below and I'll read your week to you."
               )
             : pick(
                 locale,
@@ -1708,7 +1720,7 @@ export async function POST(req: Request) {
         kind: "calendar",
         status: cal.reason,
         message: msg,
-        ...(needsCalendar ? { connectors: ["google-calendar"] } : {}),
+        ...(needsCalendar ? { connectors: CALENDAR_CONNECTORS } : {}),
       });
     }
 
@@ -1757,8 +1769,7 @@ export async function POST(req: Request) {
               ...new Set(
                 (recruited.gaps ?? [])
                   .filter((g) => g.severity === "block")
-                  .map((g) => connectorForCapability(g.code))
-                  .filter((c): c is string => !!c)
+                  .flatMap((g) => connectorsForCapability(g.code))
               ),
             ]
           : [];
@@ -1779,7 +1790,10 @@ export async function POST(req: Request) {
     // tenant forcé, RLS active — client de session). Règles d'opérateur :
     // résoudre avant d'agir, ambiguïté = stop + question, jamais deviner.
     if (kind === "data" && !isModification && !isAutoFix) {
-      const DATA_HOLD = isFounderEmail(user.email) ? 0 : 10; // même échelle qu'une réponse texte
+      // Le tarif vient de la GRILLE (lib/plans.ts), jamais d'un nombre écrit ici :
+      // ce hold valait 10 en dur alors que la grille annonce 5. On débitait donc le
+      // double de ce que la page tarifs promettait, sans que rien ne le signale.
+      const DATA_HOLD = isFounderEmail(user.email) ? 0 : ACTION_CREDITS.donnee;
       if (DATA_HOLD > 0) {
         const { data: credited } = await supabase.rpc("deduct_credits", { p_amount: DATA_HOLD });
         if (!credited) {
@@ -2302,7 +2316,11 @@ HORS CAPACITÉS (physique, téléphonie, ingénierie) — Si on te demande une a
             text: buildSystemDynamic([
               expertise ? `# FOCUS MÉTIER (agent spécialiste retenu pour cette demande)\n${expertise}` : "",
               brandName
-                ? `# MARQUE DE L'EN-TÊTE\nLe \`.app-eyebrow\` de l'en-tête affiche « ${brandName.toUpperCase()} » (l'entreprise de l'utilisateur), PAS « Biltia ».`
+                ? `# MARQUE DE L'EN-TÊTE
+Le \`.app-eyebrow\` de l'en-tête affiche « ${brandName.toUpperCase()} » (l'entreprise de l'utilisateur), PAS « Biltia ».
+GARDE TOUJOURS l'élément \`.app-eyebrow\` dans l'en-tête, même s'il te paraît décoratif : quand l'entreprise a
+posé un logo, le serveur le SUBSTITUE à ce texte au moment de l'affichage. Pas d'\`.app-eyebrow\` = pas de logo.
+N'écris JAMAIS toi-même une balise \`<img>\` de logo ni une URL de logo : tu ne la connais pas, et elle changerait.`
                 : "",
               sourcesBlock,
               // CRÉATION d'une app AVEC fichier(s) joint(s) → le fichier est la
