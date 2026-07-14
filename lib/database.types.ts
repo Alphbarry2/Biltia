@@ -1813,6 +1813,7 @@ export type Database = {
         Row: {
           company_info: Json
           contributes_to_brain: boolean
+          trial_ends_at: string | null
           created_at: string
           id: string
           logo_url: string | null
@@ -1823,6 +1824,7 @@ export type Database = {
         Insert: {
           company_info?: Json
           contributes_to_brain?: boolean
+          trial_ends_at?: string | null
           created_at?: string
           id?: string
           logo_url?: string | null
@@ -1833,6 +1835,7 @@ export type Database = {
         Update: {
           company_info?: Json
           contributes_to_brain?: boolean
+          trial_ends_at?: string | null
           created_at?: string
           id?: string
           logo_url?: string | null

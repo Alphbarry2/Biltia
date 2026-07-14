@@ -105,7 +105,7 @@ export async function POST(req: Request) {
   // Gel lecture seule : envoyer un email est une écriture sortante.
   const ent = await getEntitlementsForTenant(supabase, tenantId);
   if (!ent.writable) {
-    return NextResponse.json({ error: frozenMessage(locale), frozen: true }, { status: 403 });
+    return NextResponse.json({ error: frozenMessage(locale, ent), frozen: true }, { status: 403 });
   }
 
   let body: { id?: string; decision?: string };

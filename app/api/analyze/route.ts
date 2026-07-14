@@ -215,7 +215,7 @@ export async function POST(req: Request) {
     // GEL LECTURE SEULE : un abonnement expiré ne peut plus lancer d'analyse IA.
     const ent = await getEntitlementsForTenant(supabase, tenantId);
     if (!ent.writable) {
-      return Response.json({ error: frozenMessage(locale), frozen: true }, { status: 403 });
+      return Response.json({ error: frozenMessage(locale, ent), frozen: true }, { status: 403 });
     }
 
     let body: { files?: unknown; question?: string };

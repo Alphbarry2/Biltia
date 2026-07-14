@@ -534,6 +534,8 @@ export function connectorsForCapability(code: string): string[] {
 export type ConnectionInfo = {
   provider: OAuthProvider;
   scopes: string[];
+  /** Ids des connecteurs EXPLICITEMENT branchés par l'artisan (migration 055). */
+  connectors: string[];
   connected_at: string;
 };
 
@@ -571,5 +573,38 @@ export function connectorStatus(c: Connector, connections: ConnectionInfo[]): Co
   if (c.kind === "builtin") return "builtin";
   const conn = connections.find((x) => x.provider === c.provider);
   if (!conn) return "disconnected";
+  // ── L'ACTIVATION EST DÉCLARÉE, PLUS DÉDUITE (corrigé 2026-07-14) ────────────
+  // Ne se fier qu'aux scopes rendait chaque connexion contagieuse : Google renvoie
+  // TOUS les droits jamais accordés à l'application (include_granted_scopes), donc
+  // brancher Gmail faisait passer l'Agenda en « Connecté » tout seul. Ce que
+  // l'artisan a VOULU brancher est désormais écrit noir sur blanc (migration 055).
+  // Le contrôle des scopes reste, en second rideau : un connecteur déclaré mais
+  // dont le droit a été révoqué chez le fournisseur n'est pas connecté non plus.
+  if (!conn.connectors.includes(c.id)) return "disconnected";
   return scopesCover(conn.scopes, c.scopes ?? []) ? "connected" : "disconnected";
+}
+
+/**
+ * Les scopes que Biltia a le DROIT de conserver pour un jeu de connecteurs activés.
+ * Tout ce que le fournisseur renvoie en plus (droits d'un outil que l'artisan n'a
+ * pas branché, ou plus branché) est écarté à l'écriture : le jeton du fournisseur
+ * les porte peut-être encore, mais Biltia ne s'en sert pas et ne les affiche pas.
+ * `identity` = les scopes techniques (openid/email/offline_access), toujours gardés.
+ */
+export function allowedScopesFor(connectorIds: string[]): Set<string> {
+  const allowed = new Set(["openid", "email", "profile", "offline_access"].map(normalizeScope));
+  for (const id of connectorIds) {
+    const c = getConnector(id);
+    for (const s of c?.scopes ?? []) allowed.add(normalizeScope(s));
+  }
+  // Les scopes d'identité de Google arrivent en URI complète, pas en mot-clé.
+  allowed.add(normalizeScope("https://www.googleapis.com/auth/userinfo.email"));
+  allowed.add(normalizeScope("https://www.googleapis.com/auth/userinfo.profile"));
+  return allowed;
+}
+
+/** Ne garde de `scopes` que ce qu'autorisent les connecteurs réellement activés. */
+export function filterScopes(scopes: string[], connectorIds: string[]): string[] {
+  const allowed = allowedScopesFor(connectorIds);
+  return [...new Set(scopes.filter((s) => allowed.has(normalizeScope(s))))];
 }

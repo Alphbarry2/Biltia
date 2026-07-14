@@ -211,6 +211,33 @@ export const ACTION_CREDITS = {
 
 export type ActionCredit = keyof typeof ACTION_CREDITS;
 
+// ── L'ESSAI GRATUIT (décision user, 2026-07-14) ──────────────────────────────
+//
+// Plus de plan Free PERMANENT : un essai borné par DEUX limites, la première
+// atteinte gagne — les crédits, ou le temps.
+//
+// ⚠️ LE VRAI VERROU, C'EST LES CRÉDITS. Le chronomètre est le second, et il ne
+// démarre PAS à l'inscription : il démarre à la PREMIÈRE APPLICATION CRÉÉE.
+//
+// Pourquoi ce décalage. Les deux limites ne mordent jamais sur la même personne :
+//   • l'artisan engagé brûle ses 400 crédits en 2 ou 3 jours → c'est le PLAFOND DE
+//     CRÉDITS qui l'arrête, et c'est lui qui le convertit. Le chronomètre ne se
+//     déclenche jamais pour lui.
+//   • l'artisan lent — dans le BTP, c'est la norme : il est sur un toit, pas devant
+//     un écran — s'inscrit, crée son app, part trois semaines sur un chantier. Un
+//     chronomètre lancé à l'INSCRIPTION le gèlerait au jour 15 alors qu'il lui reste
+//     des crédits et qu'il n'a pas encore eu le déclic.
+//
+// Un compte à rebours lancé à l'inscription ne se déclenche donc QUE sur les gens
+// qu'on n'a pas convaincus. Lancé à la première app, il dit la bonne chose : « tu as
+// vu ce que ça fait, tu as deux semaines pour décider. »
+//
+// Coût du risque d'abus, pour mémoire : 400 crédits d'essai = ~0,08 € de LLM réel.
+// Mille faux comptes coûteraient 80 €. Aucune forteresse anti-abus ne se rentabilise
+// contre 8 centimes par tête — et elle ennuierait les vrais clients bien avant
+// d'arrêter un fraudeur.
+export const TRIAL_DAYS = 14;
+
 /** Crédits offerts à la création d'un compte Free (miroir de handle_new_user).
  *
  *  DOIT rester > ACTION_CREDITS.application : le plan Free promet « Créez votre
@@ -303,19 +330,23 @@ export const LEGACY_PRO_TIERS: CreditTier[] = [
 // ── Définition des plans ─────────────────────────────────────────────────────
 
 export const PLANS: Record<PlanId, Plan> = {
+  // Ce n'est plus un palier gratuit PERMANENT : c'est un ESSAI (décision user
+  // 2026-07-14), borné par deux limites dont la première atteinte gagne — les
+  // crédits (le vrai verrou) et le temps (TRIAL_DAYS, à partir de la première app
+  // créée, pas de l'inscription). Voir l'en-tête de TRIAL_DAYS.
   free: {
     id: "free",
-    name: "Free",
-    tagline: "Le tour du propriétaire",
-    audience: "Pour tester Biltia, sans carte bancaire",
+    name: "Essai gratuit",
+    tagline: "Voyez ce que ça fait, puis décidez",
+    audience: "Sans carte bancaire",
     tiers: [],
     signupCredits: SIGNUP_FREE_CREDITS,
     features: [
-      `${SIGNUP_FREE_CREDITS} crédits offerts pour découvrir (non renouvelables)`,
-      "Créez votre première application",
-      "Générez un vrai devis ou document",
+      `${SIGNUP_FREE_CREDITS} crédits offerts, puis ${TRIAL_DAYS} jours à partir de votre première application`,
+      "Créez votre première application sur mesure",
+      "Générez un vrai devis, lisez vos documents",
       "1 utilisateur, 1 application",
-      "Sans crédits mensuels ni mise en ligne",
+      "À la fin : vos données sont conservées, l'espace passe en lecture seule",
     ],
     limits: {
       maxApps: 1,
@@ -514,15 +545,15 @@ export function groupTiers(tiers: CreditTier[]): { label: string; tiers: CreditT
 type PlanText = { name: string; tagline: string; audience: string; features: string[] };
 const PLAN_EN: Record<string, PlanText> = {
   free: {
-    name: "Free",
-    tagline: "The guided tour",
-    audience: "To try Biltia, no credit card",
+    name: "Free trial",
+    tagline: "See what it does, then decide",
+    audience: "No credit card",
     features: [
-      `${SIGNUP_FREE_CREDITS} free credits to explore (non-renewable)`,
-      "Create your first app",
-      "Generate a real quote or document",
+      `${SIGNUP_FREE_CREDITS} free credits, then ${TRIAL_DAYS} days from your first app`,
+      "Build your first custom app",
+      "Generate a real quote, read your documents",
       "1 user, 1 app",
-      "No monthly credits, no publishing",
+      "When it ends: your data is kept, the workspace goes read-only",
     ],
   },
   pro: {

@@ -43,13 +43,23 @@ const FROZEN_STATUSES = new Set([
 ]);
 
 /**
- * POLITIQUE Free (jamais payé) : `true` = un tenant sans abonnement reste
- * writable (essai + petit palier gratuit, onboarding non cassé). Passer à
- * `false` pour figer aussi le Free en lecture seule dès que le déclencheur
- * d'expiration de l'essai est défini (ex. crédits d'essai épuisés).
- * Décision utilisateur en attente — voir [[project_pricing_billing]].
+ * POLITIQUE Free : un tenant sans abonnement reste writable TANT QUE son essai
+ * court. Ce n'est plus un palier gratuit permanent (décision user 2026-07-14) :
+ * c'est un ESSAI, borné par deux limites dont la première atteinte gagne —
+ *   • les CRÉDITS (400) : le vrai verrou, il s'applique tout seul (deduct_credits) ;
+ *   • le TEMPS (TRIAL_DAYS), à partir de la PREMIÈRE APPLICATION CRÉÉE.
+ * Tant que `tenants.trial_ends_at` est NULL (rien construit), il reste writable :
+ * ses crédits le bornent déjà. Une fois la date passée → GEL (lecture seule).
  */
 export const FREE_TENANT_WRITABLE = true;
+
+/** Vrai si l'essai gratuit de ce tenant est terminé (date posée ET dépassée).
+ *  NULL = essai pas encore démarré → pas expiré. */
+function trialIsOver(trialEndsAt: string | null): boolean {
+  if (!trialEndsAt) return false;
+  const end = Date.parse(trialEndsAt);
+  return Number.isFinite(end) && end <= Date.now();
+}
 
 export interface Entitlements {
   /** Plan EFFECTIF pour le gating des features (frozen → "free"). */
@@ -68,6 +78,13 @@ export interface Entitlements {
    *  ne les a pas : invitations d'équipe, comptes collaborateurs, portail
    *  client/sous-traitant, périmètre employé, agents collaboratifs. */
   collaboration: boolean;
+  /** Fin de l'essai gratuit (ISO), ou null si l'essai n'a pas démarré / plan payant.
+   *  Posé à la PREMIÈRE application créée — pas à l'inscription. */
+  trialEndsAt: string | null;
+  /** L'essai gratuit est terminé → espace en lecture seule (distinct de `frozen`,
+   *  qui, lui, dit « ton abonnement PAYANT a expiré » : ce ne sont pas les mêmes
+   *  gens, ni le même message, ni le même bouton). */
+  trialExpired: boolean;
   limits: PlanLimits;
 }
 
@@ -79,6 +96,8 @@ const FREE_ENTITLEMENTS: Entitlements = {
   paymentIssue: false,
   periodEnd: null,
   collaboration: false,
+  trialEndsAt: null,
+  trialExpired: false,
   limits: getPlan("free").limits,
 };
 
@@ -103,13 +122,38 @@ export async function getEntitlementsForTenant(
       .eq("tenant_id", tenantId)
       .maybeSingle();
 
-    // Aucune ligne d'abonnement → tenant Free (essai).
-    if (!data) return FREE_ENTITLEMENTS;
+    // ── AUCUN ABONNEMENT → ESSAI GRATUIT ───────────────────────────────────────
+    // Deux limites, la première atteinte gagne. Les CRÉDITS sont le vrai verrou et
+    // s'appliquent tout seuls (deduct_credits refuse quand le solde est vide) ; ici
+    // on ne traite que le TEMPS. Tant que `trial_ends_at` est NULL, il n'a encore
+    // rien construit : on ne le gèle pas, ses crédits le bornent déjà.
+    if (!data) {
+      const { data: tenant } = await supabase
+        .from("tenants")
+        .select("trial_ends_at")
+        .eq("id", tenantId)
+        .maybeSingle();
+
+      const trialEndsAt: string | null = tenant?.trial_ends_at ?? null;
+      const trialExpired = trialIsOver(trialEndsAt);
+
+      return {
+        ...FREE_ENTITLEMENTS,
+        trialEndsAt,
+        trialExpired,
+        // Essai terminé → LECTURE SEULE. Les données et les applications restent
+        // consultables et exportables : on ne détruit rien, c'est justement ce qui
+        // rend coûteux le fait de partir.
+        writable: trialExpired ? false : FREE_TENANT_WRITABLE,
+      };
+    }
 
     const status: string = data.status ?? "free";
     const periodEnd: string | null = data.current_period_end ?? null;
 
     // GEL : abonnement payant terminé → lecture seule, features Free.
+    // NB : un ancien abonné n'est PAS renvoyé dans l'essai gratuit (`trialExpired`
+    // reste faux) — il a déjà payé, son message et son bouton sont différents.
     if (FROZEN_STATUSES.has(status)) {
       return {
         plan: "free",
@@ -119,6 +163,8 @@ export async function getEntitlementsForTenant(
         paymentIssue: false,
         periodEnd,
         collaboration: false,
+        trialEndsAt: null,
+        trialExpired: false,
         limits: getPlan("free").limits,
       };
     }
@@ -143,6 +189,10 @@ export async function getEntitlementsForTenant(
       paymentIssue,
       periodEnd,
       collaboration,
+      // Un abonné PAYANT n'a plus d'essai : la date en base est ignorée, sinon un
+      // client qui paie se retrouverait gelé par un chrono d'essai périmé.
+      trialEndsAt: null,
+      trialExpired: false,
       limits: getPlan(plan).limits,
     };
   } catch {
@@ -225,8 +275,25 @@ export const FROZEN_MESSAGE =
 // routes qui répondent à un NAVIGATEUR doivent utiliser ces fonctions, pour que
 // le message suive la langue de l'interface.
 
-/** Gel (abonnement expiré) — dans la langue de l'utilisateur. */
-export function frozenMessage(locale: Locale): string {
+/** Fin de l'ESSAI (jamais payé) — à ne pas confondre avec un abonnement expiré :
+ *  ce ne sont pas les mêmes gens, et leur dire « votre abonnement a expiré » alors
+ *  qu'ils n'en ont jamais eu serait absurde. Ses données restent intactes. */
+export const TRIAL_OVER_MESSAGE =
+  "Votre essai gratuit est terminé. Vos applications et vos données sont conservées : passez au plan Pro (49 €/mois) pour reprendre là où vous en étiez.";
+
+/** Fin de l'essai gratuit — dans la langue de l'utilisateur. */
+export function trialOverMessage(locale: Locale): string {
+  return pick(
+    locale,
+    TRIAL_OVER_MESSAGE,
+    "Your free trial has ended. Your apps and data are kept: switch to the Pro plan (€49/month) to pick up where you left off.",
+  );
+}
+
+/** Gel — dans la langue de l'utilisateur. Distingue l'essai terminé (jamais payé)
+ *  de l'abonnement expiré : même verrou, deux messages, deux boutons. */
+export function frozenMessage(locale: Locale, ent?: Entitlements): string {
+  if (ent?.trialExpired) return trialOverMessage(locale);
   return pick(
     locale,
     FROZEN_MESSAGE,

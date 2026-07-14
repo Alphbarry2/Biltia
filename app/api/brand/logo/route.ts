@@ -84,7 +84,7 @@ async function authorize(locale: "fr" | "en") {
 
   const ent = await getEntitlementsForTenant(supabase, membership.tenant_id);
   if (!ent.writable) {
-    return { error: Response.json({ error: frozenMessage(locale), frozen: true }, { status: 403 }) };
+    return { error: Response.json({ error: frozenMessage(locale, ent), frozen: true }, { status: 403 }) };
   }
 
   const admin = createAdminClient();

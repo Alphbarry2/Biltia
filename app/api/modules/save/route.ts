@@ -139,7 +139,7 @@ export async function POST(req: Request) {
   // Gel lecture seule : abonnement expiré → aucune écriture.
   const ent = await getEntitlementsForTenant(supabase, tenantId);
   if (!ent.writable) {
-    return NextResponse.json({ error: frozenMessage(locale), frozen: true }, { status: 403 });
+    return NextResponse.json({ error: frozenMessage(locale, ent), frozen: true }, { status: 403 });
   }
 
   let body: {

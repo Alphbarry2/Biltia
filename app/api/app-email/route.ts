@@ -56,7 +56,7 @@ export async function POST(req: Request) {
 
   const ent = await getEntitlementsForTenant(supabase, tenantId);
   if (!ent.writable) {
-    return Response.json({ error: frozenMessage(locale), frozen: true }, { status: 403 });
+    return Response.json({ error: frozenMessage(locale, ent), frozen: true }, { status: 403 });
   }
 
   // Plan : l'envoi automatique d'emails est réservé à Pro (« le Free goûte, le Pro

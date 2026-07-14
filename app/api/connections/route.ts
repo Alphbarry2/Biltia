@@ -81,7 +81,7 @@ export async function GET(req: Request) {
 
   const { data, error } = await ctx.admin
     .from("user_connections")
-    .select("provider, scopes, connected_at")
+    .select("provider, scopes, connectors, connected_at")
     .eq("tenant_id", ctx.tenantId)
     .eq("user_id", ctx.user.id);
 
@@ -172,7 +172,11 @@ export async function POST(req: Request) {
     // rediriger. On mémorise ce choix dans l'état signé (cookie) pour que le
     // callback sache quoi faire au retour.
     const jar = await cookies();
-    jar.set(OAUTH_STATE_COOKIE, JSON.stringify({ state, provider: connector.provider, popup: body.mode === "popup" }), {
+    // `connectorId` voyage jusqu'au callback : c'est LUI qui sera enregistré comme
+    // branché. Sans cette information, le callback ne connaissait que le fournisseur
+    // et déduisait l'intention des scopes rendus — d'où l'Agenda qui s'activait tout
+    // seul en connectant Gmail (Google renvoie les droits déjà accordés).
+    jar.set(OAUTH_STATE_COOKIE, JSON.stringify({ state, provider: connector.provider, connectorId: connector.id, popup: body.mode === "popup" }), {
       httpOnly: true,
       secure: true,
       sameSite: "lax",

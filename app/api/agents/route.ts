@@ -169,7 +169,7 @@ export async function POST(req: Request) {
 
   const ent = await getEntitlementsForTenant(supabase, membership.tenant_id);
   if (!ent.writable) {
-    return NextResponse.json({ error: frozenMessage(locale), frozen: true }, { status: 403 });
+    return NextResponse.json({ error: frozenMessage(locale, ent), frozen: true }, { status: 403 });
   }
 
   let body: { instruction?: string };
@@ -295,7 +295,7 @@ export async function PATCH(req: Request) {
   // Gel lecture seule : toute commande d'agent est une écriture.
   const ent = await getEntitlementsForTenant(supabase, tenantId);
   if (!ent.writable) {
-    return NextResponse.json({ error: frozenMessage(locale), frozen: true }, { status: 403 });
+    return NextResponse.json({ error: frozenMessage(locale, ent), frozen: true }, { status: 403 });
   }
 
   // La règle DOIT appartenir au tenant actif (RLS + filtre explicite).

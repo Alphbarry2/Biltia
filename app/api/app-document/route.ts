@@ -61,7 +61,7 @@ export async function POST(req: Request) {
 
   const ent = await getEntitlementsForTenant(supabase, tenantId);
   if (!ent.writable) {
-    return Response.json({ error: frozenMessage(locale), frozen: true }, { status: 403 });
+    return Response.json({ error: frozenMessage(locale, ent), frozen: true }, { status: 403 });
   }
   if (!canSendMessages(ent) && !isFounderEmail(user.email)) {
     return Response.json(

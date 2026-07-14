@@ -68,7 +68,7 @@ export async function POST(req: Request) {
 
   const ent = await getEntitlementsForTenant(supabase, tenantId);
   if (!ent.writable) {
-    return NextResponse.json({ error: frozenMessage(locale), frozen: true }, { status: 403 });
+    return NextResponse.json({ error: frozenMessage(locale, ent), frozen: true }, { status: 403 });
   }
 
   const admin = createAdminClient();

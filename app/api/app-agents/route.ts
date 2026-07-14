@@ -89,7 +89,7 @@ export async function POST(req: Request) {
   // Gel lecture seule : créer/déclencher un agent = action facturable.
   if (WRITE.has(action)) {
     const ent = await getEntitlementsForTenant(supabase, tenantId);
-    if (!ent.writable) return NextResponse.json({ error: frozenMessage(locale), frozen: true }, { status: 403 });
+    if (!ent.writable) return NextResponse.json({ error: frozenMessage(locale, ent), frozen: true }, { status: 403 });
   }
 
   const admin = createAdminClient();

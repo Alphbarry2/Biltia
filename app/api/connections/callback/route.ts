@@ -13,7 +13,7 @@ import { createClient } from "@/lib/supabase-server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
 import { exchangeCode, refreshAccessToken, OAUTH_STATE_COOKIE } from "@/lib/oauth";
-import type { OAuthProvider } from "@/lib/connectors";
+import { filterScopes, type OAuthProvider } from "@/lib/connectors";
 import { getLocale } from "@/lib/i18n/server";
 import { pick, type Locale } from "@/lib/i18n/config";
 
@@ -59,7 +59,11 @@ export async function GET(req: Request) {
   const rawState = jar.get(OAUTH_STATE_COOKIE)?.value;
   jar.delete(OAUTH_STATE_COOKIE);
 
-  let expected: { state: string; provider: OAuthProvider; popup?: boolean } | null = null;
+  // `connectorId` : QUEL outil l'artisan vient de brancher. Sans lui, on ne savait
+  // que le fournisseur (« google ») et on était obligé de deviner l'intention à
+  // partir des scopes rendus — ce qui faisait passer l'Agenda en « Connecté » dès
+  // qu'on branchait Gmail (Google renvoie tous les droits déjà accordés).
+  let expected: { state: string; provider: OAuthProvider; connectorId?: string; popup?: boolean } | null = null;
   try {
     expected = rawState ? JSON.parse(rawState) : null;
   } catch {
@@ -103,13 +107,26 @@ export async function GET(req: Request) {
     // Fusion avec les scopes déjà accordés (connexion incrémentale).
     const { data: existing } = await admin
       .from("user_connections")
-      .select("scopes, refresh_token")
+      .select("scopes, connectors, refresh_token")
       .eq("tenant_id", membership.tenant_id)
       .eq("user_id", user.id)
       .eq("provider", expected.provider)
       .maybeSingle();
 
-    const scopes = [...new Set([...(existing?.scopes ?? []), ...grantedScopes])];
+    // ── CE QUE L'ARTISAN A BRANCHÉ, PAS CE QUE GOOGLE A BIEN VOULU RENDRE ───────
+    // Google renvoie TOUS les droits jamais accordés à l'application
+    // (include_granted_scopes, indispensable pour qu'un seul jeton couvre Gmail ET
+    // l'Agenda quand les deux sont branchés). On garde donc le jeton tel quel, mais
+    // on n'ENREGISTRE que les scopes des connecteurs réellement activés : le reste
+    // n'apparaîtra ni dans l'UI, ni pour les agents.
+    const existingConnectors = (existing as { connectors?: string[] } | null)?.connectors ?? [];
+    const enabledConnectors = [
+      ...new Set([...existingConnectors, ...(expected.connectorId ? [expected.connectorId] : [])]),
+    ];
+    const scopes = filterScopes(
+      [...new Set([...(existing?.scopes ?? []), ...grantedScopes])],
+      enabledConnectors
+    );
 
     // Chez Microsoft, le jeton qu'on vient de recevoir ne porte QUE les scopes du
     // connecteur qu'on vient d'autoriser : il est aveugle aux droits accordés
@@ -143,6 +160,7 @@ export async function GET(req: Request) {
         user_id: user.id,
         provider: expected.provider,
         scopes,
+        connectors: enabledConnectors,
         access_token: access,
         // Google n'émet pas toujours un nouveau refresh_token : garder l'ancien.
         refresh_token: refresh,

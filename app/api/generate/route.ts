@@ -33,7 +33,7 @@ import { trackAiUsage, reconcileCredits } from "@/lib/ai-usage";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
 import { can } from "@/lib/permissions";
 import { enforceRateLimit, LIMITS } from "@/lib/rate-limit";
-import { getEntitlementsForTenant, FROZEN_MESSAGE, frozenMessage } from "@/lib/entitlements";
+import { getEntitlementsForTenant, FROZEN_MESSAGE, frozenMessage, type Entitlements } from "@/lib/entitlements";
 import { isFounderEmail } from "@/lib/founder";
 import { logActivity } from "@/lib/activity";
 import { sendPushToUser } from "@/lib/push";
@@ -57,7 +57,7 @@ import {
   blocPourLeGenerateur,
   type LectureFichiers,
 } from "@/lib/file-reading";
-import { ACTION_CREDITS } from "@/lib/plans";
+import { ACTION_CREDITS, TRIAL_DAYS } from "@/lib/plans";
 import { findBindingViolations, buildBindingRepairPrompt } from "@/lib/app-guards";
 import { getLocale } from "@/lib/i18n/server";
 import { withLocale, localeInstruction } from "@/lib/i18n/llm";
@@ -1038,12 +1038,16 @@ export async function POST(req: Request) {
     const tenantId = membership.tenant_id;
 
     // ── GEL LECTURE SEULE ────────────────────────────────────────────────────
-    // Un abonnement expiré (résilié / impayé) fige l'espace : plus de création
-    // ni de modification IA. Le compte fondateur (test) n'est jamais gelé.
+    // Un abonnement expiré (résilié / impayé) OU un essai gratuit terminé fige
+    // l'espace : plus de création ni de modification IA. Les données restent
+    // consultables et exportables. Le compte fondateur (test) n'est jamais gelé.
+    // `ent` est gardé en portée : il sert plus bas à savoir si ce tenant est
+    // encore en ESSAI (pour démarrer le chronomètre à sa première application).
+    let ent: Entitlements | null = null;
     if (!isFounderEmail(user.email)) {
-      const ent = await getEntitlementsForTenant(supabase, tenantId);
+      ent = await getEntitlementsForTenant(supabase, tenantId);
       if (!ent.writable) {
-        return Response.json({ error: frozenMessage(locale), frozen: true }, { status: 403 });
+        return Response.json({ error: frozenMessage(locale, ent), frozen: true }, { status: 403 });
       }
     }
 
@@ -2013,6 +2017,37 @@ Si la demande vise PLUSIEURS fiches d'un coup en SUPPRESSION ou en ÉCRASEMENT d
           },
           { status: 402 }
         );
+      }
+    }
+
+    // ── DÉPART DU CHRONOMÈTRE D'ESSAI ────────────────────────────────────────
+    // L'essai gratuit est borné par DEUX limites (crédits, temps) et le chrono ne
+    // part PAS à l'inscription : il part ICI, à la première APPLICATION créée. Le
+    // déclic vient d'avoir lieu — il a vu ce que Biltia fait, il a 14 jours pour
+    // décider. Lancé à l'inscription, ce compte à rebours ne se déclencherait que
+    // sur l'artisan qui n'a pas encore compris (il est sur un chantier, pas devant
+    // un écran) : il gèlerait exactement ceux qu'on n'a PAS convaincus.
+    //
+    // Posé une seule fois (`is null`), en service_role : si le client pouvait
+    // écrire ce champ, il repousserait sa propre fin d'essai. Best-effort — la
+    // facturation ne doit jamais empêcher une app de sortir.
+    // `ent` est null pour le fondateur (jamais gelé, jamais en essai) → pas de chrono.
+    // `plan === "free"` = aucun abonnement payant. Sans ce garde-fou, on poserait une
+    // date d'essai sur un client PAYANT : le jour où il résilie, il retomberait en Free
+    // avec une date déjà dépassée et se retrouverait gelé sur-le-champ.
+    if (isCreation && holdCredits > 0 && ent?.plan === "free") {
+      try {
+        const admin = createAdminClient();
+        if (admin) {
+          const ends = new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000).toISOString();
+          await admin
+            .from("tenants")
+            .update({ trial_ends_at: ends })
+            .eq("id", tenantId)
+            .is("trial_ends_at", null);
+        }
+      } catch (err) {
+        console.error("Trial clock start failed:", err);
       }
     }
 
