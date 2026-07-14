@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
-import { getActiveMembership } from "@/lib/tenant";
 import { can } from "@/lib/permissions";
 import { SubscriptionBanner } from "@/components/subscription-banner";
 import { SessionProvider, useSession } from "@/components/session-provider";

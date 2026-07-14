@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase";
-import { getActiveMembership } from "@/lib/tenant";
 import { injectAppBrand } from "@/lib/app-brand";
 import { brandFromTenant, type BrandKit } from "@/lib/brand";
 import { isFounderEmail } from "@/lib/founder";

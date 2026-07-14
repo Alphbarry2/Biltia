@@ -51,7 +51,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { ENTITIES, FORM_FIELDS, RELATION_DISPLAY, fieldLabel, fieldPlaceholder, optionLabel, type FormField } from "@/lib/data-entities";
 import { VOCABS, FIELD_VOCAB, vocabLabel, splitAutre, slugify } from "@/lib/vocabulaires";
-import { getActiveMembership } from "@/lib/tenant";
+import { useSession } from "@/components/session-provider";
 import { useT, useLocale } from "@/lib/i18n/context";
 import type { Locale } from "@/lib/i18n/config";
 import { AddToCalendar } from "@/components/add-to-calendar";
@@ -2343,35 +2343,54 @@ export default function WorkspacePage() {
   const [editRecord, setEditRecord] = useState<{ entity: string; row: Row } | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+  // ⚠️ AVANT : 25 `POST /api/data`, un par entité — et CHACUN refaisait côté serveur
+  // getUser() → membership → requête. Soit ~78 allers-retours pour UN affichage, que
+  // le navigateur étalait en cinq vagues (il ne tient que ~6 connexions à la fois).
+  // Le comptage des apps, lui, attendait EN SÉRIE derrière les 25, alors que rien ne
+  // l'y obligeait.
+  //
+  // MAINTENANT : un seul appel groupé (/api/data/batch) — une authentification, un
+  // périmètre employé, 25 lectures en parallèle CÔTÉ SERVEUR, où Supabase est à
+  // quelques millisecondes. Et le comptage des apps part EN MÊME TEMPS.
+  const { membership, loading: sessionLoading } = useSession();
+
   const load = useCallback(async () => {
     setLoading(true);
-    const entries = await Promise.all(
-      ENTITY_ORDER.map(async (k) => [k, await listEntity(k)] as const)
-    );
-    setData(Object.fromEntries(entries));
 
-    // Applications (modules) du workspace ACTIF uniquement — cloisonné comme les données.
-    try {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      const membership = user ? await getActiveMembership(supabase, user.id) : null;
-      if (!membership?.tenant_id) {
-        setAppsCount(0);
-      } else {
-        const { count } = await supabase
-          .from("modules")
-          .select("id", { count: "exact", head: true })
-          .eq("status", "active")
-          .eq("tenant_id", membership.tenant_id);
-        setAppsCount(count ?? 0);
-      }
-    } catch {
-      setAppsCount(0);
-    }
+    const tenantId = membership?.tenant_id ?? null;
+    const supabase = createClient();
+
+    const [batch, appsRes] = await Promise.all([
+      // Les 25 entités, en UN appel.
+      fetch("/api/data/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entities: ENTITY_ORDER, limit: 200 }),
+      })
+        .then((r) => (r.ok ? r.json() : { data: {} }))
+        .catch(() => ({ data: {} })),
+      // Applications du workspace ACTIF uniquement — cloisonné comme les données.
+      tenantId
+        ? supabase
+            .from("modules")
+            .select("id", { count: "exact", head: true })
+            .eq("status", "active")
+            .eq("tenant_id", tenantId)
+        : Promise.resolve({ count: 0 }),
+    ]);
+
+    const rows = (batch?.data ?? {}) as Record<string, Row[]>;
+    // Toute entité absente de la réponse ressort en tableau vide : la page s'affiche
+    // toujours, même si une section a échoué côté serveur.
+    setData(Object.fromEntries(ENTITY_ORDER.map((k) => [k, rows[k] ?? []])));
+    setAppsCount(appsRes?.count ?? 0);
     setLoading(false);
-  }, []);
+  }, [membership?.tenant_id]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (sessionLoading) return; // on attend que la session partagée soit résolue
+    load();
+  }, [sessionLoading, load]);
 
   const openDrawer = useCallback((entity: string, id: string) => setDrawer({ entity, id }), []);
 
