@@ -1849,6 +1849,7 @@ export type Database = {
         Row: {
           access_token: string | null
           connected_at: string
+          connectors: string[]
           id: string
           provider: string
           refresh_token: string | null
@@ -1861,6 +1862,7 @@ export type Database = {
         Insert: {
           access_token?: string | null
           connected_at?: string
+          connectors?: string[]
           id?: string
           provider: string
           refresh_token?: string | null
@@ -1873,6 +1875,7 @@ export type Database = {
         Update: {
           access_token?: string | null
           connected_at?: string
+          connectors?: string[]
           id?: string
           provider?: string
           refresh_token?: string | null

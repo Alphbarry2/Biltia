@@ -14,8 +14,8 @@ import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase-server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
-import { getConnector, isConnectable, type OAuthProvider } from "@/lib/connectors";
-import { buildAuthorizeUrl, oauthConfigured, OAUTH_STATE_COOKIE } from "@/lib/oauth";
+import { getConnector, isConnectable, filterScopes } from "@/lib/connectors";
+import { buildAuthorizeUrl, oauthConfigured, revokeToken, OAUTH_STATE_COOKIE } from "@/lib/oauth";
 import { getLocale } from "@/lib/i18n/server";
 import { pick } from "@/lib/i18n/config";
 
@@ -187,18 +187,69 @@ export async function POST(req: Request) {
     return NextResponse.json({ url });
   }
 
-  // ── Déconnexion d'un provider (supprime les jetons) ────────────────────────
+  // ── Déconnexion d'UN CONNECTEUR (plus de tout le compte d'un coup) ──────────
+  // Avant, « Déconnecter » sur Gmail supprimait la ligne `google` entière : l'Agenda
+  // et Drive tombaient avec, sans prévenir. Et comme rien n'était révoqué chez
+  // Google, le droit restait accordé et ressuscitait à la reconnexion suivante.
+  //
+  // Désormais on retire l'outil de la liste des connecteurs activés, et on rogne les
+  // scopes en conséquence. Quand c'était le DERNIER outil du fournisseur, on
+  // supprime la ligne ET on révoque le jeton chez le fournisseur : sans révocation,
+  // le consentement survit à la déconnexion, ce qui est exactement le bug d'origine.
   if (body.action === "disconnect") {
-    const provider = body.provider as OAuthProvider;
-    if (provider !== "google" && provider !== "microsoft") {
+    const connector = getConnector(body.connectorId ?? "");
+    if (!connector || connector.kind !== "oauth" || !connector.provider) {
       return NextResponse.json(
-        { error: pick(locale, "Fournisseur inconnu.", "Unknown provider.") },
+        { error: pick(locale, "Connecteur inconnu.", "Unknown connector.") },
         { status: 400 }
       );
     }
+    const provider = connector.provider;
+
+    const { data: existing } = await ctx.admin
+      .from("user_connections")
+      .select("scopes, connectors, access_token, refresh_token")
+      .eq("tenant_id", ctx.tenantId)
+      .eq("user_id", ctx.user.id)
+      .eq("provider", provider)
+      .maybeSingle();
+    if (!existing) return NextResponse.json({ ok: true });
+
+    const row = existing as {
+      scopes?: string[];
+      connectors?: string[];
+      access_token?: string | null;
+      refresh_token?: string | null;
+    };
+    const remaining = (row.connectors ?? []).filter((id) => id !== connector.id);
+
+    if (remaining.length === 0) {
+      // Plus rien de branché chez ce fournisseur → on coupe pour de bon.
+      await revokeToken(provider, row.refresh_token ?? row.access_token ?? null);
+      const { error } = await ctx.admin
+        .from("user_connections")
+        .delete()
+        .eq("tenant_id", ctx.tenantId)
+        .eq("user_id", ctx.user.id)
+        .eq("provider", provider);
+      if (error) {
+        return NextResponse.json(
+          { error: pick(locale, "Déconnexion impossible.", "Disconnect failed.") },
+          { status: 500 }
+        );
+      }
+      return NextResponse.json({ ok: true });
+    }
+
+    // D'autres outils du même compte restent branchés : on garde le jeton (il leur
+    // sert), on retire juste cet outil et ses droits de ce que Biltia utilisera.
     const { error } = await ctx.admin
       .from("user_connections")
-      .delete()
+      .update({
+        connectors: remaining,
+        scopes: filterScopes(row.scopes ?? [], remaining),
+        updated_at: new Date().toISOString(),
+      })
       .eq("tenant_id", ctx.tenantId)
       .eq("user_id", ctx.user.id)
       .eq("provider", provider);

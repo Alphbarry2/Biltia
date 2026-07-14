@@ -114,12 +114,14 @@ function ConnectorCard({
 
   const disconnect = async () => {
     if (busy) return;
-    const family = connector.provider === "google" ? "Google" : "Microsoft";
+    // Chaque outil se débranche SEUL (corrigé 2026-07-14) : « Déconnecter » sur
+    // Gmail emportait avant tout le compte Google — l'agenda et le stockage
+    // tombaient avec, sans que rien ne le dise.
     if (
       !window.confirm(
         t(
-          `Déconnecter votre compte ${family} ? Tous les outils ${family} connectés (email, agenda, stockage) seront déconnectés.`,
-          `Disconnect your ${family} account? All connected ${family} tools (email, calendar, storage) will be disconnected.`,
+          `Déconnecter ${connector.name} ? Vos autres outils connectés ne sont pas touchés.`,
+          `Disconnect ${connector.name}? Your other connected tools are not affected.`,
         )
       )
     )
@@ -130,7 +132,7 @@ function ConnectorCard({
       const res = await fetch("/api/connections", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "disconnect", provider: connector.provider }),
+        body: JSON.stringify({ action: "disconnect", connectorId: connector.id }),
       });
       if (!res.ok) throw new Error(t("Déconnexion impossible.", "Disconnection failed."));
       onChanged();

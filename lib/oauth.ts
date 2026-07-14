@@ -54,6 +54,34 @@ export function redirectUri(origin: string): string {
   return `${base.replace(/\/$/, "")}/api/connections/callback`;
 }
 
+/**
+ * RÉVOQUE le consentement chez le fournisseur. Appelé quand l'artisan débranche son
+ * DERNIER outil d'un compte.
+ *
+ * Pourquoi c'est indispensable (bug du 2026-07-14) : « Déconnecter » ne faisait que
+ * supprimer la ligne locale. Le consentement, lui, restait accordé chez Google —
+ * qui, avec `include_granted_scopes=true`, le renvoyait à la connexion suivante. Un
+ * artisan qui débranchait son Agenda le voyait donc réapparaître « Connecté » dès
+ * qu'il rebranchait Gmail. Débrancher doit couper pour de bon.
+ *
+ * Google expose un endpoint de révocation ; Microsoft n'en a pas d'équivalent (la
+ * révocation passe par le portail du compte). On supprime alors le jeton, ce qui
+ * est tout ce qui est en notre pouvoir. Ne throw jamais : une révocation qui échoue
+ * ne doit pas empêcher la déconnexion locale.
+ */
+export async function revokeToken(provider: OAuthProvider, token: string | null): Promise<void> {
+  if (provider !== "google" || !token) return;
+  try {
+    await fetch("https://oauth2.googleapis.com/revoke", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ token }).toString(),
+    });
+  } catch {
+    /* révocation best-effort : la ligne locale est supprimée quoi qu'il arrive */
+  }
+}
+
 export function buildAuthorizeUrl(opts: {
   provider: OAuthProvider;
   scopes: string[];
