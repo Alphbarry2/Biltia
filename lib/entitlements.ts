@@ -21,7 +21,7 @@
 // non typé (cf. lib/ai-usage.ts pour `ai_usage`).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { getPlan, type PlanId, type PlanLimits } from "./plans";
+import { getPlan, UNLIMITED, type PlanId, type PlanLimits } from "./plans";
 import { pick, type Locale } from "./i18n/config";
 
 /** Vue minimale d'un client Supabase, compatible client typé ET service_role. */
@@ -101,6 +101,51 @@ const FREE_ENTITLEMENTS: Entitlements = {
   limits: getPlan("free").limits,
 };
 
+/**
+ * COMPTE FONDATEUR (tenants.founder, migration 056) — tout est ouvert, rien n'est
+ * compté. C'est le pendant, côté DROITS, de ce que lib/founder.ts fait déjà côté
+ * CRÉDITS : le fondateur n'est pas un client, il est la maison.
+ *
+ * Pourquoi un drapeau plutôt qu'un abonnement « equipe » posé en base : le MRR de
+ * la console admin compte tout tenant dont le plan n'est pas « free ». Un
+ * abonnement de complaisance ferait afficher « 1 payant, 49 € » — et le seul
+ * chiffre que le fondateur consulte pour savoir où il en est deviendrait faux.
+ * L'abonnement reste donc « free », et c'est CE drapeau qui donne les droits.
+ *
+ * Plus permissif que le plan Équipe lui-même : white-label et URL personnalisée
+ * compris. « Sans limite » veut dire sans limite.
+ */
+const FOUNDER_ENTITLEMENTS: Entitlements = {
+  // Plan EFFECTIF de gating. Le code ne connaît que "free" et "pro" pour les
+  // features (un abonné Équipe est lui aussi ramené à "pro" + collaboration,
+  // cf. plus bas) : "pro" est donc bien le palier le plus haut du gating.
+  plan: "pro",
+  status: "founder",
+  writable: true,
+  frozen: false,
+  paymentIssue: false,
+  periodEnd: null,
+  collaboration: true,
+  // Ni essai, ni chrono : un fondateur gelé par un compte à rebours d'essai, c'est
+  // le produit qui se ferme au nez de celui qui le construit.
+  trialEndsAt: null,
+  trialExpired: false,
+  limits: {
+    maxApps: UNLIMITED,
+    maxUsers: UNLIMITED,
+    liveDeploy: true,
+    voice: true,
+    offlineFirst: true,
+    sharedWorkspace: true,
+    whiteLabel: true,
+    customUrl: true,
+    multiNiche: true,
+    accountingConnectors: true,
+    autoMessaging: true,
+    agentActions: true,
+  },
+};
+
 /** Un statut inconnu ne doit pas verrouiller un client légitime : fail-open sur
  *  l'écriture, mais jamais plus permissif que "free" pour les features. */
 function isPaidPlanId(p: unknown): p is PlanId {
@@ -116,11 +161,27 @@ export async function getEntitlementsForTenant(
   tenantId: string
 ): Promise<Entitlements> {
   try {
-    const { data } = await supabase
-      .from("subscriptions")
-      .select("plan, status, current_period_end")
-      .eq("tenant_id", tenantId)
-      .maybeSingle();
+    // Les deux lectures EN PARALLÈLE : le tenant nous dit s'il est interne
+    // (fondateur) et où en est son essai, l'abonnement dit ce qu'il paie. En
+    // séquence, on aurait ajouté un aller-retour à un chemin brûlant pour une
+    // information qu'on lisait déjà à moitié.
+    const [{ data }, { data: tenant }] = await Promise.all([
+      supabase
+        .from("subscriptions")
+        .select("plan, status, current_period_end")
+        .eq("tenant_id", tenantId)
+        .maybeSingle(),
+      supabase
+        .from("tenants")
+        .select("founder, trial_ends_at")
+        .eq("id", tenantId)
+        .maybeSingle(),
+    ]);
+
+    // ── FONDATEUR : tout ouvert, AVANT toute autre règle ───────────────────────
+    // Avant le gel, avant l'essai, avant le plan. Son abonnement reste « free » en
+    // base et n'entre donc jamais dans le MRR (migration 056).
+    if (tenant?.founder === true) return FOUNDER_ENTITLEMENTS;
 
     // ── AUCUN ABONNEMENT → ESSAI GRATUIT ───────────────────────────────────────
     // Deux limites, la première atteinte gagne. Les CRÉDITS sont le vrai verrou et
@@ -128,12 +189,6 @@ export async function getEntitlementsForTenant(
     // on ne traite que le TEMPS. Tant que `trial_ends_at` est NULL, il n'a encore
     // rien construit : on ne le gèle pas, ses crédits le bornent déjà.
     if (!data) {
-      const { data: tenant } = await supabase
-        .from("tenants")
-        .select("trial_ends_at")
-        .eq("id", tenantId)
-        .maybeSingle();
-
       const trialEndsAt: string | null = tenant?.trial_ends_at ?? null;
       const trialExpired = trialIsOver(trialEndsAt);
 
