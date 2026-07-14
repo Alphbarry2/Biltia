@@ -79,10 +79,13 @@ function ConnectorCard({
   connector,
   connections,
   onChanged,
+  className,
 }: {
   connector: Connector;
   connections: ConnectionInfo[];
   onChanged: () => void;
+  /** Placement dans la grille de l'appelant (ex : occuper la ligne entière). */
+  className?: string;
 }) {
   const t = useT();
   const locale = useLocale();
@@ -143,7 +146,7 @@ function ConnectorCard({
   const soon = status === "soon";
 
   return (
-    <div className={`flex flex-col gap-2.5 rounded-xl border border-[#EDEDF2] bg-white p-4 ${soon ? "opacity-70" : ""}`}>
+    <div className={`flex flex-col gap-2.5 rounded-xl border border-[#EDEDF2] bg-white p-4 ${soon ? "opacity-70" : ""} ${className ?? ""}`}>
       <div className="flex items-center gap-2.5 min-w-0">
         <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${connector.logo ? "bg-white border border-[#EDEDF2]" : "bg-[#F3EFFC]"} ${soon ? "grayscale" : ""}`}>
           {connector.logo ? (
@@ -258,10 +261,43 @@ export function ConnectionsPanel() {
           <Loader2 className="w-5 h-5 text-[#7C3AED] animate-spin" />
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {CONNECTORS.map((c) => (
-            <ConnectorCard key={c.id} connector={c} connections={connections} onChanged={refresh} />
-          ))}
+        // Deux blocs distincts : ce qui demande une ACTION de l'artisan (brancher son
+        // compte), puis ce qui marche déjà tout seul. Mélangés dans une seule grille,
+        // une carte « Intégré » se retrouvait à côté d'un bouton « Connecter » sur la
+        // même ligne — l'œil ne savait plus ce qu'il restait à faire.
+        <div className="space-y-6">
+          <div>
+            <p className="mb-2.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#9A9A97]">
+              {t("À connecter", "To connect")}
+            </p>
+            {/* Google à gauche, Microsoft à droite : l'artisan descend SA colonne. */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {CONNECTORS.filter((c) => c.kind === "oauth").map((c) => (
+                <ConnectorCard key={c.id} connector={c} connections={connections} onChanged={refresh} />
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="mb-2.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#9A9A97]">
+              {t("Intégré — rien à connecter", "Built-in — nothing to connect")}
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {CONNECTORS.filter((c) => c.kind === "builtin").map((c) => (
+                <ConnectorCard
+                  key={c.id}
+                  connector={c}
+                  connections={connections}
+                  onChanged={refresh}
+                  // WhatsApp est le seul « intégré » sur lequel l'artisan CLIQUE
+                  // vraiment (ouvrir une conversation). Il occupe la ligne entière,
+                  // ce qui laisse les exports côte à côte, puis SMS et Téléphone
+                  // côte à côte tout en bas — ceux-là ne s'ouvrent même pas.
+                  className={c.id === "whatsapp" ? "sm:col-span-2" : undefined}
+                />
+              ))}
+            </div>
+          </div>
         </div>
       )}
     </div>

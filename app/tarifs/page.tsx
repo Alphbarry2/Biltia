@@ -445,7 +445,12 @@ export default function TarifsPage() {
           <Reveal delay={0.12}>
             <div className="mt-6 flex flex-wrap gap-2.5 max-w-5xl">
               {[
-                tr("Estimation affichée avant les grosses créations", "Estimate shown before big builds"),
+                // Cette garantie était MENSONGÈRE : on classait la phrase de l'utilisateur,
+                // on décidait tout seuls que c'était une app, et on prélevait — sans jamais
+                // le lui dire. Elle est désormais TENUE : /api/generate refuse de construire
+                // une app tant que le prix n'a pas été affiché ET accepté (porte de coût).
+                // Le libellé dit maintenant ce que le code fait, ni plus ni moins.
+                tr(`Le prix affiché, et accepté, avant chaque création d'application`, `The price shown, and accepted, before every app build`),
                 tr("Crédits épuisés : les agents se mettent en pause", "Out of credits: agents pause"),
                 tr("Saisie manuelle et exports : toujours gratuits", "Manual entry and exports: always free"),
               ].map((g) => (

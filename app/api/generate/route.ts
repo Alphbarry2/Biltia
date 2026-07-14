@@ -1058,6 +1058,10 @@ export async function POST(req: Request) {
       // Document : 2e passage après que l'utilisateur a fourni le contexte
       // manquant → court-circuite la porte « contexte suffisant ? ».
       contextProvided?: boolean;
+      // L'utilisateur a VU le prix d'une création d'application et l'a accepté
+      // (questionnaire pré-création, ou carte de confirmation). Sans ce OUI, la
+      // porte de coût renvoie le tarif au lieu de construire. Voir plus bas.
+      costAck?: boolean;
       files?: { name?: string; mediaType?: string; data?: string }[];
       // Portée des données choisie au questionnaire (workspace / import / zéro).
       dataScope?: DataScopeInput;
@@ -1950,6 +1954,34 @@ Si la demande vise PLUSIEURS fiches d'un coup en SUPPRESSION ou en ÉCRASEMENT d
             : kind === "document"
               ? ACTION_CREDITS.document
               : ACTION_CREDITS.application;
+
+    // ── PORTE DE COÛT — « rien de cher ne part sans un OUI » ──────────────────
+    //
+    // La page /tarifs PROMET « estimation affichée avant les grosses créations ».
+    // C'était faux : on classait la phrase de l'utilisateur, on décidait tout seuls
+    // que c'était une application, et on prélevait 300 crédits — sans jamais lui
+    // dire. Or le produit vend « décris ton problème, on le règle » : c'est donc
+    // NOUS qui choisissons le mécanisme, donc le prix. « J'ai la flemme de lire mes
+    // documents » coûte 10 crédits ; « j'ai la flemme de suivre mes chantiers » en
+    // coûte 300. Il ne choisit pas, et le classifieur se trompe parfois.
+    //
+    // Une création d'app ne part donc plus sans un OUI explicite. Rien n'est débité
+    // ici : on renvoie le prix, le client l'affiche, l'utilisateur tranche, et la
+    // demande revient avec costAck. Même patron que la porte `needsContext` du
+    // document juste au-dessus.
+    //
+    // Ne concerne QUE la création (300 cr). Pas la modification : retoucher son app
+    // est une boucle itérative, une confirmation à chaque retouche la tuerait. Pas
+    // le document (30) ni la question (3) : à ce prix, demander est plus pénible que
+    // payer.
+    const isCreation = kind === "module" && !isModification && !isAutoFix;
+    if (isCreation && holdCredits > 0 && !body.costAck) {
+      return Response.json({
+        kind: "module",
+        needsCostAck: true,
+        credits: holdCredits,
+      });
+    }
 
     if (holdCredits > 0) {
       const { data: credited } = await supabase.rpc("deduct_credits", {

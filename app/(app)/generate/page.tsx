@@ -105,6 +105,10 @@ type GenOpts = {
   // Document : contexte déjà fourni par l'utilisateur → ne pas re-poser de
   // questions côté serveur (la porte « contexte suffisant ? » est franchie).
   contextProvided?: boolean;
+  // L'utilisateur a VU le prix de la création et a dit oui (questionnaire
+  // pré-création, ou carte de confirmation). Sans ce OUI, le serveur refuse de
+  // construire et renvoie le tarif : rien de cher ne part par surprise.
+  costAck?: boolean;
   // Portée des données choisie au questionnaire (workspace / import / zéro).
   dataScope?: DataScope;
   // Remplissage d'un document joint : force kind=document côté serveur pour
@@ -507,6 +511,10 @@ export default function GeneratePage() {
   // Crédits insuffisants (pré-vérification client OU 402 serveur) → widget
   // d'upgrade affiché dans le fil, jamais un simple message sans issue.
   const [upsell, setUpsell] = useState<{ required?: number } | null>(null);
+  // PORTE DE COÛT : le serveur a reconnu une création d'application et refuse de
+  // construire tant que l'utilisateur n'a pas VU le prix et dit oui. Rien n'a été
+  // débité à ce stade — on rejoue sa demande TELLE QU'ELLE ÉTAIT s'il accepte.
+  const [costAsk, setCostAsk] = useState<{ credits: number; prompt: string; opts?: GenOpts } | null>(null);
   // Compte fondateur : jamais bloqué par les crédits (cf. lib/founder.ts).
   const [founderAccount, setFounderAccount] = useState(false);
   // Historique : id de la conversation en cours (créée au premier échange).
@@ -1411,7 +1419,11 @@ export default function GeneratePage() {
     if (p.action === "module") {
       setKind("module");
       kindRef.current = "module";
-      await executeGeneration(p.prompt, { files, appFromFiles: true });
+      // La carte de proposition AFFICHE déjà le prix (« Création d'application ·
+      // N crédits », cf. components/report-views). Ce clic EST le consentement :
+      // la porte de coût serveur ne doit pas le redemander, sinon on fait confirmer
+      // deux fois un prix déjà annoncé et déjà accepté.
+      await executeGeneration(p.prompt, { files, appFromFiles: true, costAck: true });
     } else {
       setKind("document");
       kindRef.current = "document";
@@ -1658,6 +1670,7 @@ export default function GeneratePage() {
 
     setClarify(null); // un nouveau message remplace un éventuel questionnaire ouvert
     setUpsell(null);
+    setCostAsk(null); // ... et une confirmation de coût restée ouverte
     setMessages((prev) => [...prev, { role: "user", content: trimmed }]);
     setInput("");
 
@@ -1760,9 +1773,12 @@ export default function GeneratePage() {
       }
     }
 
-    const genOpts = isDoc
+    // Le questionnaire de CRÉATION affiche le prix sur son bouton (ClarifyWidget) :
+    // le valider, c'est donc avoir vu le tarif et dit oui. On franchit la porte de
+    // coût. Un document (30 cr) n'en a pas : il n'est pas concerné.
+    const genOpts: GenOpts = isDoc
       ? { contextProvided: true, files: clarifyFiles, docFill: !!clarifyFiles?.length }
-      : { formatOverride, dataScope };
+      : { formatOverride, dataScope, costAck: true };
     const header = isDoc
       ? "# CONTEXTE FOURNI PAR L'UTILISATEUR (à utiliser tel quel, ne rien inventer)"
       : "# PRÉCISIONS DE L'UTILISATEUR (questionnaire avant création)";
@@ -1893,6 +1909,9 @@ export default function GeneratePage() {
                 : undefined,
           docType: isModification ? docType ?? undefined : undefined,
           contextProvided: opts?.contextProvided,
+          // L'utilisateur a VU le prix de la création et a dit oui. Sans ce OUI, le
+          // serveur renvoie le tarif au lieu de construire (porte de coût).
+          costAck: opts?.costAck,
           // Captures / documents joints comme contexte de la demande.
           files: opts?.files,
           // Portée des données (workspace tout/sélection, import, zéro).
@@ -2046,6 +2065,16 @@ export default function GeneratePage() {
           setMessages((prev) => [...prev, { role: "assistant", content: data.recap }]);
         }
         setClarify({ questions: data.questions, prompt: apiPrompt, kind: "document", files: opts?.files });
+        return;
+      }
+
+      // PORTE DE COÛT : le serveur a compris qu'il fallait CRÉER une application,
+      // et il refuse de la construire tant qu'on n'a pas dit le prix. C'est le cas
+      // où l'heuristique du navigateur n'avait PAS vu l'app (donc pas de
+      // questionnaire) : sans cette porte, 300 crédits partaient en silence sur une
+      // phrase que l'utilisateur ne pensait pas coûteuse. Rien n'est débité ici.
+      if (data.needsCostAck && typeof data.credits === "number") {
+        setCostAsk({ credits: data.credits, prompt: apiPrompt, opts });
         return;
       }
 
@@ -2834,7 +2863,57 @@ export default function GeneratePage() {
 
           {clarify && !isGenerating && (
             <div className="flex justify-start">
-              <ClarifyWidget questions={clarify.questions} onSubmit={onClarifyDone} />
+              {/* Le prix n'est annoncé que pour une CRÉATION d'app. Le questionnaire
+                  « document » (30 cr) sert à récupérer un contexte manquant, pas à
+                  autoriser une dépense — l'y afficher serait du bruit. */}
+              <ClarifyWidget
+                questions={clarify.questions}
+                onSubmit={onClarifyDone}
+                costCredits={
+                  (clarify.kind ?? "module") === "module" && !founderAccount
+                    ? ACTION_CREDITS.application
+                    : undefined
+                }
+              />
+            </div>
+          )}
+
+          {/* PORTE DE COÛT — « rien de cher ne part sans un OUI ».
+              Le serveur a compris qu'il fallait CRÉER une application (300 cr) sur une
+              phrase où le navigateur n'avait rien vu venir : pas de questionnaire, donc
+              aucune annonce. Sans cette carte, les crédits partaient en silence. Rien
+              n'est débité tant qu'il n'a pas cliqué. */}
+          {costAsk && !isGenerating && (
+            <div className="flex justify-start">
+              <div className="max-w-[560px] rounded-2xl border border-[#E6E1F0] bg-white p-4 shadow-[0_4px_14px_rgba(60,40,120,0.06)]">
+                <p className="text-[14.5px] font-semibold text-[#0A0A0A]">
+                  {t("Je vais vous créer une application sur mesure.", "I'll build you a custom app.")}
+                </p>
+                <p className="mt-1 text-[13.5px] leading-relaxed text-[#5B5B66]">
+                  {t(
+                    `Ça coûte ${costAsk.credits} crédits. Vous en avez ${credits ?? "—"}. Rien n'est débité tant que vous n'avez pas dit oui.`,
+                    `It costs ${costAsk.credits} credits. You have ${credits ?? "—"}. Nothing is charged until you say yes.`
+                  )}
+                </p>
+                <div className="mt-3.5 flex flex-wrap gap-2">
+                  <button
+                    onClick={() => {
+                      const ask = costAsk;
+                      setCostAsk(null);
+                      void executeGeneration(ask.prompt, { ...ask.opts, costAck: true });
+                    }}
+                    className="rounded-xl bg-[#0A0A0A] px-4 py-2.5 text-[13.5px] font-semibold text-white transition-opacity hover:opacity-90"
+                  >
+                    {t(`Créer · ${costAsk.credits} crédits`, `Create · ${costAsk.credits} credits`)}
+                  </button>
+                  <button
+                    onClick={() => setCostAsk(null)}
+                    className="rounded-xl border border-[#E6E1F0] px-4 py-2.5 text-[13.5px] font-semibold text-[#5B5B66] transition-colors hover:bg-[#F6F4FB]"
+                  >
+                    {t("Annuler", "Cancel")}
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 

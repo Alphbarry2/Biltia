@@ -264,9 +264,16 @@ const WIREFRAME_MAP: Record<string, () => React.ReactElement> = {
 export function ClarifyWidget({
   questions,
   onSubmit,
+  costCredits,
 }: {
   questions: ClarifyQuestion[];
   onSubmit: (answersText: string | null, structured?: Record<string, string[]>) => void;
+  /** Prix de ce que le questionnaire va déclencher (création d'app). Affiché EN
+   *  PERMANENCE dans le pied — pas seulement sur le bouton d'envoi — parce que le
+   *  widget a DEUX sorties qui construisent : « Envoyer » et « Tout ignorer ». Une
+   *  annonce portée par un seul des deux boutons se contournerait par l'autre.
+   *  Absent pour un document (30 cr) : à ce prix, prévenir est plus pénible que payer. */
+  costCredits?: number;
 }) {
   const tr = useT();
   const [idx, setIdx]       = useState(0);
@@ -727,6 +734,21 @@ export function ClarifyWidget({
         )}
       </div>
 
+      {/* Prix — annoncé AVANT de construire, quelle que soit la sortie empruntée.
+          C'est ce qui rend vraie la garantie affichée sur /tarifs (« estimation
+          affichée avant les grosses créations »), qui était jusqu'ici mensongère :
+          on prélevait sans jamais dire le tarif. */}
+      {typeof costCredits === "number" && costCredits > 0 && (
+        <div className="flex items-center justify-between gap-3 border-t border-[#F1F1F5] bg-[#FAF9FD] px-4 py-2.5">
+          <span className="text-[12.5px] text-[#6E6E7A]">
+            {tr("Création de l'application", "Building the app")}
+          </span>
+          <span className="rounded-full bg-[#F1ECFB] px-2.5 py-1 text-[12.5px] font-bold tabular-nums text-[#6D4AE0]">
+            {tr(`${costCredits} crédits`, `${costCredits} credits`)}
+          </span>
+        </div>
+      )}
+
       {/* Pied */}
       <div className="flex items-center justify-between border-t border-[#F1F1F5] px-4 py-3">
         <div className="flex items-center gap-1">
@@ -747,7 +769,9 @@ export function ClarifyWidget({
           {isRecap ? (
             <button type="button" onClick={send}
               className="rounded-full bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 px-5 py-2 text-[13px] font-semibold text-white shadow-[0_6px_18px_rgba(139,92,246,0.35)] transition-all hover:shadow-[0_8px_24px_rgba(139,92,246,0.5)] active:scale-[0.98]">
-              {tr("Envoyer", "Send")}
+              {typeof costCredits === "number" && costCredits > 0
+                ? tr(`Créer · ${costCredits} crédits`, `Create · ${costCredits} credits`)
+                : tr("Envoyer", "Send")}
             </button>
           ) : (
             <button type="button" onClick={() => setIdx((i) => i + 1)}

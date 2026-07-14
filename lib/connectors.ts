@@ -80,7 +80,9 @@ export const connectorCan = (c: Connector, l: Locale) => (l === "en" ? c.canEn :
 export const connectorCannot = (c: Connector, l: Locale) => (l === "en" ? c.cannotEn : c.cannot);
 export const connectorScopeNote = (c: Connector, l: Locale) => (l === "en" ? c.scopeNoteEn ?? c.scopeNote : c.scopeNote);
 
-export const CONNECTORS: Connector[] = [
+// Déclaration BRUTE (l'ordre ici n'a aucune importance : c'est DISPLAY_ORDER, plus
+// bas, qui décide de ce que l'artisan voit et dans quel ordre).
+const CONNECTORS_SOURCE: Connector[] = [
   // ── LIVE : du code lit réellement ces jetons ───────────────────────────────
   {
     id: "gmail",
@@ -446,6 +448,43 @@ export const CONNECTORS: Connector[] = [
     scopeNoteEn: "No connection, no account to create: sending goes through Biltia's carrier. You have no key and no contract to provide.",
   },
 ];
+
+// ── ORDRE D'AFFICHAGE ────────────────────────────────────────────────────────
+// La grille est en DEUX COLONNES et se remplit ligne par ligne : l'ordre de ce
+// tableau EST la mise en page. On le lit donc par PAIRES.
+//
+//   Google (colonne de gauche)   │   Microsoft (colonne de droite)
+//   ─────────────────────────────┼───────────────────────────────
+//   Gmail                        │   Outlook
+//   Google Calendar              │   Outlook Calendar
+//   Google Drive                 │   OneDrive
+//
+// L'artisan est sous Google OU sous Microsoft : il descend SA colonne, sans avoir
+// à chercher son équivalent ailleurs dans la page. Les vraies connexions (celles
+// qui demandent une action) passent en premier ; les outils « Intégré » (rien à
+// brancher, donc rien à faire pour lui) descendent en bas — et tout en bas ceux
+// qui ne demandent même pas d'être ouverts (SMS, Téléphone).
+//
+// Un id absent d'ici s'affiche quand même, à la fin (aucun connecteur ne disparaît
+// silencieusement d'une page parce qu'on a oublié une ligne).
+const DISPLAY_ORDER: string[] = [
+  "gmail", "outlook",
+  "google-calendar", "outlook-calendar",
+  "google-drive", "onedrive",
+  "whatsapp",
+  "export-csv", "export-excel",
+  "sms", "phone",
+];
+
+const orderIndex = (id: string) => {
+  const i = DISPLAY_ORDER.indexOf(id);
+  return i === -1 ? DISPLAY_ORDER.length : i;
+};
+
+/** Les connecteurs, DANS L'ORDRE D'AFFICHAGE (source unique pour toutes les pages). */
+export const CONNECTORS: Connector[] = [...CONNECTORS_SOURCE].sort(
+  (a, b) => orderIndex(a.id) - orderIndex(b.id)
+);
 
 export function getConnector(id: string): Connector | undefined {
   return CONNECTORS.find((c) => c.id === id);
