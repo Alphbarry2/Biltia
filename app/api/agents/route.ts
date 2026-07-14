@@ -27,11 +27,15 @@ import {
   computeNextRun,
   formatRunDate,
   resolveRecipients,
+  PENDING_CONNECTION_REASON,
   type AgentAction,
   type AgentSchedule,
   type MissingInfo,
   type AgentRecipientKind,
 } from "@/lib/agent-rules";
+import { checkAgentReadiness, summarizeGaps } from "@/lib/agent-readiness";
+import { connectorsForCapability } from "@/lib/connectors";
+import type { WatcherKey } from "@/lib/agent-watchers";
 import { executeRule, type AgentRuleRow } from "@/lib/agent-executor";
 import { can } from "@/lib/permissions";
 import { getLocale } from "@/lib/i18n/server";
@@ -93,7 +97,46 @@ export async function GET() {
       .limit(50),
   ]);
 
-  return NextResponse.json({ rules: rules ?? [], runs: runs ?? [], pending: pending ?? [] });
+  // ── AGENTS EN ATTENTE DE CONNEXION ───────────────────────────────────────────
+  // Ceux-là existent mais ne tournent pas : il leur manque une messagerie ou un
+  // agenda. On calcule ICI ce qu'il leur faut (plutôt que de le figer en base au
+  // recrutement) parce que l'état des connexions CHANGE : un agent peut être devenu
+  // activable depuis, et une liste figée le laisserait afficher un bouton inutile.
+  // Le preflight est refait uniquement pour ces agents-là (en pratique 0 ou 1).
+  const rows = (rules ?? []) as { id: string; status: string; blocked_reason: string | null; trigger_type: string; trigger: unknown; action: unknown }[];
+  const waiting = rows.filter((r) => r.status === "blocked" && r.blocked_reason === PENDING_CONNECTION_REASON);
+  const pendingConnectors: Record<string, string[]> = {};
+  await Promise.all(
+    waiting.map(async (r) => {
+      const action = (r.action ?? {}) as AgentAction;
+      const trigger = (r.trigger ?? {}) as { watcher?: WatcherKey | null };
+      const readiness = await checkAgentReadiness({
+        supabase,
+        tenantId: membership.tenant_id,
+        userId: user.id,
+        userEmail: user.email ?? null,
+        plan: {
+          actionType: action.type,
+          recipientKind: action.recipientKind,
+          watcher: r.trigger_type === "event" ? (trigger.watcher ?? null) : null,
+        },
+        locale,
+      });
+      const ids = [
+        ...new Set(
+          readiness.gaps.filter((g) => g.severity === "block").flatMap((g) => connectorsForCapability(g.code))
+        ),
+      ];
+      if (ids.length) pendingConnectors[r.id] = ids;
+    })
+  );
+
+  return NextResponse.json({
+    rules: rules ?? [],
+    runs: runs ?? [],
+    pending: pending ?? [],
+    pendingConnectors,
+  });
 }
 
 // ── POST : recruter ──────────────────────────────────────────────────────────
@@ -180,10 +223,27 @@ export async function POST(req: Request) {
     });
   }
 
-  return NextResponse.json(
-    { ok: result.ok, kind: "rule", ruleId: result.ruleId, blocked: result.blocked, message: result.message },
-    { status: result.ok ? 200 : 500 }
-  );
+  // `gaps` était JETÉ ici (l'appelant ne savait donc pas QUOI connecter), et un
+  // simple manque de capacité repartait en HTTP 500 — une panne serveur, alors que
+  // c'est une réponse parfaitement normale. On aligne sur /api/agents/activate :
+  // 200 + ok:false + gaps + cartes.
+  const connectors = [
+    ...new Set(
+      (result.gaps ?? [])
+        .filter((g) => g.severity === "block")
+        .flatMap((g) => connectorsForCapability(g.code))
+    ),
+  ];
+  return NextResponse.json({
+    ok: result.ok,
+    kind: "rule",
+    ruleId: result.ruleId,
+    blocked: result.blocked,
+    message: result.message,
+    gaps: result.gaps ?? [],
+    ...(connectors.length ? { connectors } : {}),
+    ...(result.ok && result.blocked && result.ruleId ? { pendingRuleId: result.ruleId } : {}),
+  });
 }
 
 // ── PATCH : piloter ──────────────────────────────────────────────────────────
@@ -265,6 +325,42 @@ export async function PATCH(req: Request) {
   }
 
   if (action === "resume") {
+    // ── ON NE RÉVEILLE PAS UN AGENT QUI NE PEUT TOUJOURS PAS TRAVAILLER ─────────
+    // « resume » remettait `status: active` et effaçait `blocked_reason` SANS aucune
+    // vérification : un clic sur ▶ suffisait à rendre « Actif » un agent qui n'a
+    // toujours pas de messagerie branchée. C'est exactement le mensonge qu'on vient
+    // de fermer à la création — il ne doit pas rentrer par cette porte.
+    if (rule.status === "blocked" && rule.blocked_reason === PENDING_CONNECTION_REASON) {
+      const ruleAction = (rule.action ?? {}) as unknown as AgentAction;
+      const ruleTrigger = (rule.trigger ?? {}) as unknown as { watcher?: WatcherKey | null };
+      const readiness = await checkAgentReadiness({
+        supabase,
+        tenantId,
+        userId: user.id,
+        userEmail: user.email ?? null,
+        plan: {
+          actionType: ruleAction.type,
+          recipientKind: ruleAction.recipientKind,
+          watcher: isEvent ? (ruleTrigger.watcher ?? null) : null,
+        },
+        locale,
+      });
+      if (!readiness.ok) {
+        const blocking = readiness.gaps.filter((g) => g.severity === "block");
+        const connectors = [...new Set(blocking.flatMap((g) => connectorsForCapability(g.code)))];
+        return NextResponse.json({
+          ok: false,
+          status: "blocked",
+          gaps: readiness.gaps,
+          ...(connectors.length ? { connectors } : {}),
+          message: pick(
+            locale,
+            `Je ne peux pas le lancer : il me manque toujours **${summarizeGaps(blocking)}**.`,
+            `I can't start it: I'm still missing **${summarizeGaps(blocking)}**.`
+          ),
+        });
+      }
+    }
     const next = nextRunFor();
     await supabase
       .from("agent_rules")

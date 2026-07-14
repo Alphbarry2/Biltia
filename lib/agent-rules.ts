@@ -30,6 +30,10 @@ import { WATCHER_KEYS, getWatcher, isSupplierRelanceWatcher, type WatcherKey } f
 import type { AgentTemplate } from "./agent-templates";
 import { checkAgentReadiness, summarizeGaps, type CapabilityGap } from "./agent-readiness";
 import { judgeFeasibility, describeWatcher } from "./agent-feasibility";
+// Sentinelle d'état partagée avec la page /agents (« use client ») : elle vit dans
+// un module sans imports pour ne pas embarquer ce fichier-ci dans le bundle client.
+import { PENDING_CONNECTION_REASON } from "./agent-status";
+export { PENDING_CONNECTION_REASON };
 import type { Locale } from "./i18n/config";
 import { buildSpec, coerceConditionGroup, coerceRecipientTargets, type ParsedActionStep, type ConditionGroup, type RecipientResolver } from "./agent-model";
 import { buildEventWatcherDescription } from "./watcher-parser-docs";
@@ -1602,11 +1606,26 @@ export async function createAgentRule(opts: {
       const judgeNote = isJudged
         ? ` L'analyse coûte ~${ACTION_CREDITS.agent_passage} crédits par lot de nouvelles fiches (le débit réel fait foi).`
         : "";
-      const message =
-        `🤖 Agent recruté : **${title}**. Je surveille ${watcher.watching}${daysNote} en continu — ` +
-        `dès qu'une fiche correspond, ${actLabel}. Chaque fiche n'est traitée qu'une fois (pas de spam).${judgeNote} ` +
-        `Retrouvez-le dans **Agents**.${warnNote}`;
-      return { ok: true, ruleId: insertedEvt.id, blocked: false, message, gaps: readiness.gaps, usage: parsed.usage };
+      // Ce que l'agent surveille est énoncé À PARTIR DU VEILLEUR RÉELLEMENT ENREGISTRÉ
+      // (lib/agent-feasibility), jamais d'après la demande. Si un jour un mauvais
+      // rapprochement repasse les garde-fous, l'artisan LIRA ce qui a été retenu et
+      // pourra le contredire, au lieu de le découvrir des semaines plus tard.
+      const watching = describeWatcher(watcher.key) || watcher.watching;
+      const message = pendingConnection
+        ? `🤖 Agent créé : **${title}** — mais je ne l'active pas encore. Je surveillerai ${watching}${daysNote}, et pour ${actLabel.replace(/^je /, "")}, il me manque ceci :\n\n` +
+          `**${summarizeGaps(blockingGaps)}**\n\n` +
+          `Connectez ci-dessous : je l'active immédiatement après, sans que vous ayez à redemander.`
+        : `🤖 Agent recruté : **${title}**. Je surveille ${watching}${daysNote} en continu : ` +
+          `dès qu'une fiche correspond, ${actLabel}. Chaque fiche n'est traitée qu'une fois (pas de spam).${judgeNote} ` +
+          `Retrouvez-le dans **Agents**.${warnNote}`;
+      return {
+        ok: true,
+        ruleId: insertedEvt.id,
+        blocked: pendingConnection,
+        message,
+        gaps: readiness.gaps,
+        usage: parsed.usage,
+      };
     }
   }
 
@@ -1666,6 +1685,11 @@ export async function createAgentRule(opts: {
     estimatedCreditsPerRun: estimateCreditsPerRun(parsed.actionType),
   };
 
+  // Il manque une connexion → l'agent naît bloqué lui aussi (le cron ne touche jamais
+  // un 'blocked') et s'activera seul dès qu'elle sera faite. Une question déjà en
+  // attente (destinataire ou contenu introuvable) reste prioritaire : elle est plus
+  // précise, et on ne pose qu'une question à la fois.
+  if (!blockedReason && pendingConnection) blockedReason = PENDING_CONNECTION_REASON;
   const blocked = blockedReason !== null;
   const nextRun = blocked ? null : computeNextRun(schedule);
 
@@ -1707,7 +1731,14 @@ export async function createAgentRule(opts: {
   const perMonth = action.estimatedCreditsPerRun * runsPerMonth(parsed.days);
   const priceLine = `Coût estimé : ~${action.estimatedCreditsPerRun} crédits par passage (~${perMonth}/mois — ajusté au réel, visible dans **Agents**).`;
   let message: string;
-  if (blocked) {
+  if (blockedReason === PENDING_CONNECTION_REASON) {
+    // Il ne manque QU'UNE connexion : on ne sert surtout pas la sentinelle technique
+    // à l'artisan, on lui montre le(s) bouton(s) et on promet l'activation auto.
+    message =
+      `🤖 Agent créé : **${parsed.title}** (${planning}) — mais je ne l'active pas encore. Il me manque ceci :\n\n` +
+      `**${summarizeGaps(blockingGaps)}**\n\n` +
+      `Connectez ci-dessous : je l'active immédiatement après, sans que vous ayez à redemander. ${priceLine}`;
+  } else if (blocked) {
     const hint =
       missing?.field === "email"
         ? ` Donnez-moi l'email (ex : « son email est jean@exemple.fr ») ou complétez la fiche dans le Workspace — je démarre dès que je l'ai.`

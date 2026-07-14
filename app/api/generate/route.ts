@@ -1758,21 +1758,25 @@ export async function POST(req: Request) {
           entityId: recruited.ruleId,
         });
       }
-      // Connexions à proposer inline : uniquement quand l'agent N'A PAS été créé
-      // (recruited.ok === false) à cause d'un manque OAuth bloquant. Une fois
-      // connecté, le client rejoue la demande → l'agent est créé UNE fois (pas de
-      // double recrutement, car il n'existe pas encore). Les gaps « warn » (agent
-      // déjà créé) ne déclenchent pas de reprise.
-      const ruleConnectors =
-        recruited.ok === false
-          ? [
-              ...new Set(
-                (recruited.gaps ?? [])
-                  .filter((g) => g.severity === "block")
-                  .flatMap((g) => connectorsForCapability(g.code))
-              ),
-            ]
-          : [];
+      // ── CONNEXIONS À PROPOSER INLINE (corrigé 2026-07-14) ────────────────────
+      // Avant : on n'émettait des cartes que si l'agent N'AVAIT PAS été créé, et
+      // uniquement sur un gap `block`. Or le seul gap block lié à un connecteur
+      // (email_send) ne se produisait JAMAIS — il interrogeait un « ok » vrai dès
+      // que Resend était configuré. Résultat : cette liste était TOUJOURS vide et
+      // la carte « Connecter » n'apparaissait jamais, alors que tout le flow OAuth
+      // en aval fonctionnait parfaitement.
+      //
+      // Désormais un agent à qui il ne manque qu'une connexion EST créé, en statut
+      // bloqué (recruited.ok === true && recruited.blocked === true). On émet donc
+      // ses cartes, et le client ne rejoue SURTOUT PAS la demande après connexion
+      // (il créerait un second agent) : il active l'agent existant via son ruleId.
+      const ruleConnectors = [
+        ...new Set(
+          (recruited.gaps ?? [])
+            .filter((g) => g.severity === "block")
+            .flatMap((g) => connectorsForCapability(g.code))
+        ),
+      ];
       return Response.json({
         kind: "rule",
         ok: recruited.ok,
@@ -1782,6 +1786,11 @@ export async function POST(req: Request) {
         // Manques de capacité détectés au preflight (bloquants ou recommandations).
         gaps: recruited.gaps ?? [],
         ...(ruleConnectors.length ? { connectors: ruleConnectors } : {}),
+        // L'agent existe déjà et n'attend QUE la connexion : le client l'activera
+        // par son id, au lieu de rejouer la demande (anti-doublon).
+        ...(recruited.ok && recruited.blocked && recruited.ruleId
+          ? { pendingRuleId: recruited.ruleId }
+          : {}),
       });
     }
     // ── DATA : opération immédiate sur le workspace (« ajoute un client Jean

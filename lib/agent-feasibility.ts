@@ -388,7 +388,10 @@ const UNSENSABLE: { id: string; label: string; test: RegExp; explanation: string
   {
     id: "etat_physique",
     label: "votre situation personnelle",
-    test: /\b(quand je me reveille|des que je me reveille|quand je me leve|quand j arrive sur|quand je suis sur place|quand je pars|ma position|geolocalisation|gps|quand je rentre)\b/,
+    // Le motif porte sur l'ACTION, pas sur la tournure qui l'introduit : « quand je
+    // me réveille » et « chaque fois que je me réveille » disent la même chose, et
+    // n'ancrer que sur « quand » laissait passer la seconde.
+    test: /\b(je me reveille|je me leve|je me couche|j arrive (sur|au|a) |je suis sur place|ma position|geolocalisation|gps|je rentre chez)\b/,
     explanation:
       "Je ne sais pas où vous êtes ni ce que vous faites : je n'ai aucun capteur sur vous. Pour ce genre de mission, dites-moi plutôt une **heure fixe** (« chaque matin à 7h ») et je m'en occupe.",
   },

@@ -477,6 +477,10 @@ export function isConnectable(c: Connector): boolean {
 // choisit la sienne. L'ordre compte : la première carte est la plus mise en avant.
 const CONNECTORS_FOR_CAPABILITY: Record<string, string[]> = {
   email_send: ["gmail", "outlook"],
+  // Vous écrire À VOUS : Biltia sait le faire depuis sa propre adresse, donc cette
+  // capacité ne manque presque jamais. Si elle manque (aucun canal d'envoi du tout),
+  // les mêmes cartes règlent le problème.
+  email_send_self: ["gmail", "outlook"],
   calendar_read: ["google-calendar", "outlook-calendar"],
 };
 

@@ -7,7 +7,7 @@
 -- ACTION_CREDITS.application). Le prix suit désormais la VALEUR, plus le coût du
 -- modèle : à 98-99 % de marge, le coût ne peut plus arbitrer quoi que ce soit.
 -- L'app est l'HAMEÇON (bon marché, elle amène le workspace) ; l'AGENT est le moteur
--- (50 cr par passage rédigé, soit 1 100 cr/mois — le seul poste qui revient).
+-- (40 cr par passage rédigé, soit 880 cr/mois — le seul poste qui revient tous les mois).
 --
 -- Conséquence sur l'essai gratuit : le plan Free promet « Créez votre première
 -- application », et le hold est prélevé D'AVANCE. Avec exactement 300 crédits offerts

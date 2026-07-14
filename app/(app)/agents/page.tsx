@@ -25,8 +25,11 @@ import {
   Mail,
   Sparkles,
   ChevronDown,
+  Plug,
 } from "lucide-react";
 import { AgentTemplateGallery } from "@/components/agent-templates";
+import { ConnectCard } from "@/components/connect-card";
+import { PENDING_CONNECTION_REASON } from "@/lib/agent-status";
 import { useT, useLocale } from "@/lib/i18n/context";
 import type { Locale } from "@/lib/i18n/config";
 
@@ -254,6 +257,8 @@ export default function AgentsPage() {
   const [rules, setRules] = useState<AgentRule[]>([]);
   const [runs, setRuns] = useState<AgentRun[]>([]);
   const [pending, setPending] = useState<PendingRelance[]>([]);
+  // Ce qu'il manque à brancher, par agent en attente de connexion (id → connecteurs).
+  const [pendingConnectors, setPendingConnectors] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null); // rule id en cours d'action
   const [notice, setNotice] = useState<string | null>(null);
@@ -272,6 +277,7 @@ export default function AgentsPage() {
         setRules(data.rules ?? []);
         setRuns(data.runs ?? []);
         setPending(data.pending ?? []);
+        setPendingConnectors(data.pendingConnectors ?? {});
         // Aucun agent encore : on met les modèles prêts à l'emploi en avant.
         if ((data.rules ?? []).length === 0) setTemplatesOpen(true);
       } else {
@@ -292,6 +298,31 @@ export default function AgentsPage() {
     setError(null);
     setTimeout(() => setNotice(null), 4000);
   };
+
+  /**
+   * Connexion faite → on tente d'activer l'agent qui l'attendait. Le serveur REFAIT
+   * le preflight : s'il manque encore quelque chose (mauvais fournisseur branché,
+   * pop-up fermée trop tôt), il le dit et l'agent reste bloqué. On ne bascule jamais
+   * l'affichage sur « Actif » sans que le serveur l'ait confirmé.
+   */
+  async function activatePending(id: string) {
+    setBusy(id);
+    setError(null);
+    try {
+      const res = await fetch("/api/agents/activate-pending", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ruleId: id }),
+      });
+      const data = await res.json();
+      if (data?.message) flash(data.message);
+      else if (!res.ok) setError(data?.error ?? t("Activation impossible.", "Activation failed."));
+      await load();
+    } catch {
+      setError(t("Activation impossible.", "Activation failed."));
+    }
+    setBusy(null);
+  }
 
   async function command(id: string, action: string, extra: Record<string, unknown> = {}) {
     setBusy(id);
@@ -352,6 +383,15 @@ export default function AgentsPage() {
       return (
         <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
           <CheckCircle className="w-3 h-3" /> {t("Actif", "Active")}
+        </span>
+      );
+    // Un agent qui n'attend QU'UNE connexion n'est pas « bloqué » au sens fautif :
+    // il est prêt, il lui manque juste un branchement que l'artisan fait en un clic.
+    // Le dire autrement (et lui donner le bouton) évite qu'il croie à une panne.
+    if (r.status === "blocked" && r.blocked_reason === PENDING_CONNECTION_REASON)
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 border border-violet-200 px-2 py-0.5 text-[11px] font-semibold text-violet-700">
+          <Plug className="w-3 h-3" /> {t("En attente de connexion", "Waiting for a connection")}
         </span>
       );
     if (r.status === "blocked")
@@ -579,7 +619,16 @@ export default function AgentsPage() {
                     ) : (
                       <button
                         onClick={() => command(r.id, "resume")}
-                        disabled={busy === r.id || (r.status === "blocked" && (r.missing?.field === "email" || r.missing?.field === "content"))}
+                        disabled={
+                          busy === r.id ||
+                          (r.status === "blocked" &&
+                            // Un agent en attente de CONNEXION ne se relance pas d'un clic :
+                            // il n'a toujours pas de messagerie. Le seul chemin est le bouton
+                            // « Connecter » ci-dessous, qui repasse le preflight.
+                            (r.blocked_reason === PENDING_CONNECTION_REASON ||
+                              r.missing?.field === "email" ||
+                              r.missing?.field === "content"))
+                        }
                         title={t("Relancer", "Resume")}
                         className="p-2 rounded-lg border border-[#E7E7E4] text-[#6E6E6C] hover:border-[#C9BEF0] transition-colors disabled:opacity-50"
                       >
@@ -609,7 +658,33 @@ export default function AgentsPage() {
                   </div>
                 </div>
 
-                {r.status === "blocked" && r.blocked_reason && (
+                {/* EN ATTENTE DE CONNEXION : l'agent est prêt, il lui manque juste un
+                    branchement. On lui donne le(s) bouton(s) ici — s'il a fermé l'onglet
+                    du chat, c'est ici qu'il le retrouve — et l'agent s'active tout seul
+                    au retour de la pop-up (le serveur repasse le preflight). */}
+                {r.status === "blocked" && r.blocked_reason === PENDING_CONNECTION_REASON && (
+                  <div className="mt-3 rounded-xl border border-violet-200 bg-violet-50/50 p-3">
+                    <p className="text-[12.5px] text-violet-900 font-medium">
+                      {t(
+                        "Cet agent ne peut pas encore travailler : il lui manque une connexion.",
+                        "This agent can't work yet: it's missing a connection."
+                      )}
+                    </p>
+                    <p className="text-[11.5px] text-violet-700/80 mt-0.5">
+                      {t(
+                        "Branchez-la ci-dessous et je l'active immédiatement.",
+                        "Connect it below and I'll activate it right away."
+                      )}
+                    </p>
+                    <div className="mt-2.5 flex flex-col gap-2">
+                      {(pendingConnectors[r.id] ?? []).map((cid) => (
+                        <ConnectCard key={cid} connectorId={cid} onConnected={() => void activatePending(r.id)} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {r.status === "blocked" && r.blocked_reason && r.blocked_reason !== PENDING_CONNECTION_REASON && (
                   <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
                     <p className="text-[12.5px] text-amber-800">
                       {t(`⚠️ En attente : ${r.blocked_reason}.`, `⚠️ Waiting: ${r.blocked_reason}.`)}

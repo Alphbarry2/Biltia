@@ -119,14 +119,25 @@ type GenOpts = {
   isCorrection?: boolean;
 };
 
-// Flux de connexion « étape par étape » proposé dans le fil : une intégration à
-// la fois (index), les précédentes restant affichées « Connecté ». Une fois
-// toutes connectées, on rejoue `resumePrompt`. Gardé HORS de `messages` (donc
-// non persisté) : c'est une UI éphémère attachée au dernier tour de l'assistant.
+// Flux de connexion proposé dans le fil. Gardé HORS de `messages` (donc non
+// persisté) : c'est une UI éphémère attachée au dernier tour de l'assistant.
+//
+// ⚠️ Les connecteurs sont des ALTERNATIVES, pas une checklist (corrigé 2026-07-14).
+// `["gmail","outlook"]` veut dire « branchez CELLE DE VOS DEUX que vous utilisez »,
+// pas « branchez les deux ». L'ancien code les parcourait en séquence (index++) :
+// l'artisan connectait son Gmail, se voyait réclamer Outlook par-dessus, et sa
+// demande n'était JAMAIS rejouée tant qu'il n'avait pas les deux. On affiche donc
+// toutes les cartes d'un coup, et la PREMIÈRE connexion réussie relance la suite.
+// S'il en manquait vraiment une autre, le serveur le redira (il refait le preflight).
 type ConnectFlow = {
   connectors: string[];
-  index: number;
+  /** Demande à rejouer une fois connecté (chemins email / agenda / tâche). */
   resumePrompt: string;
+  /**
+   * Agent DÉJÀ CRÉÉ (bloqué, en attente de connexion) : on l'active par son id au
+   * lieu de rejouer la demande — la rejouer en créerait un SECOND.
+   */
+  pendingRuleId?: string;
 };
 
 type Format = "auto" | "mobile" | "desktop";
@@ -1773,22 +1784,62 @@ export default function GeneratePage() {
     const raw: unknown[] = Array.isArray(data?.connectors) ? data.connectors : [];
     const connectors = [...new Set(raw.filter((c): c is string => typeof c === "string" && c.length > 0))];
     if (connectors.length === 0) return false;
-    setConnectFlow({ connectors, index: 0, resumePrompt });
+    const pendingRuleId = typeof data?.pendingRuleId === "string" ? data.pendingRuleId : undefined;
+    setConnectFlow({ connectors, resumePrompt, pendingRuleId });
     return true;
   };
 
-  // Une intégration connectée → la suivante ; toutes connectées → on rejoue la
-  // demande d'origine (l'agent la crée / l'email part / l'agenda se lit MAINTENANT).
+  // Une connexion réussie → on enchaîne SANS attendre les autres cartes (ce sont des
+  // alternatives). Deux suites possibles :
+  //   • un agent attend déjà en base (pendingRuleId) → on l'ACTIVE par son id. Le
+  //     serveur refait le preflight : s'il manque encore quelque chose, il le dit et
+  //     les cartes restent. Rejouer la demande créerait un doublon.
+  //   • sinon (email / agenda / tâche) → on rejoue la demande d'origine.
   const handleConnectorConnected = () => {
     const cf = connectFlowRef.current;
     if (!cf) return;
-    const nextIndex = cf.index + 1;
-    if (nextIndex < cf.connectors.length) {
-      setConnectFlow({ ...cf, index: nextIndex });
+    setConnectFlow(null);
+
+    if (cf.pendingRuleId) {
+      void (async () => {
+        try {
+          const res = await fetch("/api/agents/activate-pending", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ruleId: cf.pendingRuleId }),
+          });
+          const data = await res.json();
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "assistant",
+              content:
+                typeof data?.message === "string" && data.message
+                  ? data.message
+                  : t("Connecté ✅. L'agent est activé.", "Connected ✅. The agent is active."),
+            },
+          ]);
+          // Il manque encore une connexion (mauvais fournisseur branché, pop-up
+          // fermée trop tôt) : on redonne les cartes plutôt que de laisser croire
+          // que c'est réglé.
+          if (data?.activated === false) startConnectFlowFromData({ ...data, pendingRuleId: cf.pendingRuleId }, cf.resumePrompt);
+        } catch {
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "assistant",
+              content: t(
+                "Connecté ✅, mais je n'ai pas réussi à activer l'agent à l'instant. Ouvrez **Agents** pour le lancer.",
+                "Connected ✅, but I couldn't activate the agent just now. Open **Agents** to start it."
+              ),
+            },
+          ]);
+        }
+      })();
       return;
     }
-    setConnectFlow(null);
-    setMessages((prev) => [...prev, { role: "assistant", content: t("Parfait, tout est connecté ✅. Je continue.", "Perfect, everything is connected ✅. Continuing.") }]);
+
+    setMessages((prev) => [...prev, { role: "assistant", content: t("Parfait, c'est connecté ✅. Je continue.", "Perfect, it's connected ✅. Continuing.") }]);
     void executeGeneration(cf.resumePrompt);
   };
 
@@ -2764,12 +2815,13 @@ export default function GeneratePage() {
             </div>
           ))}
 
-          {/* Connexions « étape par étape » : les intégrations déjà validées
-              restent affichées « Connecté », seule la courante montre le bouton.
-              Toutes connectées → le flux se referme et la demande est rejouée. */}
+          {/* Toutes les cartes d'un coup : ce sont des ALTERNATIVES (« Gmail OU
+              Outlook »), pas une checklist. La première connexion réussie referme
+              le flux et enchaîne (activation de l'agent en attente, ou reprise de
+              la demande). */}
           {connectFlow && !isGenerating && (
             <div className="flex flex-col items-start gap-2 pl-8">
-              {connectFlow.connectors.slice(0, connectFlow.index + 1).map((cid) => (
+              {connectFlow.connectors.map((cid) => (
                 <ConnectCard
                   key={cid}
                   connectorId={cid}
