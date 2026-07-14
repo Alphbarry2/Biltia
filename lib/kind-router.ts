@@ -115,12 +115,16 @@ RÈGLE DE DÉPARTAGE :
 TON DES MESSAGES (email_body et le corps d'un task) : reste TOUJOURS professionnel, courtois et — si nécessaire — ferme, mais JAMAIS insultant, menaçant ni accusatoire. Même si l'utilisateur réclame un ton « agressif », « cash », ou de dire au client qu'il est « malhonnête » / « de mauvaise foi », tu REFORMULES en fermeté correcte : rappel factuel (montant, échéance dépassée, nombre de relances), demande claire de régularisation sous un délai, et mention des suites légales possibles le cas échéant — sans jamais dénigrer la personne. La fermeté vient des faits et de l'échéance, jamais de l'insulte.${modContext}
 
 CAPACITÉS RÉELLES vs HORS PÉRIMÈTRE (champ "out_of_scope") :
-Biltia sait faire ÉNORMÉMENT : créer des applications de gestion, produire des documents (devis, factures, PV, courriers…), envoyer des emails/SMS, lire/écrire l'agenda, gérer les données du workspace (clients, chantiers, devis, factures, stock, pointages…), et déléguer des missions à des agents de veille. Mets out_of_scope=true UNIQUEMENT si la demande exige quelque chose que Biltia ne PEUT PAS faire par nature :
+Biltia sait faire ÉNORMÉMENT : créer des applications de gestion, produire des documents (devis, factures, PV, courriers…), envoyer des emails/SMS, lire/écrire l'agenda, RANGER un document ou un fichier joint dans le classeur de l'artisan (Google Drive / OneDrive), gérer les données du workspace (clients, chantiers, devis, factures, stock, pointages…), et déléguer des missions à des agents de veille. Mets out_of_scope=true UNIQUEMENT si la demande exige quelque chose que Biltia ne PEUT PAS faire par nature :
 - une action PHYSIQUE dans le monde réel (poser des câbles, conduire, être présent sur un chantier) ;
 - du TEMPS RÉEL VOCAL / téléphonie (passer des appels ou répondre au téléphone à la place de l'artisan, tenir un standard vocal) ;
 - de l'INGÉNIERIE SPÉCIALISÉE (calcul de structure, dimensionnement, DAO/BIM, calcul thermique certifié) ;
 - du MATÉRIEL / capteurs / IoT / GPS que Biltia ne possède pas.
 En cas de DOUTE, out_of_scope=false — ne refuse JAMAIS par excès de prudence une demande que Biltia sait faire.
+
+LE CLASSEUR (Drive / OneDrive) N'EST JAMAIS "out_of_scope" — jamais, quelle que soit la formulation.
+Biltia DÉPOSE des fichiers dans le classeur : un document qu'il produit, ou un fichier que l'artisan JOINT au chat. Il ne peut simplement pas aller CHERCHER un fichier déjà présent dans le Drive (il n'y voit que ce qu'il y a lui-même déposé), ni un fichier resté sur l'ordinateur.
+Donc « transfère mon PDF sur Drive », « range ça dans mon Drive », « sauvegarde la facture sur Drive » → out_of_scope=FALSE. Si le fichier manque, la bonne réponse est « joins-le moi ici et je le range » : c'est kind="answer", PAS un refus. Refuser ici, c'est mentir : le copilote annonce le classeur dans ses outils, et un refus le fait se contredire au tour suivant.
 "oos_alternative" : UNIQUEMENT si out_of_scope=true — une phrase courte proposant ce que Biltia SAIT réellement faire et qui se rapproche du besoin (ex : au lieu de répondre au téléphone → « envoyer un SMS ou un email de rappel automatique à chaque appel manqué » ; au lieu de dessiner un plan → « stocker et annoter la photo du plan sur le chantier »). Laisse "" s'il n'y a honnêtement aucune alternative.
 
 "doc_type" : uniquement si kind="document" — un de : ${DOC_TYPES.join(", ")} (ou un slug court si aucun ne colle). Vide sinon.
@@ -458,7 +462,7 @@ export function coerceKind(value: unknown): BiltiaKind | null {
 // AUCUN chemin ne menait au générateur d'app avec un fichier joint.
 // Ici, comme pour l'agenda : appel FOCALISÉ (tool simple, non surchargé), bien
 // plus fiable que le classifieur généraliste. Repli client sur les regex si KO.
-export type FileIntent = "analyze" | "annotate" | "document" | "module";
+export type FileIntent = "analyze" | "annotate" | "document" | "module" | "archive";
 
 export type FileIntentResult = {
   intent: FileIntent;
@@ -475,7 +479,7 @@ const FILE_INTENT_TOOL = {
     properties: {
       intent: {
         type: "string",
-        enum: ["analyze", "annotate", "document", "module"],
+        enum: ["analyze", "annotate", "document", "module", "archive"],
         description: "La destination du fichier joint.",
       },
       confidence: { type: "number", description: "Confiance de 0 à 1." },
@@ -487,16 +491,18 @@ const FILE_INTENT_TOOL = {
 
 const FILE_INTENT_SYSTEM = `Un artisan du BTP a JOINT un ou plusieurs fichiers (photo, plan, PDF, Excel, CSV) dans le chat de Biltia, avec une consigne. Tu choisis ce que Biltia doit en faire. Tu ne fais rien toi-même : tu aiguilles.
 
-LES 4 DESTINATIONS :
+LES 5 DESTINATIONS :
 - "analyze" — il veut COMPRENDRE / VÉRIFIER / EXTRAIRE ce que contient le fichier, sans rien produire de nouveau : « résume ce document », « c'est quoi ce devis ? », « combien d'heures dans ce pointage ? », « vérifie les prix vs mon devis », « compare ces factures », « détecte les erreurs ». C'est le DÉFAUT.
 - "annotate" — il veut POSER DES REPÈRES SUR l'image / le plan : « annote ce plan », « numérote les pièces », « entoure les défauts », « repère les fenêtres », « montre-moi où sont les réserves ».
 - "document" — il veut UNE FEUILLE FINIE à imprimer / envoyer / signer, construite À PARTIR du fichier joint : le REMPLIR (« complète ce devis pour le client Morel »), le MODIFIER (« ajoute une clause », « supprime ce paragraphe », « corrige le montant »), le traduire, ou le refaire proprement. Résultat = un document A4, PAS un outil.
 - "module" — il veut une APPLICATION / un OUTIL de gestion, dont les DONNÉES viennent du fichier joint : « crée une app de suivi de chantiers à partir de ce fichier », « fais-moi un outil pour gérer ce catalogue Excel », « transforme ce tableau en application », « importe ce CSV dans une app de pointage ». Indice décisif : il parle d'une APP / APPLICATION / OUTIL / TABLEAU DE BORD qu'il rouvrira et alimentera DANS LA DURÉE.
+- "archive" — il veut simplement RANGER le fichier tel quel dans son classeur (Google Drive / OneDrive), sans rien en tirer : « range ça dans mon Drive », « transfère ce PDF sur Google Drive », « sauvegarde-le sur OneDrive », « classe cette facture dans le Drive », « mets-le dans mon Drive ». Le fichier n'est ni lu, ni transformé, ni analysé : il est DÉPOSÉ. Signal décisif : un verbe de RANGEMENT (ranger, classer, sauvegarder, archiver, transférer, mettre, déposer) + une destination de STOCKAGE (Drive, Google Drive, OneDrive, « mon classeur », « mes dossiers »).
 
 RÈGLE DE DÉPARTAGE :
 - Une FEUILLE qu'on imprime/signe une fois = "document". Un OUTIL qu'on rouvre et qu'on alimente = "module".
 - « complète ce devis » = document. « fais une app pour gérer mes devis à partir de ce fichier » = module.
 - S'il demande seulement de LIRE / vérifier / résumer / compter / comparer → "analyze".
+- Une DESTINATION DE STOCKAGE nommée (Drive / OneDrive / « mon classeur ») l'emporte : « range ce devis dans mon Drive » = "archive", pas "document" — il ne demande pas de refaire la feuille, il demande de la RANGER. Mais « complète ce devis PUIS range-le » reste "document" : la production prime, le rangement suivra.
 - Consigne vide ou purement descriptive → "analyze".
 - En cas de DOUTE RÉEL → "analyze" : c'est la lecture seule, on ne produit jamais rien à tort.
 
@@ -527,16 +533,14 @@ export async function classifyFileIntent(
     const block = message.content.find((b) => b.type === "tool_use");
     if (!block || block.type !== "tool_use") return null;
     const input = block.input as { intent?: string; confidence?: number };
-    if (
-      input.intent !== "analyze" &&
-      input.intent !== "annotate" &&
-      input.intent !== "document" &&
-      input.intent !== "module"
-    ) {
-      return null;
-    }
+    // Le garde et l'énumération de l'outil doivent grandir ENSEMBLE : ce filtre
+    // avait gardé les 4 destinations d'origine, et renvoyait donc null sur une
+    // 5e parfaitement valide. Le client retombait alors sur ses regex, sans le
+    // moindre bruit. Une liste unique, dérivée du type : plus de divergence.
+    const DESTINATIONS: FileIntent[] = ["analyze", "annotate", "document", "module", "archive"];
+    if (!DESTINATIONS.includes(input.intent as FileIntent)) return null;
     return {
-      intent: input.intent,
+      intent: input.intent as FileIntent,
       confidence: typeof input.confidence === "number" ? input.confidence : 0.7,
       usage: {
         model: FILE_INTENT_MODEL,

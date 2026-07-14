@@ -292,6 +292,20 @@ function looksLikeAnnotate(text: string): boolean {
   return /(annot|numerot|entour|encadr|surlign|repere|reper|marque(?:-| )|marquer|flech|pointe(?:-| )|localise|montre(?:-| )?moi ou|indique ou|mets? un repere)/.test(t);
 }
 
+// « range ça dans mon Drive » → on DÉPOSE le fichier, on n'en tire rien.
+// Repli déterministe de l'aiguilleur : un verbe de rangement + une destination
+// de stockage. Le fichier joint fournit les octets — Biltia ne peut PAS aller
+// chercher un fichier déjà dans le Drive (scope drive.file), donc « transfère
+// mon PDF » sans pièce jointe n'atterrit jamais ici : c'est le copilote qui
+// répond, et il demande le trombone.
+function looksLikeArchive(text: string): boolean {
+  const t = text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  if (!t.trim()) return false;
+  const rangement = /(range|ranger|classe|classer|sauvegarde|sauvegarder|archive|archiver|transfere|transferer|depose|deposer|mets?(?:-| )|met(?:-| )|envoie(?:-| )|upload)/.test(t);
+  const stockage = /(drive|onedrive|one drive|classeur|mes dossiers|mon dossier|stockage|cloud)/.test(t);
+  return rangement && stockage;
+}
+
 // Intention « à la main / moi-même / sans IA » → mode annotation MANUEL : on ouvre
 // la couche vierge sur l'image jointe, sans appel IA ni crédit. À vérifier AVANT
 // l'annotation IA (les deux partagent le mot « annote »).
@@ -1372,6 +1386,94 @@ export default function GeneratePage() {
     }
   };
 
+  // ── RANGER DANS LE CLASSEUR (Drive / OneDrive) ──────────────────────────────
+  // Le copilote ANNONÇAIT le classeur dans ses outils, mais aucun chemin du chat
+  // n'y menait : il promettait, puis refusait au tour suivant. Le voici, ce
+  // chemin. Aucun crédit : c'est un dépôt de fichier, pas une pensée.
+  //
+  // Ce qu'on dépose, ce sont les octets du fichier JOINT — les seuls que Biltia
+  // possède. Il ne peut pas atteindre un fichier déjà dans le Drive (scope
+  // drive.file : il n'y voit que ce qu'il y a lui-même mis), et c'est assumé.
+  const handleArchive = async (instruction: string) => {
+    const files = attached.slice(0, 4);
+    if (!files.length) return;
+    const noms = files.map((f) => f.name).join(", ");
+
+    setMessages((prev) => [...prev, { role: "user", content: `${instruction}\n\n📎 ${noms}` }]);
+    setInput("");
+    setAttached([]);
+    setUpsell(null);
+    setExpectingBuild(false);
+    setIsGenerating(true);
+    setLoadingLabel(t("Je range dans ton classeur…", "Filing in your drive…"));
+
+    try {
+      const deposes: { name: string; url: string; folder: string; updated: boolean }[] = [];
+      let echec: string | null = null;
+
+      for (const f of files) {
+        // Le base64 stocké redevient des octets : /api/drive attend un vrai
+        // fichier (multipart), pas une chaîne.
+        const bin = atob(f.data);
+        const octets = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) octets[i] = bin.charCodeAt(i);
+
+        const form = new FormData();
+        form.append(
+          "file",
+          new File([octets], f.name, { type: f.mediaType || "application/octet-stream" })
+        );
+
+        const res = await fetch("/api/drive", { method: "POST", body: form });
+        const data = await res.json();
+        if (!res.ok) {
+          // Un échec de classeur est le MÊME pour tous les fichiers (pas branché,
+          // droit manquant…) : inutile d'insister trois fois, on le dit une fois.
+          echec = data.error ?? t("Le classement a échoué.", "Filing failed.");
+          break;
+        }
+        deposes.push({ name: f.name, url: data.url, folder: data.folder, updated: data.updated });
+      }
+
+      if (deposes.length) {
+        const lignes = deposes
+          .map((d) =>
+            t(
+              `- **${d.name}** → [Biltia / ${d.folder}](${d.url})${d.updated ? " (remplacé)" : ""}`,
+              `- **${d.name}** → [Biltia / ${d.folder}](${d.url})${d.updated ? " (replaced)" : ""}`
+            )
+          )
+          .join("\n");
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: t(
+              `✓ Rangé dans ton classeur.\n\n${lignes}${echec ? `\n\n⚠️ ${echec}` : ""}`,
+              `✓ Filed in your drive.\n\n${lignes}${echec ? `\n\n⚠️ ${echec}` : ""}`
+            ),
+          },
+        ]);
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: `⚠️ ${echec ?? t("Le classement a échoué.", "Filing failed.")}` },
+        ]);
+      }
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: `❌ ${t("Le classement a échoué. Réessaie dans un instant.", "Filing failed. Try again in a moment.")}`,
+        },
+      ]);
+    } finally {
+      setLoadingLabel(null);
+      setIsGenerating(false);
+    }
+  };
+
   // Mode ANNOTATION MANUEL : on ouvre la couche d'annotation vierge sur l'image
   // jointe — l'utilisateur pose ses repères lui-même. Aucun appel IA, aucun crédit.
   const handleManualAnnotate = () => {
@@ -1544,7 +1646,7 @@ export default function GeneratePage() {
       const files = attached.map((f) => ({ name: f.name, mediaType: f.mediaType, data: f.data }));
       const fileNames = attached.map((f) => f.name).join(", ");
 
-      let intent: "analyze" | "annotate" | "document" | "module" | null = null;
+      let intent: "analyze" | "annotate" | "document" | "module" | "archive" | null = null;
       if (trimmed) {
         setLoadingLabel(t("J'analyse votre demande…", "Analyzing your request…"));
         setExpectingBuild(false);
@@ -1561,7 +1663,14 @@ export default function GeneratePage() {
             });
             clearTimeout(to);
             const data = await res.json();
-            if (res.ok && (data.intent === "analyze" || data.intent === "annotate" || data.intent === "document" || data.intent === "module")) {
+            if (
+              res.ok &&
+              (data.intent === "analyze" ||
+                data.intent === "annotate" ||
+                data.intent === "document" ||
+                data.intent === "module" ||
+                data.intent === "archive")
+            ) {
               intent = data.intent;
             }
           } catch {
@@ -1576,11 +1685,20 @@ export default function GeneratePage() {
       // Repli déterministe si l'aiguilleur n'a pas répondu (API lente/KO) :
       // les anciennes heuristiques, dans leur ordre historique.
       if (!intent) {
-        intent = looksLikeAnnotate(trimmed)
-          ? "annotate"
-          : looksLikeDocumentEdit(trimmed)
-            ? "document"
-            : "analyze";
+        intent = looksLikeArchive(trimmed)
+          ? "archive"
+          : looksLikeAnnotate(trimmed)
+            ? "annotate"
+            : looksLikeDocumentEdit(trimmed)
+              ? "document"
+              : "analyze";
+      }
+
+      // RANGER : le fichier part tel quel dans le classeur. Rien n'est lu, rien
+      // n'est produit, rien n'est débité.
+      if (intent === "archive") {
+        await handleArchive(trimmed);
+        return;
       }
 
       if (intent === "annotate") {

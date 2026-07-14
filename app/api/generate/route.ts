@@ -40,6 +40,8 @@ import { sendPushToUser } from "@/lib/push";
 import { createAgentRule } from "@/lib/agent-rules";
 import { connectorsForCapability } from "@/lib/connectors";
 import { runAgentLoop, buildWorkspaceToolsSystem } from "@/lib/agent-tools";
+import { connectionSnapshot, buildConnectionsBlock } from "@/lib/connection-snapshot";
+import { toMessages, threadAsText } from "@/lib/chat-thread";
 import { canSendOutbound, sendOutboundEmail } from "@/lib/outbound-email";
 import { resolveAudience, isTaskAudience, audienceLabels, SEND_CAP } from "@/lib/task-now";
 import { pick } from "@/lib/i18n/config";
@@ -1277,17 +1279,49 @@ export async function POST(req: Request) {
       await recordUnmetRequest(supabase, tenantId, user.id, "capability", oosAlternative, prompt);
       const alt = oosAlternative.trim();
       const altTail = `${alt.charAt(0).toLowerCase() + alt.slice(1)}${/[.!?]$/.test(alt) ? "" : "."}`;
-      const message = alt
-        ? pick(
-            locale,
-            `Ça, je ne peux pas le faire — ce n'est pas dans mes capacités.\n\nEn revanche, ${altTail}\n\nTu veux que je m'en occupe ?`,
-            `That, I can't do — it's outside my capabilities.\n\nOn the other hand, ${altTail}\n\nWant me to take care of it?`
-          )
-        : pick(
-            locale,
-            "Ça, je ne peux pas le faire — ce n'est pas dans mes capacités, en tout cas pas pour l'instant. J'ai noté ta demande : c'est peut-être pour bientôt.",
-            "That, I can't do — it's outside my capabilities, at least for now. I've noted your request: it may be coming soon."
-          );
+
+      // ── ON NE SERT JAMAIS DEUX FOIS LA MÊME PHRASE ────────────────────────
+      // Ce refus était un TEMPLATE renvoyé à l'identique, sans un regard pour le
+      // fil. Un artisan qui répondait « tu viens de me dire l'inverse » ou
+      // « tu bug » recevait exactement les mêmes mots. Trois fois de suite.
+      // C'est ça qui donne l'impression de parler à un mur, bien plus que le
+      // refus lui-même : le refus est une information, la répétition est un
+      // mépris. Au deuxième passage, on parle autrement.
+      const dejaRefuse = history
+        .slice(-4)
+        .some(
+          (m) =>
+            m.role === "assistant" &&
+            /je ne sais pas le faire|pas dans mes capacités|i can't do that|outside my capabilities/i.test(m.content)
+        );
+
+      // Le « Tu veux que je m'en occupe ? » d'avant était un piège : une question
+      // fermée dont le « oui » n'était capté par personne (le fil ne parvenait
+      // alors à aucun chemin d'action). On demande maintenant une phrase que le
+      // classifieur saura router, et il a le fil pour la comprendre.
+      const message = dejaRefuse
+        ? alt
+          ? pick(
+              locale,
+              `Je te l'ai déjà dit et ma réponse ne changera pas : ça, je ne sais pas le faire. Ce n'est pas un réglage à trouver, c'est une limite.\n\nCe que je sais faire, en revanche : ${altTail}\n\nDis-moi « fais-le » et je m'y mets.`,
+              `I've already told you and my answer won't change: I can't do that. It isn't a setting to find, it's a limit.\n\nWhat I can do instead: ${altTail}\n\nSay "do it" and I'll get started.`
+            )
+          : pick(
+              locale,
+              "Je te l'ai déjà dit et ma réponse ne changera pas : ça, je ne sais pas le faire. Ta demande est notée. Si elle revient souvent, elle finira par exister.",
+              "I've already told you and my answer won't change: I can't do that. Your request is noted. If it keeps coming up, it will end up existing."
+            )
+        : alt
+          ? pick(
+              locale,
+              `Ça, je ne sais pas le faire.\n\nEn revanche, ${altTail}\n\nDis-moi « oui, fais-le » et je m'en occupe.`,
+              `I can't do that.\n\nWhat I can do: ${altTail}\n\nSay "yes, do it" and I'll take care of it.`
+            )
+          : pick(
+              locale,
+              "Ça, je ne sais pas le faire, en tout cas pas aujourd'hui. J'ai noté ta demande : c'est peut-être pour bientôt.",
+              "I can't do that, at least not today. I've noted your request: it may be coming soon."
+            );
       return Response.json({ kind: "answer", answer: message });
     }
 
@@ -1843,6 +1877,10 @@ export async function POST(req: Request) {
           model: TIER_SIMPLE,
           system: withLocale(`Tu es l'OPÉRATEUR du workspace de Biltia, l'OS opérationnel du BTP. L'utilisateur te demande une opération sur SES données. Tu l'exécutes avec les outils, puis tu confirmes.
 
+## LE FIL — tu n'arrives PAS en cours de route
+Les tours précédents te sont donnés. La demande courante peut n'être qu'une VALIDATION de ce qui vient d'être proposé (« oui », « je valide », « vas-y », « celle-là ») : dans ce cas, l'opération à exécuter est celle DÉCRITE AU TOUR PRÉCÉDENT, avec les valeurs déjà annoncées. Tu la fais, tu ne la redemandes pas.
+Ne réponds JAMAIS « précisez quelle opération » quand le fil contient la réponse : c'est la faute la plus grave ici. L'artisan a déjà tout dit, et le lui refaire dire, c'est lui faire perdre son temps deux fois.
+
 ${buildWorkspaceToolsSystem()}
 
 ## Sûreté — OPÉRATION EN MASSE (règle ABSOLUE)
@@ -1854,6 +1892,9 @@ Si la demande vise PLUSIEURS fiches d'un coup en SUPPRESSION ou en ÉCRASEMENT d
 - Introuvable → dis-le honnêtement et propose la création si pertinent.
 - Jamais de jargon technique (pas d'uuid, pas de nom de table) dans la réponse.`, locale),
           userMessage: prompt,
+          // Le FIL. Sans lui, « oui je valide » arrivait NU : l'opérateur ne
+          // voyait pas la facture proposée au tour d'avant et redemandait tout.
+          history,
           db: supabase,
           actor: { tenantId, userId: user.id, label: "Assistant" },
           maxIterations: 6,
@@ -2107,6 +2148,11 @@ Si la demande vise PLUSIEURS fiches d'un coup en SUPPRESSION ou en ÉCRASEMENT d
         ? buildKnowledgeBlock(subTradeIds, preferences.activity_type, preferences.sector_detail)
         : undefined;
 
+    // ── CE QUI EST VRAIMENT BRANCHÉ : lancé EN PARALLÈLE du RAG, donc gratuit en
+    // latence. Le copilote annonçait le Drive, le refusait, puis inventait « ton
+    // Drive n'est pas connecté » — il ne l'avait jamais LU. Maintenant il le lit.
+    const connexions = connectionSnapshot(tenantId, user.id);
+
     // ── RAG : récupération de sources VÉRIFIÉES (bibliothèque BTP globale +
     // documents privés du tenant). Client authentifié → RLS → le tenant ne voit
     // que le global + ses docs. Jamais bloquant : [] si Mistral/pgvector indispo.
@@ -2130,19 +2176,21 @@ EXACTITUDE — NE JAMAIS INVENTER :
 - Question sur les données de l'entreprise (clients, chantiers, devis…) → utilise le CONTEXTE WORKSPACE ci-dessous et cite les vrais chiffres. Vide → dis-le simplement, ne devine jamais.
 - Si des SOURCES sont fournies, elles priment.
 
-TES OUTILS (ne te dévalorise JAMAIS) :
-- Biltia se connecte à Gmail (envoyer des emails), Google Agenda (lire/créer des rendez-vous) et Google Drive (fichiers).
-- Si la demande a besoin d'un de ces outils, considère qu'il peut être connecté : réponds « Ton [Gmail/agenda/Drive] n'est pas connecté — connecte-le dans les intégrations et je m'en occupe. » Ne dis JAMAIS « je ne peux pas » ni « ce n'est pas dans mes capacités » : c'est à une connexion près.
+TES OUTILS (ne te dévalorise JAMAIS, et ne PROMETS JAMAIS au-delà) :
+- Biltia se connecte à Gmail/Outlook (envoyer des emails), Google Agenda/Outlook (lire et créer des rendez-vous) et Google Drive/OneDrive (le CLASSEUR : y déposer des documents).
+- L'état RÉEL de ces connexions t'est donné plus bas, dans « CONNEXIONS DE CET ARTISAN ». Tu le LIS, tu ne le devines pas, et tu ne demandes jamais à l'artisan si c'est branché : tu le sais déjà. Ne dis JAMAIS « je ne peux pas » ni « ce n'est pas dans mes capacités » pour un outil simplement pas encore branché — c'est à une connexion près, et tu le dis ainsi.
+- COHÉRENCE (règle absolue) : ce que tu annonces savoir faire à un tour, tu dois savoir le faire au tour suivant. Ne liste JAMAIS une capacité pour la refuser deux messages plus loin. Si l'artisan te rappelle que tu viens de promettre quelque chose : il a raison, tu ne te défausses pas, tu fais ce que tu as annoncé ou tu expliques la limite EXACTE en une phrase.
 
 IDENTITÉ (règle stricte) — Biltia est une technologie MAISON conçue pour le BTP. Ne nomme JAMAIS un modèle, un fournisseur ou une techno sous-jacente (ni Anthropic, Claude, OpenAI, GPT, Gemini, Mistral, « LLM », « modèle de langage »…) et n'en confirme aucun. Si on te demande « quel LLM / quelle IA / c'est quoi derrière / t'es Claude ? » : réponds en une phrase que Biltia est une technologie maison développée spécialement pour les pros du BTP, sans détailler, puis recentre sur ce que tu peux faire pour lui.
 
 INTÉGRATION NON DISPONIBLE — Au-delà de Gmail, Google Agenda et Google Drive, si la demande réclame un service tiers que Biltia ne propose pas encore (ex : Loom, Sage, EBP, Pennylane, Slack, un logiciel de compta ou un CRM externe…) : ne prétends JAMAIS savoir le faire et n'invente pas de connexion. Dis clairement, sans t'excuser, que cette intégration n'est pas encore disponible dans Biltia — puis propose l'alternative la plus proche que tu SAIS réellement faire (ex : au lieu d'un envoi Slack → un email ou un SMS ; au lieu d'un export vers un logiciel de compta → un export PDF ou CSV). Reste utile, jamais un cul-de-sac.
 
-HORS CAPACITÉS (physique, téléphonie, ingénierie) — Si on te demande une action que Biltia ne peut PAS faire par nature (passer ou répondre à des appels en direct, agir physiquement sur un chantier, un calcul de structure ou thermique certifié, piloter du matériel) : dis simplement « Ça, je ne peux pas le faire, ce n'est pas dans mes capacités », propose une alternative RÉELLE si elle existe (sinon dis que c'est peut-être pour plus tard), et n'invente JAMAIS une capacité.`,
+HORS CAPACITÉS (physique, téléphonie, ingénierie) — Si on te demande une action que Biltia ne peut PAS faire par nature (passer ou répondre à des appels en direct, agir physiquement sur un chantier, un calcul de structure ou thermique certifié, piloter du matériel) : dis simplement « Ça, je ne peux pas le faire, ce n'est pas dans mes capacités », propose une alternative RÉELLE si elle existe (sinon dis que c'est peut-être pour plus tard), et n'invente JAMAIS une capacité. Un outil BRANCHABLE (email, agenda, classeur) n'est JAMAIS « hors capacités » : ne confonds pas les deux.`,
         expertise ? `\n# FOCUS MÉTIER\n${expertise}` : "",
         sourcesBlock ? `\n${sourcesBlock}` : "",
         workspaceBlock ? `\n${workspaceBlock}` : "",
         pilotageBlock ? `\n${pilotageBlock}` : "",
+        `\n${buildConnectionsBlock(await connexions, locale)}`,
         localeInstruction(locale), // langue de sortie (EN si l'interface est en anglais)
       ].join("\n");
 
@@ -2181,7 +2229,9 @@ HORS CAPACITÉS (physique, téléphonie, ingénierie) — Si on te demande une a
               // Le FIL, puis le message courant. Sans l'historique, « réessaye »
               // arrivait ici tout seul : le modèle répondait « Je t'écoute »
               // à quelqu'un qui venait d'expliquer son besoin en cinq lignes.
-              messages: [...history, { role: "user", content: prompt }],
+              // Normalisé : un fil coupé aux 12 derniers tours peut commencer par
+              // une réponse de l'assistant, et l'API rejette alors la requête.
+              messages: toMessages(history, prompt),
             });
             for await (const event of llm) {
               if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
@@ -2442,6 +2492,14 @@ N'écris JAMAIS toi-même une balise \`<img>\` de logo ni une URL de logo : tu n
     // dimensionné (Opus sur grosse app) pour ne rien perdre en qualité.
     const patchModel = TIER_MEDIUM;
 
+    // LE FIL, en tête de la demande. Un document naît très souvent d'une
+    // validation (« oui je valide », après une proposition détaillée au tour
+    // précédent) : sans le fil, le générateur ne reçoit que ces trois mots et
+    // fabrique une feuille vide. Jamais en correction automatique : là, la
+    // « demande » est un message d'erreur, le fil n'a rien à y faire.
+    const filTexte = isAutoFix ? "" : threadAsText(history, 4);
+    const filPrefix = filTexte ? `${filTexte}\n\n` : "";
+
     // Instruction de réécriture COMPLÈTE (création, document, et repli de modif).
     const userContent = isModification
       ? `Voici ${noun} HTML existant :\n\`\`\`html\n${previousHTML}\n\`\`\`\n\nDemande de modification de l'utilisateur : « ${prompt} »\n\nRenvoie ${noun} COMPLET et mis à jour intégrant cette modification.${
@@ -2456,7 +2514,7 @@ RÈGLE ABSOLUE DE MODIFICATION CHIRURGICALE : tu modifies UNIQUEMENT ce que la d
 L'utilisateur a choisi son thème à la création : ne change PAS les couleurs de ta propre initiative. MAIS dès qu'il demande un changement de style (« mets le fond en rose », « passe l'accent en bleu », « enlève le dégradé », « agrandis le titre »), c'est une consigne EXPLICITE que tu appliques PLEINEMENT et VISIBLEMENT — jamais tu ne la refuses ni ne la minimises au nom de la préservation du thème (voir PRINCIPE ZÉRO). Tu touches alors la partie ciblée et RIEN d'autre.
 (Seul cas de migration : si l'existant utilise l'ANCIENNE charte au fond ivoire #F7F5EF / teal #14B8A6, migre la structure vers le SYSTÈME DE DESIGN BILTIA sans rien perdre.)
 RATTRAPAGE RESPONSIVE (amélioration attendue, PAS un écart) : si le CSS de l'app ne contient pas déjà le socle mobile à jour, AJOUTE-le sans toucher au reste — \`.table-wrap{overflow-x:auto}\` (au lieu de overflow:hidden qui coupe les colonnes), \`body{overflow-x:hidden;overflow-wrap:break-word}\`, \`img,svg,video,canvas{max-width:100%}\`, et un \`@media(max-width:520px)\` qui met les KPI sur 2 colonnes, réduit les paddings et laisse les gros chiffres revenir à la ligne. L'app doit s'afficher PARFAITEMENT à 375px de large (zéro débordement horizontal, cartes empilées).`
-      : `Demande de l'utilisateur : « ${prompt} »\n\nConstruis ${noun} complet correspondant.`;
+      : `${filPrefix}Demande de l'utilisateur : « ${prompt} »\n\nConstruis ${noun} complet correspondant.`;
 
     // Instruction de modification CIBLÉE (mode patch) : le modèle n'émet QUE des
     // blocs RECHERCHE/REMPLACE, jamais l'app entière.

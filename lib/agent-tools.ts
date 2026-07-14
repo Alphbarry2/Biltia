@@ -31,6 +31,7 @@ import { logActivity } from "./activity";
 import { listAppCollections, listAppRecords } from "./app-records";
 import { sendOutboundEmail } from "./outbound-email";
 import { sendSms } from "./outbound-sms";
+import { toMessages, type ChatTurn } from "./chat-thread";
 
 // Client base minimal (session RLS ou service_role) — motif lib/activity.ts.
 type MinimalClient = {
@@ -533,6 +534,13 @@ export async function runAgentLoop(opts: {
   model: string;
   system: string;
   userMessage: string;
+  /**
+   * LE FIL des tours précédents. Sans lui, l'opérateur reçoit le message NU :
+   * « oui je valide » arrivait seul, et il répondait « Pouvez-vous préciser
+   * quelle opération ? » alors que la proposition datait du tour d'avant.
+   * Facultatif : un agent planifié qui s'exécute à 3 h du matin n'a pas de fil.
+   */
+  history?: ChatTurn[];
   db: MinimalClient;
   actor: ToolActor;
   finishTool?: Anthropic.Tool;
@@ -558,7 +566,7 @@ export async function runAgentLoop(opts: {
    */
   maxDestructiveWrites?: number;
 }): Promise<AgentLoopResult> {
-  const { model, system, userMessage, db, actor, finishTool, allowEmail = false, allowSms = false, allowDelete = true, maxIterations = 6, maxTokens = 1500, maxDestructiveWrites = Infinity } = opts;
+  const { model, system, userMessage, history, db, actor, finishTool, allowEmail = false, allowSms = false, allowDelete = true, maxIterations = 6, maxTokens = 1500, maxDestructiveWrites = Infinity } = opts;
 
   const tools: Anthropic.Tool[] = [
     ...(allowDelete ? WORKSPACE_TOOLS : WORKSPACE_TOOLS.filter((t) => t.name !== "workspace_delete")),
@@ -567,7 +575,13 @@ export async function runAgentLoop(opts: {
   if (allowEmail) tools.push(SEND_EMAIL_TOOL);
   if (allowSms) tools.push(SEND_SMS_TOOL);
   if (finishTool) tools.push(finishTool);
-  const messages: Anthropic.MessageParam[] = [{ role: "user", content: userMessage }];
+  // Le fil PUIS la demande, normalisés ensemble (démarrage sur l'utilisateur,
+  // alternance stricte) : un fil tronqué peut commencer par une réponse, et
+  // l'API refuse. Sans fil, on retrouve exactement l'ancien comportement.
+  const messages: Anthropic.MessageParam[] = toMessages(history, userMessage).map((m) => ({
+    role: m.role,
+    content: m.content,
+  }));
   const traces: ToolTrace[] = [];
   let inputTokens = 0;
   let outputTokens = 0;
