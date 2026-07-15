@@ -4,11 +4,13 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase";
 import { injectAppBrand } from "@/lib/app-brand";
+import { requiresBiltiaHost } from "@/lib/app-connectivity";
 import { brandFromTenant, type BrandKit } from "@/lib/brand";
 import { isFounderEmail } from "@/lib/founder";
 import { saveConversation, loadConversation } from "@/lib/conversations";
 import { looksLikePureQuestion, classifyKindHeuristic } from "@/lib/kind-heuristic";
 import { playCompletionChime } from "@/lib/chime";
+import { documentToPdfFile } from "@/lib/pdf-share";
 import { VoiceRecorder } from "@/components/voice-recorder";
 import { ClarifyWidget, type ClarifyQuestion } from "@/components/clarify-widget";
 import DataStartModal from "@/components/data-start-modal";
@@ -292,19 +294,11 @@ function looksLikeAnnotate(text: string): boolean {
   return /(annot|numerot|entour|encadr|surlign|repere|reper|marque(?:-| )|marquer|flech|pointe(?:-| )|localise|montre(?:-| )?moi ou|indique ou|mets? un repere)/.test(t);
 }
 
-// « range ça dans mon Drive » → on DÉPOSE le fichier, on n'en tire rien.
-// Repli déterministe de l'aiguilleur : un verbe de rangement + une destination
-// de stockage. Le fichier joint fournit les octets — Biltia ne peut PAS aller
-// chercher un fichier déjà dans le Drive (scope drive.file), donc « transfère
-// mon PDF » sans pièce jointe n'atterrit jamais ici : c'est le copilote qui
-// répond, et il demande le trombone.
-function looksLikeArchive(text: string): boolean {
-  const t = text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
-  if (!t.trim()) return false;
-  const rangement = /(range|ranger|classe|classer|sauvegarde|sauvegarder|archive|archiver|transfere|transferer|depose|deposer|mets?(?:-| )|met(?:-| )|envoie(?:-| )|upload)/.test(t);
-  const stockage = /(drive|onedrive|one drive|classeur|mes dossiers|mon dossier|stockage|cloud)/.test(t);
-  return rangement && stockage;
-}
+// « range ça dans mon Drive » → on DÉPOSE le fichier, on n'en tire rien. Repli
+// déterministe de l'aiguilleur des fichiers joints, et la MÊME définition que
+// celle du serveur : elle vit désormais dans lib/kind-heuristic.ts (pure, partagée).
+// Elle existait ici EN DOUBLE, avec sa propre regex — deux copies d'une règle
+// finissent toujours par ne plus dire la même chose.
 
 // Intention « à la main / moi-même / sans IA » → mode annotation MANUEL : on ouvre
 // la couche vierge sur l'image jointe, sans appel IA ni crédit. À vérifier AVANT
@@ -410,8 +404,6 @@ export default function GeneratePage() {
   const [isAutoFixing, setIsAutoFixing] = useState(false);
   const [autoFixCount, setAutoFixCount] = useState(0);
   const [visualEditMode, setVisualEditMode] = useState(false);
-  const [isDeploying, setIsDeploying] = useState(false);
-  const [deploymentUrl, setDeploymentUrl] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   // ── Séparateur chat/app redimensionnable (desktop) ────────────────────────
   // Glisser la poignée redimensionne le chat ; tirer au bord gauche ferme le
@@ -1386,93 +1378,6 @@ export default function GeneratePage() {
     }
   };
 
-  // ── RANGER DANS LE CLASSEUR (Drive / OneDrive) ──────────────────────────────
-  // Le copilote ANNONÇAIT le classeur dans ses outils, mais aucun chemin du chat
-  // n'y menait : il promettait, puis refusait au tour suivant. Le voici, ce
-  // chemin. Aucun crédit : c'est un dépôt de fichier, pas une pensée.
-  //
-  // Ce qu'on dépose, ce sont les octets du fichier JOINT — les seuls que Biltia
-  // possède. Il ne peut pas atteindre un fichier déjà dans le Drive (scope
-  // drive.file : il n'y voit que ce qu'il y a lui-même mis), et c'est assumé.
-  const handleArchive = async (instruction: string) => {
-    const files = attached.slice(0, 4);
-    if (!files.length) return;
-    const noms = files.map((f) => f.name).join(", ");
-
-    setMessages((prev) => [...prev, { role: "user", content: `${instruction}\n\n📎 ${noms}` }]);
-    setInput("");
-    setAttached([]);
-    setUpsell(null);
-    setExpectingBuild(false);
-    setIsGenerating(true);
-    setLoadingLabel(t("Je range dans ton classeur…", "Filing in your drive…"));
-
-    try {
-      const deposes: { name: string; url: string; folder: string; updated: boolean }[] = [];
-      let echec: string | null = null;
-
-      for (const f of files) {
-        // Le base64 stocké redevient des octets : /api/drive attend un vrai
-        // fichier (multipart), pas une chaîne.
-        const bin = atob(f.data);
-        const octets = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) octets[i] = bin.charCodeAt(i);
-
-        const form = new FormData();
-        form.append(
-          "file",
-          new File([octets], f.name, { type: f.mediaType || "application/octet-stream" })
-        );
-
-        const res = await fetch("/api/drive", { method: "POST", body: form });
-        const data = await res.json();
-        if (!res.ok) {
-          // Un échec de classeur est le MÊME pour tous les fichiers (pas branché,
-          // droit manquant…) : inutile d'insister trois fois, on le dit une fois.
-          echec = data.error ?? t("Le classement a échoué.", "Filing failed.");
-          break;
-        }
-        deposes.push({ name: f.name, url: data.url, folder: data.folder, updated: data.updated });
-      }
-
-      if (deposes.length) {
-        const lignes = deposes
-          .map((d) =>
-            t(
-              `- **${d.name}** → [Biltia / ${d.folder}](${d.url})${d.updated ? " (remplacé)" : ""}`,
-              `- **${d.name}** → [Biltia / ${d.folder}](${d.url})${d.updated ? " (replaced)" : ""}`
-            )
-          )
-          .join("\n");
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: t(
-              `✓ Rangé dans ton classeur.\n\n${lignes}${echec ? `\n\n⚠️ ${echec}` : ""}`,
-              `✓ Filed in your drive.\n\n${lignes}${echec ? `\n\n⚠️ ${echec}` : ""}`
-            ),
-          },
-        ]);
-      } else {
-        setMessages((prev) => [
-          ...prev,
-          { role: "assistant", content: `⚠️ ${echec ?? t("Le classement a échoué.", "Filing failed.")}` },
-        ]);
-      }
-    } catch {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: `❌ ${t("Le classement a échoué. Réessaie dans un instant.", "Filing failed. Try again in a moment.")}`,
-        },
-      ]);
-    } finally {
-      setLoadingLabel(null);
-      setIsGenerating(false);
-    }
-  };
 
   // Mode ANNOTATION MANUEL : on ouvre la couche d'annotation vierge sur l'image
   // jointe — l'utilisateur pose ses repères lui-même. Aucun appel IA, aucun crédit.
@@ -1646,7 +1551,7 @@ export default function GeneratePage() {
       const files = attached.map((f) => ({ name: f.name, mediaType: f.mediaType, data: f.data }));
       const fileNames = attached.map((f) => f.name).join(", ");
 
-      let intent: "analyze" | "annotate" | "document" | "module" | "archive" | null = null;
+      let intent: "analyze" | "annotate" | "document" | "module" | null = null;
       if (trimmed) {
         setLoadingLabel(t("J'analyse votre demande…", "Analyzing your request…"));
         setExpectingBuild(false);
@@ -1668,8 +1573,7 @@ export default function GeneratePage() {
               (data.intent === "analyze" ||
                 data.intent === "annotate" ||
                 data.intent === "document" ||
-                data.intent === "module" ||
-                data.intent === "archive")
+                data.intent === "module")
             ) {
               intent = data.intent;
             }
@@ -1685,20 +1589,11 @@ export default function GeneratePage() {
       // Repli déterministe si l'aiguilleur n'a pas répondu (API lente/KO) :
       // les anciennes heuristiques, dans leur ordre historique.
       if (!intent) {
-        intent = looksLikeArchive(trimmed)
-          ? "archive"
-          : looksLikeAnnotate(trimmed)
-            ? "annotate"
-            : looksLikeDocumentEdit(trimmed)
-              ? "document"
-              : "analyze";
-      }
-
-      // RANGER : le fichier part tel quel dans le classeur. Rien n'est lu, rien
-      // n'est produit, rien n'est débité.
-      if (intent === "archive") {
-        await handleArchive(trimmed);
-        return;
+        intent = looksLikeAnnotate(trimmed)
+          ? "annotate"
+          : looksLikeDocumentEdit(trimmed)
+            ? "document"
+            : "analyze";
       }
 
       if (intent === "annotate") {
@@ -2198,6 +2093,28 @@ export default function GeneratePage() {
         return;
       }
 
+      // ── PORTE DE CAPACITÉ : « il te manque un outil, le voici » ──────────────
+      // AVANT tout aiguillage par `kind`, et c'est tout l'intérêt. La lecture des
+      // cartes « Connecter » était enterrée DANS cinq branches (rule, email,
+      // calendar, task, archive) : un manque détecté sur n'importe quel autre
+      // chemin — à commencer par `answer`, le fourre-tout du copilote — était
+      // renvoyé par le serveur et silencieusement IGNORÉ ici. L'artisan voyait
+      // une phrase, jamais un bouton.
+      //
+      // Ici, un seul contrat, valable pour tous les kinds : { message, connectors }.
+      // Le clic ouvre l'OAuth en pop-up, et la demande d'ORIGINE se rejoue seule.
+      if (
+        Array.isArray(data.connectors) &&
+        data.connectors.length > 0 &&
+        !data.pendingRuleId // les agents gardent leur chemin : ils s'activent par id, ils ne se rejouent pas
+      ) {
+        const mot = typeof data.message === "string" && data.message ? data.message : data.answer;
+        if (typeof mot === "string" && mot.trim()) {
+          setMessages((prev) => [...prev, { role: "assistant", content: mot }]);
+          if (startConnectFlowFromData(data, apiPrompt)) return;
+        }
+      }
+
       // Contrôle par lot reconnu, mais aucun fichier joint : on mémorise
       // l'instruction (gratuit) et on invite à glisser les fichiers.
       // Agent recruté (mission permanente) : le serveur a créé la règle et
@@ -2220,6 +2137,7 @@ export default function GeneratePage() {
         }
         return;
       }
+
 
       // Envoi groupé (« task ») : soit un APERÇU à valider, soit un message
       // factuel (0 client, pas connecté, email manquant…). Sur l'aperçu, on
@@ -2666,46 +2584,6 @@ export default function GeneratePage() {
     setIsSaving(false);
   };
 
-  const handleDeploy = async () => {
-    if (!generatedHTML || isDeploying) return;
-    // Save first if not already saved
-    if (!savedId) await handleSave();
-    // Re-read savedId via closure won't work, use a small workaround
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    // Fetch the saved app id
-    const { data: apps } = await supabase
-      .from("modules")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("name", appName)
-      .neq("status", "archived")
-      .order("created_at", { ascending: false })
-      .limit(1);
-
-    const appId = savedId ?? apps?.[0]?.id;
-    if (!appId) return;
-
-    setIsDeploying(true);
-    try {
-      const res = await fetch("/api/deploy", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ appId }),
-      });
-      const data = await res.json();
-      if (data.url) {
-        setDeploymentUrl(data.url);
-      } else {
-        alert(data.error ?? t("Erreur de déploiement.", "Deployment error."));
-      }
-    } finally {
-      setIsDeploying(false);
-    }
-  };
-
   const publicUrl = slug ? `${typeof window !== "undefined" ? window.location.origin : ""}/app/${slug}` : "";
 
   const copyLink = async () => {
@@ -2742,9 +2620,22 @@ export default function GeneratePage() {
     setIsPublishing(false);
   };
 
-  // App connectée au workspace (SDK window.biltia) : le lien public montre
-  // l'interface, mais les DONNÉES ne sont visibles que par l'équipe connectée.
-  const isConnectedApp = generatedHTML.includes("window.biltia");
+  // App reliée au workspace : elle a besoin d'un hôte qui réponde à ses appels de
+  // données (cf. lib/app-connectivity.ts). Le lien public /app/<slug> n'en est PAS
+  // un — il servait une app qui gèle 30 s par écran. Le lien à envoyer est donc
+  // /apps/<id> : un coéquipier connecté l'ouvre AVEC les données, un inconnu tombe
+  // sur l'écran de connexion.
+  const isConnectedApp = requiresBiltiaHost(generatedHTML);
+  // /a/<id> et non /apps/<id> : l'app SEULE, sans le châssis Biltia, installable
+  // en un tap comme une icône sur l'écran d'accueil de l'employé.
+  const teamUrl = savedId ? `${typeof window !== "undefined" ? window.location.origin : ""}/a/${savedId}` : "";
+
+  const copyTeamLink = async () => {
+    if (!teamUrl) return;
+    await navigator.clipboard.writeText(teamUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -3362,18 +3253,28 @@ export default function GeneratePage() {
                 <button onClick={() => setShareOpen(false)} className="p-1 text-[#9A9AA6] hover:text-[#0A0A0A] transition-colors"><X className="w-5 h-5" /></button>
               </div>
               <div className="px-3 pb-6 sm:pb-3">
-                {savedId ? (
-                  <button onClick={togglePublish} disabled={isPublishing} className="flex w-full items-center gap-3 px-3 py-3 rounded-2xl hover:bg-[#F6F6F9] transition-colors text-left disabled:opacity-60">
-                    <span className="grid h-9 w-9 place-items-center rounded-full bg-[#F3EFFC] text-[#7C3AED] flex-shrink-0">{isPublishing ? <Loader2 className="w-[18px] h-[18px] animate-spin" /> : <Globe className="w-[18px] h-[18px]" />}</span>
-                    <span className="min-w-0"><span className="block text-[14px] font-semibold text-[#0A0A0A]">{isPublic ? t("En ligne — retirer le lien", "Online — remove the link") : t("Mettre en ligne", "Publish online")}</span><span className="block text-[12px] text-[#9A9AA6] truncate">{isPublic ? publicUrl.replace(/^https?:\/\//, "") : t("Lien partageable à votre équipe", "Shareable link for your team")}</span></span>
-                  </button>
-                ) : (
+                {!savedId ? (
                   <button onClick={handleSave} disabled={isSaving} className="flex w-full items-center gap-3 px-3 py-3 rounded-2xl hover:bg-[#F6F6F9] transition-colors text-left disabled:opacity-60">
                     <span className="grid h-9 w-9 place-items-center rounded-full bg-[#F6F6F9] text-[#0A0A0A] flex-shrink-0">{isSaving ? <Loader2 className="w-[18px] h-[18px] animate-spin" /> : <Save className="w-[18px] h-[18px]" />}</span>
                     <span className="text-[14px] font-semibold text-[#0A0A0A]">{t("Sauvegarder dans mes ateliers", "Save to my workspaces")}</span>
                   </button>
+                ) : isConnectedApp ? (
+                  /* App reliée au workspace : le SEUL lien qui affiche les données
+                     est /apps/<id> (la page qui répond aux appels de l'app). On ne
+                     propose donc PAS de lien public ici — il gèlerait chez le
+                     destinataire. Pour un client, le lien scopé se crée depuis la
+                     page de l'app (« Partager avec un client »). */
+                  <button onClick={copyTeamLink} className="flex w-full items-center gap-3 px-3 py-3 rounded-2xl hover:bg-[#F6F6F9] transition-colors text-left">
+                    <span className="grid h-9 w-9 place-items-center rounded-full bg-[#F3EFFC] text-[#7C3AED] flex-shrink-0">{copied ? <CheckCircle className="w-[18px] h-[18px] text-emerald-500 animate-scale-in" /> : <Link2 className="w-[18px] h-[18px]" />}</span>
+                    <span className="min-w-0"><span className="block text-[14px] font-semibold text-[#0A0A0A]">{copied ? t("Lien copié !", "Link copied!") : t("Copier le lien pour mon équipe", "Copy the link for my team")}</span><span className="block text-[12px] text-[#9A9AA6] truncate">{t("L'app seule, plein écran, installable sur le téléphone", "The app alone, full screen, installable on phones")}</span></span>
+                  </button>
+                ) : (
+                  <button onClick={togglePublish} disabled={isPublishing} className="flex w-full items-center gap-3 px-3 py-3 rounded-2xl hover:bg-[#F6F6F9] transition-colors text-left disabled:opacity-60">
+                    <span className="grid h-9 w-9 place-items-center rounded-full bg-[#F3EFFC] text-[#7C3AED] flex-shrink-0">{isPublishing ? <Loader2 className="w-[18px] h-[18px] animate-spin" /> : <Globe className="w-[18px] h-[18px]" />}</span>
+                    <span className="min-w-0"><span className="block text-[14px] font-semibold text-[#0A0A0A]">{isPublic ? t("En ligne — retirer le lien", "Online — remove the link") : t("Mettre en ligne", "Publish online")}</span><span className="block text-[12px] text-[#9A9AA6] truncate">{isPublic ? publicUrl.replace(/^https?:\/\//, "") : t("Lien public, sans connexion", "Public link, no sign-in")}</span></span>
+                  </button>
                 )}
-                {isPublic && slug && (
+                {!isConnectedApp && isPublic && slug && (
                   <button onClick={copyLink} className="flex w-full items-center gap-3 px-3 py-3 rounded-2xl hover:bg-[#F6F6F9] transition-colors text-left">
                     <span className="grid h-9 w-9 place-items-center rounded-full bg-[#F6F6F9] text-[#0A0A0A] flex-shrink-0">{copied ? <CheckCircle className="w-[18px] h-[18px] text-emerald-500 animate-scale-in" /> : <Link2 className="w-[18px] h-[18px]" />}</span>
                     <span className="text-[14px] font-semibold text-[#0A0A0A]">{copied ? t("Lien copié !", "Link copied!") : t("Copier le lien", "Copy link")}</span>
@@ -3391,10 +3292,6 @@ export default function GeneratePage() {
                     <span className="min-w-0"><span className="block text-[14px] font-semibold text-[#0A0A0A]">{t("Historique & restaurer", "History & restore")}</span><span className="block text-[12px] text-[#9A9AA6] truncate">{t("Revenir à une version précédente", "Go back to a previous version")}</span></span>
                   </button>
                 )}
-                <button onClick={handleDeploy} disabled={isDeploying} className="flex w-full items-center gap-3 px-3 py-3 rounded-2xl hover:bg-[#F6F6F9] transition-colors text-left disabled:opacity-60">
-                  <span className="grid h-9 w-9 place-items-center rounded-full bg-[#F6F6F9] text-[#0A0A0A] flex-shrink-0">{isDeploying ? <Loader2 className="w-[18px] h-[18px] animate-spin" /> : deploymentUrl ? <CheckCircle className="w-[18px] h-[18px] text-emerald-500" /> : <Globe className="w-[18px] h-[18px]" />}</span>
-                  <span className="min-w-0"><span className="block text-[14px] font-semibold text-[#0A0A0A]">{isDeploying ? t("Déploiement…", "Deploying…") : deploymentUrl ? t("Redéployer", "Redeploy") : t("Déployer (hébergement dédié)", "Deploy (dedicated hosting)")}</span>{deploymentUrl && <span className="block text-[12px] text-[#9A9AA6] truncate">{deploymentUrl}</span>}</span>
-                </button>
                 {kind === "document" && (
                   <div className="px-3 pt-2"><ShareMenu getDocument={() => iframeRef.current?.contentDocument ?? null} title={appName} /></div>
                 )}

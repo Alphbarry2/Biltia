@@ -12,24 +12,51 @@ import { pick } from "@/lib/i18n/config";
 // qui reste la version de référence pour le SEO (pas d'URLs /en aujourd'hui).
 export async function generateMetadata(): Promise<Metadata> {
   const locale = await getLocale();
+  const title = pick(
+    locale,
+    "Biltia — l'OS conversationnel du BTP",
+    "Biltia — the conversational OS for construction",
+  );
+  const description = pick(
+    locale,
+    "Décrivez votre problème, Biltia livre la solution : document, application, réponse ou automatisation. L'OS conversationnel du BTP.",
+    "Describe your problem, Biltia delivers the solution: a document, an app, an answer or an automation. The conversational OS for construction.",
+  );
   return {
     metadataBase: new URL(
       process.env.NEXT_PUBLIC_SITE_URL || "https://www.biltia.com",
     ),
     applicationName: "Biltia",
-    title: {
-      default: pick(
-        locale,
-        "Biltia — l'OS conversationnel du BTP",
-        "Biltia — the conversational OS for construction",
-      ),
-      template: "%s · Biltia",
+    title: { default: title, template: "%s · Biltia" },
+    description,
+    // Marque + catégorie : ancre « Biltia = logiciel BTP », pas un lieu-dit.
+    keywords: [
+      "Biltia",
+      "logiciel BTP",
+      "logiciel bâtiment",
+      "devis BTP",
+      "suivi de chantier",
+      "application métier BTP",
+      "IA BTP",
+      "gestion artisan",
+    ],
+    // La page d'accueil FR est la version de référence (pas d'URLs /en).
+    alternates: { canonical: "/" },
+    // Aperçu social cohérent (LinkedIn, X, iMessage…) : chaque partage renforce
+    // le même signal de marque. L'image est générée par app/opengraph-image.tsx.
+    openGraph: {
+      type: "website",
+      siteName: "Biltia",
+      locale: locale === "en" ? "en_US" : "fr_FR",
+      url: "/",
+      title,
+      description,
     },
-    description: pick(
-      locale,
-      "Décrivez votre problème, Biltia livre la solution : document, application, réponse ou automatisation. L'OS conversationnel du BTP.",
-      "Describe your problem, Biltia delivers the solution: a document, an app, an answer or an automation. The conversational OS for construction.",
-    ),
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+    },
     ...BASE_METADATA,
   };
 }

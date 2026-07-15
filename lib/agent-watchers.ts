@@ -43,6 +43,7 @@ export type WatcherKey =
   | "nouveau_lead"
   | "nouveau_client"
   | "nouveau_chantier"
+  | "nouveau_document"
   | "devis_expire_bientot"
   | "facture_echeance_proche"
   | "pointage_manquant"
@@ -97,6 +98,7 @@ export const WATCHER_KEYS: WatcherKey[] = [
   "nouveau_lead",
   "nouveau_client",
   "nouveau_chantier",
+  "nouveau_document",
   "pointage_manquant",
   "heures_a_valider",
   "heures_incoherentes",
@@ -157,7 +159,8 @@ export type WatcherDef = {
   label: string;
   /** Ce qui est surveillé, pour les messages (« les factures échues impayées »). */
   watching: string;
-  /** Action naturelle : notify (prévenir le patron), send_email (relancer le client) ou compte_rendu (générer un document). */
+  /** Action naturelle : notify (prévenir le patron), send_email (relancer le client)
+   *  ou compte_rendu (générer un document). */
   suggestedAction: "notify" | "send_email" | "compte_rendu";
   /** Paramètre principal en jours (sens selon le veilleur : délai avant relance, fenêtre d'échéance). */
   defaultDays: number;
@@ -928,6 +931,52 @@ async function runNouveauLead(db: SupabaseClient, tenantId: string, windowDays: 
  * nouveau client, prépare X » (fiche chantier, devis brouillon, tâche d'accueil…).
  * Fenêtre récente + une fois par fiche : on ne rejoue pas tout l'historique.
  */
+/**
+ * UN DOCUMENT COMMERCIAL VIENT D'ÊTRE ENREGISTRÉ (devis ou facture).
+ *
+ * Il n'existait aucun veilleur d'ARRIVÉE pour les devis et les factures — seulement
+ * pour les clients, les chantiers et les leads. « À chaque fois qu'un document est
+ * enregistré dans le workspace, dépose-le dans mon Drive » n'avait donc aucun
+ * capteur, et Biltia refusait la mission entière.
+ *
+ * `ficheId` est PRÉFIXÉ (« devis:<uuid> ») parce que ce veilleur lit DEUX tables :
+ * c'est le contrat des veilleurs multi-sources (cf. WatcherMatch), et l'action de
+ * rangement en a besoin pour savoir de quelle fiche fabriquer le PDF.
+ */
+async function runNouveauDocument(db: SupabaseClient, tenantId: string, windowDays: number): Promise<WatcherMatch[]> {
+  const cutoff = new Date(Date.now() - Math.max(1, windowDays) * 86_400_000).toISOString();
+
+  const lire = async (table: "devis" | "factures") => {
+    const { data } = await db
+      .from(table)
+      .select("id, numero, montant_ttc, created_at")
+      .eq("tenant_id", tenantId)
+      .gte("created_at", cutoff)
+      .order("created_at", { ascending: false })
+      .limit(SCAN_LIMIT);
+    return (data ?? []) as { id: string; numero: string | null; montant_ttc: number | null }[];
+  };
+
+  const [devis, factures] = await Promise.all([lire("devis"), lire("factures")]);
+
+  const out: WatcherMatch[] = [];
+  for (const [table, rows] of [["devis", devis], ["factures", factures]] as const) {
+    const singulier = table === "devis" ? "Devis" : "Facture";
+    for (const d of rows) {
+      out.push({
+        ficheId: `${table}:${d.id}`,
+        entity: table,
+        label: `${singulier} ${d.numero ?? ""}`.trim(),
+        detail: `${money(d.montant_ttc)} TTC`,
+        email: null,
+        contactName: null,
+        raw: { table, id: d.id, numero: d.numero, montant_ttc: d.montant_ttc },
+      });
+    }
+  }
+  return out;
+}
+
 async function runNouveauClient(db: SupabaseClient, tenantId: string, windowDays: number): Promise<WatcherMatch[]> {
   const cutoff = new Date(Date.now() - Math.max(1, windowDays) * 86_400_000).toISOString();
   const { data } = await db
@@ -2739,6 +2788,20 @@ export const WATCHERS: Record<WatcherKey, WatcherDef> = {
     refireDays: null,
     run: runNouveauChantier,
   },
+  nouveau_document: {
+    key: "nouveau_document",
+    label: "Nouveaux documents (devis, factures)",
+    watching: "les devis et factures qui viennent d'être enregistrés",
+    // "notify", et surtout PAS "send_email" : un devis qui vient d'être enregistré
+    // est souvent un BROUILLON. L'envoyer au client à la seconde où il est créé
+    // ferait partir des prix non relus. Le veilleur prévient, l'artisan décide.
+    suggestedAction: "notify",
+    defaultDays: 3,
+    daysMeaning: "jours de rattrapage après l'enregistrement",
+    // Une seule fois par fiche : on ne re-signale pas le même document chaque semaine.
+    refireDays: null,
+    run: runNouveauDocument,
+  },
   client_inactif: {
     key: "client_inactif",
     label: "Clients inactifs",
@@ -2810,6 +2873,7 @@ export const WATCHER_DOMAIN: Record<WatcherKey, WatcherDomain> = {
   devis_expire_bientot: "commercial",
   devis_accepte: "commercial",
   nouveau_lead: "commercial",
+  nouveau_document: "documents",
   nouveau_client: "commercial",
   client_inactif: "commercial",
   clients_doublons: "commercial",

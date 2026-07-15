@@ -14,12 +14,21 @@
 // connecteur = provider connecté ET tous ses scopes accordés.
 //
 // ⚠️ RÈGLE D'HONNÊTETÉ — `status` :
-//   · "live" → du CODE consomme réellement les jetons (lib/gmail.ts, lib/gcal.ts…).
-//   · "soon" → déclaré mais AUCUN code ne s'en sert. Le bouton « Connecter » est
-//              désactivé (UI) ET l'API refuse de démarrer le flux (fail-closed) :
-//              inutile de stocker un jeton que personne ne lit, et surtout on ne
-//              ment pas à l'utilisateur avec un « Connecté ✅ » sans effet.
-//   Passer un connecteur à "live" = brancher le client d'abord, changer ce champ
+//   · "live" → du CODE consomme réellement les jetons (lib/gmail.ts, lib/gcal.ts…)
+//              ET le fournisseur nous laisse réellement l'obtenir.
+//   · "soon" → l'artisan ne peut PAS s'en servir aujourd'hui. Le bouton « Connecter »
+//              est désactivé (UI), l'API refuse de démarrer le flux (fail-closed) et
+//              les chemins d'action ignorent le fournisseur. On ne ment pas avec un
+//              « Connecté ✅ » sans effet, et on ne stocke pas un jeton mort.
+//
+//   « soon » a DEUX causes, et il faut savoir laquelle avant de toucher au champ :
+//     a) pas branché — aucun client ne lit le jeton. Remède : écrire le client.
+//     b) branché, mais bloqué EN AMONT chez le fournisseur. Le code marche ; c'est
+//        le consentement qui n'aboutit pas. Remède : régler le compte, pas le code.
+//   Confondre les deux fait re-passer un connecteur à "live" parce qu'« il y a bien
+//   du code » — et on remet en ligne un bouton qui échoue chez l'utilisateur.
+//
+//   Passer un connecteur à "live" = lever la cause d'abord, changer ce champ
 //   ensuite. Jamais l'inverse.
 //
 // `can` / `cannot` sont la source de la page publique /connecteurs. `cannot` se
@@ -239,12 +248,10 @@ const CONNECTORS_SOURCE: Connector[] = [
     cannot: [
       "Renvoyer dans Biltia les modifications faites dans le fichier.",
       "Se rafraîchir automatiquement : il faut re-exporter pour avoir les données du jour.",
-      "Se déposer tout seul dans un Drive : c'est le classement automatique (Google Drive / OneDrive) qui fait ça, et seulement pour les documents générés.",
     ],
     cannotEn: [
       "Push edits made in the file back into Biltia.",
       "Refresh automatically: re-export to get today's data.",
-      "Drop itself into a Drive on its own: automatic filing (Google Drive / OneDrive) does that, and only for generated documents.",
     ],
     href: "/api/export?entity=all&format=xlsx",
     hrefLabel: "Exporter maintenant",
@@ -282,6 +289,26 @@ const CONNECTORS_SOURCE: Connector[] = [
     scopeNoteEn: "Everything goes through a one-off browser permission (camera, location, mic), which you can revoke at any time in your phone settings.",
   },
 
+  // ── MICROSOFT : "live", mais éditeur PAS encore vérifié — lire avant de toucher ──
+  // Le code Graph (lib/msgraph.ts) est complet, l'URI www est déclarée côté Azure, et
+  // l'envoi/agenda marche pour : les comptes Microsoft PERSONNELS (outlook.com) et les
+  // artisans ADMIN de leur propre M365. Ceux-là passent, avec un écran de consentement
+  // portant la mention « éditeur non vérifié ».
+  //
+  // CE QUI RESTE CASSÉ, et pourquoi l'afficher n'est pas un mensonge : un salarié sous
+  // un admin IT tombe sur AADSTS90094 (« seul un administrateur peut accorder »), parce
+  // que l'app est multi-locataire et l'éditeur non vérifié → le « risk-based step-up
+  // consent » (actif par défaut dans tout locataire Entra) exige l'accord admin dès
+  // qu'on demande mieux que la connexion basique (Mail.Send, Calendars.ReadWrite). Ce
+  // cas est RATTRAPÉ dans app/api/connections/callback : au lieu d'un « annulé » muet,
+  // l'artisan reçoit un message nommant l'action (son administrateur doit autoriser).
+  //
+  // Pour SUPPRIMER ce dernier mur (ouvrir aux salariés pros sans friction), vérifier
+  // l'éditeur : (1) biltia.com vérifié comme domaine DNS du locataire, puis domaine
+  // d'éditeur (un *.onmicrosoft.com est refusé) ; (2) compte Partner Center vérifié sur
+  // une adresse @biltia.com ; (3) éditeur vérifié sur l'inscription. Tant que ce n'est
+  // pas fait, "live" est un choix ASSUMÉ (marche pour la majorité + mur rattrapé), pas
+  // un oubli.
   {
     id: "outlook",
     name: "Outlook",
@@ -321,6 +348,8 @@ const CONNECTORS_SOURCE: Connector[] = [
     id: "outlook-calendar",
     name: "Outlook Calendar",
     kind: "oauth",
+    // "live" comme Outlook ci-dessus : marche pour comptes perso + admins ; mur admin
+    // (AADSTS90094) rattrapé dans le callback tant que l'éditeur n'est pas vérifié.
     status: "live",
     provider: "microsoft",
     scopes: ["https://graph.microsoft.com/Calendars.ReadWrite"],
@@ -349,70 +378,6 @@ const CONNECTORS_SOURCE: Connector[] = [
     works: "Sans connexion : bouton « Ajouter au calendrier » sur vos interventions et tâches (fichier .ics universel, qu'Outlook ouvre sans problème).",
     worksEn: "Without connecting: an “Add to calendar” button on your jobs and tasks (universal .ics file, which Outlook opens without any trouble).",
     logo: "/logos/outlook.webp",
-  },
-  {
-    id: "google-drive",
-    name: "Google Drive",
-    kind: "oauth",
-    status: "live",
-    provider: "google",
-    scopes: ["https://www.googleapis.com/auth/drive.file"],
-    desc: "Classer vos PDF (devis, factures, PV…) dans Drive, rangés par chantier.",
-    descEn: "File your PDFs (quotes, invoices, sign-off sheets…) into Drive, sorted by job site.",
-    can: [
-      "Déposer un document généré dans votre Drive, rangé dans « Biltia / <chantier> ».",
-      "Classer automatiquement chaque devis et chaque facture que vous envoyez.",
-      "Renvoyer un devis corrigé remplace le PDF existant : un seul fichier par document, jamais dix versions.",
-    ],
-    canEn: [
-      "Drop a generated document into your Drive, filed under “Biltia / <job site>”.",
-      "Automatically file every quote and invoice you send.",
-      "Re-sending a corrected quote replaces the existing PDF: one file per document, never ten versions.",
-    ],
-    cannot: [
-      "Il ne voit QUE les fichiers qu'il a lui-même créés. Le reste de votre Drive lui est invisible, techniquement, pas seulement par politesse.",
-      "Il ne supprime rien et ne touche à aucun de vos dossiers existants.",
-    ],
-    cannotEn: [
-      "It only ever sees the files it created itself. The rest of your Drive is invisible to it, technically, not just as a courtesy.",
-      "It deletes nothing and never touches any of your existing folders.",
-    ],
-    logo: "/logos/google-drive.webp",
-  },
-  {
-    id: "onedrive",
-    name: "OneDrive",
-    kind: "oauth",
-    status: "live",
-    provider: "microsoft",
-    // AppFolder, PAS Files.ReadWrite : le droit large donnerait accès à TOUT le
-    // OneDrive de l'utilisateur, et le « il ne voit que ses propres fichiers »
-    // ci-dessous deviendrait un mensonge. C'est l'équivalent exact du drive.file
-    // de Google : Biltia n'a de vue que sur son propre dossier d'application.
-    scopes: ["https://graph.microsoft.com/Files.ReadWrite.AppFolder"],
-    desc: "Classer vos PDF (devis, factures, PV…) dans OneDrive, rangés par chantier.",
-    descEn: "File your PDFs (quotes, invoices, sign-off sheets…) into OneDrive, sorted by job site.",
-    can: [
-      "Déposer un document généré dans votre OneDrive, rangé dans « Biltia / <chantier> ».",
-      "Classer automatiquement chaque devis et chaque facture que vous envoyez.",
-      "Renvoyer un devis corrigé remplace le PDF existant : un seul fichier par document, jamais dix versions.",
-    ],
-    canEn: [
-      "Drop a generated document into your OneDrive, filed under “Biltia / <job site>”.",
-      "Automatically file every quote and invoice you send.",
-      "Re-sending a corrected quote replaces the existing PDF: one file per document, never ten versions.",
-    ],
-    cannot: [
-      "Il ne voit QUE les fichiers qu'il a lui-même créés, dans son propre dossier d'application. Le reste de votre OneDrive lui est invisible, techniquement, pas seulement par politesse.",
-      "Il ne supprime rien et ne touche à aucun de vos dossiers existants.",
-    ],
-    cannotEn: [
-      "It only ever sees the files it created itself, inside its own app folder. The rest of your OneDrive is invisible to it, technically, not just as a courtesy.",
-      "It deletes nothing and never touches any of your existing folders.",
-    ],
-    scopeNote: "Droit demandé : Files.ReadWrite.AppFolder — le dossier d'application, et rien d'autre. Biltia ne peut pas ouvrir vos autres fichiers OneDrive, même par erreur.",
-    scopeNoteEn: "Permission requested: Files.ReadWrite.AppFolder — the app folder, and nothing else. Biltia cannot open your other OneDrive files, not even by mistake.",
-    logo: "/logos/onedrive.webp",
   },
   {
     id: "sms",
@@ -457,7 +422,6 @@ const CONNECTORS_SOURCE: Connector[] = [
 //   ─────────────────────────────┼───────────────────────────────
 //   Gmail                        │   Outlook
 //   Google Calendar              │   Outlook Calendar
-//   Google Drive                 │   OneDrive
 //
 // L'artisan est sous Google OU sous Microsoft : il descend SA colonne, sans avoir
 // à chercher son équivalent ailleurs dans la page. Les vraies connexions (celles
@@ -470,7 +434,6 @@ const CONNECTORS_SOURCE: Connector[] = [
 const DISPLAY_ORDER: string[] = [
   "gmail", "outlook",
   "google-calendar", "outlook-calendar",
-  "google-drive", "onedrive",
   "whatsapp",
   "export-csv", "export-excel",
   "sms", "phone",
@@ -504,29 +467,31 @@ export function isConnectable(c: Connector): boolean {
   return c.kind === "oauth" && c.status === "live";
 }
 
-// ── Capacité d'agent (lib/agent-capabilities) → connecteurs à proposer ───────
-// Quand un manque de capacité se règle par une CONNEXION, on sait quelles cartes
-// afficher inline. Les manques non-OAuth (notifications, équipe vide, seuil de
-// stock) n'ont pas d'entrée ici → pas de bouton « Connecter » (ils gardent leur
-// lien « aller régler »). Clé = CapabilityId, valeur = ids de connecteurs.
-//
-// PLUSIEURS connecteurs par capacité : un artisan sous Microsoft 365 n'a pas de
-// Gmail. Lui proposer « Connecter Gmail » comme unique issue, c'est lui demander
-// d'ouvrir un compte chez un concurrent de sa messagerie. On propose les deux, il
-// choisit la sienne. L'ordre compte : la première carte est la plus mise en avant.
-const CONNECTORS_FOR_CAPABILITY: Record<string, string[]> = {
-  email_send: ["gmail", "outlook"],
-  // Vous écrire À VOUS : Biltia sait le faire depuis sa propre adresse, donc cette
-  // capacité ne manque presque jamais. Si elle manque (aucun canal d'envoi du tout),
-  // les mêmes cartes règlent le problème.
-  email_send_self: ["gmail", "outlook"],
-  calendar_read: ["google-calendar", "outlook-calendar"],
-};
-
-/** Les connecteurs à proposer pour un code de manque. Vide si non-OAuth. */
-export function connectorsForCapability(code: string): string[] {
-  return CONNECTORS_FOR_CAPABILITY[code] ?? [];
+/**
+ * Ce fournisseur est-il utilisable ? Faux si AUCUN de ses connecteurs n'est câblé.
+ *
+ * Garde unique des chemins d'ACTION serveur (envoi, agenda, archivage). Sans elle,
+ * « soon » ne serait vrai qu'à l'écran : un jeton déjà en base continuerait de faire
+ * partir des mails par un fournisseur qu'on affiche comme indisponible. Un connecteur
+ * désactivé doit l'être partout, sinon ce n'est pas une désactivation, c'est un
+ * maquillage. Corollaire utile : rallumer = reposer `status: "live"`, et rien d'autre.
+ */
+export function isProviderLive(provider: OAuthProvider): boolean {
+  return CONNECTORS.some((c) => c.provider === provider && c.status === "live");
 }
+
+// ── Capacités → connecteurs : ÇA N'EST PLUS ICI ──────────────────────────────
+// La table vit désormais dans lib/capabilities.ts, avec `connectorsForCapability`.
+//
+// Elle était ici, typée `Record<string, string[]>` — alors que son propre
+// commentaire annonçait « Clé = CapabilityId ». Le type disait « n'importe quelle
+// chaîne », donc rien ne l'obligeait à correspondre aux capacités réelles. Elles
+// ont divergé, et ça se voyait à l'écran : `sms_send` et `push_notify` n'y
+// figuraient tout simplement pas, et aucune carte ne pouvait sortir pour eux.
+//
+// Elle est maintenant `Record<CapabilityId, …>` : le build refuse la divergence.
+// Ce fichier reste le CATALOGUE des connecteurs (qui existe, qui est "live") ; il
+// ne dit plus QUI SERT À QUOI.
 
 // ── Statut d'un connecteur à partir des connexions de l'utilisateur ─────────
 
@@ -537,6 +502,9 @@ export type ConnectionInfo = {
   /** Ids des connecteurs EXPLICITEMENT branchés par l'artisan (migration 055). */
   connectors: string[];
   connected_at: string;
+  /** Adresse du compte branché, pour l'afficher (migration 057). Null si connexion
+   *  antérieure à cette colonne ou id_token indisponible. */
+  account_email?: string | null;
 };
 
 export type ConnectorStatus = "soon" | "builtin" | "connected" | "disconnected";

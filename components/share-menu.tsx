@@ -10,14 +10,12 @@
 //               fichier : sur desktop le PDF est téléchargé à côté),
 //               email pré-rempli (mailto:), ou simple téléchargement.
 //
-// Une seule action sort de l'appareil : « Enregistrer dans Google Drive ». Elle
-// remonte les octets du PDF à /api/drive, parce que le jeton Google ne descend
-// JAMAIS jusqu'au navigateur — seul le serveur classe le fichier. Elle n'apparaît
-// que si l'utilisateur a réellement connecté Drive.
+// AUCUNE action ne sort vers un stockage externe : le connecteur Drive/OneDrive a
+// été retiré. Le document reste chez Biltia, et l'artisan le partage lui-même.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useEffect, useState } from "react";
-import { Share2, MessageCircle, Mail, Download, HardDrive } from "lucide-react";
+import { Share2, MessageCircle, Mail, Download } from "lucide-react";
 import { ActionMenu, type ActionItem } from "./action-menu";
 import {
   buildDocMessage,
@@ -32,14 +30,11 @@ import { useT } from "@/lib/i18n/context";
 export function ShareMenu({
   getDocument,
   title,
-  folder = null,
 }: {
   /** Document DOM de l'iframe d'aperçu (null si pas encore rendue). */
   getDocument: () => Document | null;
   /** Titre humain du document (nom de fichier + message). */
   title: string;
-  /** Chantier de rattachement : sert de sous-dossier Drive. */
-  folder?: string | null;
 }) {
   const t = useT();
   // Détection Web Share après montage (évite tout écart d'hydratation).
@@ -47,22 +42,6 @@ export function ShareMenu({
   useEffect(() => {
     const probe = new File([""], "probe.pdf", { type: "application/pdf" });
     setNativeShare(canShareFiles([probe]));
-  }, []);
-
-  // Drive n'est proposé que s'il est connecté ET autorisé à écrire. Proposer
-  // une action qui échouera est pire que ne pas la proposer du tout.
-  const [driveReady, setDriveReady] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    fetch("/api/drive")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((s) => {
-        if (alive && s?.connected && s?.canFile) setDriveReady(true);
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
   }, []);
 
   const makePdf = async () => {
@@ -138,42 +117,6 @@ export function ShareMenu({
     }
   );
 
-  if (driveReady) {
-    actions.push({
-      key: "drive",
-      label: t("Enregistrer dans Google Drive", "Save to Google Drive"),
-      hint: folder
-        ? t(`Rangé dans Biltia / ${folder}`, `Filed under Biltia / ${folder}`)
-        : t("Rangé dans Biltia / Documents", "Filed under Biltia / Documents"),
-      icon: <HardDrive className="h-3.5 w-3.5" />,
-      run: async () => {
-        const file = await makePdf();
-        const body = new FormData();
-        body.append("file", file);
-        if (folder) body.append("folder", folder);
-
-        const res = await fetch("/api/drive", { method: "POST", body });
-        const json = (await res.json().catch(() => null)) as
-          | { ok?: boolean; url?: string; folder?: string; updated?: boolean; error?: string }
-          | null;
-
-        if (!res.ok || !json?.ok) {
-          throw new Error(
-            json?.error ?? t("Le classement dans Drive a échoué.", "Filing to Drive failed.")
-          );
-        }
-
-        // Le PDF est chez lui, pas dans un dossier « Téléchargements ». On le lui
-        // ouvre : sans ça, « c'est enregistré » ne veut rien dire de vérifiable.
-        if (json.url) window.open(json.url, "_blank", "noopener");
-
-        const where = `Biltia / ${json.folder}`;
-        return json.updated
-          ? t(`Mis à jour dans ${where}.`, `Updated in ${where}.`)
-          : t(`Classé dans ${where}.`, `Filed in ${where}.`);
-      },
-    });
-  }
 
   return (
     <ActionMenu

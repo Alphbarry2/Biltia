@@ -41,7 +41,10 @@ function twilioAuth(): { user: string; pass: string } | null {
 
 export function hasSmsProvider(): boolean {
   const accountSid = process.env.TWILIO_ACCOUNT_SID ?? "";
-  const from = process.env.TWILIO_FROM ?? process.env.TWILIO_MESSAGING_SERVICE_SID ?? "";
+  // `||` et non `??` : un TWILIO_FROM défini mais VIDE ("") n'est pas nullish et
+  // gagnerait le `??`, désactivant le SMS alors qu'un Messaging Service SID valide
+  // existe. On veut la première valeur NON VIDE, pas la première DÉFINIE.
+  const from = process.env.TWILIO_FROM || process.env.TWILIO_MESSAGING_SERVICE_SID || "";
   return accountSid.startsWith("AC") && twilioAuth() !== null && from.length > 3;
 }
 

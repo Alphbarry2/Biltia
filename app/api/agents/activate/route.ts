@@ -19,7 +19,7 @@ import { isFounderEmail } from "@/lib/founder";
 import { can } from "@/lib/permissions";
 import { logActivity } from "@/lib/activity";
 import { activateAgentTemplate } from "@/lib/agent-rules";
-import { getAgentTemplate, localizeAgentTemplate } from "@/lib/agent-templates";
+import { getAgentTemplate, localizeAgentTemplate, isTemplateFree } from "@/lib/agent-templates";
 import { getLocale } from "@/lib/i18n/server";
 import { pick } from "@/lib/i18n/config";
 
@@ -63,10 +63,17 @@ export async function POST(req: Request) {
   // donc l'agent, seront en anglais). value/watcher/icon inchangés.
   const template = localizeAgentTemplate(baseTemplate, locale);
 
-  // Plan : les agents qui AGISSENT (template payant : relance, compte-rendu,
-  // rapport) sont réservés à Pro. Les alertes gratuites (template.free) restent
-  // activables en Free — « le Free goûte, le Pro exécute ». Fondateur exempté.
-  if (!template.free && !canUseAgentActions(ent) && !isFounderEmail(user.email)) {
+  // Plan : les agents qui AGISSENT (relance, compte-rendu, rapport, planning) sont
+  // réservés à Pro. Les alertes gratuites restent activables en Free — « le Free
+  // goûte, le Pro exécute ». Fondateur exempté.
+  //
+  // « Gratuit » est maintenant une CONSÉQUENCE du tarif, plus une case cochée à la
+  // main. Le champ `template.free` était faux sur « planning équipe hebdo » (déclaré
+  // gratuit alors qu'il coûte 40 par envoi) : un utilisateur Free pouvait donc
+  // l'activer, le voir affiché « Actif »… et l'exécuteur le bloquait à chaque passage,
+  // car LUI exige Pro dès que l'agent agit. Un agent recruté qui ne tourne jamais.
+  // Les deux portes lisent désormais la même grille.
+  if (!isTemplateFree(template) && !canUseAgentActions(ent) && !isFounderEmail(user.email)) {
     return NextResponse.json(
       {
         error: pick(
@@ -88,8 +95,8 @@ export async function POST(req: Request) {
       {
         error: pick(
           locale,
-          `« ${template.name} » travaille avec votre équipe : c'est un agent du plan Équipe. Ajoutez la collaboration (+50 €/mois) dans Paramètres → Facturation pour l'activer.`,
-          `“${template.name}” works with your team: it's a Team-plan agent. Add collaboration (+€50/month) in Settings → Billing to activate it.`,
+          `« ${template.name} » travaille avec votre équipe : c'est un agent du plan Pro. Passez en Pro dans Paramètres → Facturation pour l'activer.`,
+          `“${template.name}” works with your team: it's a Pro-plan agent. Switch to Pro in Settings → Billing to activate it.`,
         ),
         upgrade: true,
       },

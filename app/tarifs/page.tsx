@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { Check, ChevronDown, ArrowRight, CalendarDays, MessageCircle, Camera, FileText, LayoutGrid, Bot, Gift, Wrench } from "lucide-react";
 import {
-  getPlan, getTier, formatEur, ENTERPRISE, EQUIPE, SIGNUP_FREE_CREDITS,
-  tierDisplayMonthlyEur, annualTotalEur, localizeEnterprise, localizeEquipe,
+  getPlan, getTier, formatEur, SIGNUP_FREE_CREDITS,
+  tierDisplayMonthlyEur, annualTotalEur, localizeEnterprise,
   type CreditTier, type BillingCycle, ACTION_CREDITS, AGENT_CREDITS_PER_MONTH } from "@/lib/plans";
 import { Reveal, Spot, InteractiveMesh, SiteNav, SiteFooter } from "@/components/site";
 import { ReserveDemoButton } from "@/components/demo-booking";
@@ -15,9 +15,9 @@ function buildFaq(tr: (fr: string, en: string) => string): { q: string; a: strin
   return [
     { q: tr("Comment je commence ?", "How do I get started?"), a: tr(`Vous créez un compte et vous utilisez Biltia gratuitement, tout de suite, avec ${SIGNUP_FREE_CREDITS} crédits offerts. Quand ils sont épuisés, vous choisissez votre forfait.`, `You create an account and use Biltia for free, right away, with ${SIGNUP_FREE_CREDITS} free credits. When they run out, you pick your plan.`) },
     { q: tr("Qu'est-ce qu'un crédit ?", "What is a credit?"), a: tr(`Un crédit, c'est le prix d'une action, connu d'avance et toujours le même : ${ACTION_CREDITS.question} crédits une question, ${ACTION_CREDITS.document} un devis, ${ACTION_CREDITS.application} une application sur mesure. Ce prix ne bouge pas selon la difficulté de votre demande. Et manipuler vos apps à la main est toujours gratuit.`, `A credit is the price of an action, known upfront and always the same: ${ACTION_CREDITS.question} credits for a question, ${ACTION_CREDITS.document} for a quote, ${ACTION_CREDITS.application} for a custom app. That price never changes with how hard your request is. And handling your apps by hand is always free.`) },
-    { q: tr("Pro ou Équipe ?", "Pro or Team?"), a: tr("Pro, c'est Biltia pour vous : apps, devis, documents, agents personnels. Équipe ajoute tout ce qui fait entrer d'autres personnes : salariés, clients, sous-traitants, rôles et portails. Si Biltia travaille juste pour vous, c'est Pro ; s'il fait travailler d'autres personnes, c'est Équipe (Pro + 50 €/mois).", "Pro is Biltia for you: apps, quotes, documents, personal agents. Team adds everything that brings other people in: employees, clients, subcontractors, roles and portals. If Biltia works just for you, it's Pro; if it puts other people to work, it's Team (Pro + €50/month).") },
-    { q: tr("Et si je dépasse mes crédits ?", "What if I run out of credits?"), a: tr("Deux options : rechargez à la carte quand vous voulez (+1 000 crédits pour 29 €, +3 000 pour 99 €, +10 000 pour 499 €), ou passez au palier supérieur. En attendant, vos agents se mettent en pause et rien n'est facturé sans votre accord.", "Two options: top up on demand whenever you want (+1,000 credits for €29, +3,000 for €99, +10,000 for €499), or move up a tier. In the meantime, your agents pause and nothing is charged without your consent.") },
-    { q: tr("Puis-je revenir de Équipe à Pro ?", "Can I switch from Team back to Pro?"), a: tr("Oui, à tout moment. Vos apps, données, historique et paramètres restent intacts. Seuls les accès équipe se suspendent : comptes collaborateurs, portails client et sous-traitant, rôles avancés, agents collaboratifs. Tout se réactive si vous repassez sur Équipe.", "Yes, anytime. Your apps, data, history and settings stay intact. Only team access is suspended: collaborator accounts, client and subcontractor portals, advanced roles, collaborative agents. Everything reactivates if you go back to Team.") },
+    { q: tr("Quel palier je choisis ?", "Which tier should I pick?"), a: tr("Un seul plan payant, tout inclus : vous choisissez juste votre capacité en crédits. Un artisan solo démarre à 49 €, une équipe qui tourne prend un palier plus haut. Prenez le plus proche de votre volume — vous montez ou descendez d'un cran à tout moment.", "One paid plan, everything included: you just pick your credit capacity. A solo tradesperson starts at €49, a busy team takes a higher tier. Pick the one closest to your volume — move up or down a tier anytime.") },
+    { q: tr("Et si je dépasse mes crédits ?", "What if I run out of credits?"), a: tr("Deux options : rechargez à la carte quand vous voulez (+1 000 crédits pour 29 €, +2 000 pour 59 €, +4 000 pour 109 €), ou passez au palier supérieur — souvent plus avantageux. En attendant, vos agents se mettent en pause et rien n'est facturé sans votre accord.", "Two options: top up on demand whenever you want (+1,000 credits for €29, +2,000 for €59, +4,000 for €109), or move up a tier — often the better deal. In the meantime, your agents pause and nothing is charged without your consent.") },
+    { q: tr("Puis-je changer de palier quand je veux ?", "Can I change tier whenever I want?"), a: tr("Oui, à tout moment et sans engagement. Vous montez d'un cran quand vous grandissez, vous redescendez si besoin. Vos apps, données, historique, agents et paramètres restent intacts.", "Yes, anytime and with no commitment. Move up a tier as you grow, move back down if needed. Your apps, data, history, agents and settings stay intact.") },
     { q: tr("Mes données sont-elles en sécurité ?", "Is my data secure?"), a: tr("Oui. Hébergées en France, isolées par entreprise, jamais utilisées pour entraîner des modèles d'IA.", "Yes. Hosted in France, isolated per company, never used to train AI models.") },
   ];
 }
@@ -48,31 +48,30 @@ function CycleToggle({ cycle, setCycle }: { cycle: BillingCycle; setCycle: (c: B
   );
 }
 
-// ── Sélecteur de capacité (paliers du forfait, ouverts) ───────────────────────
+// ── Sélecteur de capacité (menu déroulant : tous les paliers du forfait) ───────
+// Un seul plan payant, un curseur de crédits. En liste déroulante pour tenir tous
+// les paliers (de 2 000 à 60 000) sans serrer la carte. Le grand prix au-dessus
+// se met à jour selon le palier choisi.
 function TierSelect({ tiers, value, onChange }: { tiers: CreditTier[]; value: number; onChange: (n: number) => void }) {
   const tr = useT();
   const locale = useLocale();
   return (
     <div className="mt-4 mb-5">
       <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-[#8B8B96]">{tr("Capacité IA / mois", "AI capacity / month")}</label>
-      <div
-        className="grid gap-1.5 rounded-2xl border border-[#E6E1F0] bg-[#F6F4FB] p-1.5"
-        style={{ gridTemplateColumns: `repeat(${tiers.length}, minmax(0,1fr))` }}
-      >
-        {tiers.map((t) => {
-          const active = t.credits === value;
-          return (
-            <button
-              key={t.credits}
-              type="button"
-              aria-pressed={active}
-              onClick={() => onChange(t.credits)}
-              className={`flex items-center justify-center rounded-xl py-3.5 transition-all ${active ? "bg-white shadow-[0_6px_18px_rgba(124,58,190,0.16)] ring-1 ring-[#7C3AED]/25" : "text-[#5B5B66] hover:bg-white/60"}`}
-            >
-              <span className={`text-[15px] font-bold tabular-nums ${active ? "text-[#0A0A0A]" : "text-[#3A3A46]"}`}>{numFmt(locale, t.credits)}</span>
-            </button>
-          );
-        })}
+      <div className="relative">
+        <select
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+          aria-label={tr("Capacité IA par mois", "AI capacity per month")}
+          className="w-full cursor-pointer appearance-none rounded-2xl border border-[#E6E1F0] bg-[#F6F4FB] px-4 py-3.5 pr-10 text-[15px] font-bold tabular-nums text-[#0A0A0A] transition-shadow hover:bg-white focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/25"
+        >
+          {tiers.map((t) => (
+            <option key={t.credits} value={t.credits}>
+              {numFmt(locale, t.credits)} {tr("crédits / mois", "credits / month")}
+            </option>
+          ))}
+        </select>
+        <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9A9AA6]" />
       </div>
     </div>
   );
@@ -141,9 +140,9 @@ function PaidCard({ name, includedLine, features, tiers, checkoutPlan, cycle, ba
           <li key={f} className="flex items-start gap-2.5 text-[13px]"><Check className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-[#7C3AED]" strokeWidth={2.5} /><span className="text-[#4A4A56]">{f}</span></li>
         ))}
       </ul>
-      {/* Pro ET Équipe sont self-serve (Stripe câblé : STRIPE_PRICE_PRO_* et
-          STRIPE_PRICE_EQUIPE_*). Le signup/onboarding fait voyager le plan choisi
-          jusqu'au checkout. L'offre Entreprise (sur devis) est une carte à part. */}
+      {/* Pro est self-serve (Stripe câblé : STRIPE_PRICE_PRO_*). Le signup/onboarding
+          fait voyager le palier choisi jusqu'au checkout. L'offre Entreprise (sur
+          devis) est une carte à part. Plus de plan Équipe : tout est inclus dans Pro. */}
       <a
         href={`/signup?plan=${checkoutPlan}&credits=${credits}&cycle=${cycle}`}
         className={`mt-auto flex items-center justify-center gap-2 py-3 rounded-full text-[14px] font-semibold transition-all ${recommended
@@ -176,8 +175,8 @@ function PaidCard({ name, includedLine, features, tiers, checkoutPlan, cycle, ba
 // ⚠️ CE PANIER DOIT DIRE LA VÉRITÉ, et la somme doit tomber PILE sur le volume
 // vendu. Tous les tarifs viennent de lib/plans.ts → ACTION_CREDITS, la source
 // unique appliquée par le serveur :
-//   question 3 · photo lue 10 · document/devis 30 · application 600
-//   agent qui RÉDIGE : 25/passage → AGENT_CREDITS_PER_MONTH sur 22 jours ouvrés
+//   question 3 · photo lue 10 · document/devis 30 · application 300
+//   agent qui RÉDIGE : 40/passage → AGENT_CREDITS_PER_MONTH (880) sur 22 jours ouvrés
 //
 // L'ancien panier comptait l'agent à 300/mois : il promettait 2 450 crédits de
 // valeur pour un forfait de 2 000. Un client qui compte ses crédits l'aurait vu.
@@ -186,10 +185,10 @@ function PaidCard({ name, includedLine, features, tiers, checkoutPlan, cycle, ba
 const MONTH_MIX: { vol: number; agents: number; apps: number; docs: number; photos: number; questions: number }[] = [
   // 880 + 300 + 450 + 130 + 240 = 2000 — l'artisan SOLO
   { vol: 2000, agents: 1, apps: 1, docs: 15, photos: 13, questions: 80 },
-  // 1760 + 300 + 540 + 160 + 240 = 3000 — le solo INTENSIF : un 2ᵉ agent
-  { vol: 3000, agents: 2, apps: 1, docs: 18, photos: 16, questions: 80 },
-  // 2640 + 600 + 1200 + 260 + 300 = 5000 — le solo ÉQUIPÉ / la TPE : 3 agents
-  { vol: 5000, agents: 3, apps: 2, docs: 40, photos: 26, questions: 100 },
+  // 1760 + 300 + 1500 + 200 + 240 = 4000 — l'artisan + compagnons
+  { vol: 4000, agents: 2, apps: 1, docs: 50, photos: 20, questions: 80 },
+  // 2640 + 300 + 2400 + 300 + 360 = 6000 — la TPE
+  { vol: 6000, agents: 3, apps: 1, docs: 80, photos: 30, questions: 120 },
 ];
 
 function MonthTicket() {
@@ -252,7 +251,6 @@ export default function TarifsPage() {
   const locale = useLocale();
   const pro = getPlan("pro");
   const enterprise = localizeEnterprise(locale);
-  const equipe = localizeEquipe(locale);
   const FAQ = buildFaq(tr);
   const [cycle, setCycle] = useState<BillingCycle>("monthly");
   const [openIdx, setOpenIdx] = useState<number | null>(0);
@@ -285,7 +283,7 @@ export default function TarifsPage() {
           <CycleToggle cycle={cycle} setCycle={setCycle} />
         </Reveal>
 
-        <div className="max-w-6xl mx-auto grid gap-5 md:grid-cols-2 lg:grid-cols-4 items-stretch">
+        <div className="max-w-5xl mx-auto grid gap-5 md:grid-cols-2 lg:grid-cols-3 items-stretch">
           {/* Découverte (Free) */}
           <Reveal className="relative">
             <div className="relative flex h-full flex-col rounded-[26px] p-7 border border-[#ECECF2] bg-white shadow-[0_4px_16px_rgba(60,40,120,0.06)]">
@@ -316,14 +314,15 @@ export default function TarifsPage() {
             </div>
           </Reveal>
 
-          {/* Pro (mis en avant) */}
+          {/* Pro — un seul plan payant, tout inclus, capacité au choix */}
           <PaidCard
             name={pro.name}
-            includedLine={tr("Tout Biltia, pour travailler seul", "All of Biltia, to work solo")}
+            includedLine={tr("Tout Biltia, seul ou en équipe", "All of Biltia, solo or as a team")}
             features={[
-              tr("Tous les templates BTP inclus", "All construction templates included"),
-              tr("Apps, devis, documents et agents IA selon crédits", "Apps, quotes, documents and AI agents per credits"),
+              tr("Tous les templates BTP + apps, devis, documents, agents IA", "All construction templates + apps, quotes, documents, AI agents"),
               tr("Email et SMS automatiques", "Automatic email and SMS"),
+              tr("Utilisateurs illimités, comptes employés à périmètre", "Unlimited users, scoped employee accounts"),
+              tr("Portails client & sous-traitant, marque personnalisée", "Client & subcontractor portals, custom branding"),
               tr("Crédits renouvelés chaque mois", "Credits renewed every month"),
             ]}
             tiers={pro.tiers}
@@ -331,23 +330,6 @@ export default function TarifsPage() {
             cycle={cycle}
             badge={tr("Recommandé", "Recommended")}
             recommended
-          />
-
-          {/* Équipe */}
-          <PaidCard
-            name={equipe.name}
-            includedLine={tr("Toutes les fonctionnalités Pro", "All Pro features")}
-            features={[
-              tr("Utilisateurs illimités", "Unlimited users"),
-              tr("Comptes employés : chacun voit ses chantiers", "Employee accounts: each sees their own job sites"),
-              tr("Portail client et sous-traitant, partage sécurisé", "Client and subcontractor portal, secure sharing"),
-              tr("Agents qui assignent, relancent et rendent compte", "Agents that assign, follow up and report back"),
-              tr("Support prioritaire", "Priority support"),
-            ]}
-            tiers={[...EQUIPE.tiers]}
-            checkoutPlan="equipe"
-            cycle={cycle}
-            badge={tr("Pour les équipes", "For teams")}
           />
 
           {/* Entreprise */}
@@ -382,7 +364,7 @@ export default function TarifsPage() {
           </Reveal>
         </div>
 
-        <Reveal delay={0.16}><p className="text-center text-[12px] text-[#9A9AA6] mt-6">{tr("Équipe = Pro + 50 €/mois. Rechargez vos crédits à tout moment dans l'application. Sans engagement sur le mensuel.", "Team = Pro + €50/month. Top up your credits anytime in the app. No commitment on monthly billing.")}</p></Reveal>
+        <Reveal delay={0.16}><p className="text-center text-[12px] text-[#9A9AA6] mt-6">{tr("Tout est inclus dans chaque forfait — seule la capacité en crédits change. Rechargez à tout moment dans l'application. Sans engagement sur le mensuel.", "Everything is included in every plan — only the credit capacity changes. Top up anytime in the app. No commitment on monthly billing.")}</p></Reveal>
       </section>
 
       {/* Comment fonctionnent les crédits */}

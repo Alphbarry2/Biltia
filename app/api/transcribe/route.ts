@@ -2,12 +2,13 @@
 // /api/transcribe — DICTÉE VOCALE (speech-to-text).
 //
 // La barre de chat enregistre le micro (MediaRecorder) et POST l'audio ici.
-// On le transcrit via un modèle Whisper serveur. Anthropic ne fait pas d'audio.
+// On le transcrit via un modèle serveur (audio→texte). Anthropic ne fait pas d'audio.
 //
-// Fournisseurs (dans l'ordre, on prend le premier qui répond) :
-//   1. Groq   — `whisper-large-v3-turbo`, endpoint compatible OpenAI, offre
-//               un tier GRATUIT généreux (GROQ_API_KEY). Recommandé.
-//   2. OpenAI — `whisper-1` (OPENAI_API_KEY, déjà présente pour les embeddings).
+// Fournisseurs (ordre réel de providers(), on prend le premier qui répond) :
+//   1. OpenAI — `gpt-4o-transcribe` (OPENAI_API_KEY, déjà présente pour les
+//               embeddings) : le meilleur sur le jargon BTP. Recommandé.
+//   2. Groq   — `whisper-large-v3-turbo`, endpoint compatible OpenAI, repli
+//               GRATUIT si OpenAI est indisponible (GROQ_API_KEY).
 //
 // Si AUCUN fournisseur n'est utilisable (pas de clé, ou quota épuisé), on répond
 // 503 { fallback: true } : le client bascule alors sur la dictée navigateur

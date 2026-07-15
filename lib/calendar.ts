@@ -13,6 +13,7 @@
 
 import { googleCalendarConnected, readGoogleEvents, createGoogleEvent } from "./gcal";
 import { microsoftStatus, readOutlookAgenda, createOutlookEvent } from "./msgraph";
+import { preferredProviderOrder } from "./send-preference-server";
 import {
   groupByDay,
   whenLabel,
@@ -54,20 +55,27 @@ async function readEvents(opts: {
   | { ok: true; events: CalEventLite[] }
   | { ok: false; reason: "not_connected" | "missing_scope" | "no_service" | "read_failed"; detail?: string }
 > {
-  const google = await readGoogleEvents(opts);
-  if (google.ok && google.events.length > 0) return google;
+  // Ordre selon le compte par défaut (premier connecté, ou choix explicite). On
+  // essaie le préféré d'abord ; s'il n'a PAS d'événement, on interroge quand même
+  // l'autre — sinon on annoncerait « semaine libre » à un artisan qui ne se sert
+  // que de l'autre agenda. Repli sur Google d'abord si la base ne tranche pas.
+  const order = await preferredProviderOrder(opts.tenantId, opts.userId, "calendar");
+  const microsoftFirst = order[0] === "microsoft";
 
-  const outlook = await readOutlookAgenda(opts);
-  if (outlook.ok && outlook.events.length > 0) return outlook;
+  const first = microsoftFirst ? await readOutlookAgenda(opts) : await readGoogleEvents(opts);
+  if (first.ok && first.events.length > 0) return first;
 
-  // Aucun des deux n'a d'événement. Si l'un des deux a RÉPONDU, la semaine est
-  // vraiment libre : on renvoie une liste vide, pas une erreur.
-  if (google.ok || outlook.ok) return { ok: true, events: [] };
+  const second = microsoftFirst ? await readGoogleEvents(opts) : await readOutlookAgenda(opts);
+  if (second.ok && second.events.length > 0) return second;
 
-  // Aucun n'a répondu. On remonte le motif de Google, sauf s'il dit seulement
-  // « pas connecté » alors que Microsoft, lui, a vraiment échoué.
+  // Aucun des deux n'a d'événement. Si l'un a RÉPONDU, la semaine est vraiment
+  // libre : liste vide, pas une erreur.
+  if (first.ok || second.ok) return { ok: true, events: [] };
+
+  // Aucun n'a répondu : on remonte le motif du préféré, sauf s'il dit seulement
+  // « pas connecté » alors que l'autre a vraiment échoué.
   const meaningful =
-    google.reason === "not_connected" && outlook.reason !== "not_connected" ? outlook : google;
+    first.reason === "not_connected" && second.reason !== "not_connected" ? second : first;
   return { ok: false, reason: meaningful.reason, detail: meaningful.detail };
 }
 
@@ -119,15 +127,19 @@ export async function createEvent(opts: {
 }): Promise<CalCreateResult> {
   const done = { ok: true as const, summary: opts.summary, whenLabel: whenLabel(opts.startISO) };
 
-  const google = await createGoogleEvent(opts);
-  if (google.ok) return done;
+  // Écrit le RDV chez le fournisseur par défaut d'abord (premier connecté, ou choix
+  // explicite) ; l'autre en repli. Repli sur Google d'abord si la base ne tranche pas.
+  const order = await preferredProviderOrder(opts.tenantId, opts.userId, "calendar");
+  const microsoftFirst = order[0] === "microsoft";
 
-  const outlook = await createOutlookEvent(opts);
-  if (outlook.ok) return done;
+  const first = microsoftFirst ? await createOutlookEvent(opts) : await createGoogleEvent(opts);
+  if (first.ok) return done;
 
-  // Aucun des deux n'a pu écrire. On remonte le motif de Google, sauf s'il est
-  // « pas connecté » alors que Microsoft, lui, l'est : dans ce cas c'est l'échec
-  // Microsoft qui décrit la vraie situation de l'utilisateur.
-  const meaningful = google.reason === "not_connected" && outlook.reason !== "not_connected" ? outlook : google;
+  const second = microsoftFirst ? await createGoogleEvent(opts) : await createOutlookEvent(opts);
+  if (second.ok) return done;
+
+  // Aucun des deux n'a pu écrire : motif du préféré, sauf s'il n'est « pas connecté »
+  // alors que l'autre l'est — c'est alors l'échec de l'autre qui décrit la situation.
+  const meaningful = first.reason === "not_connected" && second.reason !== "not_connected" ? second : first;
   return { ok: false, reason: meaningful.reason, detail: meaningful.detail };
 }

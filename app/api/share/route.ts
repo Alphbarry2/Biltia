@@ -14,6 +14,7 @@ import { createClient } from "@/lib/supabase-server";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
 import { can } from "@/lib/permissions";
 import { publicBaseUrl, shareLinkUrl, resolveClientScope, type ShareLink } from "@/lib/share";
+import { requiresBiltiaHost } from "@/lib/app-connectivity";
 import { enforceRateLimit, LIMITS } from "@/lib/rate-limit";
 import { getEntitlementsForTenant, canCollaborate, equipeUpgradeMessage } from "@/lib/entitlements";
 import { isFounderEmail } from "@/lib/founder";
@@ -93,7 +94,7 @@ export async function POST(req: Request) {
   // le module public d'un autre tenant (et continuer à le servir après dépublication).
   const { data: mod } = await supabase
     .from("modules")
-    .select("id")
+    .select("id, html_content")
     .eq("id", appId)
     .eq("tenant_id", membership.tenant_id)
     .maybeSingle();
@@ -109,6 +110,30 @@ export async function POST(req: Request) {
   // appartenir au tenant (la RLS sur chantiers le garantit à la lecture ci-dessous).
   const kind = body.kind === "client" ? "client" : "preview";
   let scope: Record<string, unknown> = {};
+
+  // Un lien 'preview' est servi SANS bridge de données (cf. /partage/[token] :
+  // seul le type 'client' reçoit injectShareBridge). Sur une app reliée au
+  // workspace, il livrait donc au destinataire une app qui gèle 30 s par écran
+  // avant d'afficher « Connexion trop lente » — le même défaut que le
+  // déploiement externe refusait honnêtement. On refuse À LA CRÉATION : c'est
+  // l'artisan qui l'apprend, pas son client.
+  //
+  // Pas de « bridge sans scope » possible ici : un lien preview n'est rattaché à
+  // AUCUN chantier, donc l'ouvrir aux données exposerait le workspace entier —
+  // budgets et marges compris — à quiconque récupère l'URL.
+  if (kind === "preview" && requiresBiltiaHost(mod.html_content)) {
+    return Response.json(
+      {
+        error: pick(
+          locale,
+          "Cette application lit les données de votre espace : un lien de consultation les afficherait vides. Votre équipe l'ouvre depuis la Bibliothèque. Pour un client, créez un lien client : il ne montre qu'un chantier, en lecture seule.",
+          "This app reads your workspace data: a view link would show it empty. Your team opens it from the Library. For a client, create a client link: it shows one job site only, read-only."
+        ),
+      },
+      { status: 400 }
+    );
+  }
+
   if (kind === "client") {
     // Portail CLIENT (lien scopé à UN chantier) = fonction de collaboration →
     // réservé au plan Équipe. Le lien "preview" (aperçu lecture seule) reste ouvert

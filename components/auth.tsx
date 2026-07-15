@@ -3,7 +3,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Briques des pages d'auth (split-screen façon produit) :
 //  - AuthScene   : panneau droit, mesh Biltia vif + mini-conversation animée
-//  - OAuthButtons: Google / Apple via Supabase (redirection /auth/callback)
+//  - OAuthButtons: Google via Supabase (redirection /auth/callback)
 //  - AUTH_INPUT / AUTH_LABEL : styles de champs partagés signup/login
 // ─────────────────────────────────────────────────────────────────────────────
 

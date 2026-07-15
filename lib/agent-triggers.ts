@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // AGENT TRIGGERS — déclencheurs GÉNÉRIQUES (Phase 7).
 //
-// Les 51 veilleurs couvrent les conditions métier nommées. Ici, un déclencheur
+// Les 52 veilleurs couvrent les conditions métier nommées. Ici, un déclencheur
 // PARAMÉTRABLE que l'utilisateur peut viser sur N'IMPORTE quelle date autorisée,
 // sans qu'on code un veilleur par cas :
 //

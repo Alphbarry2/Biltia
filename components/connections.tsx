@@ -21,6 +21,8 @@ import {
   FileSpreadsheet,
   Loader2,
   CheckCircle,
+  AtSign,
+  Star,
   X,
   ArrowRight,
 } from "lucide-react";
@@ -35,7 +37,11 @@ import {
   type ConnectionInfo,
   type Connector,
 } from "@/lib/connectors";
+import { orderForCapability, type SendCapability } from "@/lib/send-preference";
 import { useT, useLocale } from "@/lib/i18n/context";
+
+// Choix de compte par défaut, par capacité (null = automatique : premier connecté).
+type ProviderDefaults = { email: "google" | "microsoft" | null; calendar: "google" | "microsoft" | null };
 
 const EASE = [0.16, 1, 0.3, 1] as const;
 
@@ -43,6 +49,7 @@ const EASE = [0.16, 1, 0.3, 1] as const;
 
 function useConnections() {
   const [connections, setConnections] = useState<ConnectionInfo[]>([]);
+  const [defaults, setDefaults] = useState<ProviderDefaults>({ email: null, calendar: null });
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
@@ -50,6 +57,11 @@ function useConnections() {
       const res = await fetch("/api/connections");
       const json = await res.json();
       setConnections(Array.isArray(json.connections) ? json.connections : []);
+      setDefaults(
+        json.defaults && typeof json.defaults === "object"
+          ? { email: json.defaults.email ?? null, calendar: json.defaults.calendar ?? null }
+          : { email: null, calendar: null }
+      );
     } catch {
       setConnections([]);
     } finally {
@@ -61,7 +73,7 @@ function useConnections() {
     refresh();
   }, [refresh]);
 
-  return { connections, loading, refresh };
+  return { connections, defaults, loading, refresh };
 }
 
 // ── Icône de secours quand un connecteur n'a pas de logo ────────────────────
@@ -74,14 +86,24 @@ function FallbackIcon({ id }: { id: string }) {
 
 // ── Carte d'un connecteur ────────────────────────────────────────────────────
 
+// Capacité portée par un connecteur (pour le choix de compte par défaut). Les
+// autres (WhatsApp, exports…) n'en ont pas → aucun défaut à choisir.
+function connectorCapability(id: string): SendCapability | null {
+  if (id === "gmail" || id === "outlook") return "email";
+  if (id === "google-calendar" || id === "outlook-calendar") return "calendar";
+  return null;
+}
+
 function ConnectorCard({
   connector,
   connections,
+  defaults,
   onChanged,
   className,
 }: {
   connector: Connector;
   connections: ConnectionInfo[];
+  defaults: ProviderDefaults;
   onChanged: () => void;
   /** Placement dans la grille de l'appelant (ex : occuper la ligne entière). */
   className?: string;
@@ -89,8 +111,49 @@ function ConnectorCard({
   const t = useT();
   const locale = useLocale();
   const status = connectorStatus(connector, connections);
+  const connected = status === "connected";
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Sur QUEL compte. L'email est porté par la ligne du fournisseur (une par
+  // provider), pas par le connecteur : deux outils du même compte (Gmail + Agenda)
+  // affichent donc la même adresse — c'est voulu, c'est le même compte.
+  const accountEmail = connected
+    ? connections.find((x) => x.provider === connector.provider)?.account_email ?? null
+    : null;
+
+  // ── Compte par défaut ───────────────────────────────────────────────────────
+  // On ne montre le choix que s'il y a VRAIMENT un choix : les deux fournisseurs
+  // d'une même capacité connectés (Gmail ET Outlook). Le calcul du défaut réutilise
+  // la règle pure partagée avec le serveur d'envoi — jamais deux vérités.
+  const capability = connectorCapability(connector.id);
+  const order = capability ? orderForCapability(capability, connections, defaults[capability]) : [];
+  const hasChoice = order.length >= 2;
+  const isDefault = hasChoice && !!connector.provider && order[0] === connector.provider;
+  const canSetDefault = hasChoice && !isDefault && !!connector.provider;
+  const defaultLabel =
+    capability === "calendar" ? t("Agenda par défaut", "Default calendar") : t("Envoi par défaut", "Default for sending");
+  const setDefaultLabel =
+    capability === "calendar" ? t("Utiliser cet agenda", "Use this calendar") : t("Envoyer depuis ce compte", "Send from this one");
+
+  const setDefault = async () => {
+    if (busy || !capability || !connector.provider) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/connections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "set-default", capability, provider: connector.provider }),
+      });
+      if (!res.ok) throw new Error();
+      onChanged();
+    } catch {
+      setError(t("Changement impossible.", "Could not change."));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const connect = async () => {
     if (busy) return;
@@ -147,7 +210,7 @@ function ConnectorCard({
   const soon = status === "soon";
 
   return (
-    <div className={`flex flex-col gap-2.5 rounded-xl border border-[#EDEDF2] bg-white p-4 ${soon ? "opacity-70" : ""} ${className ?? ""}`}>
+    <div className={`flex flex-col gap-2.5 rounded-xl border bg-white p-4 transition-colors ${connected ? "border-emerald-200/80 bg-gradient-to-b from-emerald-50/40 to-white" : "border-[#EDEDF2]"} ${soon ? "opacity-70" : ""} ${className ?? ""}`}>
       <div className="flex items-center gap-2.5 min-w-0">
         <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${connector.logo ? "bg-white border border-[#EDEDF2]" : "bg-[#F3EFFC]"} ${soon ? "grayscale" : ""}`}>
           {connector.logo ? (
@@ -174,7 +237,24 @@ function ConnectorCard({
         )}
       </div>
 
-      <p className="text-[12px] text-[#9A9A97] leading-snug">{connectorDesc(connector, locale)}</p>
+      {connected ? (
+        accountEmail ? (
+          // L'info qui compte quand c'est branché : SUR QUEL compte. Elle prend la
+          // place de la description — « ce que ça fait » importe moins une fois relié.
+          <div className="flex items-center gap-1.5 min-w-0" title={accountEmail}>
+            <AtSign className="w-3.5 h-3.5 text-emerald-500/80 flex-shrink-0" />
+            <span className="text-[12.5px] font-semibold text-[#3F5C4C] truncate">{accountEmail}</span>
+          </div>
+        ) : (
+          // Connexion antérieure à la colonne account_email (migration 057) : rien de
+          // stocké. On ne devine pas, on invite à reconnecter pour afficher l'adresse.
+          <p className="text-[12px] text-[#9A9A97] leading-snug">
+            {t("Compte relié. Reconnectez pour afficher l'adresse.", "Account linked. Reconnect to show the address.")}
+          </p>
+        )
+      ) : (
+        <p className="text-[12px] text-[#9A9A97] leading-snug">{connectorDesc(connector, locale)}</p>
+      )}
       {status === "disconnected" && connector.works && (
         <p className="text-[11px] text-[#B4ADC4] leading-snug">{connectorWorks(connector, locale)}</p>
       )}
@@ -206,6 +286,27 @@ function ConnectorCard({
             {busy ? "…" : t("Déconnecter", "Disconnect")}
           </button>
         )}
+        {/* Compte par défaut : visible seulement quand les DEUX comptes d'une capacité
+            sont branchés (sinon il n'y a rien à choisir). Le badge sur le compte actif,
+            un bouton d'un clic sur l'autre. C'est ce qui décide d'où part un envoi. */}
+        {isDefault && (
+          <span
+            className="ml-auto inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-600"
+            title={defaultLabel}
+          >
+            <Star className="w-3 h-3 fill-emerald-500 text-emerald-500" /> {defaultLabel}
+          </span>
+        )}
+        {canSetDefault && (
+          <button
+            type="button"
+            onClick={setDefault}
+            disabled={busy}
+            className="ml-auto inline-flex items-center gap-1 text-[12px] font-semibold text-violet-600 hover:opacity-80 transition-opacity disabled:opacity-60"
+          >
+            <Star className="w-3 h-3" /> {setDefaultLabel}
+          </button>
+        )}
         {connector.href && (
           <a
             href={connector.href}
@@ -225,7 +326,7 @@ function ConnectorCard({
 
 export function ConnectionsPanel() {
   const t = useT();
-  const { connections, loading, refresh } = useConnections();
+  const { connections, defaults, loading, refresh } = useConnections();
   const [banner, setBanner] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
 
   // Retour du flux OAuth : ?connected= / ?error= / ?canceled= dans l'URL.
@@ -274,7 +375,7 @@ export function ConnectionsPanel() {
             {/* Google à gauche, Microsoft à droite : l'artisan descend SA colonne. */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {CONNECTORS.filter((c) => c.kind === "oauth").map((c) => (
-                <ConnectorCard key={c.id} connector={c} connections={connections} onChanged={refresh} />
+                <ConnectorCard key={c.id} connector={c} connections={connections} defaults={defaults} onChanged={refresh} />
               ))}
             </div>
           </div>
@@ -289,6 +390,7 @@ export function ConnectionsPanel() {
                   key={c.id}
                   connector={c}
                   connections={connections}
+                  defaults={defaults}
                   onChanged={refresh}
                   // WhatsApp est le seul « intégré » sur lequel l'artisan CLIQUE
                   // vraiment (ouvrir une conversation). Il occupe la ligne entière,

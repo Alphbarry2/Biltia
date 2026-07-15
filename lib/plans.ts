@@ -26,8 +26,6 @@ export interface PlanLimits {
   maxApps: number;
   /** Sièges / utilisateurs (Infinity = illimité). */
   maxUsers: number;
-  /** Déploiement d'apps en Live (URL publique Vercel). */
-  liveDeploy: boolean;
   voice: boolean;
   offlineFirst: boolean;
   sharedWorkspace: boolean;
@@ -64,12 +62,13 @@ export const UNLIMITED = Number.POSITIVE_INFINITY;
 /**
  * Coût interne (EUR) qu'UN crédit « achète ». C'est le levier de marge :
  *   marge = 1 − CREDIT_COST_EUR / prix_net_par_crédit.
- * Échelle ×10 : le crédit le moins cher vaut ~0,0355 €/crédit net (TTC − TVA 21 %
- * − Stripe). À 0,003 € la marge plancher est ~91,5 % (≥ 90 % garanti). Le débit
- * réel (lib/ai-usage.ts) arrondit au palier supérieur → marge ≥ ce plancher.
- * NB : suppose des prix affichés TTC. En HT, ce budget remonte à ~0,004 €.
+ * MESURÉ (OpenRouter, juillet 2026) : les modèles de prod (DeepSeek/Mistral/Qwen)
+ * coûtent en réalité ~0,0001 à 0,0015 €/crédit selon l'action (une app ≈ 0,08 $
+ * pour 300 crédits ≈ 0,0003 €/cr ; une question ≈ 0,0015 €/cr, le PIRE cas).
+ * On garde 0,001 comme PLAFOND prudent (≈ pire cas × 1,5, buffer volatilité des
+ * providers) : la marge réelle est donc ≥ celle calculée ici, jamais l'inverse.
  */
-export const CREDIT_COST_EUR = 0.003;
+export const CREDIT_COST_EUR = 0.001;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LE TARIF D'UNE ACTION — SOURCE UNIQUE DE VÉRITÉ (code ET page /tarifs).
@@ -263,14 +262,19 @@ export const SIGNUP_FREE_CREDITS = 400;
 // ⚠️ Chaque palier a besoin de son Price Stripe (STRIPE_PRICE_PRO_<crédits>).
 //    Créer les prix AVANT de déployer (sinon checkout 503) : scripts/stripe-sync-prices.ts.
 const PRO_TIERS: CreditTier[] = [
-  // Grille DÉCIDÉE par le user le 2026-07-10 (stratégie « généreux à l'entrée, marge
-  // sur l'expansion Équipe/Entreprise »). Marges ~85-88 % (COGS 0,003 €/cr, plancher
-  // ~70 % respecté). ⚠️ NON strictement dégressive : 3000/89 (0,0297 €/cr) est plus
-  // cher au crédit que 5000/129 (0,0258 €/cr) → il joue le rôle de LEURRE qui pousse
-  // vers le palier recommandé 5000. Au-delà de 5000 : recharge in-app ou Équipe.
-  { credits: 2000, priceEur: 49 }, //  0,0245 €/cr — entrée généreuse (~85 %)
-  { credits: 3000, priceEur: 89 }, //  0,0297 €/cr — leurre → pousse vers 5000 (~88 %)
-  { credits: 5000, priceEur: 129 }, // 0,0258 €/cr — RECOMMANDÉ (~86 %)
+  // Grille LINÉAIRE (décision user 2026-07-15) : UN seul plan payant, un curseur de
+  // crédits, tout inclus. Prix ∝ crédits (~0,025 €/cr constant) → 2× de crédits =
+  // ~2× le prix. Le coût réel (OpenRouter, cf. CREDIT_COST_EUR) étant dérisoire, la
+  // marge est ~92-99 % partout : les crédits ne sont plus une contrainte de coût mais
+  // un curseur de VALEUR, calibré pour une "mini-frustration" (chaque profil BTP tient
+  // dans son palier et déborde en grandissant). Au-delà de 60 000 : Entreprise (devis).
+  { credits: 2000, priceEur: 49 }, //   artisan solo
+  { credits: 4000, priceEur: 99 }, //   artisan + compagnons
+  { credits: 6000, priceEur: 149 }, //  TPE
+  { credits: 10000, priceEur: 249 }, // TPE / PME
+  { credits: 20000, priceEur: 499 }, // PME
+  { credits: 40000, priceEur: 999 }, // entreprise générale
+  { credits: 60000, priceEur: 1490 }, // grand compte / multi-sites
 ];
 
 // ── Traduire des crédits en euros / en mois d'agent ──────────────────────────
@@ -351,7 +355,6 @@ export const PLANS: Record<PlanId, Plan> = {
     limits: {
       maxApps: 1,
       maxUsers: 1,
-      liveDeploy: false,
       voice: false,
       offlineFirst: false,
       sharedWorkspace: false,
@@ -382,7 +385,6 @@ export const PLANS: Record<PlanId, Plan> = {
     limits: {
       maxApps: UNLIMITED,
       maxUsers: UNLIMITED,
-      liveDeploy: true,
       voice: true,
       offlineFirst: true,
       sharedWorkspace: true,
@@ -416,7 +418,6 @@ export const PLANS: Record<PlanId, Plan> = {
     limits: {
       maxApps: UNLIMITED,
       maxUsers: UNLIMITED,
-      liveDeploy: true,
       voice: true,
       offlineFirst: true,
       sharedWorkspace: true,
@@ -493,10 +494,15 @@ export interface CreditPack {
 }
 
 export const CREDIT_PACKS: CreditPack[] = [
-  { credits: 1000, priceEur: 29 }, //   0,029 €/cr — dépannage ponctuel
-  { credits: 3000, priceEur: 99 }, //   0,033 €/cr
-  { credits: 10000, priceEur: 499 }, // 0,050 €/cr
-  { credits: 25000, priceEur: 1099 }, // 0,044 €/cr
+  // Recharge = prix de l'abonnement équivalent + 10 € (décision user 2026-07-15) :
+  // recharger coûte toujours un peu plus que monter d'un cran de forfait → pousse
+  // l'upgrade. Le 1 000 (dépannage) reste à 29 €.
+  { credits: 1000, priceEur: 29 }, //   dépannage ponctuel
+  { credits: 2000, priceEur: 59 }, //   49 + 10
+  { credits: 4000, priceEur: 109 }, //  99 + 10
+  { credits: 6000, priceEur: 159 }, //  149 + 10
+  { credits: 10000, priceEur: 259 }, // 249 + 10
+  { credits: 20000, priceEur: 509 }, // 499 + 10
 ];
 
 export function getPack(credits: number): CreditPack | undefined {
@@ -520,7 +526,7 @@ export function stripePackEnvVar(credits: number): string {
 // Au-delà de 25 000 : offre Entreprise, sur devis.
 
 export const TIER_SEGMENTS: { label: string; maxCredits: number }[] = [
-  { label: "Solo / TPE", maxCredits: 3000 },
+  { label: "Solo / TPE", maxCredits: 6000 },
   { label: "Business", maxCredits: UNLIMITED },
 ];
 

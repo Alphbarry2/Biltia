@@ -18,22 +18,20 @@ import { canSendSms } from "./outbound-sms";
 import { calendarConnected } from "./calendar";
 import { pick, type Locale } from "./i18n/config";
 
-/**
- * Les outils qu'un agent peut mobiliser. Étendre ici quand un connecteur arrive.
- *
- * ⚠️ DEUX capacités d'email, et la distinction n'est pas cosmétique (incident 2026-07-14) :
- *   • email_send      = écrire à un TIERS (client, fournisseur, employé) EN VOTRE NOM.
- *                       Exige la boîte de l'artisan (Gmail/Outlook) : une relance de
- *                       facture qui part d'une adresse Biltia n'est pas la vôtre, et
- *                       le client ne peut pas y répondre normalement.
- *   • email_send_self = vous écrire À VOUS. Biltia peut le faire depuis sa propre
- *                       adresse (Resend), aucun connecteur requis.
- * Avant, une seule capacité `email_send` interrogeait canSendOutbound().ok — or ce
- * `.ok` est vrai dès que Resend est configuré, c'est-à-dire TOUJOURS. Résultat : le
- * seul manque BLOQUANT lié à un connecteur ne se produisait JAMAIS, et un agent
- * « relance mes clients » s'affichait « Actif » sans aucune boîte branchée.
- */
-export type CapabilityId = "email_send" | "email_send_self" | "sms_send" | "calendar_read" | "push_notify";
+// LA LISTE N'EST PLUS DÉCLARÉE ICI. Elle vit dans lib/capabilities.ts, avec les
+// connecteurs qui fournissent chaque capacité — une seule source, et le compilateur
+// la tient. Ce fichier ne garde que ce qui lui appartient vraiment : les SONDES
+// (« est-ce branché pour CET artisan ? »), qui touchent Supabase et les jetons OAuth
+// et ne peuvent donc pas descendre côté client.
+//
+// Le `Record<CapabilityId, …>` renvoyé plus bas est ce qui rend l'oubli impossible :
+// ajouter une capacité dans lib/capabilities.ts casse le build tant qu'on ne lui a
+// pas donné de sonde ici. Avant, les deux listes étaient indépendantes, et une
+// capacité pouvait exister d'un côté sans exister de l'autre — c'est très exactement
+// ce qui produisait un agent qui refuse une mission sans jamais proposer le bouton
+// qui l'aurait débloquée.
+export type { CapabilityId } from "./capabilities";
+import type { CapabilityId } from "./capabilities";
 
 export type CapabilityStatus = {
   id: CapabilityId;

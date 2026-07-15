@@ -1848,6 +1848,7 @@ export type Database = {
       user_connections: {
         Row: {
           access_token: string | null
+          account_email: string | null
           connected_at: string
           connectors: string[]
           id: string
@@ -1861,6 +1862,7 @@ export type Database = {
         }
         Insert: {
           access_token?: string | null
+          account_email?: string | null
           connected_at?: string
           connectors?: string[]
           id?: string
@@ -1874,6 +1876,7 @@ export type Database = {
         }
         Update: {
           access_token?: string | null
+          account_email?: string | null
           connected_at?: string
           connectors?: string[]
           id?: string

@@ -1,4 +1,5 @@
 import { SupabaseClient } from "@supabase/supabase-js";
+import { neutralizeMarkers } from "./untrusted";
 
 export type WorkspaceContext = {
   employees_actifs: number;
@@ -42,8 +43,8 @@ export function buildWorkspaceBlock(ctx: WorkspaceContext | null): string {
   if (ctx.employees?.length) {
     lines.push("", "## Employés actifs");
     ctx.employees.slice(0, 10).forEach((e) => {
-      const label = [e.prenom, e.nom].filter(Boolean).join(" ");
-      const meta = [e.role, e.corps_metier].filter(Boolean).join(" · ");
+      const label = neutralizeMarkers([e.prenom, e.nom].filter(Boolean).join(" "));
+      const meta = neutralizeMarkers([e.role, e.corps_metier].filter(Boolean).join(" · "));
       lines.push(`- ${label}${meta ? ` (${meta})` : ""}`);
     });
     if (ctx.employees.length > 10) lines.push(`  … et ${ctx.employees.length - 10} autres`);
@@ -52,14 +53,18 @@ export function buildWorkspaceBlock(ctx: WorkspaceContext | null): string {
   if (ctx.chantiers?.length) {
     lines.push("", "## Chantiers actifs");
     ctx.chantiers.slice(0, 10).forEach((c) => {
-      lines.push(`- ${c.nom}${c.ville ? ` · ${c.ville}` : ""} — ${c.avancement}% (${c.statut})`);
+      const nom = neutralizeMarkers(c.nom);
+      const ville = c.ville ? ` · ${neutralizeMarkers(c.ville)}` : "";
+      lines.push(`- ${nom}${ville} — ${c.avancement}% (${neutralizeMarkers(c.statut)})`);
     });
   }
 
   if (ctx.clients?.length) {
     lines.push("", "## Clients");
     ctx.clients.slice(0, 10).forEach((c) => {
-      lines.push(`- ${c.nom}${c.type ? ` (${c.type})` : ""}${c.ville ? ` · ${c.ville}` : ""}`);
+      const nom = neutralizeMarkers(c.nom);
+      const ville = c.ville ? ` · ${neutralizeMarkers(c.ville)}` : "";
+      lines.push(`- ${nom}${c.type ? ` (${neutralizeMarkers(c.type)})` : ""}${ville}`);
     });
   }
 

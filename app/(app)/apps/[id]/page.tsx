@@ -4,13 +4,14 @@ import { useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase";
-import { injectAppBrand } from "@/lib/app-brand";
-import { brandFromTenant } from "@/lib/brand";
+import { injectInterfaceWordmark } from "@/lib/app-brand";
 import { ShareMenu } from "@/components/share-menu";
 import { type ShareLink } from "@/lib/share";
+import { requiresBiltiaHost } from "@/lib/app-connectivity";
+import { createBridgeHandler } from "@/lib/app-bridge";
 import { useSession } from "@/components/session-provider";
 import { useT } from "@/lib/i18n/context";
-import { ChevronLeft, Pencil, Loader2, AlertCircle, ExternalLink, Maximize2, Globe, Copy, CheckCircle, Share2, Trash2, X, Eye, HardHat } from "lucide-react";
+import { ChevronLeft, Pencil, Loader2, AlertCircle, ExternalLink, Maximize2, Copy, CheckCircle, Share2, Trash2, X, Eye, HardHat } from "lucide-react";
 
 type SharedLink = ShareLink & { url: string };
 
@@ -31,9 +32,7 @@ export default function AppViewerPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [fullscreen, setFullscreen] = useState(false);
-  const [isDeploying, setIsDeploying] = useState(false);
-  const [deploymentUrl, setDeploymentUrl] = useState<string | null>(null);
-  const [deployCopied, setDeployCopied] = useState(false);
+  const [teamCopied, setTeamCopied] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   // L'app est rendue dans DEUX iframes distinctes selon le mode (normal / plein
   // écran). Le pont doit reconnaître les deux comme légitimes : sans cette
@@ -47,7 +46,6 @@ export default function AppViewerPage() {
   const [shareLoaded, setShareLoaded] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
   const [shareCopiedId, setShareCopiedId] = useState<string | null>(null);
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [chantiers, setChantiers] = useState<{ id: string; nom?: string; ville?: string }[]>([]);
   const [selectedChantier, setSelectedChantier] = useState("");
   const [clientBusy, setClientBusy] = useState(false);
@@ -141,25 +139,22 @@ export default function AppViewerPage() {
     setTimeout(() => setShareCopiedId((cur) => (cur === link.id ? null : cur)), 2000);
   };
 
-  const handleDeploy = async () => {
-    if (isDeploying) return;
-    setIsDeploying(true);
-    try {
-      const res = await fetch("/api/deploy", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ appId: id }),
-      });
-      const data = await res.json();
-      if (data.url) {
-        setDeploymentUrl(data.url);
-      } else {
-        alert(data.error ?? t("Erreur de déploiement.", "Deployment error."));
-      }
-    } finally {
-      setIsDeploying(false);
-    }
+  // Lien ÉQUIPE : /a/<id>, l'app SANS le châssis Biltia (cf. app/a/[id]). C'est
+  // celui qu'on envoie à un employé, et pas /apps/<id> : ouvert sur son téléphone,
+  // il l'installe en un tap et l'app devient une icône sur son écran d'accueil.
+  // Il reste identifié (ses données, sa RLS), mais il n'a plus l'impression
+  // d'entrer dans un logiciel.
+  const teamUrl = typeof window !== "undefined" ? `${window.location.origin}/a/${id}` : "";
+  const copyTeamLink = () => {
+    navigator.clipboard.writeText(teamUrl);
+    setTeamCopied(true);
+    setTimeout(() => setTeamCopied(false), 2000);
   };
+
+  // Une app reliée au workspace ne peut pas être servie hors de Biltia sans un
+  // répondeur : pas de lien de consultation « nu » (il gèlerait), seulement le
+  // lien équipe ci-dessus ou le lien client scopé plus bas.
+  const connected = requiresBiltiaHost(app?.html_content);
 
   // Ouvrir une app enchaînait TROIS allers-retours EN SÉRIE : getUser() → modules →
   // tenants. Le dernier ne sert qu'au LOGO, et il était imbriqué DANS le .then() du
@@ -182,44 +177,26 @@ export default function AppViewerPage() {
     let cancelled = false;
 
     (async () => {
-      const brandOf = (tid: string) =>
-        supabase.from("tenants").select("name, logo_url, company_info").eq("id", tid).maybeSingle();
-
       // La RLS garantit que seules les apps du tenant de l'user sont accessibles.
-      const [mod, tenantGuess] = await Promise.all([
-        supabase
-          .from("modules")
-          .select("id, name, description, html_content, kind, created_at, tenant_id")
-          .eq("id", id)
-          .neq("status", "archived")
-          .single(),
-        membership?.tenant_id
-          ? brandOf(membership.tenant_id)
-          : Promise.resolve({ data: null as Record<string, unknown> | null }),
-      ]);
+      const { data, error } = await supabase
+        .from("modules")
+        .select("id, name, description, html_content, kind, created_at, tenant_id")
+        .eq("id", id)
+        .neq("status", "archived")
+        .single();
       if (cancelled) return;
 
-      const { data, error } = mod;
       if (error || !data) {
         setError(t("Application introuvable ou accès refusé.", "App not found or access denied."));
         setLoading(false);
         return;
       }
 
-      // Le logo de l'entreprise coiffe l'en-tête, même sur une app créée AVANT que
-      // l'artisan ne le pose (on injecte à l'affichage, pas à la génération).
-      let html = data.html_content as string;
-      try {
-        let tenant = tenantGuess.data;
-        // L'app appartient à un AUTRE workspace que l'actif → notre pari était faux,
-        // on va chercher la bonne identité. Chemin rare, jamais sur le trajet normal.
-        if (data.tenant_id && data.tenant_id !== membership?.tenant_id) {
-          tenant = (await brandOf(data.tenant_id)).data;
-        }
-        if (tenant) html = injectAppBrand(html, brandFromTenant(tenant));
-      } catch {
-        /* pas d'identité visuelle → l'en-tête garde le nom de l'entreprise */
-      }
+      // L'en-tête de l'app (l'OUTIL de l'artisan) porte le logo BILTIA complet, posé
+      // à l'affichage — les apps déjà créées en profitent sans régénération, et le
+      // nom de l'app quitte l'en-tête. Le logo de l'ARTISAN, lui, coiffe ses
+      // DOCUMENTS et ses portails clients, pas son propre outil.
+      const html = injectInterfaceWordmark(data.html_content as string);
       if (cancelled) return;
       setApp({ ...data, html_content: html });
       setLoading(false);
@@ -229,62 +206,30 @@ export default function AppViewerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, sessionLoading, user, membership?.tenant_id]);
 
-  // Pont app↔serveur : window.biltia (données + IA) doit fonctionner dans une app
-  // OUVERTE/DÉPLOYÉE, pas seulement dans le générateur. L'iframe ne fait jamais
-  // fetch elle-même → elle envoie BILTIA_API_CALL, on proxifie en same-origin
-  // (cookies = auth, RLS = isolation du tenant). Route vers /api/app-ai pour l'IA.
+  // Pont app↔serveur : l'iframe ne fait jamais fetch elle-même (elle poste
+  // BILTIA_API_CALL), la page proxifie en same-origin. La logique — dont la garde
+  // de provenance — vit dans lib/app-bridge, partagée avec l'app plein écran :
+  // deux copies finiraient par diverger, et c'est la garde qui empêche un site
+  // tiers de piloter l'API au nom de l'utilisateur.
   useEffect(() => {
-    const handler = (event: MessageEvent) => {
-      // GARDE DE PROVENANCE — ne PAS retirer. Ce pont proxifie /api/* avec les
-      // cookies de session : n'accepter que les messages émis par l'une de NOS
-      // deux iframes (normale ou plein écran). Sans ce contrôle, tout site tiers
-      // capable de nous poster un message pilotait l'API au nom de l'utilisateur.
-      const source = event.source as Window | null;
-      const frame =
+    const handler = createBridgeHandler({
+      moduleId: id,
+      // L'app est rendue dans DEUX iframes selon le mode (normal / plein écran) :
+      // les deux sont légitimes. Sans la seconde, l'app serait muette en plein écran.
+      resolveFrame: (source) =>
         source && source === iframeRef.current?.contentWindow
-          ? iframeRef.current.contentWindow
+          ? source
           : source && source === fsIframeRef.current?.contentWindow
-            ? fsIframeRef.current.contentWindow
-            : null;
-      if (!frame) return;
-
-      if (event.data?.type !== "BILTIA_API_CALL") return;
-      const { id: callId, body } = event.data as { id: string; body: unknown };
-      // Cible explicite (jamais '*') : on répond à l'iframe vérifiée ci-dessus.
-      const reply = (payload: Record<string, unknown>) => {
-        frame.postMessage({ type: "BILTIA_API_RESPONSE", id: callId, ...payload }, window.location.origin);
-      };
-      const ep = (body as { __endpoint?: string } | null)?.__endpoint;
-      const apiUrl =
-        ep === "app-ai" ? "/api/app-ai"
-          : ep === "email" ? "/api/app-email"
-          : ep === "document" ? "/api/app-document"
-          : ep === "sms" ? "/api/app-sms"
-          : ep === "agents" ? "/api/app-agents"
-          : ep === "telemetry" ? "/api/app-telemetry"
-          : "/api/data";
-      // /api/data, /api/app-agents et /api/app-telemetry ont besoin de l'id du
-      // module : filtrer la LECTURE (data), rattacher/lister les agents (agents),
-      // attribuer les événements d'usage à CETTE app (telemetry).
-      const outBody =
-        (!ep || ep === "agents" || ep === "telemetry") && body && typeof body === "object"
-          ? { ...(body as Record<string, unknown>), moduleId: id }
-          : body;
-      fetch(apiUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify(outBody),
-      })
-        .then(async (res) => {
-          const result = await res.json().catch(() => null);
-          if (!res.ok) reply({ error: result?.error ?? t(`Erreur ${res.status}`, `Error ${res.status}`) });
-          else reply({ result });
-        })
-        .catch((err: unknown) => reply({ error: err instanceof Error ? err.message : t("Réseau indisponible", "Network unavailable") }));
-    };
+            ? source
+            : null,
+      labels: {
+        httpError: (status) => t(`Erreur ${status}`, `Error ${status}`),
+        network: t("Réseau indisponible", "Network unavailable"),
+      },
+    });
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   if (loading) {
@@ -398,7 +343,9 @@ export default function AppViewerPage() {
               <div className="min-w-0">
                 <h2 className="text-sm font-bold text-[#0A0A0A]">{t("Partager cette application", "Share this app")}</h2>
                 <p className="text-xs text-[#6E6E6C] mt-0.5 leading-relaxed">
-                  {t("Créez un lien de consultation en lecture seule. Toute personne ayant le lien voit l'application, jamais vos autres données. Le lien est révocable à tout moment.", "Create a read-only view link. Anyone with the link sees the app, never your other data. The link is revocable at any time.")}
+                  {connected
+                    ? t("Envoyez ce lien à votre équipe : il ouvre l'application seule, en plein écran, avec vos données. Sur un téléphone, elle s'installe en un tap et devient une icône sur l'écran d'accueil. Pour un client, utilisez le lien client plus bas : il ne montre qu'un chantier, en lecture seule.", "Send this link to your team: it opens the app on its own, full screen, with your data. On a phone, it installs in one tap and becomes an icon on the home screen. For a client, use the client link below: it shows one job site only, read-only.")
+                    : t("Créez un lien de consultation en lecture seule. Toute personne ayant le lien voit l'application, jamais vos autres données. Le lien est révocable à tout moment.", "Create a read-only view link. Anyone with the link sees the app, never your other data. The link is revocable at any time.")}
                 </p>
               </div>
               <button
@@ -452,19 +399,37 @@ export default function AppViewerPage() {
               </div>
             )}
 
-            {/* Créer un lien */}
-            <button
-              onClick={createShare}
-              disabled={shareBusy}
-              className="mt-3 flex items-center gap-1.5 px-3 py-1.5 bg-[#7C3AED] text-white text-xs font-semibold rounded-lg hover:bg-[#6D28D9] transition-all disabled:opacity-60"
-            >
-              {shareBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Share2 className="w-3.5 h-3.5" />}
-              {shareLinks.length > 0 ? t("Nouveau lien", "New link") : t("Créer un lien de consultation", "Create a view link")}
-            </button>
-            {!shareLoaded && (
-              <p className="mt-2 text-xs text-[#9A9AA5] flex items-center gap-1.5">
-                <Loader2 className="w-3 h-3 animate-spin" /> {t("Chargement des liens…", "Loading links…")}
-              </p>
+            {/* Lien ÉQUIPE — le seul lien « à envoyer » qui affiche les données.
+                Sur une app connectée, il REMPLACE le lien de consultation : ce
+                dernier n'a pas de répondeur et livrerait une app qui gèle. */}
+            {connected ? (
+              <div className="mt-3 flex items-center gap-2 bg-white border border-[#ECECF2] rounded-lg px-2.5 py-2">
+                <Eye className="w-3.5 h-3.5 text-[#7C3AED] flex-shrink-0" />
+                <code className="text-xs text-[#0A0A0A] truncate flex-1 min-w-0">{teamUrl}</code>
+                <button
+                  onClick={copyTeamLink}
+                  className="flex items-center gap-1.5 px-2.5 py-1 bg-[#7C3AED] text-white text-xs font-semibold rounded-md hover:bg-[#6D28D9] transition-all flex-shrink-0"
+                >
+                  {teamCopied ? <CheckCircle className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                  <span className="hidden sm:inline">{teamCopied ? t("Copié", "Copied") : t("Copier", "Copy")}</span>
+                </button>
+              </div>
+            ) : (
+              <>
+                <button
+                  onClick={createShare}
+                  disabled={shareBusy}
+                  className="mt-3 flex items-center gap-1.5 px-3 py-1.5 bg-[#7C3AED] text-white text-xs font-semibold rounded-lg hover:bg-[#6D28D9] transition-all disabled:opacity-60"
+                >
+                  {shareBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Share2 className="w-3.5 h-3.5" />}
+                  {shareLinks.length > 0 ? t("Nouveau lien", "New link") : t("Créer un lien de consultation", "Create a view link")}
+                </button>
+                {!shareLoaded && (
+                  <p className="mt-2 text-xs text-[#9A9AA5] flex items-center gap-1.5">
+                    <Loader2 className="w-3 h-3 animate-spin" /> {t("Chargement des liens…", "Loading links…")}
+                  </p>
+                )}
+              </>
             )}
 
             {/* Partager avec un client : lien scopé à UN chantier (lecture seule) */}
@@ -503,46 +468,6 @@ export default function AppViewerPage() {
               </div>
             )}
 
-            {/* Avancé : déploiement autonome (Vercel) — replié, non prioritaire */}
-            <div className="mt-4 pt-3 border-t border-[#ECECF2]">
-              <button
-                onClick={() => setShowAdvanced((v) => !v)}
-                className="text-xs text-[#9A9AA5] hover:text-[#6E6E6C]"
-              >
-                {showAdvanced ? "− " : "+ "}{t("Déploiement autonome (avancé)", "Standalone deployment (advanced)")}
-              </button>
-              {showAdvanced && (
-                <div className="mt-2">
-                  <p className="text-xs text-[#9A9AA5] leading-relaxed mb-2">
-                    {t("Héberge une copie détachée de l'app sur un domaine séparé (non connectée à votre espace). Pour un simple partage, utilisez le lien de consultation ci-dessus.", "Hosts a detached copy of the app on a separate domain (not connected to your workspace). For simple sharing, use the view link above.")}
-                  </p>
-                  <button
-                    onClick={handleDeploy}
-                    disabled={isDeploying}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#F6F6F9] border border-[#ECECF2] text-[#0A0A0A] text-xs font-medium rounded-lg hover:bg-[#F3EFFC] transition-colors disabled:opacity-60"
-                  >
-                    {isDeploying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Globe className="w-3.5 h-3.5" />}
-                    {isDeploying ? t("Déploiement…", "Deploying…") : deploymentUrl ? t("Redéployer", "Redeploy") : t("Déployer sur un domaine autonome", "Deploy to a standalone domain")}
-                  </button>
-                  {deploymentUrl && (
-                    <div className="mt-2 flex items-center gap-2 bg-white border border-[#ECECF2] rounded-lg px-2.5 py-2">
-                      <Globe className="w-3.5 h-3.5 text-[#7C3AED] flex-shrink-0" />
-                      <code className="text-xs text-[#0A0A0A] truncate flex-1 min-w-0">{deploymentUrl}</code>
-                      <button
-                        onClick={() => { navigator.clipboard.writeText(deploymentUrl); setDeployCopied(true); setTimeout(() => setDeployCopied(false), 2000); }}
-                        className="flex items-center gap-1.5 px-2.5 py-1 bg-[#7C3AED] text-white text-xs font-semibold rounded-md hover:bg-[#6D28D9] transition-all flex-shrink-0"
-                      >
-                        {deployCopied ? <CheckCircle className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                        <span className="hidden sm:inline">{deployCopied ? t("Copié", "Copied") : t("Copier", "Copy")}</span>
-                      </button>
-                      <a href={deploymentUrl} target="_blank" rel="noopener noreferrer" className="p-1.5 text-[#6E6E6C] hover:text-[#7C3AED] rounded-md hover:bg-[#F6F6F9] transition-colors flex-shrink-0">
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </a>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
           </div>
         </div>
       )}

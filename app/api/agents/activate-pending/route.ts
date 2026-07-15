@@ -30,7 +30,7 @@ import {
   type AgentTrigger,
 } from "@/lib/agent-rules";
 import { can } from "@/lib/permissions";
-import { connectorsForCapability } from "@/lib/connectors";
+import { connectorsForCapability } from "@/lib/capabilities";
 import { getLocale } from "@/lib/i18n/server";
 import { pick } from "@/lib/i18n/config";
 

@@ -133,7 +133,6 @@ const FOUNDER_ENTITLEMENTS: Entitlements = {
   limits: {
     maxApps: UNLIMITED,
     maxUsers: UNLIMITED,
-    liveDeploy: true,
     voice: true,
     offlineFirst: true,
     sharedWorkspace: true,
@@ -284,11 +283,6 @@ export async function getEntitlements(
   }
 }
 
-/** Raccourci : l'utilisateur peut-il déployer une app en Live ? */
-export function canDeployLive(ent: Entitlements): boolean {
-  return ent.limits.liveDeploy;
-}
-
 /** Envoi automatique d'emails / SMS (apps + agents) — réservé aux plans payants. */
 export function canSendMessages(ent: Entitlements): boolean {
   return ent.limits.autoMessaging;
@@ -319,7 +313,7 @@ export const UPGRADE_MESSAGE =
 
 /** Message quand une fonction de COLLABORATION nécessite le plan Équipe (Pro + 50 €). */
 export const EQUIPE_UPGRADE_MESSAGE =
-  "Cette fonctionnalité fait partie du plan Équipe. Ajoutez la collaboration (+50 €/mois) depuis Paramètres → Facturation pour inviter votre équipe, ouvrir un portail à vos clients et sous-traitants, et activer les agents collaboratifs.";
+  "Cette fonctionnalité fait partie du plan Pro. Passez en Pro depuis Paramètres → Facturation pour inviter votre équipe, ouvrir un portail à vos clients et sous-traitants, et activer les agents collaboratifs.";
 
 /** Message standard renvoyé quand une écriture est refusée pour cause de gel. */
 export const FROZEN_MESSAGE =
@@ -370,6 +364,6 @@ export function equipeUpgradeMessage(locale: Locale): string {
   return pick(
     locale,
     EQUIPE_UPGRADE_MESSAGE,
-    "This feature is part of the Team plan. Add collaboration (+€50/month) from Settings → Billing to invite your team, open a portal for your clients and subcontractors, and enable collaborative agents.",
+    "This feature is part of the Pro plan. Switch to Pro from Settings → Billing to invite your team, open a portal for your clients and subcontractors, and enable collaborative agents.",
   );
 }

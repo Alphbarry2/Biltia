@@ -34,7 +34,7 @@ import {
   type AgentRecipientKind,
 } from "@/lib/agent-rules";
 import { checkAgentReadiness, summarizeGaps } from "@/lib/agent-readiness";
-import { connectorsForCapability } from "@/lib/connectors";
+import { connectorsForCapability } from "@/lib/capabilities";
 import type { WatcherKey } from "@/lib/agent-watchers";
 import { executeRule, type AgentRuleRow } from "@/lib/agent-executor";
 import { can } from "@/lib/permissions";

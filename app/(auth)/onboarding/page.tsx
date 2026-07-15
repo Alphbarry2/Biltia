@@ -161,7 +161,7 @@ export default function OnboardingPage() {
 
     // Offre Pro choisie depuis la page tarifs (« choisir Pro ») : on lance le
     // paiement Stripe MAINTENANT. Après paiement, retour dans l'app avec les
-    // crédits du palier (attribués par le webhook), les 300 crédits d'inscription
+    // crédits du palier (attribués par le webhook), les crédits d'inscription
     // étant préservés (forfait + bonus). En cas d'échec, on ne bloque pas l'accès.
     try {
       // Plan payant : d'abord la query URL (lien de confirmation → survit à un

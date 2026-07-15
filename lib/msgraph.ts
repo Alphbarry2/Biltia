@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // MICROSOFT GRAPH — « les mains » de l'agent côté Microsoft 365 : envoyer un mail
 // depuis Outlook, poser un RDV dans l'agenda Outlook, classer un PDF dans
-// OneDrive. Le pendant exact de lib/gmail.ts + lib/gcal.ts + lib/gdrive.ts.
+// Le pendant exact de lib/gmail.ts + lib/gcal.ts.
 //
 // STRICTEMENT côté serveur (lit access_token/refresh_token via service_role).
 // Ne throw JAMAIS : renvoie un résultat typé, pour que l'agent puisse réagir
@@ -12,7 +12,7 @@
 //  1. Un jeton Azure n'est PAS cumulatif. Il ne porte que les scopes demandés au
 //     moment où il est frappé. Google, lui, empile (include_granted_scopes). Donc
 //     on re-frappe TOUJOURS le jeton sur l'union des scopes consentis (stockés en
-//     base), sinon connecter OneDrive rendrait Outlook aveugle à Mail.Send.
+//     base), sinon connecter l'Agenda rendrait Outlook aveugle à Mail.Send.
 //
 //  2. Azure renvoie les scopes en forme COURTE (« Mail.Send ») alors qu'on les
 //     demande en forme longue (« https://graph.microsoft.com/Mail.Send »). Toute
@@ -25,7 +25,7 @@
 
 import { createAdminClient } from "./supabase-admin";
 import { refreshAccessToken } from "./oauth";
-import { scopesCover } from "./connectors";
+import { scopesCover, isProviderLive } from "./connectors";
 import type { EmailAttachment } from "./mailer";
 import type { CalEventLite } from "./calendar-format";
 
@@ -33,13 +33,9 @@ const GRAPH = "https://graph.microsoft.com/v1.0";
 
 export const MAIL_SEND_SCOPE = "Mail.Send";
 export const CALENDAR_SCOPE = "Calendars.ReadWrite";
-export const FILES_APPFOLDER_SCOPE = "Files.ReadWrite.AppFolder";
-
 /** sendMail encaisse ~4 Mo de requête. On garde de la marge pour l'enveloppe
  *  JSON + le base64 (qui gonfle de ~33 %) : au-delà, on rend la main. */
 const MAX_ATTACHMENTS_BYTES = 3 * 1024 * 1024;
-/** Au-delà de 4 Mio, OneDrive exige une session d'upload (PUT simple refusé). */
-const SIMPLE_UPLOAD_MAX = 4 * 1024 * 1024;
 
 type Conn = {
   access_token: string | null;
@@ -111,10 +107,15 @@ export async function getValidMicrosoftToken(tenantId: string, userId: string): 
 export async function microsoftStatus(
   tenantId: string,
   userId: string
-): Promise<{ connected: boolean; canSendMail: boolean; canCalendar: boolean; canFile: boolean }> {
+): Promise<{ connected: boolean; canSendMail: boolean; canCalendar: boolean }> {
   const admin = createAdminClient();
-  const off = { connected: false, canSendMail: false, canCalendar: false, canFile: false };
+  const off = { connected: false, canSendMail: false, canCalendar: false };
   if (!admin) return off;
+  // Microsoft éteint (connecteurs "soon") → aucun chemin d'action ne passe par Graph,
+  // MÊME si un jeton traîne en base d'une connexion antérieure. Sans ce garde-fou,
+  // « désactivé » ne vaudrait qu'à l'écran et un agent continuerait d'envoyer par
+  // Outlook un mail que la page Connecteurs annonce comme indisponible.
+  if (!isProviderLive("microsoft")) return off;
   const { data } = await admin
     .from("user_connections")
     .select("scopes")
@@ -128,7 +129,6 @@ export async function microsoftStatus(
     connected: true,
     canSendMail: scopesCover(scopes, [MAIL_SEND_SCOPE]),
     canCalendar: scopesCover(scopes, [CALENDAR_SCOPE]),
-    canFile: scopesCover(scopes, [FILES_APPFOLDER_SCOPE]),
   };
 }
 
@@ -316,123 +316,4 @@ export async function createOutlookEvent(opts: {
   });
   if (!res.ok) return { ok: false, reason: "create_failed", detail: res.detail };
   return { ok: true };
-}
-
-// ── ONEDRIVE : CLASSEMENT DES PDF ────────────────────────────────────────────
-
-export type OneDriveArchiveResult =
-  | { ok: true; id: string; url: string; folder: string; updated: boolean }
-  | {
-      ok: false;
-      reason: "not_connected" | "missing_scope" | "no_service" | "drive_failed";
-      detail?: string;
-    };
-
-const UNFILED_FOLDER = "Documents";
-
-/** Un segment de chemin OneDrive : ni saut de ligne, ni caractère interdit par
- *  Windows, sinon l'upload est rejeté avec une erreur illisible. */
-function safeSegment(name: string): string {
-  const clean = name
-    .replace(/[\r\n\t]+/g, " ")
-    .replace(/[\\/:*?"<>|#%]/g, "-")
-    .replace(/\s+/g, " ")
-    .trim();
-  return clean.slice(0, 120) || UNFILED_FOLDER;
-}
-
-/**
- * Classe un PDF dans le dossier d'application OneDrive (« Biltia / <chantier> »).
- *
- * `approot` = le dossier d'application, seul territoire que le scope AppFolder
- * nous ouvre. Le reste du OneDrive de l'artisan nous est structurellement
- * invisible : même un bug ici ne peut pas atteindre ses autres fichiers.
- *
- * conflictBehavior=replace : renvoyer un devis corrigé REMPLACE le PDF, il
- * n'empile pas « Devis-2026-001 (1).pdf ». Même promesse que Google Drive.
- */
-export async function archiveToOneDrive(args: {
-  tenantId: string;
-  userId: string;
-  filename: string;
-  content: Uint8Array;
-  folder?: string | null;
-  contentType?: string;
-}): Promise<OneDriveArchiveResult> {
-  const tok = await getValidMicrosoftToken(args.tenantId, args.userId);
-  if (!tok.ok) {
-    return { ok: false, reason: tok.reason === "no_service" ? "no_service" : "not_connected" };
-  }
-  if (!scopesCover(tok.scopes, [FILES_APPFOLDER_SCOPE])) return { ok: false, reason: "missing_scope" };
-
-  const folder = safeSegment(args.folder ?? UNFILED_FOLDER);
-  const filename = safeSegment(args.filename);
-  const path = `${encodeURIComponent(folder)}/${encodeURIComponent(filename)}`;
-  const contentType = args.contentType ?? "application/pdf";
-
-  // Le dossier n'a pas à être créé : OneDrive fabrique l'arborescence du chemin.
-  const existedBefore = await graphFetch(tok.accessToken, `/me/drive/special/approot:/${path}`);
-
-  const result =
-    args.content.length > SIMPLE_UPLOAD_MAX
-      ? await uploadLarge(tok.accessToken, path, args.content, contentType)
-      : await graphFetch(
-          tok.accessToken,
-          `/me/drive/special/approot:/${path}:/content?@microsoft.graph.conflictBehavior=replace`,
-          { method: "PUT", headers: { "Content-Type": contentType }, body: args.content as BodyInit }
-        );
-
-  if (!result.ok) return { ok: false, reason: "drive_failed", detail: result.detail };
-
-  const id = result.json.id as string | undefined;
-  if (!id) return { ok: false, reason: "drive_failed", detail: "no file id" };
-
-  return {
-    ok: true,
-    id,
-    url: (result.json.webUrl as string) ?? "",
-    folder,
-    updated: existedBefore.ok,
-  };
-}
-
-/** Fichier > 4 Mio (un PV de réception plein de photos) : OneDrive impose une
- *  session d'upload. On envoie en un seul morceau — la session lève la limite de
- *  taille de requête, elle n'oblige pas à découper. */
-async function uploadLarge(
-  accessToken: string,
-  path: string,
-  content: Uint8Array,
-  contentType: string
-): Promise<{ ok: true; json: Record<string, unknown> } | { ok: false; detail: string }> {
-  const session = await graphFetch(accessToken, `/me/drive/special/approot:/${path}:/createUploadSession`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      item: { "@microsoft.graph.conflictBehavior": "replace" },
-    }),
-  });
-  if (!session.ok) return session;
-
-  const uploadUrl = session.json.uploadUrl as string | undefined;
-  if (!uploadUrl) return { ok: false, detail: "no upload url" };
-
-  try {
-    // L'URL de session porte déjà son autorisation : y ajouter le Bearer la fait
-    // rejeter. D'où le fetch nu, hors graphFetch.
-    const res = await fetch(uploadUrl, {
-      method: "PUT",
-      headers: {
-        "Content-Type": contentType,
-        "Content-Length": String(content.length),
-        "Content-Range": `bytes 0-${content.length - 1}/${content.length}`,
-      },
-      body: content as BodyInit,
-    });
-    const text = await res.text();
-    if (!res.ok) return { ok: false, detail: `${res.status} ${text.slice(0, 300)}` };
-    return { ok: true, json: text ? (JSON.parse(text) as Record<string, unknown>) : {} };
-  } catch (e) {
-    return { ok: false, detail: e instanceof Error ? e.message : "network" };
-  }
 }

@@ -39,7 +39,7 @@ export default async function ConfidentialitePage() {
             <ul>
               <li><strong>{pick(locale, "Compte", "Account")}</strong>{pick(locale, " : votre adresse email et votre nom, pour créer et sécuriser votre espace.", ": your email address and name, to create and secure your workspace.")}</li>
               <li><strong>{pick(locale, "Vos données de travail", "Your work data")}</strong>{pick(locale, " : ce que vous saisissez ou importez (clients, chantiers, employés, documents, etc.). Elles vous appartiennent.", ": what you enter or import (clients, job sites, employees, documents, etc.). It belongs to you.")}</li>
-              <li><strong>{pick(locale, "Données Google", "Google user data")}</strong>{pick(locale, " : uniquement si vous connectez Gmail, Google Agenda ou Google Drive. Le détail figure à la section suivante.", ": only if you connect Gmail, Google Calendar or Google Drive. Details in the next section.")}</li>
+              <li><strong>{pick(locale, "Données Google", "Google user data")}</strong>{pick(locale, " : uniquement si vous connectez Gmail ou Google Agenda. Le détail figure à la section suivante.", ": only if you connect Gmail or Google Calendar. Details in the next section.")}</li>
               <li><strong>{pick(locale, "Paiement", "Payment")}</strong>{pick(locale, " : géré par Stripe. Nous ne stockons jamais votre numéro de carte.", ": handled by Stripe. We never store your card number.")}</li>
               <li><strong>{pick(locale, "Mesure d'audience", "Analytics")}</strong>{pick(locale, " : des statistiques d'usage via ", ": usage statistics via ")}<strong>PostHog</strong>{pick(locale, ", pour comprendre comment le produit est utilisé et l'améliorer.", ", to understand how the product is used and improve it.")}</li>
               <li><strong>{pick(locale, "Données techniques", "Technical data")}</strong>{pick(locale, " : journaux et cookies nécessaires au fonctionnement.", ": logs and cookies required for operation.")}</li>
@@ -73,14 +73,6 @@ export default async function ConfidentialitePage() {
                     locale,
                     " : lire vos événements pour vous répondre (« qu'est-ce que j'ai demain ? », planifier une intervention sans doublon) et créer les événements que vous demandez. Nous n'accédons qu'aux événements, jamais aux réglages de votre compte Google.",
                     ": read your events to answer you (\"what's on tomorrow?\", schedule a job without a clash) and create the events you ask for. We access events only, never your Google account settings.",
-                  )}
-                </li>
-                <li>
-                  <strong>Google Drive (<code>drive.file</code>)</strong>
-                  {pick(
-                    locale,
-                    " : classer les PDF produits par Biltia (devis, factures, PV) dans un dossier « Biltia / <chantier> » de votre Drive. Cette autorisation ne donne accès QU'AUX fichiers que Biltia a créés : le reste de votre Drive nous est structurellement invisible, et nous ne pouvons ni le lire, ni le modifier, ni le supprimer.",
-                    ": file the PDFs produced by Biltia (quotes, invoices, sign-off sheets) into a “Biltia / <job site>” folder in your Drive. This permission grants access ONLY to the files Biltia created: the rest of your Drive is structurally invisible to us, and we can neither read, modify nor delete it.",
                   )}
                 </li>
               </ul>

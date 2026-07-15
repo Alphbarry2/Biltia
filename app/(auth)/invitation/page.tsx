@@ -3,8 +3,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Invitation d'équipe — atterrissage du lien reçu par email (inviteUserByEmail).
 // L'invité a déjà : un profil rattaché à l'équipe (onboarding sauté) + sa
-// membership avec son rôle, et PAS de 300 crédits (voir handle_new_user, migr.
-// 023). Il ne reste qu'à choisir son NOM et son MOT DE PASSE, puis il entre dans
+// membership avec son rôle, et PAS de crédits d'inscription (voir handle_new_user,
+// migr. 053). Il ne reste qu'à choisir son NOM et son MOT DE PASSE, puis il entre dans
 // l'app — SANS l'onboarding entreprise (il rejoint, il ne crée pas d'entreprise).
 // ─────────────────────────────────────────────────────────────────────────────
 

@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-// Callback OAuth (Google, Apple…) + liens de confirmation d'email : échange le
+// Callback OAuth (Google) + liens de confirmation d'email : échange le
 // code PKCE contre une session, puis aiguille vers l'onboarding tant que le
 // profil n'est pas qualifié.
 //

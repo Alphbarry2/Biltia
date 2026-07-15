@@ -13,6 +13,7 @@ import {
   Monitor, Tablet, Smartphone,
 } from "lucide-react";
 import { PRODUCTS, localizeProduct } from "@/lib/products";
+import { BRAND } from "@/lib/brand-entity";
 import { TEMPLATE_PREVIEWS, localizeTemplatePreview, type TemplatePreview } from "@/lib/template-previews";
 import { ReserveDemoButton } from "@/components/demo-booking";
 import { LanguageSwitcher } from "@/components/language-switcher";
@@ -609,6 +610,19 @@ export function SiteFooter() {
             <BiltiaLogo className="h-6 w-auto text-[#0A0A0A]" />
           </div>
           <p className="text-[13px] text-[#7A7A86] max-w-[240px] leading-relaxed">{t("L'OS conversationnel du BTP. Dictez votre problème, repartez avec la solution.", "The conversational OS for construction. Describe your problem, walk away with the solution.")}</p>
+          {/* LinkedIn : lien externe (nouvel onglet) + rel de sécurité. L'URL vient
+              de lib/brand-entity.ts, la même qui alimente le sameAs du JSON-LD. */}
+          <a
+            href={BRAND.linkedin}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="LinkedIn Biltia"
+            className="inline-flex items-center justify-center h-9 w-9 mt-4 rounded-lg border border-[#EDEDEB] text-[#7A7A86] hover:text-[#0A76B4] hover:border-[#0A76B4] transition-colors"
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+              <path d="M20.45 20.45h-3.56v-5.57c0-1.33-.02-3.04-1.85-3.04-1.85 0-2.14 1.45-2.14 2.94v5.67H9.35V9h3.42v1.56h.05c.48-.9 1.64-1.85 3.37-1.85 3.6 0 4.27 2.37 4.27 5.46v6.28zM5.34 7.43a2.07 2.07 0 1 1 0-4.14 2.07 2.07 0 0 1 0 4.14zM7.12 20.45H3.55V9h3.57v11.45zM22.22 0H1.77C.79 0 0 .77 0 1.73v20.54C0 23.22.79 24 1.77 24h20.45c.98 0 1.78-.78 1.78-1.73V1.73C24 .77 23.2 0 22.22 0z" />
+            </svg>
+          </a>
         </div>
         <div>
           <p className="text-[12px] font-bold uppercase tracking-wider text-[#9A9AA6] mb-3">{t("Produits", "Products")}</p>

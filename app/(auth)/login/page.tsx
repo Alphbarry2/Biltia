@@ -40,6 +40,16 @@ function LoginForm() {
     }
   }, [searchParams, t]);
 
+  // Destination après connexion. Un employé qui tape sur l'icône de son app
+  // (/a/<id>) doit RETOMBER dans son app, pas sur le tableau de bord : sinon on
+  // le renvoie dans le logiciel, ce que l'icône existe précisément pour éviter.
+  //
+  // SÉCURITÉ : on n'accepte qu'un chemin interne. Une URL absolue ou un `//evil`
+  // (que le navigateur lit comme un domaine) ferait de cette page un tremplin de
+  // redirection ouverte, idéal pour du hameçonnage — le lien part de chez nous.
+  const rawNext = searchParams.get("next");
+  const next = rawNext && /^\/(?!\/)/.test(rawNext) ? rawNext : "/dashboard";
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (turnstileEnabled && !captchaToken) { setError(t("Confirmez que vous n'êtes pas un robot.", "Please confirm you're not a robot.")); return; }
@@ -69,7 +79,7 @@ function LoginForm() {
           return;
         }
       }
-      router.push("/dashboard");
+      router.push(next);
       router.refresh();
     }
   };
@@ -88,7 +98,7 @@ function LoginForm() {
       setError(t("Code invalide. Réessayez.", "Invalid code. Try again."));
       setLoading(false);
     } else {
-      router.push("/dashboard");
+      router.push(next);
       router.refresh();
     }
   };
@@ -153,7 +163,7 @@ function LoginForm() {
       <h1 className="mb-1.5 text-[28px] font-black tracking-[-0.03em] text-[#0A0A0A]">{t("Bon retour.", "Welcome back.")}</h1>
       <p className="mb-7 text-sm text-[#6E6E6C]">{t("Accédez à votre workspace.", "Access your workspace.")}</p>
 
-      <OAuthButtons next="/dashboard" onError={setError} />
+      <OAuthButtons next={next} onError={setError} />
       <OrDivider />
 
       <form onSubmit={handleLogin} className="space-y-4">

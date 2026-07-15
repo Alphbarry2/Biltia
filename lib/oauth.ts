@@ -96,11 +96,22 @@ export function buildAuthorizeUrl(opts: {
     scope: [...c.baseScopes, ...opts.scopes].join(" "),
     state: opts.state,
   });
+  // TOUJOURS forcer le CHOIX du compte. Sans ça, un artisan déjà connecté à un
+  // compte Microsoft/Google dans son navigateur ET dont le consentement est déjà
+  // accordé est reconnecté EN SILENCE sur ce compte-là, sans voir le sélecteur : il
+  // clique « Connecter » et se retrouve branché sur un compte qu'il n'a pas choisi
+  // — souvent le mauvais (le compte admin sans boîte mail au lieu de sa vraie adresse
+  // d'envoi). « select_account » impose le sélecteur : le choix redevient explicite.
   if (opts.provider === "google") {
-    // offline + consent → refresh_token ; scopes déjà accordés conservés.
+    // offline → refresh_token. consent conservé (Google n'émet le refresh_token
+    // de façon fiable qu'avec consent) ; select_account ajoute le choix du compte.
     params.set("access_type", "offline");
-    params.set("prompt", "consent");
+    params.set("prompt", "select_account consent");
     params.set("include_granted_scopes", "true");
+  } else {
+    // Microsoft : select_account suffit. Le consentement réapparaît de lui-même
+    // quand de nouveaux scopes sont demandés (connexion incrémentale).
+    params.set("prompt", "select_account");
   }
   return `${c.authorizeEndpoint}?${params.toString()}`;
 }
@@ -111,7 +122,34 @@ export type TokenResponse = {
   expires_in?: number;
   /** Scopes réellement accordés, séparés par des espaces. */
   scope?: string;
+  /** Jeton d'identité (JWT) : présent car on demande le scope `openid`. Porte
+   *  l'email du compte — utilisé UNIQUEMENT pour afficher sur quel compte on est
+   *  branché (cf. accountEmailFromIdToken). */
+  id_token?: string;
 };
+
+/**
+ * Adresse du compte, lue dans l'id_token (JWT) que le fournisseur renvoie déjà
+ * quand le scope `openid` est demandé (notre cas). AUCUN appel réseau.
+ *
+ * On NE vérifie PAS la signature : l'id_token vient d'être reçu du endpoint token
+ * en TLS direct, et il ne sert qu'à AFFICHER quel compte est branché, jamais à une
+ * décision d'autorisation. Google expose `email` ; Microsoft expose
+ * `preferred_username` (l'UPN, en pratique l'adresse) et parfois `email`.
+ */
+export function accountEmailFromIdToken(idToken: string | undefined | null): string | null {
+  if (!idToken) return null;
+  const payloadB64 = idToken.split(".")[1];
+  if (!payloadB64) return null;
+  try {
+    const json = Buffer.from(payloadB64.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+    const claims = JSON.parse(json) as { email?: string; preferred_username?: string; upn?: string };
+    const email = claims.email ?? claims.preferred_username ?? claims.upn ?? null;
+    return email && email.includes("@") ? email.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Échange le code d'autorisation contre des jetons. Throw en cas d'échec. */
 export async function exchangeCode(opts: {

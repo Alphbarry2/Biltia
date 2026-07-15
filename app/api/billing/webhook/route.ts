@@ -4,8 +4,8 @@
 // client service_role (contourne la RLS ; jamais exposé au navigateur).
 //
 // Politique crédits (validée) :
-//   • checkout.session.completed                    → forfait + 300 bonus (1ʳᵉ souscription).
-//   • invoice.paid (subscription_create)            → forfait + 300 bonus (idempotent).
+//   • checkout.session.completed                    → forfait + bonus d'inscription (1ʳᵉ souscription).
+//   • invoice.paid (subscription_create)            → forfait + bonus d'inscription (idempotent).
 //   • invoice.paid (subscription_cycle)             → forfait seul (renouvellement mensuel).
 //   • invoice.paid (subscription_update = upgrade)  → RIEN : la route
 //        /api/billing/change-plan a déjà ajouté la DIFFÉRENCE (modèle B).
@@ -14,7 +14,7 @@
 //
 // Bonus d'inscription : SIGNUP_FREE_CREDITS sont TOUJOURS accordés à la création du
 // compte (trigger DB handle_new_user), même si l'utilisateur passe Pro dans la
-// foulée ; la 1ʳᵉ souscription les préserve (forfait + 300).
+// foulée ; la 1ʳᵉ souscription les préserve (forfait + SIGNUP_FREE_CREDITS).
 
 import { getStripe, findTierByPriceId } from "@/lib/stripe";
 import { createAdminClient } from "@/lib/supabase-admin";
@@ -318,7 +318,7 @@ export async function POST(req: Request) {
           // Motif de la facture → politique de crédits :
           //   • "subscription_update" (prorata d'upgrade) : NE PAS toucher — la
           //     route /api/billing/change-plan a déjà ajouté la différence (modèle B).
-          //   • "subscription_create" (1ʳᵉ souscription)  : forfait + 300 bonus.
+          //   • "subscription_create" (1ʳᵉ souscription)  : forfait + bonus d'inscription.
           //   • sinon ("subscription_cycle" = renouvellement) : reset au forfait.
           const reason = inv.billing_reason;
           const mode: CreditMode =

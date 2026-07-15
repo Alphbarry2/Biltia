@@ -15,6 +15,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { embedQuery } from "./embeddings";
+import { fenceUntrusted } from "./untrusted";
 
 /**
  * Découpe un texte en chunks (~1500 caractères), coupés aux paragraphes pour
@@ -118,6 +119,6 @@ Les extraits ci-dessous proviennent de sources documentaires fiables. RÈGLE STR
 - Si l'information nécessaire ne figure PAS dans ces extraits : reste prudent, ne l'invente pas, et signale que la valeur doit être vérifiée par un professionnel plutôt que d'affirmer un chiffre incertain.
 - Quand tu utilises une source, tu peux la citer discrètement dans le document généré (ex : mention « source : … »).
 
-${sources}
+${fenceUntrusted(sources)}
 `.trim();
 }

@@ -35,6 +35,15 @@ export type UserPreferences = {
    * `profiles.sector` reste la 1re (compat). Ids = CATEGORIES (btp-catalog).
    */
   sectors?: string[];
+  /**
+   * Compte d'ENVOI par défaut quand plusieurs sont connectés (Gmail ET Outlook).
+   * null = automatique (le PREMIER connecté, cf. lib/send-preference.ts). Un choix
+   * explicite ("google"/"microsoft") passe devant. Sert le chat ET les agents
+   * autonomes, qui ne peuvent pas être interrogés en cours de route.
+   */
+  email_provider?: "google" | "microsoft" | null;
+  /** Idem pour l'AGENDA (Google Agenda vs Outlook). null = premier connecté. */
+  calendar_provider?: "google" | "microsoft" | null;
 };
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
@@ -59,6 +68,8 @@ export function normalizePreferences(raw: unknown): UserPreferences {
     activity_type: typeof p.activity_type === "string" && p.activity_type ? p.activity_type : null,
     sector_detail: typeof p.sector_detail === "string" && p.sector_detail.trim() ? p.sector_detail.trim() : null,
     sectors: Array.isArray(p.sectors) ? p.sectors.filter((s): s is string => typeof s === "string" && !!s) : undefined,
+    email_provider: p.email_provider === "google" || p.email_provider === "microsoft" ? p.email_provider : null,
+    calendar_provider: p.calendar_provider === "google" || p.calendar_provider === "microsoft" ? p.calendar_provider : null,
   };
 }
 

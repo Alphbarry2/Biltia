@@ -27,8 +27,9 @@ import { matchVocabInText, matchTradeInText, vocabLabel } from "@/lib/vocabulair
 import { getEntitlementsForTenant } from "./entitlements";
 import { isFounderEmail } from "./founder";
 import { WATCHER_KEYS, getWatcher, isSupplierRelanceWatcher, type WatcherKey } from "./agent-watchers";
-import type { AgentTemplate } from "./agent-templates";
+import { templateAction, templateCredits, type AgentTemplate } from "./agent-templates";
 import { checkAgentReadiness, summarizeGaps, type CapabilityGap } from "./agent-readiness";
+import { connectorsForCapability } from "./capabilities";
 import { judgeFeasibility, describeWatcher } from "./agent-feasibility";
 // Sentinelle d'état partagée avec la page /agents (« use client ») : elle vit dans
 // un module sans imports pour ne pas embarquer ce fichier-ci dans le bundle client.
@@ -49,7 +50,16 @@ const PARIS_TZ = "Europe/Paris";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type AgentActionType = "send_email" | "notify" | "report" | "team_planning" | "compte_rendu" | "act";
+// LE TYPE ET LE PRIX VIVENT DANS lib/agent-pricing.ts (module PUR). Ils sont
+// réexportés ici pour ne rien casser chez les appelants, mais la source est là-bas :
+// la galerie des agents est un composant CLIENT et doit pouvoir CALCULER le prix au
+// lieu de le recopier à la main. C'est cette recopie qui faisait mentir les six
+// templates payants (10 ou 25 crédits annoncés, 40 débités).
+export type { AgentActionType } from "./agent-pricing";
+export { estimateCreditsPerRun, runsPerMonth } from "./agent-pricing";
+import type { AgentActionType } from "./agent-pricing";
+import { estimateCreditsPerRun, runsPerMonth } from "./agent-pricing";
+
 export type AgentRecipientKind = "client" | "employee" | "team" | "me" | "supplier";
 export type AgentComplexity = "simple" | "medium" | "complex";
 
@@ -76,47 +86,13 @@ export const COMPLEXITY_MODEL: Record<AgentComplexity, string> = {
   complex: TIER_COMPLEX,
 };
 // ── PRIX ANNONCÉ AU RECRUTEMENT ──────────────────────────────────────────────
-//
-// ⚠️ Ce que cette fonction renvoie DOIT être exactement ce que lib/agent-executor.ts
-// débite. C'est la seule règle qui compte ici.
-//
-// Avant, le prix était indexé sur la COMPLEXITÉ (10 / 25 / 50 selon Haiku/Sonnet/
-// Opus) alors que l'exécuteur, lui, débitait un forfait unique de 25 quoi qu'il
-// arrive. Un agent « simple » qui rédige un e-mail était donc ANNONCÉ à 10 et
-// FACTURÉ 25 : très exactement la surprise que ce fichier jurait d'éviter. Et un
-// agent « complexe » était annoncé au double de son prix réel.
+// estimateCreditsPerRun / runsPerMonth vivent désormais dans lib/agent-pricing.ts
+// (module PUR) et sont réexportés en haut de ce fichier. La règle, elle, ne change
+// pas : CE QUI EST ANNONCÉ DOIT ÊTRE EXACTEMENT CE QUE lib/agent-executor.ts DÉBITE.
 //
 // La complexité choisit encore le MODÈLE (COMPLEXITY_MODEL) — c'est son rôle. Elle
 // ne choisit plus le PRIX : le prix suit ce que l'agent FAIT, qui est un fait
 // observable, pas une classification devinée par le LLM au recrutement.
-export function estimateCreditsPerRun(
-  type: AgentActionType,
-  opts: { judged?: boolean } = {}
-): number {
-  switch (type) {
-    // Gabarits : aucun appel LLM (l'agenda / l'alerte sont déjà formatés), donc
-    // aucun token, donc l'exécuteur ne débite rien. SAUF une alerte JUGÉE par l'IA,
-    // qui lit chaque nouvelle fiche pour trancher : c'est un vrai passage.
-    case "notify":
-    case "team_planning":
-      return opts.judged ? ACTION_CREDITS.agent_passage : 0;
-    // L'agent AGIT : boucle agentique sur les outils du workspace (jusqu'à 10
-    // itérations × 4 fiches), soit ~10× le coût d'une simple relance.
-    case "act":
-      return ACTION_CREDITS.agent_action;
-    // Tout ce qui RÉDIGE : relance client, compte-rendu, rapport.
-    case "send_email":
-    case "report":
-    case "compte_rendu":
-      return ACTION_CREDITS.agent_redaction;
-  }
-}
-
-/** Passages par mois selon le planning (tous les jours = ~30). */
-export function runsPerMonth(days: number[]): number {
-  const d = (days ?? []).filter((x) => x >= 1 && x <= 7);
-  return d.length === 0 ? 30 : Math.round(d.length * 4.33);
-}
 
 export type AgentSchedule = {
   /** "HH:MM" heure de Paris. */
@@ -438,7 +414,7 @@ const PARSE_TOOL: Anthropic.Tool = {
       feasible: {
         type: "boolean",
         description:
-          "false si Biltia NE PEUT PAS détecter le déclencheur demandé, avec les veilleurs listés ci-dessus. Mets false SANS HÉSITER quand la mission suppose de capter quelque chose qui N'EST PAS dans le Workspace Biltia : l'agenda Google/Outlook, la boîte mail entrante, un réseau social, un SMS ou un appel reçu, la météo, la banque, le logiciel de compta, ou l'état de l'utilisateur lui-même (« quand je me réveille », « quand j'arrive sur le chantier »). Il vaut MILLE FOIS mieux répondre false que de rapprocher la demande d'un veilleur qui surveille autre chose. Si feasible=false, remplis blocker_reason et laisse event_watcher vide.",
+          "⚠ NE JUGE QUE LE DÉCLENCHEUR — ce que Biltia doit CAPTER pour se réveiller. Jamais l'ACTION, jamais la destination. false si Biltia NE PEUT PAS détecter le déclencheur demandé avec les veilleurs listés ci-dessus. Mets false SANS HÉSITER quand la mission suppose de CAPTER quelque chose qui N'EST PAS dans le Workspace Biltia : l'agenda Google/Outlook, la boîte mail entrante, un réseau social, un SMS ou un appel reçu, la météo, la banque, le logiciel de compta, ou l'état de l'utilisateur lui-même (« quand je me réveille », « quand j'arrive sur le chantier »). Il vaut MILLE FOIS mieux répondre false que de rapprocher la demande d'un veilleur qui surveille autre chose. Si feasible=false, remplis blocker_reason et laisse event_watcher vide. MAIS : une DESTINATION hors workspace reste jugée sur l'ACTION, pas sur le déclencheur. Biltia sait envoyer un email en ton nom ; il ne sait PAS déposer dans un stockage externe (Google Drive, OneDrive : ces connecteurs n'existent pas). « À chaque devis enregistré, dépose-le dans mon Drive » → feasible=FALSE, blocker_reason : Biltia ne dépose rien dans un stockage externe ; les devis sont déjà conservés dans le workspace et leur PDF est téléchargeable.",
       },
       blocker_reason: {
         type: "string",
@@ -461,7 +437,13 @@ TEST DE VÉRITÉ (le plus important de toute cette consigne). Traduire le VOCABU
 - OUI → « quand un salarié finit son travail / sa tâche sur un chantier, préviens-moi » = une INTERVENTION assignée qui passe en TERMINÉ. Même objet, autres mots → event_watcher=visite_terminee. C'est exactement le travail attendu de toi.
 - NON → « préviens-moi dès qu'un ÉVÉNEMENT est ajouté à mon AGENDA » n'est PAS « une fiche CLIENT est créée ». Ce sont deux objets différents. Le fait que les deux soient « quelque chose qui vient d'être ajouté » ne les rend pas équivalents.
 
-TU AS LE DROIT DE DIRE NON, et c'est souvent la bonne réponse. Aucun veilleur ne lit ton agenda Google/Outlook, ta boîte mail entrante, tes réseaux sociaux, tes SMS, tes appels, la météo, ta banque ou ton logiciel de compta : les 51 veilleurs regardent UNIQUEMENT les fiches du Workspace Biltia (chantiers, devis, factures, clients, interventions, tâches, employés, pointages, matériaux, documents, fournisseurs, commandes). Si la mission suppose de capter autre chose, mets feasible=false + blocker_reason, et laisse event_watcher vide. NE RAPPROCHE JAMAIS la demande d'un veilleur « à peu près » : un agent qui surveille autre chose que ce qu'on lui a demandé est un mensonge, et l'artisan croira son entreprise couverte alors qu'elle ne l'est pas. Un refus honnête est TOUJOURS préférable.
+TU AS LE DROIT DE DIRE NON, et c'est souvent la bonne réponse. Aucun veilleur ne lit ton agenda Google/Outlook, ta boîte mail entrante, tes réseaux sociaux, tes SMS, tes appels, la météo, ta banque ou ton logiciel de compta : les veilleurs regardent UNIQUEMENT les fiches du Workspace Biltia (chantiers, devis, factures, clients, interventions, tâches, employés, pointages, matériaux, documents, fournisseurs, commandes). Si la mission suppose de CAPTER autre chose, mets feasible=false + blocker_reason, et laisse event_watcher vide. NE RAPPROCHE JAMAIS la demande d'un veilleur « à peu près » : un agent qui surveille autre chose que ce qu'on lui a demandé est un mensonge, et l'artisan croira son entreprise couverte alors qu'elle ne l'est pas. Un refus honnête est TOUJOURS préférable.
+
+DEUX QUESTIONS DIFFÉRENTES, ET ON LES CONFOND SANS ARRÊT — c'est la faute la plus coûteuse de tout ce fichier :
+  1. CE QUE BILTIA SAIT CAPTER (le déclencheur). Uniquement le Workspace. C'est là, et seulement là, que porte feasible.
+  2. CE QUE BILTIA SAIT FAIRE (l'action). Il sait AGIR DEHORS, mais SEULEMENT par email/SMS et dans son propre workspace.
+LE STOCKAGE EXTERNE N'EXISTE PAS : ni Google Drive, ni OneDrive, ni Dropbox. « À chaque devis enregistré, dépose-le dans mon Drive » → feasible=FALSE. Le déclencheur est captable, mais l'ACTION est impossible : Biltia n'a aucun classeur externe où déposer.
+Dis-le sans détour dans blocker_reason, et donne l'alternative vraie : les devis et factures sont DÉJÀ conservés dans le workspace, leur PDF se télécharge à tout moment, et il part en pièce jointe au client à l'envoi.
 
 REPÈRES :
 - « relance/écris/envoie un mail à [client X] » → send_email, recipient_kind=client.
@@ -871,14 +853,14 @@ export async function parseInstruction(instruction: string): Promise<ParsedRule>
     if (!block || block.type !== "tool_use") return parseInstructionHeuristic(instruction);
 
     const i = block.input as Record<string, unknown>;
-    const actionType: AgentActionType =
-      i.action_type === "send_email" ||
-      i.action_type === "notify" ||
-      i.action_type === "report" ||
-      i.action_type === "team_planning" ||
-      i.action_type === "act"
-        ? i.action_type
-        : "notify";
+    // Le garde et l'énumération de l'outil doivent grandir ENSEMBLE : une chaîne de
+    // `===` recopiée à la main finit toujours par oublier une valeur, et le repli
+    // silencieux (« notify ») transformerait alors un rangement demandé en simple
+    // notification — l'agent dirait « Actif » sans jamais rien déposer.
+    const ACTIONS: AgentActionType[] = ["send_email", "notify", "report", "team_planning", "act"];
+    const actionType: AgentActionType = ACTIONS.includes(i.action_type as AgentActionType)
+      ? (i.action_type as AgentActionType)
+      : "notify";
     const recipientKind =
       i.recipient_kind === "client" || i.recipient_kind === "employee" || i.recipient_kind === "team" || i.recipient_kind === "me" || i.recipient_kind === "supplier"
         ? i.recipient_kind
@@ -1367,8 +1349,16 @@ export async function createAgentRule(opts: {
   //    aucun bouton ne règle ça, et un agent qui attend indéfiniment de la donnée
   //    serait un agent-fantôme de plus. On refuse, en disant précisément quoi faire.
   const blockingGaps = readiness.gaps.filter((g) => g.severity === "block");
-  const CONNECTABLE = new Set(["email_send", "email_send_self", "calendar_read"]);
-  const dataGaps = blockingGaps.filter((g) => !CONNECTABLE.has(g.code));
+  // Les manques qu'un BOUTON règle : un connecteur absent ne doit pas être pris pour
+  // un manque de DONNÉES, sinon l'agent est refusé net au lieu d'être créé en attente
+  // avec le bouton « Connecter » qui va bien.
+  //
+  // C'ÉTAIT UNE LISTE EN DUR — la QUATRIÈME copie de la même chose, après les trois
+  // qu'on vient de fusionner. Une capacité connectable oubliée ici était traitée comme
+  // un manque de données, et l'agent refusé sans le moindre bouton. On ne recopie plus :
+  // on DEMANDE au registre s'il existe un connecteur "live" pour ce manque. La réponse
+  // est la même partout, par construction.
+  const dataGaps = blockingGaps.filter((g) => connectorsForCapability(g.code).length === 0);
   if (dataGaps.length > 0) {
     return {
       ok: false,
@@ -1799,6 +1789,27 @@ export async function activateAgentTemplate(opts: {
   locale?: Locale;
 }): Promise<ActivateTemplateResult> {
   const { supabase, userId, userEmail, tenantId, template, locale = "fr" } = opts;
+
+  // ── LE PRIX AFFICHÉ SUR LA CARTE EST-IL LE VRAI PRIX ? ─────────────────────
+  // La galerie est un composant CLIENT : elle calcule le prix sans pouvoir lire le
+  // registre des veilleurs (lib/agent-watchers.ts n'est pas client-safe). Elle suppose
+  // donc `judged: false`. Or un veilleur JUGÉ par l'IA rend un simple `notify` PAYANT
+  // (20 cr — elle lit chaque fiche pour trancher). Aucun template n'en utilise
+  // aujourd'hui ; le jour où l'un en adopte un, la carte annoncerait « Gratuit » et
+  // l'exécuteur débiterait 20. C'est exactement le mensonge qu'on vient d'éliminer.
+  //
+  // ICI, on a le registre. On le vérifie, une bonne fois, au seul endroit qui le peut.
+  if (template.watcher) {
+    const juge = !!getWatcher(template.watcher)?.aiJudge;
+    if (juge && templateCredits(template) !== estimateCreditsPerRun(templateAction(template), { judged: true })) {
+      console.error(
+        `[agent-templates] « ${template.id} » utilise le veilleur JUGÉ « ${template.watcher} » : ` +
+          `la carte annonce ${templateCredits(template)} cr, l'exécuteur en débitera ` +
+          `${estimateCreditsPerRun(templateAction(template), { judged: true })}. ` +
+          `Le prix affiché est FAUX — corrigez lib/agent-templates.ts.`
+      );
+    }
+  }
 
   // ── Anti-doublon : ce modèle est-il déjà activé dans cet espace ? ──────────
   const { data: existingRows } = await supabase

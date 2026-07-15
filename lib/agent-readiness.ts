@@ -18,7 +18,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getCapabilityStatuses, type CapabilityId } from "./agent-capabilities";
+import { getCapabilityStatuses } from "./agent-capabilities";
+import { connectorsForCapability, type CapabilityId } from "./capabilities";
 import { WATCHER_PROBE } from "./agent-feasibility";
 import type { AgentActionType, AgentRecipientKind } from "./agent-rules";
 import type { WatcherKey } from "./agent-watchers";
@@ -90,8 +91,14 @@ function requiredCapabilities(plan: AgentReadinessPlan, locale: Locale): Require
     });
   }
 
-  // Transmettre le planning → l'agenda est le mieux, mais le Workspace sert de
-  // repli → recommandé (warn), pas bloquant.
+  // Transmettre le planning → il faut l'AGENDA.
+  //
+  // ⚠️ La sévérité déclarée ici n'est qu'un PLANCHER : elle est relevée à "block"
+  // plus bas dès qu'un connecteur "live" peut réparer le manque (ce qui est le cas
+  // de l'agenda). Le repli « on enverra les interventions du Workspace » existe
+  // techniquement, mais on ne s'en sert PAS pour activer quand même : envoyer un
+  // planning qui n'est pas le vrai planning, c'est envoyer un faux planning à 26
+  // personnes. Un agent ne se recrute pas tant que tout n'est pas connecté.
   if (plan.actionType === "team_planning") {
     reqs.push({
       cap: "calendar_read",
@@ -170,10 +177,30 @@ export async function checkAgentReadiness(opts: {
             ),
           });
         } else if (!st.connected) {
-          // L'outil existe mais n'est pas branché → on dit quoi connecter.
+          // ── UN MANQUE QU'UN CLIC RÉPARE EST TOUJOURS BLOQUANT ────────────────
+          // Règle produit, répétée et non négociable : ON NE RECRUTE PAS UN AGENT
+          // TANT QUE TOUT N'EST PAS CONNECTÉ.
+          //
+          // Le « warn » (agir en mode dégradé) était doublement toxique ici :
+          //   · les cartes « Connecter » ne sont tirées QUE des manques "block"
+          //     (5 appelants) → un warn n'affichait AUCUN bouton ;
+          //   · l'agent s'activait quand même, et annonçait « Actif ».
+          // Résultat vécu en prod (2026-07-14) : un agent « planning hebdo aux
+          // équipes » recruté, affiché actif, avec la mention « Google Calendar non
+          // connecté » — et aucun moyen de le connecter. L'artisan croyait son
+          // planning parti ; il serait parti FAUX (les interventions du workspace
+          // au lieu de son vrai agenda). C'est l'« à peu près » que ce produit
+          // refuse partout ailleurs.
+          //
+          // La sévérité n'est donc plus déclarée à la main : elle se DÉDUIT du
+          // registre. Un connecteur "live" existe pour cette capacité ? Alors un
+          // bouton peut la réparer, donc on l'exige. Sinon (notifications = une
+          // permission du navigateur ; SMS = un fournisseur plateforme), aucun clic
+          // n'y changerait rien : on garde le warn, et l'agent tourne en dégradé.
+          const reparableParUnClic = connectorsForCapability(req.cap).length > 0;
           gaps.push({
             code: req.cap,
-            severity: req.severity,
+            severity: reparableParUnClic ? "block" : req.severity,
             title: req.title,
             detail: req.detail,
             fix: st.fix,

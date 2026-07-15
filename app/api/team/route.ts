@@ -260,8 +260,8 @@ export async function POST(req: Request) {
         {
           error: pick(
             locale,
-            "L'invitation de collaborateurs fait partie du plan Équipe. Ajoutez la collaboration (+50 €/mois) dans Paramètres → Facturation pour constituer votre équipe.",
-            "Inviting collaborators is part of the Team plan. Add collaboration (+€50/month) in Settings → Billing to build your team."
+            "L'invitation de collaborateurs fait partie du plan Pro. Passez en Pro dans Paramètres → Facturation pour constituer votre équipe.",
+            "Inviting collaborators is part of the Pro plan. Switch to Pro in Settings → Billing to build your team."
           ),
           upgrade: true,
         },
@@ -313,7 +313,7 @@ export async function POST(req: Request) {
     const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
       // La page /invitation accueille l'invité (« Vous avez été invité… ») pour
       // choisir son mot de passe. Les métadonnées disent au trigger handle_new_user
-      // que c'est un INVITÉ : pas de 300 crédits, pas d'espace perso, onboarding sauté.
+      // que c'est un INVITÉ : pas de crédits d'inscription, pas d'espace perso, onboarding sauté.
       redirectTo: `${appUrl}/auth/callback?next=/invitation`,
       data: {
         invited_tenant_id: membership.tenant_id,

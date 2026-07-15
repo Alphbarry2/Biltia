@@ -16,6 +16,8 @@
 import { sendGmail, gmailStatus } from "./gmail";
 import { sendOutlookMail, microsoftStatus } from "./msgraph";
 import { sendEmail, hasMailerKey, type EmailAttachment } from "./mailer";
+import { preferredProviderOrder } from "./send-preference-server";
+import type { OAuthProvider } from "./connectors";
 
 export type { EmailAttachment };
 
@@ -67,78 +69,87 @@ export async function sendOutboundEmail(opts: {
   const to = opts.to.filter((e) => typeof e === "string" && e.includes("@")).slice(0, 50);
   if (to.length === 0) return { ok: false, reason: "aucun destinataire valide" };
 
-  // ── 1. Gmail de l'utilisateur (si connecté + scope gmail.send) ──────────────
-  if (opts.userId) {
+  // ── Boîte de l'utilisateur, dans l'ORDRE de son compte par défaut ───────────
+  // Chaque tentative dit : « envoyé » / « échec dur » (on s'arrête) ou « passe »
+  // (on essaie le fournisseur suivant, puis Resend). L'ordre vient de la préférence
+  // (premier connecté, ou choix explicite) au lieu d'être Gmail-d'abord codé en dur.
+  type Attempt =
+    | { outcome: "sent" | "hard-fail"; result: OutboundEmailResult }
+    | { outcome: "skip" };
+
+  const tryGmail = async (): Promise<Attempt> => {
+    if (!opts.userId) return { outcome: "skip" };
     let canSend = false;
     try {
       canSend = (await gmailStatus(opts.tenantId, opts.userId)).canSend;
     } catch {
-      /* dégrade vers le canal suivant */
+      return { outcome: "skip" };
     }
-    if (canSend) {
-      const sent = await sendGmail({
-        tenantId: opts.tenantId,
-        userId: opts.userId,
-        to: to.join(", "),
-        subject: opts.subject,
-        body: opts.body,
-        html: opts.html,
-        attachments: opts.attachments,
-      });
-      if (sent.ok) {
-        return {
-          ok: true,
-          via: "gmail",
-          id: sent.id,
-          note: "Envoyé depuis votre Gmail — les réponses vous reviendront directement.",
-        };
-      }
-      // Gmail connecté mais l'ENVOI a échoué : on NE retombe PAS sur un autre canal
-      // (risque de doublon si Gmail a partiellement traité). On remonte l'erreur.
-      if (sent.reason === "send_failed") {
-        return { ok: false, reason: `envoi Gmail échoué${sent.detail ? ` : ${sent.detail}` : ""}` };
-      }
-      // not_connected / missing_scope / no_service → on tente Outlook ci-dessous.
+    if (!canSend) return { outcome: "skip" };
+    const sent = await sendGmail({
+      tenantId: opts.tenantId,
+      userId: opts.userId,
+      to: to.join(", "),
+      subject: opts.subject,
+      body: opts.body,
+      html: opts.html,
+      attachments: opts.attachments,
+    });
+    if (sent.ok) {
+      return {
+        outcome: "sent",
+        result: { ok: true, via: "gmail", id: sent.id, note: "Envoyé depuis votre Gmail — les réponses vous reviendront directement." },
+      };
     }
-  }
+    // Gmail connecté mais ENVOI échoué : on NE retombe PAS ailleurs (risque de
+    // doublon si Gmail a partiellement traité). On remonte l'erreur.
+    if (sent.reason === "send_failed") {
+      return { outcome: "hard-fail", result: { ok: false, reason: `envoi Gmail échoué${sent.detail ? ` : ${sent.detail}` : ""}` } };
+    }
+    return { outcome: "skip" }; // not_connected / missing_scope / no_service
+  };
 
-  // ── 2. Outlook / Microsoft 365 (si connecté + scope Mail.Send) ──────────────
-  if (opts.userId) {
+  const tryOutlook = async (): Promise<Attempt> => {
+    if (!opts.userId) return { outcome: "skip" };
     let canSend = false;
     try {
       canSend = (await microsoftStatus(opts.tenantId, opts.userId)).canSendMail;
     } catch {
-      /* dégrade vers Resend */
+      return { outcome: "skip" };
     }
-    if (canSend) {
-      const sent = await sendOutlookMail({
-        tenantId: opts.tenantId,
-        userId: opts.userId,
-        to,
-        subject: opts.subject,
-        body: opts.body,
-        html: opts.html,
-        attachments: opts.attachments,
-      });
-      if (sent.ok) {
-        return {
-          ok: true,
-          via: "outlook",
-          id: sent.id,
-          note: "Envoyé depuis votre Outlook — les réponses vous reviendront directement.",
-        };
-      }
-      // Même règle que Gmail : un envoi PARTI puis échoué ne se rejoue pas ailleurs.
-      if (sent.reason === "send_failed") {
-        return { ok: false, reason: `envoi Outlook échoué${sent.detail ? ` : ${sent.detail}` : ""}` };
-      }
-      // attachment_too_big : Outlook plafonne à ~3 Mo. Le document est LÉGITIME et
-      // rien n'est parti — on le fait sortir par Resend plutôt que d'abandonner un
-      // devis pour une limite qui ne regarde que Microsoft.
+    if (!canSend) return { outcome: "skip" };
+    const sent = await sendOutlookMail({
+      tenantId: opts.tenantId,
+      userId: opts.userId,
+      to,
+      subject: opts.subject,
+      body: opts.body,
+      html: opts.html,
+      attachments: opts.attachments,
+    });
+    if (sent.ok) {
+      return {
+        outcome: "sent",
+        result: { ok: true, via: "outlook", id: sent.id, note: "Envoyé depuis votre Outlook — les réponses vous reviendront directement." },
+      };
     }
+    if (sent.reason === "send_failed") {
+      return { outcome: "hard-fail", result: { ok: false, reason: `envoi Outlook échoué${sent.detail ? ` : ${sent.detail}` : ""}` } };
+    }
+    // attachment_too_big : rien n'est parti → Resend plutôt que d'abandonner le devis.
+    return { outcome: "skip" };
+  };
+
+  // Repli sur l'ordre historique Gmail → Outlook si la base ne répond pas : mieux
+  // vaut envoyer que rien. La préférence, quand elle existe, met le bon compte en tête.
+  const order = await preferredProviderOrder(opts.tenantId, opts.userId, "email");
+  const sequence: OAuthProvider[] = order.length ? order : ["google", "microsoft"];
+  for (const provider of sequence) {
+    const attempt = provider === "google" ? await tryGmail() : await tryOutlook();
+    if (attempt.outcome !== "skip") return attempt.result;
   }
 
-  // ── 3. Repli Resend (reply-to = email de l'utilisateur) ─────────────────────
+  // ── Repli Resend (reply-to = email de l'utilisateur) ─────────────────────
   if (!hasMailerKey()) {
     return {
       ok: false,

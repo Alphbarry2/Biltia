@@ -8,6 +8,7 @@ import { createAdminClientUntyped } from "@/lib/supabase-admin";
 import { injectPoweredBy, publicNotFoundPage } from "@/lib/powered-by";
 import { injectAppBrand } from "@/lib/app-brand";
 import { getBrandKit } from "@/lib/brand";
+import { requiresBiltiaHost } from "@/lib/app-connectivity";
 import { getLocale } from "@/lib/i18n/server";
 import { pick } from "@/lib/i18n/config";
 
@@ -47,6 +48,26 @@ export async function GET(
         locale
       ),
       { status: 404, headers: { "content-type": "text/html; charset=utf-8" } }
+    );
+  }
+
+  // Une app reliée au workspace ne PEUT PAS vivre ici : cette route sert le HTML
+  // en page de PREMIER NIVEAU, donc window.parent === window et personne ne
+  // répond aux appels du SDK (cf. lib/app-connectivity.ts). On servait jusqu'ici
+  // une app qui gelait 30 s par écran avant d'afficher « Connexion trop lente ».
+  // On le dit, et on renvoie vers les deux chemins qui, eux, fonctionnent.
+  if (requiresBiltiaHost(data.html_content)) {
+    return new Response(
+      publicNotFoundPage(
+        pick(locale, "Ouvrez cette application depuis Biltia", "Open this app from Biltia"),
+        pick(
+          locale,
+          `« ${data.name} » est reliée aux données de votre entreprise : elle a besoin de votre session pour les afficher. Votre équipe l'ouvre depuis la Bibliothèque. Pour la montrer à un client, créez un lien client depuis l'application (il ne montre qu'un chantier, en lecture seule).`,
+          `“${data.name}” is connected to your company data: it needs your session to display it. Your team opens it from the Library. To show it to a client, create a client link from the app (it shows one job site only, read-only).`
+        ),
+        locale
+      ),
+      { status: 403, headers: { "content-type": "text/html; charset=utf-8", "x-robots-tag": "noindex" } }
     );
   }
 

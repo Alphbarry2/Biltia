@@ -38,7 +38,6 @@ import {
   Image as ImageIcon,
   Camera,
   MonitorUp,
-  Cloud,
   Clock,
   Pencil,
   Link2,
@@ -326,11 +325,6 @@ export default function DashboardPage() {
     }
   };
 
-  const openDrive = () => {
-    setPlusOpen(false);
-    window.open("https://drive.google.com", "_blank", "noopener,noreferrer");
-  };
-
   // La page enchaînait getUser() → getActiveMembership() → modules : TROIS allers-
   // retours EN SÉRIE avant d'afficher la moindre app. Les deux premiers sont
   // désormais résolus une seule fois par la session partagée — il ne reste que la
@@ -487,7 +481,7 @@ export default function DashboardPage() {
       {/* z-20 (et non z-10) : la section « Mes applications » plus bas est AUSSI en
           z-10 et vient APRÈS dans le DOM — à égalité de plan, c'est elle qui gagne.
           Le menu « + » de la barre de chat, tout en étant en z-30, restait donc
-          ENFERMÉ dans ce plan-ci et se faisait recouvrir : on voyait « Google Drive »
+          ENFERMÉ dans ce plan-ci et se faisait recouvrir : le menu apparaissait
           coupé en deux. Un z-index n'agit jamais qu'à l'intérieur de son plan. */}
       <section className="relative z-20 min-h-[86dvh] flex flex-col items-center justify-center px-6 pt-[17dvh] pb-14">
         <div className="relative z-10 w-full max-w-[62rem] mx-auto text-center">
@@ -569,7 +563,7 @@ export default function DashboardPage() {
                 )}
 
                 <div className="flex items-center justify-between gap-3 px-2 pb-1">
-                  {/* Tout à gauche : le + -> menu (fichiers, photos, caméra, écran, Drive) */}
+                  {/* Tout à gauche : le + -> menu (fichiers, photos, caméra, écran) */}
                   <div className="relative">
                     <button
                       onClick={() => setPlusOpen((v) => !v)}
@@ -606,14 +600,6 @@ export default function DashboardPage() {
                               {label}
                             </button>
                           ))}
-                          <div className="my-1 border-t border-[#EFEFF3]" />
-                          <button
-                            onClick={openDrive}
-                            className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-[13.5px] text-[#2A2A32] hover:bg-[#F4F4F7] transition-colors text-left"
-                          >
-                            <Cloud className="w-[18px] h-[18px] text-[#7C3AED] flex-shrink-0" strokeWidth={1.9} />
-                            Google Drive
-                          </button>
                         </div>
                       </>
                     )}

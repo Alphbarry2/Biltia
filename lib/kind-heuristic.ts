@@ -65,6 +65,55 @@ export function looksLikeCalendar(prompt: string): boolean {
   return CALENDAR_HINTS.some((k) => t.includes(normalize(k)));
 }
 
+// ── LE CLASSEUR (« range ça dans mon Drive ») ────────────────────────────────
+// Il faut LES DEUX signaux, et c'est volontaire : un verbe de RANGEMENT seul ne
+// dit pas où (« range la facture » — dans quoi ?), et une destination seule peut
+// n'être qu'une question (« c'est quoi mon classeur ? »). Leur co-occurrence, en
+// revanche, ne laisse aucun doute sur l'intention.
+//
+// LES VERBES SONT CONJUGUÉS, et c'est tout le sujet. Un artisan TUTOIE Biltia :
+// « tu le DÉPOSES sur Google Drive », « tu ranges ça », « tu l'enregistres ».
+// Une liste de formes en dur (depose, deposer) rate le « déposes » — c'est-à-dire
+// la phrase la plus naturelle, celle qu'il tape vraiment. On prend donc le RADICAL
+// et on laisse la terminaison ouverte.
+//
+// Frontières de mots obligatoires : sans `\b`, « met » matcherait « permet » et
+// « promet ». Une heuristique qui se déclenche à tort coûte plus cher que celle
+// qui se tait.
+const ARCHIVE_VERB_RE =
+  /\b(rang(?:e|es|ez|er)|class(?:e|es|ez|er)|sauvegard(?:e|es|ez|er)|archiv(?:e|es|ez|er)|transfer(?:e|es|ez|er)|depos(?:e|es|ez|er)|enregistr(?:e|es|ez|er)|stock(?:e|es|ez|er)|upload(?:e|es|ez|er)?|met|mets|mettre|mettez|envoi(?:e|es|ez))\b/;
+const STORAGE_RE = /\b(drive|onedrive|one drive|classeur|mes dossiers|mon dossier|stockage|cloud)\b/;
+
+// PRODUIRE D'ABORD, RANGER ENSUITE. « fais-moi un devis pour Morel ET range-le
+// dans le Drive » n'est pas un rangement : c'est une PRODUCTION, dont le
+// rangement n'est que la suite. Sans cette garde, l'heuristique irait chercher un
+// devis EXISTANT au nom de Morel et déposerait celui-là — le mauvais document,
+// rangé avec l'aplomb du bon. C'est précisément ce qu'on refuse de faire.
+const CREATE_VERB_RE =
+  /\b(cre(?:e|es|ez|er)|gener(?:e|es|ez|er)|redig(?:e|es|ez|er)|etabli(?:s|t|r|ssez)|prepar(?:e|es|ez|er)|produi(?:s|t|re)|fais|faites)\b/;
+
+/**
+ * La demande vise-t-elle un STOCKAGE EXTERNE (Drive, OneDrive, « mon classeur ») ?
+ *
+ * Biltia n'y dépose rien et n'y cherche rien : le connecteur a été retiré. Ce
+ * détecteur ne sert donc plus à ranger, il sert à REFUSER PROPREMENT — et
+ * surtout à ne pas laisser la demande filer ailleurs.
+ *
+ * ⚠️ NE PAS SUPPRIMER en croyant nettoyer du code mort. Sans lui, « enregistre la
+ * facture dans Google Drive » coche un verbe de données (« enregistre ») ET un nom
+ * de données (« facture ») : la demande partirait ÉCRIRE EN BASE. L'artisan
+ * voulait un fichier rangé, il obtiendrait une fiche modifiée. Ce garde-fou est ce
+ * qui l'empêche.
+ *
+ * Volontairement étroit : il faut un verbe de rangement ET une destination de
+ * stockage. « Envoie le devis au client » n'a pas de destination : il passe.
+ */
+export function mentionsExternalStorage(prompt: string): boolean {
+  const t = normalize(prompt);
+  if (!t.trim()) return false;
+  return ARCHIVE_VERB_RE.test(t) && STORAGE_RE.test(t);
+}
+
 // Noms de documents officiels → slug docType. L'ordre compte (spécifique d'abord).
 const DOC_NOUNS: { kw: string; type: string }[] = [
   { kw: "avenant", type: "avenant" },
@@ -301,6 +350,26 @@ export function classifyKindHeuristic(prompt: string, hasExistingApp = false): K
       method: "heuristic",
       confidence: Math.min(0.55 + s.ruleScore * 0.08, 0.9),
       reasoning: `mission permanente détectée (${s.ruleScore})`,
+    };
+  }
+
+  // STOCKAGE EXTERNE : « range la facture F-2026-001 dans mon Drive ». Biltia ne
+  // le fait plus (connecteur retiré) → "answer", pour que le copilote le DISE et
+  // propose la Bibliothèque. Cette branche doit rester AVANT les données : sans
+  // elle, « enregistre la facture dans Google Drive » coche DATA_VERBS
+  // (« enregistre ») ET DATA_NOUNS (« facture ») et part écrire en base. L'artisan
+  // voulait ranger un PDF, il modifierait une fiche.
+  // PRODUIRE D'ABORD. « fais-moi un devis pour Morel ET range-le dans le Drive »
+  // n'est pas une demande de rangement : c'est une PRODUCTION. Refuser tout le
+  // message pour une phrase de trop priverait l'artisan de son devis — on laisse
+  // filer vers "document", et le copilote dira simplement qu'il ne dépose pas.
+  if (mentionsExternalStorage(prompt) && !CREATE_VERB_RE.test(normalize(prompt))) {
+    return {
+      kind: "answer",
+      docType: null,
+      method: "heuristic",
+      confidence: 0.8,
+      reasoning: "stockage externe (Drive/OneDrive) : hors périmètre",
     };
   }
 

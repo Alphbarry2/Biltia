@@ -16,6 +16,8 @@ import { createAdminClient } from "@/lib/supabase-admin";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
 import { getConnector, isConnectable, filterScopes } from "@/lib/connectors";
 import { buildAuthorizeUrl, oauthConfigured, revokeToken, OAUTH_STATE_COOKIE } from "@/lib/oauth";
+import { normalizePreferences } from "@/lib/user-preferences";
+import type { Json } from "@/lib/database.types";
 import { getLocale } from "@/lib/i18n/server";
 import { pick } from "@/lib/i18n/config";
 
@@ -79,19 +81,29 @@ export async function GET(req: Request) {
   const ctx = await requireContext();
   if ("error" in ctx) return ctx.error;
 
-  const { data, error } = await ctx.admin
-    .from("user_connections")
-    .select("provider, scopes, connectors, connected_at")
-    .eq("tenant_id", ctx.tenantId)
-    .eq("user_id", ctx.user.id);
+  const [conns, profile] = await Promise.all([
+    ctx.admin
+      .from("user_connections")
+      .select("provider, scopes, connectors, connected_at, account_email")
+      .eq("tenant_id", ctx.tenantId)
+      .eq("user_id", ctx.user.id),
+    ctx.admin.from("profiles").select("preferences").eq("user_id", ctx.user.id).maybeSingle(),
+  ]);
 
-  if (error) {
+  if (conns.error) {
     return NextResponse.json(
       { error: pick(locale, "Lecture impossible.", "Unable to load connections.") },
       { status: 500 }
     );
   }
-  return NextResponse.json({ connections: data ?? [] });
+  // Le choix de compte par défaut voyage avec les connexions : l'UI en a besoin pour
+  // savoir QUELLE carte porter le badge « Par défaut » (le calcul lui-même vit dans
+  // lib/send-preference, partagé avec le serveur d'envoi).
+  const prefs = normalizePreferences((profile.data as { preferences?: unknown } | null)?.preferences);
+  return NextResponse.json({
+    connections: conns.data ?? [],
+    defaults: { email: prefs.email_provider, calendar: prefs.calendar_provider },
+  });
 }
 
 export async function POST(req: Request) {
@@ -105,7 +117,7 @@ export async function POST(req: Request) {
   const ctx = await requireContext();
   if ("error" in ctx) return ctx.error;
 
-  let body: { action?: string; connectorId?: string; provider?: string; mode?: string };
+  let body: { action?: string; connectorId?: string; provider?: string; mode?: string; capability?: string };
   try {
     body = await req.json();
   } catch {
@@ -113,6 +125,43 @@ export async function POST(req: Request) {
       { error: pick(locale, "Requête invalide.", "Invalid request.") },
       { status: 400 }
     );
+  }
+
+  // ── Choix du compte par défaut (email / agenda) ────────────────────────────
+  // Écrit dans profiles.preferences. Lu par lib/send-preference-server pour ordonner
+  // l'envoi et l'agenda — le chat comme les agents autonomes. null = automatique
+  // (premier connecté) ; on ne stocke donc QUE "google" / "microsoft".
+  if (body.action === "set-default") {
+    const capability = body.capability;
+    const provider = body.provider;
+    if (
+      (capability !== "email" && capability !== "calendar") ||
+      (provider !== "google" && provider !== "microsoft")
+    ) {
+      return NextResponse.json(
+        { error: pick(locale, "Choix invalide.", "Invalid choice.") },
+        { status: 400 }
+      );
+    }
+    const { data: profile } = await ctx.admin
+      .from("profiles")
+      .select("preferences")
+      .eq("user_id", ctx.user.id)
+      .maybeSingle();
+    const raw = (profile as { preferences?: unknown } | null)?.preferences;
+    const base = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, Json>) : {};
+    const key = capability === "email" ? "email_provider" : "calendar_provider";
+    const { error } = await ctx.admin
+      .from("profiles")
+      .update({ preferences: { ...base, [key]: provider } })
+      .eq("user_id", ctx.user.id);
+    if (error) {
+      return NextResponse.json(
+        { error: pick(locale, "Enregistrement impossible.", "Could not save.") },
+        { status: 500 }
+      );
+    }
+    return NextResponse.json({ ok: true });
   }
 
   // ── Démarrage du flux OAuth pour un connecteur ─────────────────────────────

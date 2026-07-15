@@ -21,6 +21,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { BrandKit } from "@/lib/brand";
+import { BILTIA_WORDMARK_SVG } from "@/lib/biltia-brand-svg";
 
 const MARKER = "__biltia_app_brand_v1__";
 
@@ -41,7 +42,6 @@ export function injectAppBrand(html: string, brand: BrandKit): string {
   if (!brand.logoUrl || html.includes(MARKER)) return html;
 
   const url = escAttr(brand.logoUrl);
-  const name = escAttr(brand.entreprise || "");
 
   const block = `<style>
 /* ${MARKER} */
@@ -94,6 +94,96 @@ export function injectAppBrand(html: string, brand: BrandKit): string {
     }catch(e){}
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+})();
+<\/script>`;
+
+  if (/<\/head>/i.test(html)) return html.replace(/<\/head>/i, `${block}\n</head>`);
+  if (/<body[^>]*>/i.test(html)) return html.replace(/<body[^>]*>/i, (m) => m + "\n" + block);
+  return block + html;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LE LOGO BILTIA EN HAUT DE L'APP — l'INTERFACE, pas la vitrine.
+//
+// À DISTINGUER de `injectAppBrand` ci-dessus, qui pose le logo de L'ARTISAN sur
+// ce que voit son CLIENT (portail de partage, lien public). Ici on est sur
+// l'OUTIL que l'artisan/l'employé utilise (`/a/[id]`, la visionneuse) : l'en-tête
+// porte le logo BILTIA COMPLET — la même image vectorielle que la landing et
+// l'aperçu des modèles (/t) — jamais l'icône réduite, jamais le nom de l'app
+// écrit en toutes lettres. C'est la règle « Biltia sur l'interface, l'artisan sur
+// les documents ».
+//
+// Ce que ça corrige, concrètement :
+//   • le TITRE de l'app (« Enquête Satisfaction ») ne s'affiche plus dans
+//     l'en-tête : il reste l'identité de l'app (onglet, manifeste PWA), pas un
+//     texte imprimé sur elle ;
+//   • le petit carré/icône cède la place au WORDMARK complet ;
+//   • responsive comme les modèles : le logo est dans la barre latérale (desktop)
+//     OU dans l'en-tête (mobile), JAMAIS les deux — l'anti-doublon suit la
+//     VISIBILITÉ réelle, donc quel que soit le point de rupture choisi par l'app.
+//
+// Comme `injectAppBrand`, c'est du CSS sur des CLASSES (`.app-eyebrow`,
+// `.sidebar-brand`, `.app-title`…) et non du JS qui réécrit le DOM : une règle CSS
+// survit aux re-rendus d'en-tête (innerHTML) que beaucoup d'apps font à chaque
+// écran. Le script ne fait que basculer une classe selon la visibilité + un filet
+// si l'app n'a aucune zone de marque connue.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const INTERFACE_MARKER = "__biltia_interface_wordmark_v1__";
+// En background-image : `currentColor` n'a pas de contexte → on fige l'encre, et on
+// retire la taille inline (`style="height:24px…"`) pour laisser `background-size`
+// piloter le rendu à partir du seul viewBox (ratio conservé partout).
+const WORDMARK_URI =
+  "data:image/svg+xml," +
+  encodeURIComponent(BILTIA_WORDMARK_SVG.replace(/currentColor/g, "#0A0A0A").replace(/\sstyle="[^"]*"/, ""));
+
+/** Pose le logo Biltia complet dans l'en-tête d'une app SERVIE à l'artisan (son
+ *  propre outil), et retire le nom de l'app de l'en-tête. Idempotent. */
+export function injectInterfaceWordmark(html: string): string {
+  if (html.includes(INTERFACE_MARKER)) return html;
+
+  const block = `<style>
+/* ${INTERFACE_MARKER} */
+/* Le nom de l'app ne s'imprime plus sur l'app (il reste dans l'onglet/manifeste). */
+.app-title{display:none!important}
+/* Le carré/initiale d'une app phare cède la place au wordmark. */
+.brand-logo{display:none!important}
+/* Les zones de marque deviennent le wordmark Biltia (texte masqué mais présent
+   pour les lecteurs d'écran). background-size:contain → jamais déformé. */
+.app-eyebrow,.sidebar-brand{
+  display:block!important;font-size:0!important;line-height:0!important;color:transparent!important;
+  width:74px;height:26px;
+  background:url("${WORDMARK_URI}") left center/contain no-repeat!important;
+}
+@media(max-width:480px){.app-eyebrow,.sidebar-brand{width:66px;height:23px}}
+/* Anti-doublon : quand la barre latérale (desktop) montre déjà le logo, l'en-tête
+   ne le répète pas. La classe est posée par le script selon la VISIBILITÉ réelle. */
+html.__bw-side .app-header .app-eyebrow{display:none!important}
+</style>
+<script>
+(function(){
+  function sideOn(){
+    try{
+      var s=document.querySelector('.sidebar-brand,.side-brand,.sidebar .app-eyebrow');
+      return !!(s && s.getClientRects().length);
+    }catch(e){ return false; }
+  }
+  function sync(){ try{ document.documentElement.classList.toggle('__bw-side', sideOn()); }catch(e){} }
+  function boot(){
+    /* Filet : aucune zone de marque connue → on pose une eyebrow vide en tête de
+       l'en-tête, que le CSS ci-dessus peint en wordmark. */
+    try{
+      if(!document.querySelector('.app-eyebrow,.sidebar-brand')){
+        var head=document.querySelector('.app-header')||document.querySelector('header');
+        if(head){ var d=document.createElement('div'); d.className='app-eyebrow'; head.insertBefore(d, head.firstChild); }
+      }
+    }catch(e){}
+    sync();
+    try{ new MutationObserver(sync).observe(document.body,{childList:true,subtree:true}); }catch(e){}
+    try{ window.addEventListener('resize', sync); }catch(e){}
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
 })();
 <\/script>`;

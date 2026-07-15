@@ -31,8 +31,14 @@ import {
   Plug,
   CheckCircle,
 } from "lucide-react";
-import { AGENT_TEMPLATES, localizeAgentTemplate, type AgentTemplate } from "@/lib/agent-templates";
-import { connectorsForCapability } from "@/lib/connectors";
+import {
+  AGENT_TEMPLATES,
+  localizeAgentTemplate,
+  isTemplateFree,
+  templatePricingLabel,
+  type AgentTemplate,
+} from "@/lib/agent-templates";
+import { connectorsForCapability } from "@/lib/capabilities";
 import { connectViaPopup } from "@/lib/connect-popup";
 import { useT, useLocale } from "@/lib/i18n/context";
 
@@ -188,12 +194,18 @@ export function AgentTemplateGallery({
 
             {/* Prix + action */}
             <div className="flex items-center justify-between gap-2 mt-4">
-              {t.free ? (
+              {/* Le prix est CALCULÉ depuis la grille (lib/agent-pricing.ts), plus
+                  jamais recopié dans le template. Les six cartes payantes annonçaient
+                  10 ou 25 crédits là où l'exécuteur en débitait 40 — et « planning
+                  équipe » affichait « Gratuit » alors qu'il coûte 40 par envoi. */}
+              {isTemplateFree(t) ? (
                 <span className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-emerald-600">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> {tr("Gratuit", "Free")}
                 </span>
               ) : (
-                <span className="text-[11.5px] font-medium text-[#9A9A97] tabular-nums">{t.pricing}</span>
+                <span className="text-[11.5px] font-medium text-[#9A9A97] tabular-nums">
+                  {templatePricingLabel(t, locale)}
+                </span>
               )}
 
               {isActive ? (

@@ -25,8 +25,12 @@ import Stripe from "stripe";
 // + findTierByPriceId pour la reconnaissance d'éventuels abonnements historiques.
 const TIERS = [
   [2000, 49],
-  [3000, 89],
-  [5000, 129],
+  [4000, 99],
+  [6000, 149],
+  [10000, 249],
+  [20000, 499],
+  [40000, 999],
+  [60000, 1490],
 ];
 const ANNUAL_MONTHS_BILLED = 10; // 2 mois offerts
 
@@ -124,11 +128,9 @@ for (const [credits, monthlyEur] of TIERS) {
 // ── Plan Équipe (Pro + collaboration) ─────────────────────────────────────────
 // Miroir EXACT de EQUIPE_TIERS (lib/plans.ts). Produits + prix DISTINCTS (lookup
 // biltia_equipe_*), reconnus au webhook comme plan="equipe" (→ collaboration).
-const EQUIPE_TIERS = [
-  [5000, 179],
-  [10000, 449],
-  [25000, 999],
-];
+// Plan Équipe SUPPRIMÉ (décision user 2026-07-15) : un seul plan payant (Pro) avec
+// curseur de crédits. Ses prix Stripe sont ARCHIVÉS plus bas (OBSOLETE_LOOKUP_KEYS).
+const EQUIPE_TIERS = [];
 const lkEquipe = (credits, cycle) => `biltia_equipe_${credits}_${cycle}`;
 async function findOrCreateEquipeProduct(credits) {
   for (const cycle of ["monthly", "annual"]) {
@@ -177,9 +179,11 @@ for (const [credits, monthlyEur] of EQUIPE_TIERS) {
 // Miroir EXACT de CREDIT_PACKS (lib/plans.ts). Prix « payment » (pas d'abonnement).
 const PACKS = [
   [1000, 29],
-  [3000, 99],
-  [10000, 499],
-  [25000, 1099],
+  [2000, 59],
+  [4000, 109],
+  [6000, 159],
+  [10000, 259],
+  [20000, 509],
 ];
 const lkPack = (credits) => `biltia_pack_${credits}`;
 
@@ -220,6 +224,29 @@ for (const [credits, eur] of PACKS) {
   envLines.push(`STRIPE_PACK_${credits}=${id}`);
   const status = reused ? "(déjà présent)" : retariffed ? "✓ recréé (nouveau tarif)" : "✓ créé";
   console.log(`  pack ${String(credits).padStart(6)}        ${id} ${status}`);
+}
+
+// ── Archivage des prix OBSOLÈTES (tu as 0 abonné → sans risque) ────────────────
+// Anciens paliers Pro retirés, plan Équipe supprimé, packs retirés. On DÉSACTIVE le
+// Price (active:false) : Stripe interdit la suppression ; un Price inactif n'est
+// plus proposable au checkout mais reste lisible pour l'historique. Liste EXPLICITE
+// (jamais "tout ce qui n'est pas dans la grille") pour ne jamais archiver par erreur.
+const OBSOLETE_LOOKUP_KEYS = [
+  "biltia_pro_3000_monthly", "biltia_pro_3000_annual",
+  "biltia_pro_5000_monthly", "biltia_pro_5000_annual",
+  "biltia_equipe_5000_monthly", "biltia_equipe_5000_annual",
+  "biltia_equipe_10000_monthly", "biltia_equipe_10000_annual",
+  "biltia_equipe_25000_monthly", "biltia_equipe_25000_annual",
+  "biltia_pack_3000", "biltia_pack_25000",
+];
+console.log(`\nArchivage des prix obsolètes (${OBSOLETE_LOOKUP_KEYS.length})…\n`);
+for (const lookupKey of OBSOLETE_LOOKUP_KEYS) {
+  const found = await stripe.prices.list({ lookup_keys: [lookupKey], limit: 1 });
+  const price = found.data[0];
+  if (!price) { console.log(`  ${lookupKey.padEnd(30)} (introuvable)`); continue; }
+  if (!price.active) { console.log(`  ${lookupKey.padEnd(30)} (déjà archivé)`); continue; }
+  await stripe.prices.update(price.id, { active: false });
+  console.log(`  ${lookupKey.padEnd(30)} ${price.id} ✓ archivé`);
 }
 
 console.log(

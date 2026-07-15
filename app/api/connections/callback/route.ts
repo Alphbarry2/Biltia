@@ -12,7 +12,7 @@ import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase-server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
-import { exchangeCode, refreshAccessToken, OAUTH_STATE_COOKIE } from "@/lib/oauth";
+import { exchangeCode, refreshAccessToken, accountEmailFromIdToken, OAUTH_STATE_COOKIE } from "@/lib/oauth";
 import { filterScopes, type OAuthProvider } from "@/lib/connectors";
 import { getLocale } from "@/lib/i18n/server";
 import { pick, type Locale } from "@/lib/i18n/config";
@@ -76,8 +76,26 @@ export async function GET(req: Request) {
       ? popupResult(origin, { ok: false, error: message }, locale)
       : back(origin, { error: message });
 
-  // Refus utilisateur chez le fournisseur (bouton Annuler) → retour neutre.
   if (search.get("error")) {
+    const desc = search.get("error_description") ?? "";
+    // ── MUR DU CONSENTEMENT ADMIN (Microsoft) ─────────────────────────────────
+    // App multi-locataire + éditeur non vérifié : un utilisateur NON-admin qui tente
+    // de consentir se voit refuser par Microsoft avec AADSTS90094 (« seul un admin
+    // peut accorder »). Ce N'EST PAS une annulation. Le confondre avec le bouton
+    // « Annuler » — ce que faisait le code — laissait l'artisan sur un « annulé »
+    // muet, persuadé que « ça n'a pas marché » sans savoir qu'il n'y peut rien seul.
+    // On nomme donc l'action, et le responsable : c'est son administrateur Microsoft.
+    // (Le mur disparaîtra quand l'éditeur sera vérifié — cf. lib/connectors.ts.)
+    if (/AADSTS90094|AADSTS65001|admin(istrator)?.{0,40}(consent|approv|grant|autoris)/i.test(desc)) {
+      return fail(
+        pick(
+          locale,
+          "Votre administrateur Microsoft doit d'abord autoriser Biltia pour votre organisation — c'est une exigence de Microsoft pour ce type de compte, pas un refus de Biltia. Si vous êtes vous-même l'administrateur, réessayez en acceptant au nom de l'organisation ; sinon, transmettez la demande à votre responsable informatique. Un compte Outlook personnel, lui, se connecte sans administrateur.",
+          "Your Microsoft administrator must first authorize Biltia for your organization — this is a Microsoft requirement for this kind of account, not a Biltia refusal. If you are the administrator, try again and approve on behalf of the organization; otherwise forward the request to your IT lead. A personal Outlook account connects without any administrator."
+        )
+      );
+    }
+    // Sinon : refus volontaire (bouton Annuler) → retour neutre.
     return popup ? popupResult(origin, { ok: false }, locale) : back(origin, { canceled: "1" });
   }
 
@@ -107,11 +125,20 @@ export async function GET(req: Request) {
     // Fusion avec les scopes déjà accordés (connexion incrémentale).
     const { data: existing } = await admin
       .from("user_connections")
-      .select("scopes, connectors, refresh_token")
+      .select("scopes, connectors, refresh_token, account_email")
       .eq("tenant_id", membership.tenant_id)
       .eq("user_id", user.id)
       .eq("provider", expected.provider)
       .maybeSingle();
+
+    // Sur quel compte l'artisan vient-il de se brancher ? Lu dans l'id_token (aucun
+    // appel réseau). On retombe sur l'email déjà stocké si le fournisseur n'a pas
+    // renvoyé d'id_token exploitable (un connecteur ajouté ne doit pas effacer
+    // l'adresse affichée pour les autres outils du même compte).
+    const accountEmail =
+      accountEmailFromIdToken(tokens.id_token) ??
+      (existing as { account_email?: string | null } | null)?.account_email ??
+      null;
 
     // ── CE QUE L'ARTISAN A BRANCHÉ, PAS CE QUE GOOGLE A BIEN VOULU RENDRE ───────
     // Google renvoie TOUS les droits jamais accordés à l'application
@@ -161,6 +188,7 @@ export async function GET(req: Request) {
         provider: expected.provider,
         scopes,
         connectors: enabledConnectors,
+        account_email: accountEmail,
         access_token: access,
         // Google n'émet pas toujours un nouveau refresh_token : garder l'ancien.
         refresh_token: refresh,

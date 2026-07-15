@@ -12,12 +12,12 @@
 // utile. Ici : UNE lecture, sans réseau (aucun rafraîchissement de jeton — on
 // lit l'INTENTION de l'artisan, cf. migration 055 `connectors`), et il sait.
 //
-// LA LIMITE DU CLASSEUR, à dire telle quelle : le scope Google est `drive.file`
-// (lib/gdrive.ts) — Biltia peut DÉPOSER un fichier dans le Drive, et ne voit que
-// ce qu'il y a lui-même déposé. Il ne peut ni lire, ni lister, ni déplacer ce qui
-// s'y trouvait déjà. Ce n'est pas une lacune à combler : c'est le scope minimal
-// qui nous évite l'audit CASA, et il est assumé. Le copilote doit le dire
-// clairement, pas s'en excuser ni le contourner par une promesse creuse.
+// PAS DE STOCKAGE EXTERNE, et il faut que le copilote le SACHE. Les connecteurs
+// Google Drive et OneDrive ont été retirés : Biltia ne dépose rien dehors et ne
+// va rien y chercher. Le bloc ci-dessous le lui dit en toutes lettres — parce
+// qu'un modèle à qui l'on ne dit rien invente, et qu'un copilote qui promet un
+// dépôt qu'il ne fera jamais est exactement le bug qu'on a passé une journée à
+// corriger, à l'envers.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { createAdminClient } from "./supabase-admin";
@@ -29,8 +29,6 @@ export type ConnectionSnapshot = {
   email: { connected: boolean; label: string | null };
   /** Lecture/écriture de l'agenda (Google Agenda ou Outlook Calendar). */
   calendar: { connected: boolean; label: string | null };
-  /** Le « classeur » : Google Drive ou OneDrive. */
-  classeur: { connected: boolean; label: string | null };
 };
 
 // Les connecteurs qui servent chaque capacité, du plus courant au moins courant.
@@ -38,12 +36,10 @@ export type ConnectionSnapshot = {
 // plus diverger.
 const EMAIL: [string, string][] = [["gmail", "Gmail"], ["outlook", "Outlook"]];
 const AGENDA: [string, string][] = [["google-calendar", "Google Agenda"], ["outlook-calendar", "Outlook Calendar"]];
-const CLASSEUR: [string, string][] = [["google-drive", "Google Drive"], ["onedrive", "OneDrive"]];
 
 const AUCUNE: ConnectionSnapshot = {
   email: { connected: false, label: null },
   calendar: { connected: false, label: null },
-  classeur: { connected: false, label: null },
 };
 
 /**
@@ -97,7 +93,6 @@ export async function connectionSnapshot(
     return {
       email: premier(actifs, EMAIL),
       calendar: premier(actifs, AGENDA),
-      classeur: premier(actifs, CLASSEUR),
     };
   } catch {
     return AUCUNE;
@@ -141,22 +136,18 @@ export function buildConnectionsBlock(snap: ConnectionSnapshot, locale: Locale):
     `# CONNEXIONS DE CET ARTISAN (état réel, lu à l'instant — ne DEVINE jamais, ne demande pas « est-ce connecté ? »)
 - Envoi d'emails : ${etat(snap.email, aProposer(EMAIL, locale))}
 - Agenda : ${etat(snap.calendar, aProposer(AGENDA, locale))}
-- Classeur (où tu ranges les documents) : ${etat(snap.classeur, aProposer(CLASSEUR, locale))}
 
-CE QUE TU FAIS AVEC LE CLASSEUR (dis-le tel quel, sans jamais promettre plus) :
-- Tu SAIS y DÉPOSER un fichier : un document que tu viens de produire (devis, facture, PV, courrier), ou un fichier que l'artisan JOINT ici même au chat. Il est rangé dans « Biltia / <nom du chantier> ».
-- Tu ne SAIS PAS aller chercher un fichier déjà présent dans son Drive, ni le lire, ni le lister, ni le déplacer : Biltia ne voit QUE les fichiers qu'il y a lui-même déposés. Tu ne sais pas non plus atteindre un fichier resté sur son ordinateur.
-- Donc : « transfère mon PDF sur le Drive » → tu réponds qu'il te le JOIGNE ici (trombone), et tu le ranges. C'est une phrase utile, pas un refus.
-- Si le classeur n'est PAS branché : « Ton classeur n'est pas encore branché — connecte Google Drive ou OneDrive dans Connecteurs et je range tes documents dedans. » Jamais « ce n'est pas dans mes capacités » : c'est à un branchement près.`,
+STOCKAGE EXTERNE (Google Drive, OneDrive, Dropbox…) : TU N'EN AS PAS. Aucune connexion, aucun dépôt, aucune lecture.
+- Ne promets JAMAIS de ranger un document « dans son Drive », même au futur, même « dès que c'est prêt ». Tu ne le feras pas.
+- Dis-le simplement, et enchaîne sur ce qui est VRAI : ses devis et ses factures sont déjà conservés par Biltia (workspace + Bibliothèque), leur PDF se télécharge à tout moment, et il part en pièce jointe au client quand il l'envoie. Il n'a rien à ranger à la main.
+- S'il veut te faire lire un fichier, qu'il te le JOIGNE ici (trombone). Ça, tu sais le faire.`,
     `# THIS TRADESPERSON'S CONNECTIONS (real state, read just now — never GUESS, never ask "is it connected?")
 - Sending email: ${etat(snap.email, "connect Gmail or Outlook in Connectors")}
 - Calendar: ${etat(snap.calendar, "connect Google Calendar or Outlook in Connectors")}
-- Filing space (Drive/OneDrive): ${etat(snap.classeur, "connect Google Drive or OneDrive in Connectors")}
 
-WHAT YOU CAN DO WITH THE FILING SPACE (say exactly this, never promise more):
-- You CAN drop a file into it: a document you just produced (quote, invoice, report, letter), or a file the user ATTACHES here in the chat. It is filed under "Biltia / <site name>".
-- You CANNOT fetch, read, list or move a file that is already in their Drive: Biltia only sees the files it put there itself. You also cannot reach a file left on their computer.
-- So: "move my PDF to Drive" → ask them to ATTACH it here (paperclip) and you file it. That is a useful answer, not a refusal.
-- If the filing space is NOT connected: "Your filing space isn't connected yet — add Google Drive or OneDrive in Connectors and I'll file your documents there." Never "that's outside my capabilities": it's one connection away.`
+EXTERNAL STORAGE (Google Drive, OneDrive, Dropbox…): YOU HAVE NONE. No connection, no upload, no reading.
+- NEVER promise to file a document "into their Drive", not even later, not even "as soon as it's ready". You will not do it.
+- Say so plainly, then pivot to what is TRUE: their quotes and invoices are already kept by Biltia (workspace + Library), the PDF can be downloaded at any time, and it goes out as an attachment when they send it. Nothing to file by hand.
+- If they want you to read a file, ask them to ATTACH it here (paperclip). That, you can do.`
   );
 }

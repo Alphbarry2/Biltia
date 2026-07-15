@@ -6,7 +6,7 @@
 // « préviens-moi par email dès qu'un événement est ajouté à mon agenda » a créé
 // un agent ACTIF qui surveillait… les NOUVELLES FICHES CLIENT du workspace, et
 // qui notifiait en push au lieu d'envoyer un email. Trois causes :
-//   1. aucun veilleur ne lit l'agenda (les 51 veilleurs lisent des tables du
+//   1. aucun veilleur ne lit l'agenda (les 52 veilleurs lisent des tables du
 //      workspace, rien d'externe) ;
 //   2. le prompt de parsing ORDONNAIT au modèle de toujours « prendre le veilleur
 //      le plus proche, même si aucun mot ne colle » (l'ancienne RÈGLE D'OR) ;
@@ -197,6 +197,14 @@ export const WATCHER_PROFILES: Record<WatcherKey, WatcherProfile> = {
   equipe_surchargee: { subjects: ["equipe"], watch: "les intervenants qui ont trop de travail ouvert" },
   stock_bas: { subjects: ["materiau"], watch: "les matériaux passés sous leur seuil d'alerte" },
   nouveau_lead: { subjects: ["lead", "client"], watch: "les nouvelles demandes reçues via votre formulaire public" },
+  nouveau_document: {
+    subjects: ["devis", "facture_client", "document"],
+    // L'artisan dit « un document », « une pièce », « un papier » — presque jamais
+    // « un devis OU une facture ». Sans ces mots-là, la mission ne trouve pas son
+    // capteur et se fait refuser, alors que le capteur existe.
+    extra: ["document", "documents", "papier", "papiers", "piece", "pieces", "enregistre", "enregistré", "cree", "créé", "nouveau", "nouvelle"],
+    watch: "les devis et factures qui viennent d'être enregistrés dans votre Workspace",
+  },
   nouveau_client: { subjects: ["client"], watch: "les fiches client nouvellement créées dans votre Workspace" },
   nouveau_chantier: { subjects: ["chantier"], watch: "les fiches chantier nouvellement créées dans votre Workspace" },
   pointage_manquant: { subjects: ["pointage", "equipe"], watch: "les employés qui n'ont pas pointé récemment" },
@@ -485,6 +493,13 @@ export function judgeFeasibility(input: {
   }
 
   // (b) LE MODÈLE A DIT NON — on l'écoute, au lieu de le forcer à choisir quand même.
+  //
+  // Il y avait ici un filet qui ANNULAIT le refus dès que le motif mentionnait le
+  // Drive : Biltia savait déposer, et le modèle refusait à tort. Le connecteur a
+  // été retiré, donc le refus est devenu la BONNE réponse — et le filet, un
+  // mensonge automatique. Il est parti avec le classeur. Ne pas le réintroduire
+  // sans avoir d'abord un endroit réel où déposer.
+
   if (!feasible) {
     const why = blockerReason.trim();
     return {
