@@ -18,6 +18,8 @@ import { computeStoredScope } from "@/lib/data-scope";
 import { buildStaticClarifyQuestions } from "@/lib/clarify-questions";
 import { CreditsUpsell } from "@/components/credits-upsell";
 import { ConnectCard } from "@/components/connect-card";
+import { AgentCreatedCard } from "@/components/agent-created-card";
+import type { AgentCard } from "@/lib/agent-card";
 import {
   AnalysisView,
   ReportView,
@@ -90,6 +92,9 @@ type Message = {
   /** Rendu client généré : l'image s'affiche dans la bulle, avec un lien de
    *  téléchargement pour la joindre au devis. */
   imageUrl?: string;
+  /** Agent créé : carte structurée (badge « activé », déclencheur, action, coût,
+   *  bouton « Voir l'agent ») affichée À LA PLACE de la bulle texte. */
+  agentCard?: AgentCard;
 };
 
 // Portée des données transmise à /api/generate (branchement de l'app).
@@ -2120,6 +2125,16 @@ export default function GeneratePage() {
       // Agent recruté (mission permanente) : le serveur a créé la règle et
       // renvoie le message du chat (« jamais muet »), y compris si l'agent est
       // né « bloqué » (info manquante réclamée). Rien à générer.
+      if (data.kind === "rule" && data.agentCard && typeof data.agentCard === "object") {
+        // Un agent a bien été créé : on affiche la CARTE (badge « activé »,
+        // déclencheur, action, coût, bouton) au lieu du pavé markdown brut. Le
+        // message texte reste le repli pour les refus (branche ci-dessous).
+        setMessages((prev) => [...prev, { role: "assistant", content: "", agentCard: data.agentCard as AgentCard }]);
+        // En attente d'une connexion → cartes inline juste sous la carte agent ;
+        // une fois connecté, l'agent existant s'active par son id (anti-doublon).
+        startConnectFlowFromData(data, apiPrompt);
+        return;
+      }
       if (data.kind === "rule" && typeof data.message === "string" && data.message) {
         setMessages((prev) => [...prev, { role: "assistant", content: data.message }]);
         // Agent bloqué faute de connexion → cartes inline ; une fois connecté, on
@@ -2784,15 +2799,21 @@ export default function GeneratePage() {
                 </div>
               )}
               <div className="max-w-[85%] flex flex-col items-start gap-2">
-                <div
-                  className={`whitespace-pre-wrap px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed ${
-                    msg.role === "user"
-                      ? "bg-[#0A0A0A] text-white rounded-tr-sm"
-                      : "bg-[#F6F6F9] text-[#0A0A0A] rounded-tl-sm border border-[#ECECF2]"
-                  }`}
-                >
-                  {msg.content}
-                </div>
+                {msg.agentCard ? (
+                  // Agent créé : la carte remplace la bulle (badge « activé »,
+                  // déclencheur, action, coût, bouton « Voir l'agent »).
+                  <AgentCreatedCard card={msg.agentCard} />
+                ) : (
+                  <div
+                    className={`whitespace-pre-wrap px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed ${
+                      msg.role === "user"
+                        ? "bg-[#0A0A0A] text-white rounded-tr-sm"
+                        : "bg-[#F6F6F9] text-[#0A0A0A] rounded-tl-sm border border-[#ECECF2]"
+                    }`}
+                  >
+                    {msg.content}
+                  </div>
+                )}
 
                 {/* RENDU CLIENT — l'image est le livrable, pas une décoration :
                     elle s'affiche en grand et se télécharge en un clic pour partir

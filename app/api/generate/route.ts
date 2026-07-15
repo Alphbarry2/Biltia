@@ -1862,6 +1862,9 @@ export async function POST(req: Request) {
         blocked: recruited.blocked,
         ruleId: recruited.ruleId,
         message: recruited.message,
+        // Carte « Agent activé » (nom, déclencheur, action, coût, bouton) : le chat
+        // l'affiche à la place du message brut dès qu'un agent est vraiment créé.
+        ...(recruited.agentCard ? { agentCard: recruited.agentCard } : {}),
         // Manques de capacité détectés au preflight (bloquants ou recommandations).
         gaps: recruited.gaps ?? [],
         ...(ruleConnectors.length ? { connectors: ruleConnectors } : {}),

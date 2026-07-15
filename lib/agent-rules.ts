@@ -40,6 +40,7 @@ import { buildSpec, coerceConditionGroup, coerceRecipientTargets, type ParsedAct
 import { buildEventWatcherDescription } from "./watcher-parser-docs";
 import { coerceRelativeDate, RELATIVE_DATE_FIELDS, type RelativeDateConfig } from "./agent-triggers";
 import { ACTION_CREDITS } from "./plans";
+import { agentCostRow, capitalizeAction, type AgentCard, type AgentCardRow } from "./agent-card";
 
 // COMPRÉHENSION AVANT VITESSE (2026-07-07) : le recruteur d'agents lit la mission
 // avec Sonnet 5, pas Haiku. Comprendre la vraie intention (« relance mon ami tous
@@ -1138,8 +1139,13 @@ export type CreateRuleResult = {
   ok: boolean;
   ruleId: string | null;
   blocked: boolean;
-  /** Message prêt pour le chat (« jamais muet »). */
+  /** Message prêt pour le chat (« jamais muet »). Sert de REPLI : quand un agent
+   *  est vraiment créé, le chat affiche la CARTE (agentCard) à la place. */
   message: string;
+  /** Carte structurée « Agent activé » (nom, déclencheur, action, coût, bouton).
+   *  Présente UNIQUEMENT quand un agent a bien été écrit (ok) — les refus (quota,
+   *  plan, faisabilité) gardent le message texte. cf. lib/agent-card. */
+  agentCard?: AgentCard | null;
   /** Manques de capacité détectés au preflight (bloquants si !ok, sinon recommandations). */
   gaps?: CapabilityGap[];
   usage?: ParsedRule["usage"];
@@ -1474,7 +1480,20 @@ export async function createAgentRule(opts: {
     const message =
       `🤖 Agent recruté : **${title}**. Je surveille la date « ${rel.dateField} » de vos ${rel.entityType} en continu — ` +
       `${whenLabel}, ${actLabel}. Chaque fiche n'est traitée qu'une fois.${warnNote} Retrouvez-le dans **Agents**.`;
-    return { ok: true, ruleId: insertedRel.id, blocked: false, message, gaps: readiness.gaps, usage: parsed.usage };
+    const relCostUnit = evType === "send_email" ? "relance" : evType === "act" ? "action" : "fiche traitée";
+    const relAgentCard: AgentCard = {
+      ruleId: insertedRel.id,
+      title,
+      status: "active",
+      rows: [
+        { kind: "when", value: `${whenLabel} la date « ${rel.dateField} »`, hint: `sur vos ${rel.entityType}` },
+        { kind: "action", value: capitalizeAction(actLabel) },
+        agentCostRow(action.estimatedCreditsPerRun, { event: true, perUnitLabel: relCostUnit }),
+      ],
+      footnote: "Chaque fiche n'est traitée qu'une seule fois.",
+      pending: null,
+    };
+    return { ok: true, ruleId: insertedRel.id, blocked: false, message, agentCard: relAgentCard, gaps: readiness.gaps, usage: parsed.usage };
   }
 
   // ── DÉCLENCHEUR ÉVÉNEMENTIEL : « dès qu'une fiche remplit la condition » ─────
@@ -1608,11 +1627,37 @@ export async function createAgentRule(opts: {
         : `🤖 Agent recruté : **${title}**. Je surveille ${watching}${daysNote} en continu : ` +
           `dès qu'une fiche correspond, ${actLabel}. Chaque fiche n'est traitée qu'une fois (pas de spam).${judgeNote} ` +
           `Retrouvez-le dans **Agents**.${warnNote}`;
+      // Carte structurée : l'unité de coût suit l'action réelle (un veilleur jugé
+      // débite « par lot analysé », une relance « par relance »…). L'action est
+      // épurée de ses parenthèses pour la carte (la nuance reste dans le workspace).
+      const evCostUnit =
+        evType === "send_email"
+          ? "relance"
+          : evType === "compte_rendu"
+            ? "compte-rendu"
+            : evType === "act"
+              ? "action"
+              : "lot analysé";
+      const evAgentCard: AgentCard = {
+        ruleId: insertedEvt.id,
+        title,
+        status: pendingConnection ? "pending" : "active",
+        rows: [
+          { kind: "when", value: "Dès qu'une fiche correspond", hint: `${watching}${daysNote}`.trim() },
+          { kind: "action", value: capitalizeAction(actLabel.replace(/\s*\([^)]*\)/g, "").trim()) },
+          agentCostRow(action.estimatedCreditsPerRun, { event: true, perUnitLabel: evCostUnit }),
+        ],
+        footnote: pendingConnection ? null : "En continu · chaque fiche n'est traitée qu'une seule fois.",
+        pending: pendingConnection
+          ? `Il manque : ${summarizeGaps(blockingGaps)}. Connectez ci-dessous, je l'active aussitôt.`
+          : null,
+      };
       return {
         ok: true,
         ruleId: insertedEvt.id,
         blocked: pendingConnection,
         message,
+        agentCard: evAgentCard,
         gaps: readiness.gaps,
         usage: parsed.usage,
       };
@@ -1753,7 +1798,57 @@ export async function createAgentRule(opts: {
     }. ${priceLine} Je m'en occupe.`;
   }
 
-  return { ok: true, ruleId: inserted.id, blocked, message: message + warnNote, gaps: readiness.gaps, usage: parsed.usage };
+  // ── CARTE STRUCTURÉE (planifié) : les MÊMES faits que le message, mais rangés
+  // en lignes pour que l'artisan repère d'un coup l'état, le rythme et le prix. ──
+  const schedActionLabel =
+    action.type === "team_planning"
+      ? "J'envoie le planning à chaque membre de l'équipe"
+      : action.type === "send_email"
+        ? "J'envoie le message préparé au destinataire"
+        : action.type === "report"
+          ? "Je vous envoie le rapport"
+          : action.type === "compte_rendu"
+            ? "Je rédige le compte-rendu"
+            : action.type === "act"
+              ? "Je réalise l'action puis vous rends compte"
+              : "Je vous envoie un rappel";
+  const schedRows: AgentCardRow[] = [
+    { kind: "when", value: capitalizeAction(planning) },
+    { kind: "action", value: schedActionLabel },
+  ];
+  if (action.recipients.length && (action.type === "team_planning" || action.type === "send_email")) {
+    const qui = describeTeamFilter(action.teamFilter);
+    const noms = action.recipients.map((r) => r.name).filter(Boolean);
+    const liste = noms.length <= 5 ? noms.join(", ") : `${noms.slice(0, 5).join(", ")} et ${noms.length - 5} autre(s)`;
+    schedRows.push({
+      kind: "recipients",
+      value: `${action.recipients.length} personne(s)${qui ? ` ${qui}` : ""}`,
+      hint: liste || null,
+    });
+  }
+  schedRows.push(agentCostRow(action.estimatedCreditsPerRun, { perMonth }));
+  const schedBlockedHint =
+    missing?.field === "email"
+      ? " Donnez-moi son email, ou complétez sa fiche."
+      : missing?.field === "content"
+        ? " Dites-moi quoi envoyer."
+        : "";
+  const schedPending =
+    blockedReason === PENDING_CONNECTION_REASON
+      ? `Il manque : ${summarizeGaps(blockingGaps)}. Connectez ci-dessous, je l'active aussitôt.`
+      : blocked
+        ? `Avant de démarrer : ${blockedReason}.${schedBlockedHint}`
+        : null;
+  const schedAgentCard: AgentCard = {
+    ruleId: inserted.id,
+    title: parsed.title,
+    status: blocked ? "pending" : "active",
+    rows: schedRows,
+    footnote: blocked ? null : `Premier passage ${nextRun ? formatRunDate(nextRun) : "à planifier"}.`,
+    pending: schedPending,
+  };
+
+  return { ok: true, ruleId: inserted.id, blocked, message: message + warnNote, agentCard: schedAgentCard, gaps: readiness.gaps, usage: parsed.usage };
 }
 
 // ── Activation d'un AGENT PRÊT À L'EMPLOI (template) ──────────────────────────
