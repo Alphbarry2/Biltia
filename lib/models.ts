@@ -467,7 +467,25 @@ Object.assign(MODELS, {
     // OpenRouter, qui a du crédit (c'est déjà lui qui sert DeepSeek).
     pricing: { input: 3, output: 15 },
     strengths:
-      "CRÉATION D'APPLICATION retenue (banc A/B du 2026-07-15, choix user) : ~90 % de la qualité de design d'Opus pour ~55 % du coût, très au-dessus de DeepSeek (hero plat, peu d'interactions). La vraie main de designer Claude, via OpenRouter.",
+      "Design proche d'Opus. REPLI de création d'app depuis le 2026-07-16 (voir Grok 4.5). ⚠️ Prix ci-dessus (3/15) = tarif STANDARD Anthropic, en vigueur à partir du 2026-09-01. Jusqu'au 2026-08-31, tarif d'INTRODUCTION 2/10 (celui du banc A/B). Le relevé réel (usage.cost) prime de toute façon. La vraie main de designer Claude, via OpenRouter.",
+    vision: true,
+    wired: true,
+  },
+  "x-ai/grok-4.5": {
+    id: "x-ai/grok-4.5",
+    provider: "openrouter",
+    label: "Grok 4.5 (via OpenRouter)",
+    modality: "text",
+    capabilities: ["design", "code", "writing", "reasoning"],
+    contextWindow: 500_000,
+    // Tarif xAI standard, servi par OpenRouter. AUCUNE hausse annoncée — contrairement
+    // à Sonnet 5, qui passe de 2/10 à 3/15 le 2026-09-01 : à cette date Grok devient
+    // ~2,5× moins cher que Sonnet (×1,65 aujourd'hui). Le RELEVÉ réel (usage.cost via
+    // lib/llm.ts → realCostUsd) prime de toute façon sur ce catalogue (cf. ai-usage.ts) ;
+    // ce prix n'est qu'un repli.
+    pricing: { input: 2, output: 6 },
+    strengths:
+      "CRÉATION D'APPLICATION RETENUE (banc A/B des 15-16/07, choix user). Design le plus proche d'Opus/Sonnet, apps riches (~21k tokens, ~59 Ko) et le MOINS cher des modèles « riches » : ~0,14 €/app, ~40 % sous Sonnet aujourd'hui, 2,5× sous Sonnet après le 2026-09-01. Voit les images. Repli syntaxe couvert par le réparateur silencieux (lib/app-syntax.ts).",
     vision: true,
     wired: true,
   },
@@ -515,8 +533,9 @@ export const CAPABILITY_RANKING: Record<ModelCapability, string[]> = {
 //   MODEL_TIER_MEDIUM=deepseek/deepseek-v4-pro     # documents, itérations légères, copilote
 //   MODEL_TIER_COMPLEX=deepseek/deepseek-v4-pro    # grosses tâches agents — N'EST PLUS le
 //                                                  # modèle de création d'app (voir MODEL_APP_BUILD)
-//   MODEL_APP_BUILD=anthropic/claude-sonnet-5      # CRÉATION D'APP : le design prime (banc A/B
-//                                                  # 15/07 : ~90 % d'Opus pour ~55 % du coût)
+//   MODEL_APP_BUILD=x-ai/grok-4.5                  # CRÉATION D'APP : le design prime (bancs A/B
+//                                                  # 15-16/07, choix user : design ≈ Sonnet, ~40 %
+//                                                  # moins cher, 2,5× moins cher que Sonnet dès le 1/09)
 //   MODEL_VISION=qwen/qwen3-vl-235b-a22b-instruct  # 99,1 % des champs · 0,0005 $/document
 //
 // Challengers ÉCARTÉS, et pourquoi (mesuré, pas supposé) :
@@ -546,18 +565,26 @@ export const TIER_COMPLEX = env("MODEL_TIER_COMPLEX", "claude-opus-4-8");
  * de DESIGN, pas de code brut. Les paliers, eux, restent pilotés vers le modèle de
  * code le moins cher pour les agents, la classification et le copilote.
  *
- * Défaut = Sonnet 5 via OpenRouter. Pourquoi ce chemin précis :
- *   • la clé Anthropic DIRECTE est sans crédit → Opus/Sonnet en direct = 400 ;
- *     OpenRouter, lui, a du crédit (il sert déjà DeepSeek). D'où l'ID « anthropic/… ».
- *   • banc A/B du 2026-07-15 (choix user) : Sonnet ≈ 90 % de la qualité design d'Opus
- *     pour ~55 % du coût (~0,45 $ vs ~0,80 $/app) ; DeepSeek très en dessous (hero
- *     plat, 2 graphiques, quasi zéro interaction). L'app se vend un prix FIXE
- *     (ACTION_CREDITS), donc le surcoût ne touche que la marge (~99 % → ~94 %).
+ * Défaut = Grok 4.5 via OpenRouter (décision user 2026-07-16, après deux bancs A/B
+ * les 15 et 16/07 sur 8 apps BTP réelles : suivi de chantier, finance, kanban, stock,
+ * planning, CRM, pointage, trésorerie, gestion d'équipe). Pourquoi Grok :
+ *   • DESIGN : jugé le plus proche d'Opus/Sonnet à l'œil (apps riches ~21k tokens,
+ *     ~59 Ko), très au-dessus de DeepSeek (hero plat) et de Luna/Gemini (maigres ou
+ *     incohérents). Opus reste la référence mais coûte ~4×.
+ *   • COÛT : le MOINS cher des modèles « riches ». ~0,14 €/app, soit ~40 % sous Sonnet
+ *     aujourd'hui — et ~2,5× sous Sonnet à partir du 2026-09-01, quand Sonnet 5 quitte
+ *     son tarif d'introduction (2/10 → 3/15). Grok, lui, n'a aucune hausse annoncée.
+ *   • MARGE : l'app se vend un prix FIXE (ACTION_CREDITS = 300 cr ≈ 7,35 €), donc le
+ *     coût du modèle ne touche que la marge — ~98 % avec Grok, sur tous les paliers.
+ *   • FIABILITÉ : une rare erreur JS est rattrapée en silence (lib/app-syntax.ts).
+ *   • la clé Anthropic DIRECTE est sans crédit → tout passe par OpenRouter (qui a du
+ *     crédit) ; d'où les ID « fournisseur/modèle ».
  *
- * Pilotable sans déploiement : MODEL_APP_BUILD=anthropic/claude-opus-4.8 pour le haut
- * de gamme, ou un modèle OpenRouter bon marché pour revenir en arrière.
+ * Repli d'une ligne : MODEL_APP_BUILD=anthropic/claude-sonnet-5 (design ≈ équivalent,
+ * plus cher), ou =anthropic/claude-opus-4.8 pour le haut de gamme, ou un modèle
+ * OpenRouter bon marché pour revenir en arrière. Pilotable sans déploiement.
  */
-export const MODEL_APP_BUILD = env("MODEL_APP_BUILD", "anthropic/claude-sonnet-5");
+export const MODEL_APP_BUILD = env("MODEL_APP_BUILD", "x-ai/grok-4.5");
 
 /** Modèle de VISION (photos, plans, PDF). Séparé des paliers : tous les modèles
  *  texte bon marché (DeepSeek, GLM) sont AVEUGLES — seuls Claude, Qwen et Mistral

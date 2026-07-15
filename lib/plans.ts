@@ -60,15 +60,26 @@ export interface Plan {
 export const UNLIMITED = Number.POSITIVE_INFINITY;
 
 /**
- * Coût interne (EUR) qu'UN crédit « achète ». C'est le levier de marge :
- *   marge = 1 − CREDIT_COST_EUR / prix_net_par_crédit.
- * MESURÉ (OpenRouter, juillet 2026) : les modèles de prod (DeepSeek/Mistral/Qwen)
- * coûtent en réalité ~0,0001 à 0,0015 €/crédit selon l'action (une app ≈ 0,08 $
- * pour 300 crédits ≈ 0,0003 €/cr ; une question ≈ 0,0015 €/cr, le PIRE cas).
- * On garde 0,001 comme PLAFOND prudent (≈ pire cas × 1,5, buffer volatilité des
- * providers) : la marge réelle est donc ≥ celle calculée ici, jamais l'inverse.
+ * Coût interne (EUR) qu'UN crédit « achète » — c'est un PLAFOND prudent qui sert de
+ * SEUIL D'ALARME DE MARGE (voir trackAiUsage) et de base au reporting interne, PAS
+ * un débit : la facturation client passe TOUJOURS par ACTION_CREDITS, jamais par ce
+ * nombre. Le relever ne change donc aucune facture, seulement le niveau à partir
+ * duquel la console admin crie au dérapage.
+ *
+ * MESURÉ (OpenRouter, juillet 2026). Tant que la prod tournait sur un modèle bon
+ * marché (DeepSeek/Mistral), l'action la plus chère au crédit plafonnait à ~0,0015
+ * €/cr et 0,001 suffisait. En passant le moteur d'APPLICATIONS sur un modèle de
+ * design premium (Grok 4.5 / Sonnet 5, banc du 15/07), le pire cas s'est déplacé sur
+ * la MODIFICATION d'app — elle renvoie tout le HTML au modèle à chaque tour :
+ *   • Grok 4.5   : ~0,21 €/100 cr = 0,0021 €/cr
+ *   • Sonnet 5   : ~0,35 €/100 cr = 0,0035 €/cr
+ * (la CRÉATION, elle, reste sous 0,0008 €/cr). À 0,001, chaque retouche d'app
+ * déclenchait donc une fausse alarme. On monte le plafond à 0,003 (≈ pire cas Grok
+ * × 1,4, buffer volatilité des opérateurs via sort:"throughput") : en dessous =
+ * fonctionnement normal, silencieux ; au-dessus = vrai dérapage à regarder. La
+ * marge réelle reste ≥ celle-ci, jamais l'inverse.
  */
-export const CREDIT_COST_EUR = 0.001;
+export const CREDIT_COST_EUR = 0.003;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LE TARIF D'UNE ACTION — SOURCE UNIQUE DE VÉRITÉ (code ET page /tarifs).
