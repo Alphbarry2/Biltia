@@ -63,6 +63,7 @@ import {
 } from "@/lib/file-reading";
 import { ACTION_CREDITS, TRIAL_DAYS } from "@/lib/plans";
 import { findBindingViolations, buildBindingRepairPrompt } from "@/lib/app-guards";
+import { findSyntaxError, buildSyntaxRepairPrompt } from "@/lib/app-syntax";
 import { getLocale } from "@/lib/i18n/server";
 import { withLocale, localeInstruction } from "@/lib/i18n/llm";
 
@@ -2868,6 +2869,68 @@ RATTRAPAGE RESPONSIVE (amélioration attendue, PAS un écart) : si le CSS de l'a
     // Une seule passe, ciblée sur le câblage — la consigne interdit explicitement
     // de toucher au design. Coût : un tour de plus, uniquement quand c'est cassé.
     if (!isDocument && html.length > 0) {
+      // ── RÉPARATION SYNTAXE (CRITIQUE — avant tout le reste) ────────────────
+      // Une SyntaxError = app BLANCHE : tout le script meurt, l'artisan ne peut
+      // même pas changer de page. Un modèle de DESIGN (Sonnet) trébuche parfois
+      // dessus (apostrophe française sur/sous-échappée, parenthèse non refermée) là
+      // où DeepSeek ne le faisait pas — c'est le FILET qui rend la bascule sûre.
+      // On PARSE le JS produit (acorn, zéro exécution) et, si ça ne parse pas, on
+      // répare EN SILENCE avant de livrer : l'utilisateur ne voit qu'un chargement,
+      // jamais l'erreur ni la correction. 2 essais (le 2ᵉ sur le modèle de CODE
+      // fiable, MODEL_STANDARD), gardés seulement s'ils parsent VRAIMENT propre et
+      // restent une app entière ; sinon on livre l'original (état actuel, pas pire).
+      let sErr = findSyntaxError(html);
+      for (let essai = 0; sErr && essai < 2; essai++) {
+        const resteSyntaxeMs = BUDGET_MS - FINALISATION_MS - (Date.now() - t0);
+        const coutSyntaxeMs = Math.ceil(html.length / 1024) * REPAIR_MS_PAR_KO;
+        if (coutSyntaxeMs >= resteSyntaxeMs) {
+          console.warn(
+            `[generate] réparation SYNTAXE abandonnée (temps) — SyntaxError restante : ${sErr.message}`
+          );
+          break;
+        }
+        // 1er essai : le modèle qui a construit l'app (il corrige sa propre bévue).
+        // 2e essai : le modèle de CODE fiable (DeepSeek en prod), meilleur pour un
+        // fix ciblé « ne change que ça ».
+        const repairModel = essai === 0 ? usedModel : MODEL_STANDARD;
+        console.warn(
+          `[generate] SyntaxError détectée (${sErr.message}) → réparation syntaxe ${essai + 1}/2 [${repairModel}]`
+        );
+        const stopS = new AbortController();
+        const minuteurS = setTimeout(() => stopS.abort(), resteSyntaxeMs);
+        try {
+          const repair = await runTurns(
+            [
+              { type: "text", text: buildSyntaxRepairPrompt(sErr) },
+              { type: "text", text: `Voici l'application à corriger :\n\n${html}` },
+            ],
+            repairModel,
+            false, // silencieux : la version réparée part dans l'événement `done`
+            stopS.signal
+          );
+          const fixed = keepDocumentOnly(stripFences(repair.text));
+          inTok += repair.inTok;
+          outTok += repair.outTok;
+          realCost += repair.realCost;
+          const fixedErr = findSyntaxError(fixed);
+          if (!fixedErr && fixed.length > html.length * 0.7) {
+            html = fixed;
+            sErr = null; // sain → on sort de la boucle
+          } else {
+            // Encore cassé (ou app tronquée) → on RETENTE sur l'original (pas de
+            // dégradation cumulée), avec un modèle différent au tour suivant.
+            console.warn(
+              `[generate] fix syntaxe rejeté (${fixedErr ? "encore une SyntaxError" : "app tronquée"}) — on garde l'original`
+            );
+          }
+        } catch (e) {
+          console.error("[generate] réparation syntaxe abandonnée ou en échec :", e);
+          break;
+        } finally {
+          clearTimeout(minuteurS);
+        }
+      }
+
       // ── ON NE RÉPARE QUE CE QU'ON VIENT DE CASSER ──────────────────────────
       // Une app naît souvent avec un défaut de câblage (`table_fait_main`) que la
       // réparation n'a pas pu corriger — faute de temps, ou parce qu'elle a échoué.
