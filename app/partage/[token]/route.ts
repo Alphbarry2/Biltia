@@ -18,7 +18,7 @@
 // écrasé par celui du config. Voir lib/security-headers.ts.
 import { createAdminClient } from "@/lib/supabase-admin";
 import { injectPoweredBy, publicNotFoundPage } from "@/lib/powered-by";
-import { injectAppBrand } from "@/lib/app-brand";
+import { injectAppBrand, injectInterfaceWordmark } from "@/lib/app-brand";
 import { getBrandKit } from "@/lib/brand";
 import { injectShareBridge } from "@/lib/share-bridge";
 import { isShareToken, isLinkLive } from "@/lib/share";
@@ -78,7 +78,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ token: 
   //    déjà autorisé par la possession du token). On refuse une app archivée.
   const { data: mod } = await admin
     .from("modules")
-    .select("html_content, status, tenant_id")
+    .select("html_content, status, tenant_id, kind")
     .eq("id", link.module_id)
     .maybeSingle();
 
@@ -95,11 +95,18 @@ export async function GET(_req: Request, { params }: { params: Promise<{ token: 
   let out = mod.html_content as string;
   if (link.kind === "client") out = injectShareBridge(out, token);
 
-  // Le portail que voit le CLIENT porte le logo de l'artisan, pas un nom en petit.
-  try {
-    out = injectAppBrand(out, await getBrandKit(admin, link.tenant_id));
-  } catch {
-    /* pas d'identité visuelle → l'en-tête garde le nom de l'entreprise */
+  // Le portail que voit le CLIENT est une INTERFACE (une app) → il porte le logo
+  // BILTIA complet, comme /a et la visionneuse. Seul un DOCUMENT commercial partagé
+  // (devis, facture : la vitrine de l'artisan, sensible à SON image) garde le logo de
+  // l'artisan, jamais Biltia.
+  if (mod.kind === "document") {
+    try {
+      out = injectAppBrand(out, await getBrandKit(admin, link.tenant_id));
+    } catch {
+      /* pas d'identité visuelle → l'en-tête garde le nom de l'entreprise */
+    }
+  } else {
+    out = injectInterfaceWordmark(out);
   }
 
   return new Response(injectPoweredBy(out), {

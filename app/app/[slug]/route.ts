@@ -6,7 +6,7 @@
 import { createClient } from "@/lib/supabase-server";
 import { createAdminClientUntyped } from "@/lib/supabase-admin";
 import { injectPoweredBy, publicNotFoundPage } from "@/lib/powered-by";
-import { injectAppBrand } from "@/lib/app-brand";
+import { injectAppBrand, injectInterfaceWordmark } from "@/lib/app-brand";
 import { getBrandKit } from "@/lib/brand";
 import { requiresBiltiaHost } from "@/lib/app-connectivity";
 import { getLocale } from "@/lib/i18n/server";
@@ -30,7 +30,7 @@ export async function GET(
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("modules")
-    .select("html_content, is_public, name, status, tenant_id")
+    .select("html_content, is_public, name, status, tenant_id, kind")
     .eq("slug", slug)
     .maybeSingle();
 
@@ -71,17 +71,24 @@ export async function GET(
     );
   }
 
-  // Le logo de l'artisan est posé AU MOMENT DE SERVIR (comme le badge Biltia) :
-  // les apps déjà créées en profitent sans être régénérées. Le visiteur est anonyme
-  // ici → lecture de la marque en service_role, bornée au tenant de l'app.
+  // Marque posée AU MOMENT DE SERVIR (comme le badge Biltia) → les apps déjà créées
+  // en profitent sans régénération. Un portail / une app publique = INTERFACE : il
+  // porte le logo BILTIA complet (comme /a et la visionneuse). Seul un DOCUMENT
+  // commercial (devis, facture : la vitrine de l'artisan, sensible à SON image) garde
+  // le logo de l'artisan, jamais Biltia. Visiteur anonyme → marque lue en
+  // service_role, bornée au tenant de l'app.
   let html = data.html_content;
-  const admin = createAdminClientUntyped();
-  if (admin && data.tenant_id) {
-    try {
-      html = injectAppBrand(html, await getBrandKit(admin, data.tenant_id));
-    } catch {
-      /* pas d'identité visuelle → l'en-tête garde le nom de l'entreprise */
+  if (data.kind === "document") {
+    const admin = createAdminClientUntyped();
+    if (admin && data.tenant_id) {
+      try {
+        html = injectAppBrand(html, await getBrandKit(admin, data.tenant_id));
+      } catch {
+        /* pas d'identité visuelle → l'en-tête garde le nom de l'entreprise */
+      }
     }
+  } else {
+    html = injectInterfaceWordmark(html);
   }
 
   return new Response(injectPoweredBy(html), {

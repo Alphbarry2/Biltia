@@ -143,22 +143,33 @@ const WORDMARK_URI =
 export function injectInterfaceWordmark(html: string): string {
   if (html.includes(INTERFACE_MARKER)) return html;
 
+  // Le wordmark ne se pose QUE dans la zone de marque : barre latérale (desktop)
+  // OU en-tête (tablette/mobile). Surtout PAS sur l'en-tête de CONTENU (.topbar),
+  // qui porte une 3e `.app-eyebrow` (le nom de l'entreprise, à côté du titre de
+  // page) : la peindre aussi = le logo EN DOUBLE. On énumère donc les conteneurs
+  // de marque au lieu de viser `.app-eyebrow` en aveugle.
+  const BRAND_ZONE =
+    ".sidebar .app-eyebrow,.side-brand .app-eyebrow,.sidebar-brand .app-eyebrow,.sidebar-brand,.app-header .app-eyebrow";
+
   const block = `<style>
 /* ${INTERFACE_MARKER} */
 /* Le nom de l'app ne s'imprime plus sur l'app (il reste dans l'onglet/manifeste). */
 .app-title{display:none!important}
-/* Le carré/initiale d'une app phare cède la place au wordmark. */
+/* Le carré/initiale (« B ») d'une app phare cède la place au wordmark : jamais d'icône. */
 .brand-logo{display:none!important}
-/* Les zones de marque deviennent le wordmark Biltia (texte masqué mais présent
-   pour les lecteurs d'écran). background-size:contain → jamais déformé. */
-.app-eyebrow,.sidebar-brand{
+/* La zone de marque (barre latérale desktop / en-tête tablette-mobile) devient le
+   wordmark Biltia. L'en-tête de CONTENU (.topbar) n'est PAS visé → il garde le nom
+   de l'entreprise + le titre de la page, exactement comme l'aperçu du modèle.
+   Le texte reste présent (masqué) pour les lecteurs d'écran ; contain → jamais déformé. */
+${BRAND_ZONE}{
   display:block!important;font-size:0!important;line-height:0!important;color:transparent!important;
   width:74px;height:26px;
   background:url("${WORDMARK_URI}") left center/contain no-repeat!important;
 }
-@media(max-width:480px){.app-eyebrow,.sidebar-brand{width:66px;height:23px}}
-/* Anti-doublon : quand la barre latérale (desktop) montre déjà le logo, l'en-tête
-   ne le répète pas. La classe est posée par le script selon la VISIBILITÉ réelle. */
+@media(max-width:480px){${BRAND_ZONE}{width:66px;height:23px}}
+/* Filet anti-doublon : si une app affichait à la fois barre latérale ET en-tête au
+   même point de rupture, l'en-tête ne répète pas le logo. La classe est posée par
+   le script selon la VISIBILITÉ réelle (les shells phares séparent déjà les deux). */
 html.__bw-side .app-header .app-eyebrow{display:none!important}
 </style>
 <script>
@@ -172,9 +183,10 @@ html.__bw-side .app-header .app-eyebrow{display:none!important}
   function sync(){ try{ document.documentElement.classList.toggle('__bw-side', sideOn()); }catch(e){} }
   function boot(){
     /* Filet : aucune zone de marque connue → on pose une eyebrow vide en tête de
-       l'en-tête, que le CSS ci-dessus peint en wordmark. */
+       l'en-tête, que le CSS ci-dessus peint en wordmark. On teste les MÊMES zones
+       que le CSS : une eyebrow qui ne vit que dans .topbar ne compte pas. */
     try{
-      if(!document.querySelector('.app-eyebrow,.sidebar-brand')){
+      if(!document.querySelector('.sidebar .app-eyebrow,.side-brand .app-eyebrow,.sidebar-brand,.app-header .app-eyebrow')){
         var head=document.querySelector('.app-header')||document.querySelector('header');
         if(head){ var d=document.createElement('div'); d.className='app-eyebrow'; head.insertBefore(d, head.firstChild); }
       }
