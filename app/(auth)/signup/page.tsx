@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { SIGNUP_FREE_CREDITS } from "@/lib/plans";
+import { SIGNUP_FREE_CREDITS, REFERRAL_SIGNUP_BONUS } from "@/lib/plans";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase";
@@ -42,7 +42,7 @@ export default function SignupPage() {
       }
       // Parrainage : un lien /signup?ref=CODE mémorise le code (survit à la
       // confirmation email sur le même navigateur). Réclamé une fois connecté
-      // par <ReferralClaim /> (idempotent). +200 crédits au filleul.
+      // par <ReferralClaim /> (idempotent). REFERRAL_SIGNUP_BONUS (400) crédits au filleul.
       const ref = p.get("ref");
       if (ref) {
         localStorage.setItem("biltia_ref", ref.trim().toUpperCase().slice(0, 16));
@@ -128,7 +128,7 @@ export default function SignupPage() {
         <h1 className="mb-2 text-[24px] font-black tracking-[-0.02em] text-[#0A0A0A]">{t("Vérifiez vos emails.", "Check your email.")}</h1>
         <p className="text-sm leading-relaxed text-[#6E6E6C]">
           {t("Un lien de confirmation vient de partir vers ", "A confirmation link was just sent to ")}<span className="font-semibold text-[#0A0A0A]">{email}</span>.
-          {t(` Cliquez dessus pour activer vos ${SIGNUP_FREE_CREDITS} crédits offerts`, ` Click it to activate your ${SIGNUP_FREE_CREDITS} free credits`)}{invited ? t(" et vos 200 crédits bonus d'invitation", " and your 200 bonus invite credits") : ""}.
+          {t(` Cliquez dessus pour activer vos ${SIGNUP_FREE_CREDITS} crédits offerts`, ` Click it to activate your ${SIGNUP_FREE_CREDITS} free credits`)}{invited ? t(` et vos ${REFERRAL_SIGNUP_BONUS} crédits bonus d'invitation`, ` and your ${REFERRAL_SIGNUP_BONUS} bonus invite credits`) : ""}.
         </p>
       </div>
     );
@@ -143,7 +143,7 @@ export default function SignupPage() {
           </span>
           <p className="text-[13px] leading-snug text-[#4A4A56]">
             <b className="font-semibold text-[#0A0A0A]">{t("Vous avez été invité sur Biltia.", "You've been invited to Biltia.")}</b> {t("Créez votre compte et recevez", "Create your account and get")}{" "}
-            <b className="font-semibold text-[#7C3AED]">{t("200 crédits bonus", "200 bonus credits")}</b>{t(`, en plus de vos ${SIGNUP_FREE_CREDITS} crédits offerts.`, `, on top of your ${SIGNUP_FREE_CREDITS} free credits.`)}
+            <b className="font-semibold text-[#7C3AED]">{t(`${REFERRAL_SIGNUP_BONUS} crédits bonus`, `${REFERRAL_SIGNUP_BONUS} bonus credits`)}</b>{t(`, en plus de vos ${SIGNUP_FREE_CREDITS} crédits offerts.`, `, on top of your ${SIGNUP_FREE_CREDITS} free credits.`)}
           </p>
         </div>
       )}

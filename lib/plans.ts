@@ -519,6 +519,17 @@ export function stripePackEnvVar(credits: number): string {
   return `STRIPE_PACK_${credits}`;
 }
 
+// ── Parrainage : montants des bonus (crédits) ─────────────────────────────────
+// Bonus one-time, versés dans la poche topup (non expirable). ⚠️ DOIVENT rester
+// alignés sur les fonctions SQL claim_referral / release_referral_bonuses
+// (migration 058) — le SQL ne peut pas importer ce fichier, source dupliquée.
+/** Filleul, à l'inscription via un lien de parrainage (EN PLUS des SIGNUP_FREE_CREDITS). */
+export const REFERRAL_SIGNUP_BONUS = 400;
+/** Parrain, quand son filleul passe sur un plan payant (Pro). */
+export const REFERRAL_PRO_REFERRER = 2000;
+/** Filleul, quand il passe sur un plan payant (Pro). */
+export const REFERRAL_PRO_REFERRED = 1500;
+
 // ── Regroupement des paliers par profil (pour le sélecteur de crédits) ────────
 // Le plan Pro couvre tous les profils : ce découpage sert UNIQUEMENT à orienter
 // l'utilisateur ("c'est destiné à qui") et à rendre 2 cartes sur la page tarifs,

@@ -216,7 +216,7 @@ async function applySubscription(
   }
 
   // ── Parrainage : à la 1ʳᵉ souscription payante (welcome) du filleul, on
-  // marque la CONVERSION. Les bonus (parrain +1500/+3000, filleul +1000/+2000)
+  // marque la CONVERSION. Les bonus (parrain +2000, filleul +1500 ; Équipe supprimé)
   // ne sont PAS versés ici : le cron release_referral_bonuses() les libère après
   // 14 j sans remboursement. La RPC est idempotente (ne touche qu'un 'signed_up').
   if (

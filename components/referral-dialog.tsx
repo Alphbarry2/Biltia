@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import { Gift, Copy, Check, Download, Mail, MessageCircle, Smartphone, X, Sparkles } from "lucide-react";
 import { useT, useLocale } from "@/lib/i18n/context";
 import { pick, type Locale } from "@/lib/i18n/config";
+import { REFERRAL_SIGNUP_BONUS, REFERRAL_PRO_REFERRER, REFERRAL_PRO_REFERRED } from "@/lib/plans";
+
+const fmtRef = (n: number, locale: Locale) => n.toLocaleString(locale === "en" ? "en-US" : "fr-FR");
 
 type RefData = {
   code: string;
@@ -16,8 +19,8 @@ type RefData = {
 function shareMessage(link: string, locale: Locale): string {
   return pick(
     locale,
-    `Je gère mes chantiers avec Biltia. Inscris-toi avec mon lien, tu reçois 200 crédits offerts pour tester : ${link}`,
-    `I run my job sites with Biltia. Sign up with my link and get 200 free credits to try it: ${link}`,
+    `Je gère mes chantiers avec Biltia. Inscris-toi avec mon lien, tu reçois ${fmtRef(REFERRAL_SIGNUP_BONUS, "fr")} crédits offerts pour tester : ${link}`,
+    `I run my job sites with Biltia. Sign up with my link and get ${fmtRef(REFERRAL_SIGNUP_BONUS, "en")} free credits to try it: ${link}`,
   );
 }
 
@@ -96,11 +99,11 @@ export function ReferralDialog({ open, onClose }: { open: boolean; onClose: () =
           </button>
 
           <span className="inline-flex items-center gap-1.5 rounded-full border border-[#E7E2D7] bg-white/70 px-3 py-1 text-[12px] font-semibold text-[#7C3AED] backdrop-blur">
-            <Sparkles className="h-3.5 w-3.5" /> {t("Gagnez jusqu'à 3 000 crédits", "Earn up to 3,000 credits")}
+            <Sparkles className="h-3.5 w-3.5" /> {t(`Gagnez jusqu'à ${fmtRef(REFERRAL_PRO_REFERRER, locale)} crédits`, `Earn up to ${fmtRef(REFERRAL_PRO_REFERRER, locale)} credits`)}
           </span>
           <h2 className="mt-3 text-[22px] font-black tracking-[-0.02em] text-[#0A0A0A]">{t("Invitez votre réseau BTP", "Invite your trade network")}</h2>
           <p className="mt-1 text-[13px] leading-relaxed text-[#6E6E6C]">
-            {t("Vous gagnez des crédits IA quand vos invités passent sur un plan payant. Eux reçoivent 200 crédits dès l'inscription.", "You earn AI credits when your invitees move to a paid plan. They get 200 credits on sign-up.")}
+            {t(`Vous gagnez des crédits IA quand vos invités passent sur un plan payant. Eux reçoivent ${fmtRef(REFERRAL_SIGNUP_BONUS, locale)} crédits dès l'inscription.`, `You earn AI credits when your invitees move to a paid plan. They get ${fmtRef(REFERRAL_SIGNUP_BONUS, locale)} credits on sign-up.`)}
           </p>
         </div>
 
@@ -108,9 +111,8 @@ export function ReferralDialog({ open, onClose }: { open: boolean; onClose: () =
           {/* Comment ça marche */}
           <ul className="space-y-2.5">
             {step("1", t("Partagez votre lien ou votre QR code.", "Share your link or QR code."))}
-            {step("2", <>{t("Votre invité reçoit", "Your invitee gets")} <b className="font-semibold text-[#0A0A0A]">{t("+200 crédits", "+200 credits")}</b> {t("en s'inscrivant.", "on sign-up.")}</>)}
-            {step("3", <>{t("S'il passe en", "If they go")} <b className="font-semibold text-[#0A0A0A]">Pro</b> : {t("vous gagnez", "you earn")} <b className="font-semibold text-[#0A0A0A]">+1&nbsp;500</b>, {t("lui", "they")} <b className="font-semibold text-[#0A0A0A]">+1&nbsp;000</b>.</>)}
-            {step("4", <>{t("S'il passe en", "If they go")} <b className="font-semibold text-[#0A0A0A]">{t("Équipe", "Team")}</b> : {t("vous gagnez", "you earn")} <b className="font-semibold text-[#0A0A0A]">+3&nbsp;000</b>, {t("lui", "they")} <b className="font-semibold text-[#0A0A0A]">+2&nbsp;000</b>.</>)}
+            {step("2", <>{t("Votre invité reçoit", "Your invitee gets")} <b className="font-semibold text-[#0A0A0A]">{t(`+${fmtRef(REFERRAL_SIGNUP_BONUS, locale)} crédits`, `+${fmtRef(REFERRAL_SIGNUP_BONUS, locale)} credits`)}</b> {t("en s'inscrivant.", "on sign-up.")}</>)}
+            {step("3", <>{t("S'il passe en", "If they go")} <b className="font-semibold text-[#0A0A0A]">Pro</b> : {t("vous gagnez", "you earn")} <b className="font-semibold text-[#0A0A0A]">+{fmtRef(REFERRAL_PRO_REFERRER, locale)}</b>, {t("lui", "they")} <b className="font-semibold text-[#0A0A0A]">+{fmtRef(REFERRAL_PRO_REFERRED, locale)}</b>.</>)}
           </ul>
 
           {/* Compteurs */}

@@ -3,7 +3,7 @@
 // Appelé par <ReferralClaim /> au 1ᵉʳ chargement authentifié, avec le code
 // mémorisé au signup (localStorage `biltia_ref`). La RPC claim_referral est
 // idempotente et sécurisée : le filleul est TOUJOURS auth.uid() côté SQL (jamais
-// forgeable), l'auto-parrainage et le double-parrainage sont refusés, et le +200
+// forgeable), l'auto-parrainage et le double-parrainage sont refusés, et le +400
 // va dans la poche non-expirable. Ici on ne fait que router le code.
 
 import { createClient } from "@/lib/supabase-server";
