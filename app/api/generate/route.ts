@@ -81,7 +81,17 @@ const MODEL_HEAVY = MODEL_APP_BUILD;
 // sur les 2-3 s gagnées — un artisan qui reçoit une réponse « premier GPT »
 // s'en va. La réponse est streamée, donc le 1er mot arrive vite quand même.
 const ANSWER_MODEL = TIER_MEDIUM;
-const MAX_TOKENS = 16000;
+// Plafond de sortie par tour. Remonté de 16000 → 32000 le 2026-07-16 : le moteur de
+// création est passé sur Grok 4.5, qui écrit une app complète en ~20k tokens (avec
+// raisonnement) et met ~165 s. À 16000, il fallait un tour de CONTINUATION, or Grok
+// est lent → le tour 1 mangeait le budget, la continuation s'abandonnait (reste <90s)
+// et l'app sortait TRONQUÉE (échec remboursé). À 32000, une app réaliste (~20-27k)
+// se génère en UN SEUL tour, sans continuation, en ~165-210 s — large sous les 300 s
+// de Vercel. La génération est STREAMÉE (client.messages.stream), la préco « streaming
+// avant de monter le plafond » est donc satisfaite. Au-delà de ~32k, la continuation
+// (MAX_TURNS) reprend le relais. Ne pas monter davantage sans relever maxDuration :
+// un tour unique de >32k tokens risquerait de dépasser les 300 s et d'être TUÉ net.
+const MAX_TOKENS = 32000;
 
 // ── BUDGET DE TEMPS ──────────────────────────────────────────────────────────
 // `maxDuration = 300` : passé ce délai, Vercel TUE la fonction sans exception.

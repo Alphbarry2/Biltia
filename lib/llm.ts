@@ -87,6 +87,13 @@ export function clientFor(model: string): Anthropic {
  * Mesuré : une réponse d'un mot passe de 107 tokens à 2 quand on le coupe.
  * On le désactive donc par défaut ; `reasoning` explicite dans les params gagne.
  */
+/**
+ * Modèles OpenRouter dont TOUS les opérateurs imposent le raisonnement : leur
+ * envoyer `thinking:{type:"disabled"}` = 400 dur (cf. prepare). On ne le leur envoie
+ * donc jamais. `x-ai/grok-4.5` = moteur de création d'app (MODEL_APP_BUILD).
+ */
+const REASONING_MANDATORY = new Set<string>(["x-ai/grok-4.5"]);
+
 function prepare<T extends { model: string }>(params: T): T {
   if (!isOpenRouter(params.model)) return params;
 
@@ -129,7 +136,19 @@ function prepare<T extends { model: string }>(params: T): T {
   // `thinking` qui fait foi, pas le `reasoning` d'OpenAI (mesuré : `reasoning` est
   // purement ignoré ; `thinking:{type:"disabled"}` fait tomber la sortie de 200
   // tokens à 20 et rend le texte).
-  if (!("thinking" in params)) extra.thinking = { type: "disabled" };
+  //
+  // ⚠️ SAUF les modèles dont TOUS les opérateurs OpenRouter EXIGENT le raisonnement :
+  // leur envoyer `thinking:{type:"disabled"}` renvoie un 400 dur « Reasoning is
+  // mandatory for this endpoint and cannot be disabled » — et `require_parameters:true`
+  // n'y change rien (aucun opérateur n'accepte de le couper). Panne de prod du
+  // 2026-07-16 : la création d'app (Grok 4.5) échouait à CHAQUE appel. Pour ces
+  // modèles on LAISSE le raisonnement (il n' pollue pas la sortie — il arrive en blocs
+  // `thinking` que le lecteur de stream ignore, seul `text_delta` est capté — et sur
+  // une tâche de DESIGN il AMÉLIORE le rendu). Symptôme « Reasoning is mandatory » →
+  // ajouter le modèle ici.
+  if (!("thinking" in params) && !REASONING_MANDATORY.has(params.model)) {
+    extra.thinking = { type: "disabled" };
+  }
 
   return { ...params, ...extra } as T;
 }
