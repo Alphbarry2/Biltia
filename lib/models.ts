@@ -455,6 +455,22 @@ Object.assign(MODELS, {
     vision: false,
     wired: true,
   },
+  "anthropic/claude-sonnet-5": {
+    id: "anthropic/claude-sonnet-5",
+    provider: "openrouter",
+    label: "Claude Sonnet 5 (via OpenRouter)",
+    modality: "text",
+    capabilities: ["design", "code", "writing"],
+    contextWindow: 1_000_000,
+    // Tarif Anthropic standard (3/15), servi tel quel par OpenRouter. La clé
+    // Anthropic DIRECTE est sans crédit → on fait passer le design de Claude par
+    // OpenRouter, qui a du crédit (c'est déjà lui qui sert DeepSeek).
+    pricing: { input: 3, output: 15 },
+    strengths:
+      "CRÉATION D'APPLICATION retenue (banc A/B du 2026-07-15, choix user) : ~90 % de la qualité de design d'Opus pour ~55 % du coût, très au-dessus de DeepSeek (hero plat, peu d'interactions). La vraie main de designer Claude, via OpenRouter.",
+    vision: true,
+    wired: true,
+  },
 } satisfies Record<string, ModelEntry>);
 
 export const MODEL_LIST: ModelEntry[] = Object.values(MODELS);
@@ -496,8 +512,11 @@ export const CAPABILITY_RANKING: Record<ModelCapability, string[]> = {
 //
 //   MODEL_KIND=qwen/qwen3.5-flash-02-23           # 97,5 % · 1,7 s · n'oublie jamais l'outil
 //   MODEL_TIER_SIMPLE=mistralai/mistral-medium-3.1 # questionnaire : p95 2,8 s (vs 14,8 s)
-//   MODEL_TIER_MEDIUM=deepseek/deepseek-v4-pro     # petites apps + documents + copilote
-//   MODEL_TIER_COMPLEX=deepseek/deepseek-v4-pro    # SEUL à sortir 30 apps /30 sans erreur JS
+//   MODEL_TIER_MEDIUM=deepseek/deepseek-v4-pro     # documents, itérations légères, copilote
+//   MODEL_TIER_COMPLEX=deepseek/deepseek-v4-pro    # grosses tâches agents — N'EST PLUS le
+//                                                  # modèle de création d'app (voir MODEL_APP_BUILD)
+//   MODEL_APP_BUILD=anthropic/claude-sonnet-5      # CRÉATION D'APP : le design prime (banc A/B
+//                                                  # 15/07 : ~90 % d'Opus pour ~55 % du coût)
 //   MODEL_VISION=qwen/qwen3-vl-235b-a22b-instruct  # 99,1 % des champs · 0,0005 $/document
 //
 // Challengers ÉCARTÉS, et pourquoi (mesuré, pas supposé) :
@@ -519,6 +538,26 @@ const env = (k: string, fallback: string) => {
 export const TIER_SIMPLE = env("MODEL_TIER_SIMPLE", "claude-haiku-4-5");
 export const TIER_MEDIUM = env("MODEL_TIER_MEDIUM", "claude-sonnet-5");
 export const TIER_COMPLEX = env("MODEL_TIER_COMPLEX", "claude-opus-4-8");
+
+/**
+ * Modèle de CRÉATION D'APPLICATION — le moment « wow » où le DESIGN prime.
+ *
+ * Séparé des paliers de TAILLE génériques (TIER_*) : générer une app est une tâche
+ * de DESIGN, pas de code brut. Les paliers, eux, restent pilotés vers le modèle de
+ * code le moins cher pour les agents, la classification et le copilote.
+ *
+ * Défaut = Sonnet 5 via OpenRouter. Pourquoi ce chemin précis :
+ *   • la clé Anthropic DIRECTE est sans crédit → Opus/Sonnet en direct = 400 ;
+ *     OpenRouter, lui, a du crédit (il sert déjà DeepSeek). D'où l'ID « anthropic/… ».
+ *   • banc A/B du 2026-07-15 (choix user) : Sonnet ≈ 90 % de la qualité design d'Opus
+ *     pour ~55 % du coût (~0,45 $ vs ~0,80 $/app) ; DeepSeek très en dessous (hero
+ *     plat, 2 graphiques, quasi zéro interaction). L'app se vend un prix FIXE
+ *     (ACTION_CREDITS), donc le surcoût ne touche que la marge (~99 % → ~94 %).
+ *
+ * Pilotable sans déploiement : MODEL_APP_BUILD=anthropic/claude-opus-4.8 pour le haut
+ * de gamme, ou un modèle OpenRouter bon marché pour revenir en arrière.
+ */
+export const MODEL_APP_BUILD = env("MODEL_APP_BUILD", "anthropic/claude-sonnet-5");
 
 /** Modèle de VISION (photos, plans, PDF). Séparé des paliers : tous les modèles
  *  texte bon marché (DeepSeek, GLM) sont AVEUGLES — seuls Claude, Qwen et Mistral

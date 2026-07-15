@@ -50,7 +50,7 @@ import { pick } from "@/lib/i18n/config";
 import {
   TIER_SIMPLE,
   TIER_MEDIUM,
-  TIER_COMPLEX,
+  MODEL_APP_BUILD,
   MODEL_VISION,
   MODEL_IMAGE,
   canSeeImages,
@@ -68,13 +68,14 @@ import { withLocale, localeInstruction } from "@/lib/i18n/llm";
 
 
 // ── Choix du moteur de génération ─────────────────────────────────────────────
-// Sonnet 4.6 : petites apps, documents, itérations légères (équilibre coût/qualité).
-// Opus 4.8 : « grosses » applications de gestion (suivi de chantiers, planning,
-// facturation, multi-entités workspace, multi-utilisateurs) ou HTML existant
-// volumineux à régénérer. Le surcoût est répercuté au réel via trackAiUsage.
-// Paliers officiels (lib/models.ts) : simple=Haiku, moyen=Sonnet 5, complexe=Opus.
+// STANDARD (petites apps, documents, itérations légères) = le palier moyen, qui
+// reste sur le modèle de CODE bon marché (coût/qualité).
+// HEAVY (CRÉATION d'app + grosses régénérations) = MODEL_APP_BUILD : la création
+// est le moment « wow » où le DESIGN prime, donc un vrai modèle de design (Sonnet 5
+// par défaut, banc A/B du 15/07). Le surcoût réel est répercuté via trackAiUsage,
+// et l'utilisateur paie un prix FIXE (ACTION_CREDITS), pas au coût.
 const MODEL_STANDARD = TIER_MEDIUM;
-const MODEL_HEAVY = TIER_COMPLEX;
+const MODEL_HEAVY = MODEL_APP_BUILD;
 // Copilote : Sonnet (TIER_MEDIUM), pas Haiku. La qualité/clarté de réponse prime
 // sur les 2-3 s gagnées — un artisan qui reçoit une réponse « premier GPT »
 // s'en va. La réponse est streamée, donc le 1er mot arrive vite quand même.
@@ -114,10 +115,11 @@ function pickBuildModel(opts: {
   if (opts.isModification) {
     return opts.previousHTMLLength > 60_000 ? MODEL_HEAVY : MODEL_STANDARD;
   }
-  // NOUVELLE APP (non-document) : TOUJOURS Opus 4.8. La création est le moment
-  // « wow » et la qualité de design y prime sur la latence (décision user
-  // 2026-07-04). Le surcoût réel est répercuté via trackAiUsage. `prompt` et
-  // `connectedEntities` restent dans la signature pour un futur réglage fin.
+  // NOUVELLE APP (non-document) : le modèle de CRÉATION (MODEL_APP_BUILD, Sonnet 5
+  // par défaut — banc A/B du 2026-07-15). La création est le moment « wow » et la
+  // qualité de design y prime sur la latence et le coût (décision user). Le surcoût
+  // réel est répercuté via trackAiUsage ; l'utilisateur paie un prix FIXE. `prompt`
+  // et `connectedEntities` restent dans la signature pour un futur réglage fin.
   return MODEL_HEAVY;
 }
 
@@ -1001,7 +1003,7 @@ export async function POST(req: Request) {
     // On vérifie la clé du fournisseur RÉELLEMENT appelé (cf. lib/llm.ts).
     // Avant : ce contrôle portait sur ANTHROPIC_API_KEY — retirer cette clé morte
     // éteignait TOUTE la génération, alors que plus un seul appel n'y va.
-    if (!hasKeyFor(TIER_COMPLEX) || !hasKeyFor(TIER_MEDIUM)) {
+    if (!hasKeyFor(MODEL_HEAVY) || !hasKeyFor(MODEL_STANDARD)) {
       return Response.json(
         {
           error: pick(
