@@ -20,7 +20,7 @@
  *
  *  v3 : appels via postMessage → parent (localhost:3000) plutôt que fetch direct
  *  depuis l'iframe srcdoc (origin: null → CORS bloqué). */
-const SDK_MARKER = "__biltia_sdk_v17__";
+const SDK_MARKER = "__biltia_sdk_v18__";
 
 export const BILTIA_SDK_SCRIPT = `<script>
 /* ${SDK_MARKER} */
@@ -206,6 +206,25 @@ export const BILTIA_SDK_SCRIPT = `<script>
         body: String(opts.body || opts.message || opts.text || opts.corps || '') })
         .then(function(r){ return r || {}; });
     },
+    /* AGENDA : ajoute un VRAI rendez-vous dans l'agenda connecté de l'utilisateur
+       (Google ou Outlook — Biltia choisit tout seul lequel). Ex : await
+       biltia.addToCalendar({ title:'Visite chantier Dupont', start:'2026-08-04T09:00:00',
+       end:'2026-08-04T10:00:00', location:'12 rue des Lilas' }).
+       start/end : ISO 8601 (end optionnel). Résout { ok, summary, whenLabel} ;
+       rejette (toast) si l'agenda n'est pas connecté — une carte de connexion
+       apparaît alors au-dessus de l'app : une fois connecté, le PROCHAIN appel
+       aboutit. N'utilise JAMAIS un lien calendar.google.com/render : ça n'écrit
+       PAS dans l'agenda connecté de l'utilisateur, ça ouvre juste Google dans un
+       nouvel onglet pour une confirmation manuelle — ce n'est pas une intégration. */
+    addToCalendar: function(opts){
+      opts = opts || {};
+      return call({ __endpoint: 'calendar',
+        title: String(opts.title || opts.summary || ''),
+        start: String(opts.start || opts.startISO || ''),
+        end: opts.end || opts.endISO ? String(opts.end || opts.endISO) : undefined,
+        location: opts.location ? String(opts.location) : undefined })
+        .then(function(r){ return r || {}; });
+    },
     /* DEVIS -> FACTURE : cree une facture A PARTIR d'un devis accepte, sans
        re-saisie (client, chantier et montants repris ; numero legal genere cote
        serveur ; devis_id relie). opts.mode : 'solde' (reste a facturer, defaut)
@@ -372,6 +391,9 @@ export function injectBiltiaSDK(html: string): string {
   }
   if (html.includes("__biltia_sdk_v16__")) {
     return html.replace(/<script>\s*\/\* __biltia_sdk_v16__ \*\/[\s\S]*?<\/script>/, BILTIA_SDK_SCRIPT);
+  }
+  if (html.includes("__biltia_sdk_v17__")) {
+    return html.replace(/<script>\s*\/\* __biltia_sdk_v17__ \*\/[\s\S]*?<\/script>/, BILTIA_SDK_SCRIPT);
   }
   if (/<head[^>]*>/i.test(html)) {
     return html.replace(/<head[^>]*>/i, (m) => m + "\n" + BILTIA_SDK_SCRIPT);

@@ -362,6 +362,14 @@ export default function GeneratePage() {
   useEffect(() => {
     connectFlowRef.current = connectFlow;
   }, [connectFlow]);
+
+  // Une ACTION dans l'app (ex. « Ajouter au calendrier ») a échoué faute de
+  // connecteur : carte affichée PAR-DESSUS l'aperçu (pas dans le fil de chat —
+  // l'utilisateur est en train d'utiliser l'app, pas de discuter). Pas de retry
+  // automatique après connexion (le SDK a un timeout de 30 s, trop court pour un
+  // aller-retour OAuth) : l'app a déjà affiché son toast d'erreur habituel, et le
+  // PROCHAIN clic aboutira une fois connecté.
+  const [appConnectPrompt, setAppConnectPrompt] = useState<string[] | null>(null);
   const [input, setInput] = useState("");
   const typed = useTypewriter(locale === "en" ? GEN_PLACEHOLDERS_EN : GEN_PLACEHOLDERS_FR);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -1073,6 +1081,7 @@ export default function GeneratePage() {
             : ep === 'email' ? '/api/app-email'
             : ep === 'document' ? '/api/app-document'
             : ep === 'sms' ? '/api/app-sms'
+            : ep === 'calendar' ? '/api/app-calendar'
             : ep === 'agents' ? '/api/app-agents'
             : ep === 'telemetry' ? '/api/app-telemetry'
             : '/api/data';
@@ -1094,8 +1103,21 @@ export default function GeneratePage() {
         })
           .then(async (res) => {
             const result = await res.json().catch(() => null);
-            if (!res.ok) reply({ error: result?.error ?? t(`Erreur ${res.status}`, `Error ${res.status}`) });
-            else reply({ result });
+            if (!res.ok) {
+              // Action bloquée faute de connecteur (agenda…) : la carte apparaît
+              // par-dessus l'aperçu. Pas de retry auto — voir le commentaire sur
+              // appConnectPrompt. L'app reçoit quand même l'erreur tout de suite.
+              const rawConnectors = Array.isArray((result as { connectors?: unknown })?.connectors)
+                ? (result as { connectors: unknown[] }).connectors
+                : [];
+              const connectors = rawConnectors.filter(
+                (c): c is string => typeof c === 'string' && c.length > 0
+              );
+              if (connectors.length > 0) setAppConnectPrompt(connectors);
+              reply({ error: result?.error ?? t(`Erreur ${res.status}`, `Error ${res.status}`) });
+              return;
+            }
+            reply({ result });
           })
           .catch((err: unknown) => {
             reply({ error: err instanceof Error ? err.message : t('Réseau indisponible', 'Network unavailable') });
@@ -3455,6 +3477,25 @@ export default function GeneratePage() {
               <p className="text-sm text-[#6E6E6C] max-w-xs leading-relaxed">
                 {t("Décrivez votre outil dans le panneau gauche. L'application apparaîtra ici, prête à l'emploi.", "Describe your tool in the left panel. The app will appear here, ready to use.")}
               </p>
+            </div>
+          )}
+
+          {/* Une action de l'app (« Ajouter au calendrier »…) a échoué faute de
+              connecteur : carte(s) PAR-DESSUS l'aperçu, sur fond flouté. Les cartes
+              sont des ALTERNATIVES (Google OU Outlook) — la première connexion
+              réussie referme l'overlay ; le prochain clic dans l'app aboutira. */}
+          {appConnectPrompt && (
+            <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/25 backdrop-blur-[2px] p-4">
+              <div className="flex flex-col items-center gap-3 max-w-sm w-full">
+                {appConnectPrompt.map((cid) => (
+                  <ConnectCard
+                    key={cid}
+                    connectorId={cid}
+                    onConnected={() => setAppConnectPrompt(null)}
+                    onRefused={() => setAppConnectPrompt(null)}
+                  />
+                ))}
+              </div>
             </div>
           )}
         </div>

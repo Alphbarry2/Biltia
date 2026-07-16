@@ -113,6 +113,7 @@ export const LIMITS = {
   deploy: { limit: 10, windowSec: 60 }, // déploiement
   app_email: { limit: 15, windowSec: 60 }, // envoi email depuis une app (anti-spam)
   app_sms: { limit: 10, windowSec: 60 }, // envoi SMS depuis une app (anti-spam, coûteux)
+  app_calendar: { limit: 20, windowSec: 60 }, // ajout d'un RDV depuis une app (anti-spam)
   share: { limit: 20, windowSec: 60 }, // création de liens de partage (anti-abus)
   share_read: { limit: 120, windowSec: 60 }, // lecture d'un portail client tokenisé (par token)
   form_submit: { limit: 8, windowSec: 60 }, // soumission de formulaire public (par token, anti-spam)

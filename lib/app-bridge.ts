@@ -33,6 +33,8 @@ function endpointFor(body: unknown): string {
       return "/api/app-document";
     case "sms":
       return "/api/app-sms";
+    case "calendar":
+      return "/api/app-calendar";
     case "agents":
       return "/api/app-agents";
     case "telemetry":
@@ -48,8 +50,17 @@ export function createBridgeHandler(opts: {
   /** Rend la fenêtre de l'iframe SI le message vient bien d'elle, sinon null. */
   resolveFrame: (source: Window | null) => Window | null;
   labels: BridgeLabels;
+  /**
+   * Une action a échoué faute de connecteur (agenda, etc.) : le serveur renvoie
+   * `connectors: string[]`. Le host affiche la carte de connexion PAR-DESSUS
+   * l'app — mais on répond quand même l'erreur à l'iframe tout de suite (le SDK
+   * a un timeout de 30 s, largement trop court pour un aller-retour OAuth : pas
+   * de retry automatique). L'app affiche son toast d'erreur habituel ; une fois
+   * connecté, le PROCHAIN clic sur l'action aboutit pour de vrai.
+   */
+  onNeedsConnect?: (connectors: string[]) => void;
 }): (event: MessageEvent) => void {
-  const { moduleId, resolveFrame, labels } = opts;
+  const { moduleId, resolveFrame, labels, onNeedsConnect } = opts;
 
   return (event: MessageEvent) => {
     // GARDE DE PROVENANCE — ne PAS retirer. Ce pont proxifie /api/* AVEC les
@@ -84,8 +95,17 @@ export function createBridgeHandler(opts: {
     })
       .then(async (res) => {
         const result = await res.json().catch(() => null);
-        if (!res.ok) reply({ error: result?.error ?? labels.httpError(res.status) });
-        else reply({ result });
+        if (!res.ok) {
+          const connectors = Array.isArray((result as { connectors?: unknown })?.connectors)
+            ? (result as { connectors: unknown[] }).connectors.filter(
+                (c): c is string => typeof c === "string" && c.length > 0
+              )
+            : [];
+          if (connectors.length > 0) onNeedsConnect?.(connectors);
+          reply({ error: result?.error ?? labels.httpError(res.status) });
+          return;
+        }
+        reply({ result });
       })
       .catch((err: unknown) =>
         reply({ error: err instanceof Error ? err.message : labels.network })

@@ -9,6 +9,7 @@ import { ShareMenu } from "@/components/share-menu";
 import { type ShareLink } from "@/lib/share";
 import { requiresBiltiaHost } from "@/lib/app-connectivity";
 import { createBridgeHandler } from "@/lib/app-bridge";
+import { ConnectCard } from "@/components/connect-card";
 import { useSession } from "@/components/session-provider";
 import { useT } from "@/lib/i18n/context";
 import { ChevronLeft, Pencil, Loader2, AlertCircle, ExternalLink, Maximize2, Copy, CheckCircle, Share2, Trash2, X, Eye, HardHat } from "lucide-react";
@@ -39,6 +40,12 @@ export default function AppViewerPage() {
   // seconde référence, la garde de provenance rejetterait tous les appels faits
   // depuis le plein écran et l'app y serait muette.
   const fsIframeRef = useRef<HTMLIFrameElement>(null);
+
+  // Une action de l'app (« Ajouter au calendrier »…) a échoué faute de connecteur :
+  // carte(s) affichée(s) PAR-DESSUS l'app. Pas de retry auto après connexion (le
+  // SDK a un timeout de 30 s, trop court pour un aller-retour OAuth) — l'app a déjà
+  // affiché son toast d'erreur habituel, le PROCHAIN clic aboutira une fois connecté.
+  const [appConnectPrompt, setAppConnectPrompt] = useState<string[] | null>(null);
 
   // ── Partage : lien de consultation (lecture seule, révocable) ──────────────
   const [shareOpen, setShareOpen] = useState(false);
@@ -226,6 +233,7 @@ export default function AppViewerPage() {
         httpError: (status) => t(`Erreur ${status}`, `Error ${status}`),
         network: t("Réseau indisponible", "Network unavailable"),
       },
+      onNeedsConnect: (connectors) => setAppConnectPrompt(connectors),
     });
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
@@ -269,14 +277,17 @@ export default function AppViewerPage() {
             {t("Quitter le plein écran", "Exit full screen")}
           </button>
         </div>
-        <iframe
-          ref={fsIframeRef}
-          srcDoc={app.html_content}
-          sandbox="allow-scripts allow-forms allow-same-origin allow-modals"
-          allow="camera; microphone; geolocation; clipboard-write"
-          className="flex-1 w-full border-0"
-          title={app.name}
-        />
+        <div className="relative flex-1">
+          <iframe
+            ref={fsIframeRef}
+            srcDoc={app.html_content}
+            sandbox="allow-scripts allow-forms allow-same-origin allow-modals"
+            allow="camera; microphone; geolocation; clipboard-write"
+            className="w-full h-full border-0"
+            title={app.name}
+          />
+          <ConnectPromptOverlay connectors={appConnectPrompt} onDone={() => setAppConnectPrompt(null)} />
+        </div>
       </div>
     );
   }
@@ -473,7 +484,7 @@ export default function AppViewerPage() {
       )}
 
       {/* App iframe */}
-      <div className="flex-1 bg-white overflow-hidden">
+      <div className="relative flex-1 bg-white overflow-hidden">
         <iframe
           ref={iframeRef}
           srcDoc={app.html_content}
@@ -482,6 +493,23 @@ export default function AppViewerPage() {
           className="w-full h-full border-0"
           title={app.name}
         />
+        <ConnectPromptOverlay connectors={appConnectPrompt} onDone={() => setAppConnectPrompt(null)} />
+      </div>
+    </div>
+  );
+}
+
+/** Une action de l'app a échoué faute de connecteur : carte(s) par-dessus l'app,
+ *  sur fond flouté. Alternatives (Google OU Outlook) — la première connexion
+ *  réussie referme l'overlay ; le prochain clic dans l'app aboutira. */
+function ConnectPromptOverlay({ connectors, onDone }: { connectors: string[] | null; onDone: () => void }) {
+  if (!connectors) return null;
+  return (
+    <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/25 backdrop-blur-[2px] p-4">
+      <div className="flex flex-col items-center gap-3 max-w-sm w-full">
+        {connectors.map((cid) => (
+          <ConnectCard key={cid} connectorId={cid} onConnected={onDone} onRefused={onDone} />
+        ))}
       </div>
     </div>
   );
