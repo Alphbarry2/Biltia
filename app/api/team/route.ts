@@ -309,20 +309,27 @@ export async function POST(req: Request) {
   let memberUserId = (targetId as string | null) ?? null;
   let invitedNew = false;
   if (!memberUserId) {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? new URL(req.url).origin;
-    const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
-      // La page /invitation accueille l'invité (« Vous avez été invité… ») pour
-      // choisir son mot de passe. Les métadonnées disent au trigger handle_new_user
-      // que c'est un INVITÉ : pas de crédits d'inscription, pas d'espace perso, onboarding sauté.
-      redirectTo: `${appUrl}/auth/callback?next=/invitation`,
-      data: {
+    // Chemin qui NE TOUCHE JAMAIS le SMTP de Supabase — cassé en prod (535
+    // « Authentication credentials invalid » → GoTrue renvoie 500 « Error sending
+    // invite email »). inviteUserByEmail ET generateLink(type:"invite") délèguent
+    // l'ENVOI de l'email à GoTrue → ils échouaient, AUCUNE invitation ne partait.
+    // On CRÉE donc le compte sans aucun email (createUser, email_confirm=true), et on
+    // lui enverra NOUS-MÊMES (via Resend, plus bas) un lien pour définir son mot de
+    // passe (generateLink recovery, qui n'envoie rien non plus). Vérifié en direct le
+    // 2026-07-16. Les métadonnées disent au trigger handle_new_user que c'est un
+    // INVITÉ (pas de crédits d'inscription, pas d'espace perso, onboarding sauté).
+    const { data: cu, error: cuError } = await admin.auth.admin.createUser({
+      email,
+      email_confirm: true,
+      password: `${crypto.randomUUID()}Aa1!`,
+      user_metadata: {
         invited_tenant_id: membership.tenant_id,
         invited_role: role,
         invited_by: user.id,
       },
     });
-    if (inviteError || !invited?.user) {
-      console.error("[team] invite error:", inviteError);
+    if (cuError || !cu?.user) {
+      console.error("[team] invite (createUser) error:", cuError);
       return NextResponse.json(
         {
           error: pick(
@@ -334,7 +341,7 @@ export async function POST(req: Request) {
         { status: 500 }
       );
     }
-    memberUserId = invited.user.id;
+    memberUserId = cu.user.id;
     invitedNew = true;
   }
   if (memberUserId === user.id) {
@@ -391,55 +398,61 @@ export async function POST(req: Request) {
     );
   }
 
-  // ── EMAIL ── Un NOUVEL invité reçoit déjà l'email d'invitation Supabase
-  // (inviteUserByEmail, expédié via Resend). Mais si le compte EXISTAIT déjà,
-  // rien n'a été envoyé → le collaborateur ne sait pas qu'il a été ajouté. On le
-  // prévient par un email de marque (Resend). S'il n'a JAMAIS accepté (jamais
-  // connecté), on lui donne un lien pour définir son mot de passe ; sinon un
-  // simple lien de connexion. Best-effort : n'échoue jamais l'ajout.
-  let emailSent = invitedNew;
+  // ── EMAIL — TOUJOURS via NOTRE mailer (Resend), jamais le SMTP de Supabase ──
+  // Avant, un NOUVEL invité comptait sur l'email de inviteUserByEmail (SMTP Supabase),
+  // qui échouait en prod → l'invité ne recevait rien. Désormais on envoie NOUS-MÊMES
+  // dans tous les cas, avec le bon lien :
+  //   • nouveau compte                    → lien d'invitation (définir son mot de passe) ;
+  //   • compte existant jamais connecté   → lien de récupération (idem) ;
+  //   • compte existant déjà actif        → simple lien de connexion.
+  // Best-effort : n'échoue JAMAIS l'ajout (emailSent = false si le mail n'est pas parti).
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? new URL(req.url).origin;
+  const { data: tenantRow } = await admin
+    .from("tenants")
+    .select("name")
+    .eq("id", membership.tenant_id)
+    .maybeSingle();
+  const workspaceName = (tenantRow as { name?: string } | null)?.name || "votre équipe";
+  let actionUrl = `${appUrl}/login`;
+  // Un NOUVEL invité doit toujours définir son mot de passe ; un compte EXISTANT ne
+  // le doit que s'il ne s'est jamais connecté.
+  let pending = invitedNew;
   if (!invitedNew) {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? new URL(req.url).origin;
-    const { data: tenantRow } = await admin
-      .from("tenants")
-      .select("name")
-      .eq("id", membership.tenant_id)
-      .maybeSingle();
-    const workspaceName = (tenantRow as { name?: string } | null)?.name || "votre équipe";
-    let actionUrl = `${appUrl}/login`;
-    let pending = false;
     try {
       const { data: u } = await admin.auth.admin.getUserById(memberUserId);
       pending = !!u.user && !u.user.last_sign_in_at;
-      if (pending) {
-        const { data: link } = await admin.auth.admin.generateLink({
-          type: "recovery",
-          email,
-          options: { redirectTo: `${appUrl}/auth/callback?next=/invitation` },
-        });
-        const generated = (link as { properties?: { action_link?: string } } | null)?.properties?.action_link;
-        if (generated) actionUrl = generated;
-      }
     } catch {
-      /* on garde le lien de connexion par défaut */
+      pending = false;
     }
-    const heading = pending ? "Rejoignez votre équipe." : "Vous avez été ajouté à une équipe.";
-    const bodyText = pending
-      ? `${user.email} vous a ajouté à l'équipe « ${workspaceName} » sur Biltia. Cliquez pour définir votre mot de passe et rejoindre l'équipe.`
-      : `${user.email} vous a ajouté à l'équipe « ${workspaceName} » sur Biltia. Connectez-vous pour la retrouver dans votre sélecteur d'espace.`;
-    const res = await sendEmail({
-      to: [email],
-      subject: pending ? "Rejoignez votre équipe sur Biltia" : "Vous avez été ajouté à une équipe sur Biltia",
-      text: `${bodyText}\n\n${actionUrl}`,
-      html: brandedEmailHtml({
-        heading,
-        body: bodyText,
-        btnText: pending ? "Définir mon mot de passe" : "Ouvrir Biltia",
-        btnUrl: actionUrl,
-      }),
-    });
-    emailSent = res.ok;
   }
+  if (pending) {
+    // generateLink recovery : RENVOIE le lien de définition de mot de passe SANS
+    // envoyer d'email (on l'expédie via Resend juste après). Vaut pour le nouvel invité
+    // comme pour le compte existant jamais connecté — aucun contact avec le SMTP cassé.
+    const { data: link } = await admin.auth.admin.generateLink({
+      type: "recovery",
+      email,
+      options: { redirectTo: `${appUrl}/auth/callback?next=/invitation` },
+    });
+    const generated = (link as { properties?: { action_link?: string } } | null)?.properties?.action_link;
+    if (generated) actionUrl = generated;
+  }
+  const heading = pending ? "Rejoignez votre équipe." : "Vous avez été ajouté à une équipe.";
+  const bodyText = pending
+    ? `${user.email} vous a ajouté à l'équipe « ${workspaceName} » sur Biltia. Cliquez pour définir votre mot de passe et rejoindre l'équipe.`
+    : `${user.email} vous a ajouté à l'équipe « ${workspaceName} » sur Biltia. Connectez-vous pour la retrouver dans votre sélecteur d'espace.`;
+  const res = await sendEmail({
+    to: [email],
+    subject: pending ? "Rejoignez votre équipe sur Biltia" : "Vous avez été ajouté à une équipe sur Biltia",
+    text: `${bodyText}\n\n${actionUrl}`,
+    html: brandedEmailHtml({
+      heading,
+      body: bodyText,
+      btnText: pending ? "Définir mon mot de passe" : "Ouvrir Biltia",
+      btnUrl: actionUrl,
+    }),
+  });
+  const emailSent = res.ok;
 
   await logActivity(supabase, {
     tenantId: membership.tenant_id,
