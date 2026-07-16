@@ -594,10 +594,27 @@ export default function SettingsPage() {
   const toggleSector = (id: string) =>
     setSectors((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
-  type BoolPref = "always_confirm" | "always_pdf" | "prefer_app" | "ai_notifications";
-  const togglePref = (k: BoolPref) => setPrefs((p) => ({ ...p, [k]: !p[k] }));
+  type BoolPref = "always_confirm" | "always_pdf" | "ai_notifications";
+  // Sauvegarde AUTO au clic — comme les toggles cerveau collectif / push. Plus de
+  // bouton « Enregistrer » séparé (donc plus de réglage perdu si on change de page).
+  // Optimiste + rollback si l'écriture échoue.
+  const togglePref = (k: BoolPref) => {
+    const prev = prefs;
+    const next: UserPreferences = { ...prefs, [k]: !prefs[k] };
+    setPrefs(next);
+    void persistPrefs(next).then((ok) => { if (!ok) setPrefs(prev); });
+  };
+  const setTone = (tone: Tone) => {
+    const prev = prefs;
+    const next: UserPreferences = { ...prefs, tone };
+    setPrefs(next);
+    void persistPrefs(next).then((ok) => { if (!ok) setPrefs(prev); });
+  };
 
-  async function savePrefs() {
+  // Persiste les préférences. Fusion avec les préférences brutes existantes (pays,
+  // objectifs d'onboarding…) : ne JAMAIS écraser ce que d'autres écrans ont stocké.
+  // Renvoie true si sauvé (silencieux en succès : le toggle EST le retour visuel).
+  async function persistPrefs(next: UserPreferences): Promise<boolean> {
     setError(null); setSavingPrefs(true);
     try {
       const supabase = createClient();
@@ -605,20 +622,20 @@ export default function SettingsPage() {
       if (!user) throw new Error(t("Session expirée.", "Session expired."));
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const db = supabase as unknown as { from: (t: string) => any };
-      // Fusion avec les préférences brutes existantes (pays, objectifs
-      // d'onboarding…) : ne JAMAIS écraser ce que d'autres écrans ont stocké.
       const { data: prof } = await db
         .from("profiles").select("preferences").eq("user_id", user.id).maybeSingle();
       const raw = (prof?.preferences && typeof prof.preferences === "object" ? prof.preferences : {}) as Record<string, unknown>;
       const { error: e } = await db
         .from("profiles")
-        .upsert({ user_id: user.id, preferences: { ...raw, ...prefs } }, { onConflict: "user_id" });
+        .upsert({ user_id: user.id, preferences: { ...raw, ...next } }, { onConflict: "user_id" });
       if (e) throw e;
-      flash(t("Préférences IA enregistrées.", "AI preferences saved."));
+      return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("Échec — la migration 009 est-elle appliquée ?", "Failed — is migration 009 applied?"));
+      setError(err instanceof Error ? err.message : t("Impossible d'enregistrer la préférence.", "Couldn't save the preference."));
+      return false;
+    } finally {
+      setSavingPrefs(false);
     }
-    setSavingPrefs(false);
   }
 
   // Enregistrement (idempotent) du service worker — sans jamais pendre :
@@ -1230,28 +1247,23 @@ export default function SettingsPage() {
                   <div className="-my-1">
                     <PrefRow label={t("Toujours demander confirmation", "Always ask for confirmation")} desc={t("Avant toute action destructive dans vos applications.", "Before any destructive action in your apps.")} on={prefs.always_confirm} onToggle={() => togglePref("always_confirm")} />
                     <PrefRow label={t("Toujours prévoir un PDF", "Always include a PDF")} desc={t("Une sortie imprimable propre quand c'est pertinent.", "A clean printable output when relevant.")} on={prefs.always_pdf} onToggle={() => togglePref("always_pdf")} />
-                    <PrefRow label={t("Privilégier une application", "Prefer an app")} desc={t("Plutôt qu'un simple document ponctuel.", "Rather than a one-off document.")} on={prefs.prefer_app} onToggle={() => togglePref("prefer_app")} />
                     <PrefRow label={t("Notifications de l'IA", "AI notifications")} desc={t("Quand une tâche longue se termine.", "When a long task finishes.")} on={prefs.ai_notifications} onToggle={() => togglePref("ai_notifications")} />
                   </div>
                   <div className="mt-5">
                     <Field label={t("Ton des réponses", "Response tone")}>
                       <Dropdown
                         value={prefs.tone}
-                        onChange={(v) => setPrefs((p) => ({ ...p, tone: v as Tone }))}
+                        onChange={(v) => setTone(v as Tone)}
                         ariaLabel={t("Ton des réponses", "Response tone")}
                         size="sm"
                         options={TONE_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
                       />
                     </Field>
                   </div>
-                  <button
-                    onClick={savePrefs}
-                    disabled={savingPrefs}
-                    className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#0A0A0A] text-white text-[13.5px] font-semibold px-4 py-2.5 hover:opacity-90 disabled:opacity-50 transition-opacity"
-                  >
-                    {savingPrefs ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                    {t("Enregistrer les préférences", "Save preferences")}
-                  </button>
+                  <p className="mt-5 flex items-center gap-2 text-[12px] text-[#9A9A97]">
+                    {savingPrefs ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5 text-emerald-500" strokeWidth={2.5} />}
+                    {t("Enregistré automatiquement.", "Saved automatically.")}
+                  </p>
                 </Card>
 
                 <Card>
