@@ -136,7 +136,7 @@ function InvitationForm() {
     const supabase = createClient();
     const { data: updRes, error: e1 } = await supabase.auth.updateUser({
       password,
-      data: { full_name: fullName.trim() },
+      data: { full_name: fullName.trim(), invite_completed: true },
     });
     if (e1) {
       setError(e1.message);

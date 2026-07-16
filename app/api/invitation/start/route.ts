@@ -49,7 +49,12 @@ export async function POST(req: Request) {
   if (userErr || !u?.user?.email) {
     return NextResponse.json({ error: "invalid" }, { status: 404 });
   }
-  if (u.user.last_sign_in_at) {
+  // PAS last_sign_in_at : GoTrue le met à jour dès le simple /verify du lien de
+  // récupération, AVANT même que l'invité ait choisi un mot de passe — un second
+  // clic (retry, autre appareil) le marquerait alors à tort comme "déjà rejoint"
+  // alors qu'il n'a jamais rien défini. invite_completed n'est posé QUE par
+  // /invitation à la soumission réelle du formulaire (mot de passe + nom).
+  if (u.user.user_metadata?.invite_completed === true) {
     return NextResponse.json({ error: "already_joined" }, { status: 200 });
   }
 
