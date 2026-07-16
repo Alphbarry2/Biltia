@@ -1,47 +1,60 @@
 "use client";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Invitation d'équipe — atterrissage du lien reçu par email (inviteUserByEmail).
+// Invitation d'équipe — atterrissage du lien reçu par email.
+// Le lien pointe vers /invitation?t=<jeton signé 24h> (JAMAIS directement vers
+// Supabase, cf. lib/invite-link.ts) : on échange ce jeton contre un lien de
+// récupération Supabase FRAIS à chaque tentative via /api/invitation/start, ce
+// qui rend le lien envoyé par email réutilisable pendant 24h (autre clic, autre
+// appareil) même si chaque lien Supabase sous-jacent est à usage unique.
+// Supabase nous redirige ensuite ici avec la session dans le hash (#access_token=...).
 // L'invité a déjà : un profil rattaché à l'équipe (onboarding sauté) + sa
 // membership avec son rôle, et PAS de crédits d'inscription (voir handle_new_user,
 // migr. 053). Il ne reste qu'à choisir son NOM et son MOT DE PASSE, puis il entre dans
 // l'app — SANS l'onboarding entreprise (il rejoint, il ne crée pas d'entreprise).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase";
 import { AUTH_INPUT, AUTH_LABEL } from "@/components/auth";
 import { useT } from "@/lib/i18n/context";
 import { Check, ArrowRight, Loader2 } from "lucide-react";
 
+type ReadyState = "checking" | "ok" | "invalid" | "expired" | "already_joined";
+
+// useSearchParams impose une frontière Suspense au prérendu (Next 15).
 export default function InvitationPage() {
+  return (
+    <Suspense fallback={null}>
+      <InvitationForm />
+    </Suspense>
+  );
+}
+
+function InvitationForm() {
   const t = useT();
   const router = useRouter();
-  const [ready, setReady] = useState<"checking" | "ok" | "invalid">("checking");
+  const searchParams = useSearchParams();
+  const [ready, setReady] = useState<ReadyState>("checking");
   const [teamName, setTeamName] = useState<string | null>(null);
   const [fullName, setFullName] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const settled = useRef(false);
 
   useEffect(() => {
     const supabase = createClient();
-    const check = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        setReady("invalid");
-        return;
-      }
-      setReady("ok");
-      // Nom de l'équipe rejointe (best-effort, pour personnaliser l'accueil).
+
+    const loadTeamName = async (userId: string) => {
       try {
         const { data } = await supabase
           .from("tenant_members")
           .select("tenants(name)")
-          .eq("user_id", session.user.id)
+          .eq("user_id", userId)
           .limit(1)
           .maybeSingle();
         const tn = (data as { tenants?: { name?: string } | { name?: string }[] } | null)?.tenants;
@@ -51,11 +64,63 @@ export default function InvitationPage() {
         /* accueil générique si indisponible */
       }
     };
-    const timer = setTimeout(check, 600);
+
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return false;
+      settled.current = true;
+      setReady("ok");
+      void loadTeamName(session.user.id);
+      return true;
+    };
+
+    const exchangeToken = async (token: string) => {
+      try {
+        const res = await fetch("/api/invitation/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ t: token }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (settled.current) return;
+        if (res.status === 410) { setReady("expired"); return; }
+        if (data?.error === "already_joined") { setReady("already_joined"); return; }
+        if (!res.ok || !data?.actionUrl) { setReady("invalid"); return; }
+        window.location.href = data.actionUrl;
+      } catch {
+        if (!settled.current) setReady("invalid");
+      }
+    };
+
+    const run = async () => {
+      const hasHash =
+        typeof window !== "undefined" &&
+        (window.location.hash.includes("access_token") || window.location.hash.includes("type=recovery"));
+
+      if (hasHash) {
+        // Le client Supabase traite le hash de façon asynchrone : on lui laisse le
+        // temps, l'écouteur PASSWORD_RECOVERY/SIGNED_IN ci-dessous peut trancher en premier.
+        await new Promise((r) => setTimeout(r, 700));
+        if (await checkSession()) return;
+        await new Promise((r) => setTimeout(r, 2000));
+        if (!settled.current) setReady("invalid");
+        return;
+      }
+
+      const token = searchParams.get("t");
+      if (!token) {
+        setReady("invalid");
+        return;
+      }
+      await exchangeToken(token);
+    };
+    void run();
+
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") void check();
+      if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") void checkSession();
     });
-    return () => { clearTimeout(timer); sub.subscription.unsubscribe(); };
+    return () => sub.subscription.unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const hasLength = password.length >= 8;
@@ -98,12 +163,30 @@ export default function InvitationPage() {
     );
   }
 
-  if (ready === "invalid") {
+  if (ready === "already_joined") {
     return (
       <div className="text-center">
-        <h1 className="mb-2 text-[24px] font-black tracking-[-0.02em] text-[#0A0A0A]">{t("Invitation expirée.", "Invitation expired.")}</h1>
+        <h1 className="mb-2 text-[24px] font-black tracking-[-0.02em] text-[#0A0A0A]">{t("Déjà rejoint.", "Already joined.")}</h1>
         <p className="mb-6 text-sm leading-relaxed text-[#6E6E6C]">
-          {t("Ce lien d'invitation n'est plus valide. Demandez à la personne qui vous a invité de vous renvoyer une invitation.", "This invitation link is no longer valid. Ask the person who invited you to send a new invitation.")}
+          {t("Vous avez déjà défini votre mot de passe. Connectez-vous avec vos identifiants habituels.", "You've already set your password. Sign in with your usual credentials.")}
+        </p>
+        <Link href="/login" className="font-semibold text-[#7C3AED] transition-colors hover:text-[#0A0A0A]">
+          {t("Aller à la connexion", "Go to sign-in")}
+        </Link>
+      </div>
+    );
+  }
+
+  if (ready === "expired" || ready === "invalid") {
+    return (
+      <div className="text-center">
+        <h1 className="mb-2 text-[24px] font-black tracking-[-0.02em] text-[#0A0A0A]">
+          {ready === "expired" ? t("Invitation expirée.", "Invitation expired.") : t("Lien invalide.", "Invalid link.")}
+        </h1>
+        <p className="mb-6 text-sm leading-relaxed text-[#6E6E6C]">
+          {ready === "expired"
+            ? t("Cette invitation date de plus de 24 heures. Demandez à la personne qui vous a invité de vous en renvoyer une.", "This invitation is more than 24 hours old. Ask the person who invited you to send a new one.")
+            : t("Ce lien d'invitation n'est plus valide. Demandez à la personne qui vous a invité de vous renvoyer une invitation.", "This invitation link is no longer valid. Ask the person who invited you to send a new invitation.")}
         </p>
         <Link href="/login" className="font-semibold text-[#7C3AED] transition-colors hover:text-[#0A0A0A]">
           {t("Aller à la connexion", "Go to sign-in")}

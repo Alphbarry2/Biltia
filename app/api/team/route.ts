@@ -25,6 +25,7 @@ import { getEntitlementsForTenant, canInviteTeam } from "@/lib/entitlements";
 import { isFounderEmail } from "@/lib/founder";
 import { logActivity } from "@/lib/activity";
 import { sendEmail } from "@/lib/mailer";
+import { signInviteToken } from "@/lib/invite-link";
 import { getLocale } from "@/lib/i18n/server";
 import { pick } from "@/lib/i18n/config";
 
@@ -426,16 +427,12 @@ export async function POST(req: Request) {
     }
   }
   if (pending) {
-    // generateLink recovery : RENVOIE le lien de définition de mot de passe SANS
-    // envoyer d'email (on l'expédie via Resend juste après). Vaut pour le nouvel invité
-    // comme pour le compte existant jamais connecté — aucun contact avec le SMTP cassé.
-    const { data: link } = await admin.auth.admin.generateLink({
-      type: "recovery",
-      email,
-      options: { redirectTo: `${appUrl}/invitation` },
-    });
-    const generated = (link as { properties?: { action_link?: string } } | null)?.properties?.action_link;
-    if (generated) actionUrl = generated;
+    // Lien signé (24h glissantes, cf. lib/invite-link.ts) vers NOTRE page /invitation —
+    // jamais directement vers Supabase. /api/invitation/start ne génère le lien de
+    // récupération Supabase (usage unique) qu'AU MOMENT du clic, à chaque tentative :
+    // un second clic, un autre appareil ou un pré-scan de sécurité de l'email
+    // n'épuisent donc jamais le jeton envoyé par mail.
+    actionUrl = `${appUrl}/invitation?t=${signInviteToken(membership.tenant_id, memberUserId)}`;
   }
   const heading = pending ? "Rejoignez votre équipe." : "Vous avez été ajouté à une équipe.";
   const bodyText = pending
