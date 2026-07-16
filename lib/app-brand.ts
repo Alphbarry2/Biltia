@@ -213,6 +213,11 @@ html.__bw-side .app-header .app-eyebrow,html.__bw-side .app-header .brand{displa
     try{
       if(!zone) return;
       if(zone.querySelector('.app-eyebrow')) return;
+      /* Zone déjà marquée par un AUTRE mécanisme de marque (ex. le script démo de
+         l'aperçu /t/[id], lib/demo-biltia.ts, qui remplace tout le innerHTML par son
+         propre wordmark) : ne PAS en reposer un second par-dessus — c'était la cause
+         du doublon "biltia biltia" sur les aperçus de template (2026-07-16). */
+      if(zone.hasAttribute && zone.hasAttribute('data-biltia-brand')) return;
       var d=document.createElement('div'); d.className='app-eyebrow';
       zone.insertBefore(d, zone.firstChild);
     }catch(e){}

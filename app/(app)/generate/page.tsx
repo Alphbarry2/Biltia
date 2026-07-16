@@ -1729,7 +1729,17 @@ export default function GeneratePage() {
     // RÈGLE ABSOLUE : le questionnaire s'affiche TOUJOURS avant une création
     // d'app. Si l'API ne répond pas, on bascule sur les questions statiques
     // locales — on ne construit JAMAIS sans être passé par les questions.
-    if (!isModification && classifyKindHeuristic(trimmed).kind === "module") {
+    //
+    // "module" ET "document" déclenchent l'appel : l'heuristique LOCALE (mots-clés,
+    // sans LLM) confond souvent les deux — ex. « une app de devis » tombe sur
+    // "document" faute de mot générique d'app ("gestion", "suivi"…), alors que le
+    // classifieur LLM serveur (/api/clarify, lignes ~162-186) tranche correctement
+    // "module" pour la même phrase. Sans ce garde élargi, /api/clarify n'était
+    // JAMAIS appelé pour ces demandes → questionnaire Données/Palette sauté en
+    // silence alors que le serveur créait bien une app. Le vrai classifieur
+    // (LLM) fait le tri fin côté serveur et skip légitimement pour un VRAI document.
+    const heuristicKind = classifyKindHeuristic(trimmed).kind;
+    if (!isModification && (heuristicKind === "module" || heuristicKind === "document")) {
       setLoadingLabel(t("J'analyse votre besoin…", "Analyzing your need…"));
       setExpectingBuild(false);
       setIsGenerating(true);
