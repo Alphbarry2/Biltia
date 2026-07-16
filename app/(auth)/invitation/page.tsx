@@ -53,7 +53,7 @@ export default function InvitationPage() {
     };
     const timer = setTimeout(check, 600);
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "SIGNED_IN") void check();
+      if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") void check();
     });
     return () => { clearTimeout(timer); sub.subscription.unsubscribe(); };
   }, []);
