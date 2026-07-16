@@ -23,6 +23,7 @@ const AgentTemplateGallery = dynamic(
 );
 import { VoiceRecorder } from "@/components/voice-recorder";
 import { ConnectToolsBadge } from "@/components/connections";
+import { BrainOptInBanner } from "@/components/brain-optin-banner";
 import { useSession } from "@/components/session-provider";
 import { useT, useLocale } from "@/lib/i18n/context";
 import type { Locale } from "@/lib/i18n/config";
@@ -637,6 +638,9 @@ export default function DashboardPage() {
           </div>
         </div>
       </section>
+
+      {/* Opt-in cerveau collectif : one-time, dismissible, owner/admin seulement. */}
+      <BrainOptInBanner />
 
       {/* Panneau arrondi et espacé : mes ateliers + modèles, avec recherche (plus large, descendu) */}
       <section className="relative z-10 px-4 sm:px-6 pt-12 sm:pt-16 pb-20">
