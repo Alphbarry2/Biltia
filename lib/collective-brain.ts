@@ -29,8 +29,14 @@ import { embedTexts, hasEmbeddingKey } from "./embeddings";
 
 // ── Réglages ─────────────────────────────────────────────────────────────────
 
-/** Seuil de K-anonymat : nombre minimum de tenants DISTINCTS pour publier. */
-export const MIN_DISTINCT_TENANTS = 5;
+/** Seuil de K-anonymat : nombre minimum de tenants DISTINCTS pour publier.
+ *  Abaissé 5 → 3 (décision user 2026-07-16) : à 5, il fallait 5 entreprises actives
+ *  par type de signal pour qu'un insight sorte — inatteignable au début (1 opt-in sur
+ *  14). À 3, le cerveau commence à produire beaucoup plus tôt ; 3 reste un plancher
+ *  d'anonymat raisonnable (un insight n'est jamais tiré de moins de 3 entreprises
+ *  distinctes). Ne pas descendre sous 3 : en dessous, un pattern pourrait trahir une
+ *  seule entreprise. */
+export const MIN_DISTINCT_TENANTS = 3;
 
 /** Modèle léger pour la synthèse d'insight (cohérent kind-router). */
 const SYNTH_MODEL = TIER_SIMPLE;
