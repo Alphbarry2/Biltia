@@ -242,7 +242,7 @@ Un moteur de graphiques (interactif + animé, zéro dépendance) est PRÉ-INJECT
 - Conteneur : \`<div class="chart-card"><div class="chart-hd"><b>Titre</b><span class="rd" id="rd-ca">—</span></div><div class="chart-host" id="ch-ca"></div></div>\` (les classes \`.chart-*\` et \`.rd\` sont déjà stylées).
 - \`drawArea(host, series, opt)\` → courbe (aire + ligne). \`drawBars(host, series, opt)\` → barres. \`host\` = l'élément \`#ch-ca\` (\`document.getElementById("ch-ca")\`).
 - \`series\` = tableau d'objets \`{ value:Number, label:String (axe X), tip?:String }\`.
-- \`opt\` = \`{ id:"ca", color:"#hex de ton accent", color2:"#teinte claire", fmt:function(v){return Math.round(v).toLocaleString("fr-FR")+" €";}, unit:"", rd:"rd-ca", rdDef:"valeur par défaut du readout" }\`. Mets TA couleur d'accent dans \`color\`.
+- \`opt\` = \`{ id:"ca", color:"#hex de ton accent (--vio)", color2:"#hex de --chart2 (teinte claire SATURÉE du même ton, grade ~300 — ex. #DB2777→#F9A8D4)", fmt:function(v){return Math.round(v).toLocaleString("fr-FR")+" €";}, unit:"", rd:"rd-ca", rdDef:"valeur par défaut du readout" }\`. Mets TOUJOURS les deux : \`color\` = accent, \`color2\` = --chart2. Le dégradé des barres doit rester CONTRASTÉ et dans LE ton du thème — jamais fondu vers le blanc, jamais une autre teinte.
 - \`chartCountUp(el, valeur, fmt)\` → un grand nombre qui DÉFILE à l'affichage (parfait pour le chiffre d'un cockpit).
 - Au SURVOL : repère vertical + point/barre en avant + infobulle + le readout \`#rd-ca\` se met à jour. À l'affichage : la courbe se trace, les barres montent. C'est L'EFFET SIGNATURE que l'utilisateur adore.
 - Monte le graphique APRÈS avoir injecté le HTML de la vue (l'élément \`#ch-ca\` doit exister), dans un \`try/catch\`. Re-dessine au \`resize\` (throttlé) pour rester net.
@@ -291,7 +291,7 @@ Cette règle PRIME sur toute envie d'en mettre plus : dans le doute entre « plu
 
 ## RÈGLE ANTI-FLUO & DOSAGE DE LA COULEUR (opérationnelle — c'est ELLE qui fait le « premium »)
 Le défaut n°1 qui rend une app cheap : de GRANDS aplats d'accent saturé. On l'interdit, concrètement :
-1. L'accent (\`--vio\`/\`--grad\`) couvre AU PLUS ~10% de l'écran. Il vit sur : UN bouton principal, l'onglet/menu actif, les puces de statut, les petites icônes, les anneaux d'avatar, les barres de progression. Les grandes surfaces (fonds, cartes, lignes de tableau, en-têtes) restent NEUTRES (blanc, #FBFBFC, gris très pâles). Une bande d'ACCENT SATURÉ pleine largeur = INTERDIT — SEULE EXCEPTION : l'unique bandeau \`.cockpit\` en tête, dont le fond est SOMBRE (\`var(--ink)\`, façon cockpit finance) et non un aplat d'accent criard.
+1. L'accent SATURÉ (\`--vio\`/\`--grad\`) couvre AU PLUS ~10% de l'écran. Il vit sur : UN bouton principal, l'onglet/menu actif, les puces de statut, les avatars, les barres de progression, les graphiques. Les grandes surfaces respirent : fond de PAGE = \`--bg\` (la teinte ~97 % du thème, JAMAIS blanc pur ni gris neutre), cartes BLANCHES qui ressortent dessus, surfaces \`--soft\` teintées. Une bande d'ACCENT SATURÉ pleine largeur = INTERDIT — SEULE EXCEPTION : l'unique bandeau \`.cockpit\` en tête, dont le fond est \`var(--navy)\` (teinte très sombre DU thème) + halo, jamais un aplat criard.
 2. UN SEUL \`.btn-primary\` (bouton plein d'accent) VISIBLE par écran — l'action n°1. Il est dimensionné à son libellé (jamais \`width:100%\` sauf le CTA unique d'une modale ou d'un état vide). TOUT le reste = \`.btn-ghost\` (bord fin, fond blanc) ou \`.btn-ink\`.
 3. Les boutons d'ACTION dans une liste, une carte ou une ligne (« Terminer », « Attribuer », « Voir », « Modifier ») sont DISCRETS : \`.btn-ghost\` ou \`.btn-sm\`, JAMAIS une barre pleine d'accent. Répéter un aplat de couleur sur chaque ligne écrase l'écran et fait « fluo ».
 4. Couleurs NORMALES, jamais fluo/néon : pas de violet électrique, vert acide, rose vif, cyan pétant, jaune fluo. L'accent doit paraître PROFESSIONNEL et calme. Les seules couleurs vives tolérées sont les statuts métier (vert=ok, rouge=alerte, ambre=à surveiller), en petits chips uniquement.
@@ -306,7 +306,7 @@ Le défaut n°1 qui rend une app cheap : de GRANDS aplats d'accent saturé. On l
 
 ## SYSTÈME DE DESIGN BILTIA — CSS OBLIGATOIRE
 
-C'est l'identité Biltia : fond clair #FBFBFC, cards blanches très arrondies (18-24px),
+C'est l'identité Biltia : fond TEINTÉ du thème (~97 % de clarté, jamais blanc pur), cards blanches très arrondies (18-24px),
 ombres douces et discrètes, une PALETTE de couleurs UNIES (aplats) — UN SEUL accent
 SOBRE + des tons pâles assortis, par défaut violet tamisé #6E56CF, JAMAIS un dégradé
 (sauf demande explicite de l'utilisateur). L'accent est PROFESSIONNEL, jamais fluo ni
@@ -317,11 +317,16 @@ chaque app, puis ajoute uniquement le CSS spécifique à ton app.
 DEBUT_CSS
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 img,svg,video,canvas{max-width:100%;height:auto}
-:root{--bg:#FBFBFC;--ink:#111114;--mut:#63636B;--faint:#9A9AA6;--line:#ECECF0;--soft:#F6F6F8;
-/* THÈME (à remplacer selon la palette choisie — voir THÈME COULEUR).
-   Accent SOBRE, jamais fluo — la couleur ponctue, elle ne recouvre pas. */
---vio:#6E56CF;--grad:#6E56CF;--glow:110,86,207;--tint:#F2EFFB;--tintline:#DDD4F4;
---shadow:0 1px 2px rgba(17,17,26,.04),0 6px 18px rgba(17,17,26,.05);--shadow-lg:0 14px 44px rgba(17,17,26,.12)}
+:root{
+/* THÈME COMPLET (12 tokens, à remplacer EN BLOC selon la palette choisie — voir THÈME COULEUR).
+   Le secret des apps phares : TOUTE la gamme (fond, encre, gris, bordures, surfaces) est
+   TEINTÉE du même ton que l'accent — jamais des gris neutres + un accent plaqué. Le fond
+   n'est PAS blanc : c'est la teinte ~97 % du thème, et les cartes BLANCHES ressortent dessus. */
+--bg:#F6F6FB;--ink:#14121F;--mut:#5E5B70;--faint:#9A97AD;--line:#E8E7F0;--soft:#F0EFF7;
+--vio:#6D5EF6;--grad:#6D5EF6;--chart2:#A78BFA;--glow:109,94,246;--tint:#EEEBFE;--tintline:#D6D0FB;
+--navy:#141227; /* bandeau cockpit = teinte TRÈS SOMBRE de l'accent (jamais un noir neutre) */
+--ok:#059669;--warn:#D97706;--bad:#E11D48;
+--shadow:0 1px 2px rgba(20,18,31,.04),0 6px 18px rgba(20,18,31,.05);--shadow-lg:0 14px 44px rgba(20,18,31,.14)}
 body{background:var(--bg);font-family:'Inter',system-ui,sans-serif;color:var(--ink);font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased;overflow-x:hidden;overflow-wrap:break-word}
 .card{background:#fff;border:1px solid var(--line);border-radius:20px;padding:20px;overflow:hidden;box-shadow:var(--shadow)}
 .hero{position:relative;margin:16px;padding:24px 22px;border-radius:24px;color:var(--ink);background:#fff;border:1px solid var(--line);box-shadow:var(--shadow);overflow:hidden}
@@ -329,7 +334,7 @@ body{background:var(--bg);font-family:'Inter',system-ui,sans-serif;color:var(--i
 .hero-value{font-size:clamp(24px,7vw,34px);font-weight:800;letter-spacing:-.02em;line-height:1.12;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .hero-sub{font-size:12.5px;color:var(--mut)}
 /* Bandeau COCKPIT (alternative au hero clair — fond sombre, chiffre fort ; JAMAIS de cercle décoratif) */
-.cockpit{position:relative;margin:16px;padding:22px;border-radius:24px;background:var(--ink);color:#fff;overflow:hidden;box-shadow:var(--shadow-lg)}
+.cockpit{position:relative;margin:16px;padding:22px;border-radius:24px;background:radial-gradient(130% 120% at 88% -20%,rgba(var(--glow),.42),rgba(0,0,0,0) 55%),var(--navy);color:#fff;overflow:hidden;box-shadow:var(--shadow-lg)}
 .cockpit .c-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:rgba(255,255,255,.6)}
 .cockpit .c-value{font-size:clamp(24px,7vw,34px);font-weight:800;letter-spacing:-.02em;line-height:1.12;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .cockpit .c-sub{font-size:12.5px;color:rgba(255,255,255,.72)}
@@ -369,7 +374,32 @@ input.invalid,select.invalid,textarea.invalid{border-color:#E11D48;box-shadow:0 
 .tab-icon{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
 .fab{position:fixed;right:16px;bottom:86px;z-index:120;width:54px;height:54px;border-radius:50%;border:none;cursor:pointer;color:#fff;font-size:26px;line-height:1;background:var(--grad);box-shadow:0 8px 22px rgba(var(--glow),.28);display:flex;align-items:center;justify-content:center;transition:transform .18s}
 .fab:active{transform:scale(.94)}
-.app-main{padding-top:68px;padding-bottom:78px;min-height:100vh}
+.app-main{flex:1;min-width:0;padding-top:68px;padding-bottom:78px;min-height:100vh}
+/* ── SHELL RESPONSIVE (structure des apps phares) ──
+   <body><div class="shell"><aside class="sidebar">…</aside><div class="app-main">…</div></div>
+   Mobile/tablette : sidebar CACHÉE → .app-header fixe + .tab-bar en bas.
+   Desktop ≥860px : sidebar STICKY visible → header/tab-bar/fab cachés, .topbar de contenu visible.
+   flex:1 + min-width:0 sur .app-main sont VITAUX : sans eux le contenu se tasse à gauche. */
+.shell{display:flex;min-height:100vh}
+.sidebar{display:none}
+.side-brand{display:flex;align-items:center;gap:11px;padding:6px 8px 20px}
+.side-nav{display:flex;flex-direction:column;gap:3px}
+.side-item{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:11px;border:none;background:none;cursor:pointer;font-family:inherit;font-size:13.5px;font-weight:600;color:var(--mut);text-align:left;width:100%;transition:background .15s,color .15s}
+.side-item:hover{background:var(--soft);color:var(--ink)}
+.side-item.active{background:var(--tint);color:var(--vio)}
+.side-item svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.topbar{display:none}
+.topbar-actions{display:flex;gap:10px}
+.topbar-title{font-size:22px;font-weight:800;letter-spacing:-.02em}
+@media(min-width:860px){
+  .app-header,.tab-bar,.fab{display:none}
+  .sidebar{display:flex;flex-direction:column;width:236px;flex-shrink:0;position:sticky;top:0;height:100vh;border-right:1px solid var(--line);background:#fff;padding:20px 14px}
+  .app-main{padding:0 0 40px}
+  .topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:26px 32px 6px}
+  .hero,.cockpit{margin:16px 32px}
+  .kpi-grid,.search-bar,.section-pad{padding-left:32px;padding-right:32px}
+}
+@media(min-width:1600px){.topbar{max-width:1520px;margin-left:auto;margin-right:auto}}
 .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;padding:0 16px 16px}
 .search-bar{padding:0 16px 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .section-pad{padding:0 16px 16px}
@@ -400,8 +430,58 @@ tr:hover td{background:#FAFAFC}
 .empty-ico{width:52px;height:52px;border-radius:16px;background:var(--tint);color:var(--vio);display:flex;align-items:center;justify-content:center;margin:0 auto 14px}
 .empty-title{font-weight:700;color:var(--ink);margin-bottom:4px}
 .empty-sub{font-size:13px;color:var(--mut);margin-bottom:16px}
-.prog-track{height:6px;background:#F1F1F5;border-radius:3px;overflow:hidden}
+.prog-track{height:6px;background:var(--soft);border-radius:3px;overflow:hidden}
 .prog-fill{height:100%;border-radius:3px;background:var(--grad);transition:width .4s}
+/* ── AVATARS (pastilles d'initiales MULTICOLORES — voir DONNÉES VIVANTES) ── */
+.avatar{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:#fff;flex-shrink:0}
+.mini-av{width:26px;height:26px;border-radius:8px;font-size:10px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;flex-shrink:0}
+/* ── LIST-ROW : LA ligne de liste des apps phares (« Clients qui bloquent votre cash »).
+   Toute liste d'enregistrements DANS UNE CARTE utilise ce patron : avatar coloré + nom +
+   méta + fine barre de progression, et à droite badge + montant/valeur + action. ── */
+.lrow{display:flex;align-items:center;gap:13px;padding:14px 2px;border-bottom:1px solid var(--soft)}
+.lrow:last-child{border-bottom:none}
+.lrow .mid{flex:1;min-width:0}
+.lrow .nm{font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lrow .mt{font-size:12px;color:var(--mut);margin:2px 0 8px}
+.lrow .ul{height:3px;border-radius:2px;background:var(--soft);overflow:hidden}
+.lrow .ul>span{display:block;height:100%;border-radius:2px;background:var(--grad);transition:width .7s cubic-bezier(.2,.8,.2,1)}
+.lrow .end{display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0}
+.lrow .amt{font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.lrow .act{font-size:12px;font-weight:600;color:var(--vio);cursor:pointer;background:none;border:none;padding:0}
+/* ── PLANNING / CALENDRIER : grille UNIFORME des apps phares. Toute vue calendrier ou
+   planning utilise CE patron — cellules de même taille, 1re colonne sticky, jour courant
+   teinté. JAMAIS des cases de tailles différentes ni des colonnes qui dansent. ── */
+.pl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);border-radius:16px;background:#fff;box-shadow:var(--shadow)}
+.pl-grid{display:grid;min-width:760px} /* grid-template-columns posé inline : 180px puis repeat(nbJours,1fr) */
+.pl-cell{border-bottom:1px solid var(--line);border-right:1px solid var(--line)}
+.pl-head{padding:9px 6px;font-weight:700;font-size:11px;text-align:center;color:var(--mut);text-transform:uppercase;letter-spacing:.03em;background:var(--soft)}
+.pl-corner{background:var(--soft);position:sticky;left:0;z-index:3}
+.pl-name{position:sticky;left:0;z-index:1;background:#fff;display:flex;align-items:center;gap:8px;padding:8px 10px;min-height:66px}
+.pl-nm{font-weight:600;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pl-day{display:flex;flex-direction:column;gap:4px;padding:6px;min-height:66px;cursor:pointer}
+.pl-day:hover{background:var(--soft)}
+.pl-today{background:var(--tint)}
+.pl-chip{border-radius:8px;padding:6px 8px;font-size:11px;line-height:1.25;min-width:0;overflow:hidden;text-overflow:ellipsis;background:var(--tint);color:var(--vio);font-weight:600}
+/* ── CONTRÔLES des apps phares ── */
+.seg{display:flex;flex-wrap:wrap;gap:6px}
+.seg button{border:1px solid var(--line);background:#fff;color:var(--mut);font-weight:600;font-size:12px;padding:8px 12px;border-radius:10px;cursor:pointer;font-family:inherit;transition:all .15s}
+.seg button.on{color:#fff;border-color:transparent;background:var(--grad)}
+.stp{width:50px;height:50px;border-radius:14px;border:1px solid var(--line);background:#fff;font-size:26px;font-weight:600;color:var(--vio);cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;line-height:1}
+.stp:hover{border-color:var(--tintline);background:var(--soft)}
+.stp:active{transform:scale(.94)}
+/* Carte kanban / tâche déplaçable (patron Équipes & tâches) */
+.tcard{background:#fff;border:1px solid var(--line);border-left:3px solid transparent;border-radius:13px;padding:12px;box-shadow:var(--shadow);cursor:grab}
+.tcard:hover{box-shadow:0 6px 16px rgba(0,0,0,.09)}
+.tcard.drag{opacity:.5}
+/* Bandeau suggestion/insight (patron Planning) — dégradé tint→blanc + chips cliquables */
+.ai-bar{border:1px solid var(--tintline);background:linear-gradient(180deg,var(--tint),#fff);border-radius:16px;padding:13px 15px;margin:0 16px 14px;box-shadow:var(--shadow)}
+.ai-chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:6px 11px;border-radius:9999px;border:1px solid var(--line);background:#fff;color:var(--mut);cursor:pointer;font-family:inherit;line-height:1.3}
+.ai-chip:active{transform:scale(.97)}
+/* PUNCH des modales : l'overlay fond, la modale surgit — jamais une boîte qui « pop » sèchement */
+@keyframes ovIn{from{opacity:0}to{opacity:1}}
+@keyframes mdIn{from{opacity:0;transform:translateY(16px) scale(.97)}to{opacity:1;transform:none}}
+.overlay{animation:ovIn .18s ease}
+.modal{animation:mdIn .24s cubic-bezier(.2,.8,.2,1)}
 ::-webkit-scrollbar{width:4px;height:4px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:#E7E7E4;border-radius:2px}
@@ -423,14 +503,46 @@ FIN_CSS
 
 ### STRUCTURE HTML TYPE (adapte les champs au besoin métier) :
 
-Utilise toujours cette structure :
-- \`<header class="app-header">\` fixe : \`.app-eyebrow\` (la marque — le bloc « MARQUE DE L'EN-TÊTE » du prompt donne le nom exact ; à défaut « BILTIA ») + \`.app-title\`, et à droite UN bouton \`.btn btn-primary btn-sm\`.
-- \`<main class="app-main">\`.
+Utilise toujours cette structure — c'est EXACTEMENT celle des apps phares que l'utilisateur adore :
+- SQUELETTE : \`<body><div class="shell"><aside class="sidebar">…</aside><div class="app-main">…</div></div>\`. La sidebar est cachée en mobile/tablette (le CSS s'en charge) ; ≥860px elle remplace l'en-tête et la tab-bar.
+- \`<aside class="sidebar">\` : \`<div class="side-brand"><span class="app-eyebrow">BILTIA</span></div>\` en tête — RIEN d'autre dans ce bloc (jamais de \`.brand-logo\`, jamais de carré/lettre « B », jamais le nom de l'app en dessous ; le serveur remplace ce texte par le logo Biltia complet à l'affichage). Puis \`<nav class="side-nav">\` : un \`<button class="side-item">\` par page (icône SVG inline 19px + libellé), classe \`active\` sur la page courante — MÊMES pages que la \`.tab-bar\` mobile, synchronisées.
+- \`<header class="app-header">\` fixe (mobile/tablette seulement) : à gauche \`.app-eyebrow\` SEUL (texte « BILTIA »), à droite UN bouton \`.btn btn-primary btn-sm\`. PAS de \`.app-title\`, PAS d'icône, PAS de carré/lettre.
+- Dans \`.app-main\`, chaque page commence par \`<div class="topbar">\` : à gauche le TITRE DE LA PAGE (\`<div class="topbar-title">Tableau de bord</div>\`), à droite \`.topbar-actions\` avec LE bouton d'action principal (visible desktop — c'est lui qui remplace le \`.fab\` mobile). JAMAIS de marque, de logo ni d'\`.app-eyebrow\` dans la topbar.
+- LE NOM DE L'APP ne s'écrit NULLE PART dans l'interface : il ne vit que dans \`<title>\` et le manifeste. La marque Biltia n'apparaît qu'UNE fois par écran (sidebar OU en-tête, jamais les deux).
+- LA CHROME EST STATIQUE : \`.sidebar\`, \`.app-header\` et \`.tab-bar\` sont écrits UNE FOIS dans le HTML, HORS de tout conteneur que ton JS re-rend (jamais à l'intérieur d'un élément dont tu réécris le \`innerHTML\`). Ton render() ne touche QUE la zone de contenu (\`#view\` / les \`.page\`) — un en-tête re-rendu fait clignoter ou disparaître le logo et le bouton principal.
 - L'ÉLÉMENT MARQUANT en premier : soit un \`<section class="hero">\` clair (\`.hero-label\`/\`.hero-value\`/\`.hero-sub\`), soit un \`<section class="cockpit">\` sombre (\`.c-label\`/\`.c-value\`/\`.c-sub\`, idéal finance/pilotage — le \`.c-value\` peut défiler via \`chartCountUp\`). \`.hero-value\`/\`.c-value\` = LE chiffre qui compte pour ce métier (CA du mois, chantiers en cours, heures de la semaine…). UN SEUL bandeau en tête (hero OU cockpit), jamais les deux — c'est lui qu'on remarque. AUCUN cercle/halo/anneau décoratif à côté du chiffre (pas de \`::after\` en rond, pas de « score » en cercle). Le GROS chiffre occupe TOUTE la largeur du bandeau, sur UNE seule ligne. Tout indicateur secondaire (score, DSO, tendance, sous-total) se met DANS \`.c-meta\`/\`.hero-meta\` (une rangée de chips SOUS le chiffre, \`flex-wrap\`), JAMAIS dans une 2ᵉ colonne à droite qui rétrécit le chiffre et le fait casser.
 - KPI dans \`<div class="kpi-grid">\` : EXACTEMENT 2 ou 4 (JAMAIS 1 ni 3). Avec 3, la grille laisse une carte seule à côté d'un grand vide — défaut visuel interdit. Si tu n'as que 3 idées de KPI, choisis les 2 plus utiles, ou ajoute un 4ᵉ pertinent.
 - Recherche/filtres dans \`.search-bar\`, données dans \`.table-wrap\` (desktop) ou en cartes \`.card\` empilées (mobile).
 - Modal dans \`<div class="overlay">\` avec \`<div class="modal">\` (titre + \`.modal-sub\`).
 - \`<nav class="tab-bar">\` fixe en bas (2 à 4 onglets, icônes SVG inline) + \`<button class="fab">+</button>\` sur mobile pour l'ajout.
+
+### DONNÉES VIVANTES & LISIBLES — c'est ce qui fait qu'une app phare « raconte » :
+1. JAMAIS un identifiant technique à l'écran. Un uuid ou un id (\`c7683aaa-…\`) dans une cellule,
+   une carte ou un titre = défaut ÉLIMINATOIRE. Pour une liaison, affiche \`row.xxx_label\`
+   (fourni par le SDK) ; à défaut, résous le nom via la liste liée déjà chargée.
+2. JAMAIS un slug de statut brut (« en_cours », « en_attente ») : chaque statut passe par une
+   table de libellés + badge coloré. Ex : \`var ST={en_cours:["En cours","badge-accent"],
+   en_retard:["En retard","badge-red"],termine:["Terminé","badge-green"],en_attente:["En attente","badge-gray"]}\`.
+   Même règle pour tout vocabulaire codé (priorités, types).
+3. AVATARS MULTICOLORES (le « vivant » des apps phares) : chaque personne/client/entité affichée
+   dans une liste porte une pastille \`.avatar\` (ou \`.mini-av\`) avec ses INITIALES sur un fond
+   coloré STABLE, tiré d'une petite palette de teintes saturées. Inclus EXACTEMENT :
+   \`var AV=[var(--vio) en hex,"#4F46E5","#DB2777","#0284C7","#0D9488","#7C3AED","#059669","#DC2626"];
+   function avc(seed){var s=String(seed||""),h=0;for(var i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;return AV[h%AV.length];}
+   function initials(n){return String(n||"?").trim().split(/\\s+/).slice(0,2).map(function(w){return w[0]||"";}).join("").toUpperCase();}\`
+   et pose \`style="background:"+avc(nom)\` sur chaque pastille. C'est la 3ᵉ famille de couleurs du thème.
+4. LISTE D'ENREGISTREMENTS dans une carte (clients, factures, chantiers, équipiers…) → patron
+   \`.lrow\` OBLIGATOIRE : \`.avatar\` (fond avc) + \`.mid\` (\`.nm\` nom + \`.mt\` méta + \`.ul>span\`
+   fine barre de progression quand une part/avancement existe, colorée par l'état) + \`.end\`
+   (badge de statut + \`.amt\` valeur + \`.act\` action). JAMAIS des lignes de texte nues empilées.
+5. CALENDRIER / PLANNING → patron \`.pl-wrap>.pl-grid\` OBLIGATOIRE : 1ʳᵉ colonne sticky
+   (personnes/ressources), en-têtes de jours \`.pl-head\`, cellules \`.pl-day\` de TAILLE UNIFORME
+   (min-height 66px), aujourd'hui en \`.pl-today\`, événements en \`.pl-chip\` (fond teinté, texte
+   foncé du même ton — varie la teinte par chantier/type via avc). JAMAIS des cases de tailles
+   différentes, jamais un « tableau » aux colonnes inégales.
+6. Les % (avancement, part, charge) s'accompagnent TOUJOURS d'une mini-barre (\`.ul\` ou
+   \`.prog-track\`) colorée par l'état (accent / --warn si ça approche, --bad si ça déborde).
+7. Dates → JJ/MM/AAAA (ou « 12 juil. ») — jamais l'ISO brut.
 
 ### EXPÉRIENCE UTILISATEUR — RÈGLES ABSOLUES
 1. JAMAIS UN MUR DE CHAMPS. Formulaire de plus de 5 champs → assistant en 2 à 4 étapes dans la modal : \`.steps\` avec des \`.step-dot\` (classe \`done\` pour les étapes franchies), une \`.step-pane\` par étape regroupant les champs par logique métier (ex. Client → Chantier → Montants), boutons « Retour » (\`.btn-ghost\`) / « Continuer » (\`.btn-primary\`), dernière étape = mini-récapitulatif + « Valider ». 5 champs ou moins → un seul écran aéré en \`.form-row\`.
@@ -460,41 +572,47 @@ Utilise toujours cette structure :
 5. LARGEUR PLANCHER 375px (le mobile de référence ; robuste jusqu'à 360px) : à cette largeur, TOUT s'adapte proprement — le texte se met à la ligne ou se réduit (jamais coupé, jamais tronqué, jamais débordant), chaque card passe en UNE colonne pleine largeur, zéro débordement ou scroll horizontal, aucun bouton coupé par le bord, aucun bloc \`position:absolute\` superposé hors du \`.hero\`. Emploie des unités FLUIDES (%, \`clamp()\`, \`minmax()\`, \`max-width:100%\`) et \`overflow-wrap:anywhere\` sur les textes longs (noms, adresses, e-mails). Teste mentalement l'app à 375px AVANT de rendre.
 6. MODALES : \`max-height:88vh\` + \`overflow-y:auto\`, et la barre d'actions (\`.modal-actions\`) TOUJOURS atteignable (collée en bas si le contenu est long) — jamais un « Valider » injoignable sous le pli.
 
-### THÈME COULEUR (varie d'une app à l'autre) :
-La structure et la qualité ne changent JAMAIS ; seule la couleur d'accent change, via les
-5 variables \`--vio\` (accent), \`--grad\` (couleur des boutons/accents — UNIE, un aplat, PAS
-un dégradé), \`--glow\` (RGB pour les ombres), \`--tint\` (fond pâle), \`--tintline\` (bordure
-pâle) du :root. Palettes disponibles (toutes SOBRES et professionnelles, \`--grad\` = même
-aplat que \`--vio\`) :
-- **violet** (défaut) : #6E56CF · #6E56CF · 110,86,207 · #F2EFFB · #DDD4F4
-- **indigo** : #4F46E5 · #4F46E5 · 79,70,229 · #EEF0FE · #D8DCFA
-- **ocean** : #0369A1 · #0369A1 · 3,105,161 · #EFF6FC · #C3E0F1
-- **foret** : #047857 · #047857 · 4,120,87 · #ECFDF5 · #A7F3D0
-- **ardoise** : #475569 · #475569 · 71,85,105 · #F1F5F9 · #CBD5E1
-- **terracotta** : #B4530A · #B4530A · 180,83,10 · #FBF1E9 · #EBCBAA
+### THÈME COULEUR (le cœur de « on ressent la chose » — c'est LE système des apps phares) :
+La structure et la qualité ne changent JAMAIS ; ce qui change, c'est le THÈME COMPLET : les
+12 tokens du :root sont remplacés EN BLOC. La règle d'or, tirée des apps phares : TOUTE la
+gamme est teintée du ton de l'accent — le fond (\`--bg\`) est la teinte ~97 % du thème (jamais
+blanc pur, jamais gris neutre), l'encre (\`--ink\`) est un noir teinté, les gris (\`--mut\`/
+\`--faint\`), bordures (\`--line\`) et surfaces (\`--soft\`) tirent vers le même ton, et le bandeau
+cockpit (\`--navy\`) est une teinte TRÈS SOMBRE de l'accent. Les cartes restent BLANCHES et
+ressortent sur ce fond teinté. \`--chart2\` = la teinte claire SATURÉE du même ton (grade ~300),
+pour le haut des dégradés de barres.
+
+THÈMES COMPLETS (vio=grad · chart2 · glow · bg · ink · mut · faint · line · soft · tint · tintline · navy) :
+- **violet** : #6D5EF6 · #A78BFA · 109,94,246 · #F6F6FB · #14121F · #5E5B70 · #9A97AD · #E8E7F0 · #F0EFF7 · #EEEBFE · #D6D0FB · #141227
+- **bleu** (ciel/océan) : #0284C7 · #7DD3FC · 2,132,199 · #F4F8FB · #0F1B24 · #57697A · #93A4B4 · #E2EAF1 · #EBF2F8 · #E0F2FE · #B6E0F5 · #071F2B
+- **vert** : #059669 · #6EE7B7 · 5,150,105 · #F3FAF6 · #0B2318 · #5A6B62 · #93A79B · #DCEDE4 · #EBF6F0 · #ECFDF5 · #A7F3D0 · #082017
+- **ambre** : #B45309 · #F59E0B · 180,83,9 · #FBF8F1 · #2E2617 · #7A6A50 · #B0A184 · #ECE3D2 · #F5EEDF · #FEF6E7 · #F3D19A · #2A1B06
+- **rose** : #DB2777 · #F9A8D4 · 219,39,119 · #FBF5F8 · #1B1220 · #6B5D6E · #A695AC · #EFE1EA · #F7EDF3 · #FCE7F3 · #F5B9D6 · #250E1B
+- **cyan** : #0891B2 · #67E8F9 · 8,145,178 · #EFFBFC · #08313A · #5C7078 · #93AEB5 · #D5EBEF · #E4F5F8 · #ECFEFF · #9BE0EC · #052730
+- **orange** : #EA580C · #FDBA74 · 234,88,12 · #FBF8F5 · #1A1512 · #6B625A · #A79D94 · #EDE7E1 · #F6F0EA · #FEEEE2 · #FBD3B4 · #26150A
+- **graphite** : #475569 · #94A3B8 · 71,85,105 · #F7F8FA · #111827 · #5B6472 · #94A3B8 · #E5E8ED · #EFF1F5 · #F1F5F9 · #CBD5E1 · #0B1220
+- **rouge** : #DC2626 · #FCA5A5 · 220,38,38 · #FCF6F6 · #211112 · #715A5B · #AC9495 · #F0E2E2 · #F8EDED · #FEE2E2 · #FECACA · #2B0B0B
+- **brun** : #92400E · #E3A857 · 146,64,14 · #FAF6F0 · #291D10 · #75634E · #AE9C86 · #EBDFCE · #F4ECDF · #F5E6D3 · #E7C9A3 · #241505
 
 RÈGLES :
-- PALETTE D'APLATS PAR DÉFAUT : un thème = 2-3 couleurs UNIES qui vont ensemble (un accent
-  \`--vio\` + des tons pâles \`--tint\`/\`--tintline\`), appliquées comme des aplats DISTINCTS —
-  jamais fondues en dégradé. \`--grad\` est une couleur SOLIDE (identique à \`--vio\`), jamais un
-  \`linear-gradient\` : boutons, FAB, barres de progression = aplats nets. Si l'utilisateur
-  décrit une palette (« brun et beige », « noir et blanc »), applique CES couleurs en aplats
-  (l'une porte le fond/les surfaces, l'autre l'accent). Un dégradé UNIQUEMENT s'il le demande.
-- Ces règles de choix valent UNIQUEMENT À LA CRÉATION. En MODIFICATION d'une app
-  existante, tu RECOPIES la palette en place à l'identique (voir la règle de
-  modification chirurgicale) — jamais de nouveau tirage.
-- Si la demande précise un thème (réponse au questionnaire, ex. « Thème couleur : ocean »),
-  applique CETTE palette. Sinon, choisis une palette SOBRE adaptée au métier (violet, indigo,
-  ocean, ardoise = les plus sûrs). N'invente JAMAIS un accent fluo/saturé (violet électrique,
-  vert acide, rose vif, cyan pétant) — reste sur ces tons professionnels. Dans le doute : violet.
-- Si l'utilisateur DÉCRIT sa palette librement (ex. « des tons orangés chaleureux », « bleu
-  marine et doré »), DÉRIVE toi-même les 5 variables (--vio, --grad, --glow, --tint,
-  --tintline) dans cet esprit : accent saturé lisible, dégradé harmonieux à 2-3 teintes
-  voisines, tint pâle assorti. Le fond #FBFBFC et les cards blanches restent INCHANGÉS.
-- Fond de page \`#FBFBFC\` et cards blanches, bordure \`#ECECF0\`, arrondis 18-24 px : identiques quelle que soit la palette. JAMAIS de fond ivoire/beige.
-- RESPECTE la couleur choisie : elle doit être BIEN PRÉSENTE et reconnaissable — boutons, accents, puces, reliefs (aplats unis). Si l'utilisateur veut du rose (même écrit librement, hors palettes proposées), l'app est visiblement rose. Par DÉFAUT, avec GOÛT : la couleur PONCTUE (cartes claires, fond blanc), pas de grand aplat criard. MAIS si l'utilisateur demande EXPLICITEMENT un fond coloré (« mets le fond en rose »), tu le fais — sa consigne prime sur ce défaut (voir PRINCIPE ZÉRO). But : épuré ET coloré — jamais fade, jamais criard.
-- Vert / rouge / ambre pour les statuts métier UNIQUEMENT (payé, retard, à surveiller) — indépendants de la palette.
-- INTERDIT : plus d'une palette par app, fond ivoire \`#F7F5EF\`, accents fluo saturés, boutons gris ternes.
+- La réponse au questionnaire donne la palette, souvent avec ses HEX (« Bleu & ciel (#2563EB,
+  #DBEAFE) ») : prends le THÈME COMPLET de la même famille dans la table, et cale \`--vio\`/
+  \`--grad\`/\`--glow\` sur le hex EXACT choisi. Sans réponse (« Surprenez-moi ») : choisis dans
+  la table la famille la plus adaptée au métier. Dans le doute : violet.
+- Si l'utilisateur DÉCRIT sa palette librement (« bleu marine et doré »), DÉRIVE les 12 tokens
+  dans le même esprit : accent saturé lisible, fond teinté ~97 %, encre/gris teintés, navy
+  sombre du même ton, chart2 saturé clair.
+- \`--grad\` est une couleur SOLIDE (identique à \`--vio\`) : boutons, FAB, barres = aplats nets.
+  Le SEUL dégradé de l'interface vit dans les BARRES de graphique (\`--chart2\` → \`--vio\`) et le
+  halo du cockpit — c'est le style des apps phares.
+- En MODIFICATION d'une app existante : tu RECOPIES la palette en place à l'identique — jamais
+  de nouveau tirage.
+- \`--ok\`/\`--warn\`/\`--bad\` (vert/ambre/rouge) pour les STATUTS MÉTIER uniquement — indépendants
+  de la palette, identiques dans tous les thèmes.
+- RESPECTE la couleur choisie : elle doit être BIEN PRÉSENTE (fond teinté + nav active + boutons
+  + graphiques + chips). Si l'utilisateur veut du rose, l'app EST rose — fond rosé compris.
+- INTERDIT : plus d'un thème par app, des gris NEUTRES avec la couleur plaquée par-dessus
+  (le fond doit être teinté), accents fluo criards, boutons gris ternes, cartes grises.
 
 ### ZÉRO ERREUR SILENCIEUSE (absolu — un artisan ne lit pas la console) :
 1. Validation d'un formulaire : chaque champ requis vide reçoit la classe \`invalid\` + un
@@ -625,17 +743,19 @@ CONÇUE ET VÉRIFIÉE À 375px DE LARGE (le plancher). À cette largeur, TOUT s'
 # FORMAT CIBLE : ADAPTATIF — LA NAVIGATION CHANGE SELON LA LARGEUR DISPONIBLE
 L'app est UN seul fichier responsive. Sa NAVIGATION et sa mise en page s'adaptent à la
 largeur DISPONIBLE (l'app est affichée dans un cadre qui peut être étroit, ex. 768px quand
-le chat est ouvert à côté — donc réagis à la largeur, pas à celle de l'écran). Trois régimes
-via \`@media\`, avec le MÊME contenu partout — seule la CHROME (nav + colonnes) change :
-- **≥ 1024px (bureau)** : SIDEBAR verticale fixe à gauche (icône + libellé), contenu à droite
-  PLEINE LARGEUR (grilles fluides \`repeat(auto-fit,minmax(240px,1fr))\`, KPI en haut, tableau
-  dessous). AUCUNE barre d'onglets en bas, aucune grande zone vide à droite.
-- **600–1023px (tablette)** : sidebar COMPACTE (icônes seules) OU en-tête avec MENU BURGER
-  qui ouvre la navigation. Pas de tab-bar flottante en bas.
-- **< 600px (mobile)** : TAB-BAR fixe en bas (2-4 onglets) + \`.fab\` d'ajout. Une colonne,
-  cartes empilées, boutons ≥ 48px, pensé pour le pouce (gants, chantier).
-Utilise \`@media (min-width:1024px)\` et \`@media (min-width:600px)\` ; JAMAIS de largeur figée
-sur le conteneur principal. Le passage sidebar ↔ burger ↔ tab-bar doit être FLUIDE et testé.`;
+le chat est ouvert à côté — donc réagis à la largeur, pas à celle de l'écran). Le SHELL du
+SYSTÈME DE DESIGN fait déjà la bascule — utilise-le tel quel, n'invente PAS ta propre nav :
+- **≥ 860px (bureau)** : la \`.sidebar\` (sticky, 236px) est visible, \`.app-header\`/\`.tab-bar\`/
+  \`.fab\` disparaissent (déjà dans le CSS). Contenu PLEINE LARGEUR à droite (grilles fluides
+  \`repeat(auto-fit,minmax(240px,1fr))\`, KPI en haut, tableau dessous), action principale dans
+  \`.topbar-actions\`. Aucune grande zone vide à droite.
+- **< 860px (mobile/tablette)** : sidebar cachée → \`.app-header\` fixe en haut, TAB-BAR fixe en
+  bas (2-4 onglets, les MÊMES pages que la sidebar) + \`.fab\` d'ajout. Une colonne, cartes
+  empilées, boutons ≥ 48px, pensé pour le pouce (gants, chantier). Le contenu, les boutons et
+  la tab-bar restent TOUS visibles et cliquables à 768px comme à 375px — rien ne se chevauche,
+  rien ne disparaît.
+JAMAIS de largeur figée sur le conteneur principal. Ne redéfinis pas les breakpoints du shell :
+ils sont dans le CSS obligatoire, et le passage sidebar ↔ header/tab-bar doit rester FLUIDE.`;
 }
 
 // Doctrine de CONTEXTE D'USAGE — orthogonale au format (layout). Le format dit
@@ -2558,13 +2678,18 @@ Traiter un (1) comme un (3), c'est perdre un client pour un clic. Traiter un (2)
             type: "text",
             text: buildSystemDynamic([
               expertise ? `# FOCUS MÉTIER (agent spécialiste retenu pour cette demande)\n${expertise}` : "",
-              brandName
-                ? `# MARQUE DE L'EN-TÊTE
-Le \`.app-eyebrow\` de l'en-tête affiche « ${brandName.toUpperCase()} » (l'entreprise de l'utilisateur), PAS « Biltia ».
-GARDE TOUJOURS l'élément \`.app-eyebrow\` dans l'en-tête, même s'il te paraît décoratif : quand l'entreprise a
-posé un logo, le serveur le SUBSTITUE à ce texte au moment de l'affichage. Pas d'\`.app-eyebrow\` = pas de logo.
-N'écris JAMAIS toi-même une balise \`<img>\` de logo ni une URL de logo : tu ne la connais pas, et elle changerait.`
-                : "",
+              // Contrat de MARQUE (décision user 2026-07-16) : l'interface porte le
+              // wordmark Biltia COMPLET, une seule fois, posé PAR LE SERVEUR — le
+              // modèle ne fournit que les emplacements. Ni nom d'entreprise ni nom
+              // d'app imprimés (l'artisan, lui, vit sur les DOCUMENTS).
+              `# MARQUE DE L'INTERFACE (structure imposée — le serveur pose le logo)
+Le logo Biltia COMPLET est posé PAR LE SERVEUR à l'affichage, UNE seule fois par écran. Toi, tu fournis les
+EMPLACEMENTS, jamais le logo : \`<div class="side-brand"><span class="app-eyebrow">BILTIA</span></div>\` en tête
+de sidebar (desktop), et \`.app-eyebrow\` seul dans \`.app-header\` (mobile/tablette).
+INTERDITS ABSOLUS : \`.brand-logo\` ; un carré/rond/pastille avec une lettre (« B ») en guise de logo ; une balise
+\`<img>\` de logo ou une URL de logo ; le nom de l'app ou de l'entreprise imprimé dans l'interface ; une marque ou
+un \`.app-eyebrow\` dans la \`.topbar\` (elle ne porte QUE le titre de la page et les actions).
+Pas d'\`.app-eyebrow\` = pas de logo : garde ces emplacements même s'ils te paraissent vides ou décoratifs.`,
               sourcesBlock,
               // CRÉATION d'une app AVEC fichier(s) joint(s) → le fichier est la
               // SOURCE DES DONNÉES (structure + lignes réelles), pas un décor.

@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase";
-import { injectAppBrand } from "@/lib/app-brand";
+import { injectAppBrand, injectInterfaceWordmark } from "@/lib/app-brand";
 import { requiresBiltiaHost } from "@/lib/app-connectivity";
 import { brandFromTenant, type BrandKit } from "@/lib/brand";
 import { isFounderEmail } from "@/lib/founder";
@@ -399,13 +399,21 @@ export default function GeneratePage() {
   // l'ancien gravé dans toutes les apps déjà créées.
   const [brandKit, setBrandKit] = useState<BrandKit | null>(null);
 
-  // Ce que montre l'iframe : le HTML généré, coiffé du logo de l'artisan. Le HTML
-  // ENREGISTRÉ, lui, reste vierge de toute URL de logo — l'injection se fait à
-  // l'affichage, pour que changer de logo mette à jour TOUTES les apps d'un coup.
-  const previewHTML = useMemo(
-    () => (brandKit && generatedHTML ? injectAppBrand(generatedHTML, brandKit) : generatedHTML),
-    [generatedHTML, brandKit]
-  );
+  // Ce que montre l'iframe. Le HTML ENREGISTRÉ reste vierge de toute marque —
+  // l'injection se fait à l'affichage, exactement comme dans la visionneuse :
+  //   • APP (module) → le wordmark Biltia complet, une seule fois (règle interface).
+  //     C'était le trou de la v1 : l'aperçu d'édition appliquait l'injection ARTISAN
+  //     (qui ne fait rien sans logo posé) → l'utilisateur voyait la marque BRUTE du
+  //     modèle (« B », « BILTIA », le nom de l'app) alors que la visionneuse, elle,
+  //     montrait le rendu propre. Aperçu = visionneuse, désormais.
+  //   • DOCUMENT → le logo de l'ARTISAN (le devis est SA vitrine, jamais Biltia).
+  const previewHTML = useMemo(() => {
+    if (!generatedHTML) return generatedHTML;
+    if (kind === "document") {
+      return brandKit ? injectAppBrand(generatedHTML, brandKit) : generatedHTML;
+    }
+    return injectInterfaceWordmark(generatedHTML);
+  }, [generatedHTML, brandKit, kind]);
   const [isAutoFixing, setIsAutoFixing] = useState(false);
   const [autoFixCount, setAutoFixCount] = useState(0);
   const [visualEditMode, setVisualEditMode] = useState(false);

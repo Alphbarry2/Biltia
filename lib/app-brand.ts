@@ -130,7 +130,7 @@ export function injectAppBrand(html: string, brand: BrandKit): string {
 // si l'app n'a aucune zone de marque connue.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const INTERFACE_MARKER = "__biltia_interface_wordmark_v1__";
+const INTERFACE_MARKER = "__biltia_interface_wordmark_v2__";
 // En background-image : `currentColor` n'a pas de contexte → on fige l'encre, et on
 // retire la taille inline (`style="height:24px…"`) pour laisser `background-size`
 // piloter le rendu à partir du seul viewBox (ratio conservé partout).
@@ -138,39 +138,58 @@ const WORDMARK_URI =
   "data:image/svg+xml," +
   encodeURIComponent(BILTIA_WORDMARK_SVG.replace(/currentColor/g, "#0A0A0A").replace(/\sstyle="[^"]*"/, ""));
 
-/** Pose le logo Biltia complet dans l'en-tête d'une app SERVIE à l'artisan (son
- *  propre outil), et retire le nom de l'app de l'en-tête. Idempotent. */
+/** Pose le logo Biltia complet — UNE seule fois — sur une app SERVIE à l'artisan
+ *  (son propre outil), et efface toute autre marque : le carré/lettre « B », le nom
+ *  de l'app imprimé dans l'interface, et l'eyebrow de la topbar (qui ne garde que le
+ *  TITRE DE PAGE). Idempotent.
+ *
+ *  RÈGLE (user, répétée puis actée le 2026-07-16) :
+ *   • le wordmark complet, jamais l'icône, jamais en double ;
+ *   • sidebar (desktop) OU en-tête (mobile/tablette) — selon la visibilité réelle ;
+ *   • la topbar de contenu = titre de la page uniquement, zéro marque ;
+ *   • le NOM du logiciel/de l'app ne s'affiche nulle part (onglet/manifeste seulement).
+ *
+ *  Pourquoi une v2 : la v1 laissait la marque BRUTE en mode modifié (l'aperçu
+ *  d'édition appliquait l'injection ARTISAN, pas celle-ci) et gardait l'eyebrow
+ *  « BILTIA » au-dessus du titre de page. Elle supposait aussi que l'app générée
+ *  respecte les classes canoniques : le filet couvre désormais les sidebars sans
+ *  `.app-eyebrow` (apps déviantes) en en insérant une, côté sidebar ET côté header. */
 export function injectInterfaceWordmark(html: string): string {
   if (html.includes(INTERFACE_MARKER)) return html;
 
-  // Le wordmark ne se pose QUE dans la zone de marque : barre latérale (desktop)
-  // OU en-tête (tablette/mobile). Surtout PAS sur l'en-tête de CONTENU (.topbar),
-  // qui porte une 3e `.app-eyebrow` (le nom de l'entreprise, à côté du titre de
-  // page) : la peindre aussi = le logo EN DOUBLE. On énumère donc les conteneurs
-  // de marque au lieu de viser `.app-eyebrow` en aveugle.
+  // Zones de MARQUE (peintes en wordmark) : barre latérale OU en-tête mobile.
+  // L'eyebrow de la `.topbar` n'en fait PAS partie : elle est masquée (le titre de
+  // page reste seul, comme demandé).
   const BRAND_ZONE =
-    ".sidebar .app-eyebrow,.side-brand .app-eyebrow,.sidebar-brand .app-eyebrow,.sidebar-brand,.app-header .app-eyebrow";
+    ".sidebar .app-eyebrow,.side-brand .app-eyebrow,.sidebar-brand .app-eyebrow,.sidebar-brand,.app-header .app-eyebrow,.app-header .brand .app-eyebrow";
 
   const block = `<style>
 /* ${INTERFACE_MARKER} */
-/* Le nom de l'app ne s'imprime plus sur l'app (il reste dans l'onglet/manifeste). */
+/* Le nom de l'app/du logiciel ne s'imprime JAMAIS sur l'interface (onglet/manifeste
+   seulement). Les titres de PAGE (« Tableau de bord »…) n'utilisent pas .app-title. */
 .app-title{display:none!important}
-/* Le carré/initiale (« B ») d'une app phare cède la place au wordmark : jamais d'icône. */
+/* Le carré/initiale (« B », « b ») cède la place au wordmark : jamais d'icône. */
 .brand-logo{display:none!important}
-/* La zone de marque (barre latérale desktop / en-tête tablette-mobile) devient le
-   wordmark Biltia. L'en-tête de CONTENU (.topbar) n'est PAS visé → il garde le nom
-   de l'entreprise + le titre de la page, exactement comme l'aperçu du modèle.
-   Le texte reste présent (masqué) pour les lecteurs d'écran ; contain → jamais déformé. */
+/* La topbar de CONTENU garde uniquement le titre de la page : sa marque disparaît. */
+.topbar .app-eyebrow{display:none!important}
+/* GARDE-FOU LARGEUR : dans le shell des apps (sidebar + contenu en flex), .app-main
+   DOIT s'étirer. Le modèle omet parfois flex:1/min-width:0 en recopiant le CSS →
+   tout le contenu se tassait dans une colonne à gauche. Posé ici, à l'affichage,
+   ça répare TOUTES les apps — y compris celles déjà générées. */
+.shell>.app-main{flex:1 1 auto!important;min-width:0!important}
+/* La zone de marque (sidebar desktop / en-tête mobile-tablette) devient le wordmark
+   Biltia complet. Texte conservé (masqué) pour les lecteurs d'écran ; contain →
+   jamais déformé, quelle que soit la place. */
 ${BRAND_ZONE}{
   display:block!important;font-size:0!important;line-height:0!important;color:transparent!important;
-  width:74px;height:26px;
+  width:92px;height:30px;
   background:url("${WORDMARK_URI}") left center/contain no-repeat!important;
 }
-@media(max-width:480px){${BRAND_ZONE}{width:66px;height:23px}}
-/* Filet anti-doublon : si une app affichait à la fois barre latérale ET en-tête au
-   même point de rupture, l'en-tête ne répète pas le logo. La classe est posée par
-   le script selon la VISIBILITÉ réelle (les shells phares séparent déjà les deux). */
-html.__bw-side .app-header .app-eyebrow{display:none!important}
+@media(max-width:640px){${BRAND_ZONE}{width:76px;height:25px}}
+/* Anti-doublon : si la sidebar est VISIBLE, l'en-tête ne répète pas le logo. La
+   classe est posée par le script selon la visibilité réelle (donc robuste quel que
+   soit le point de rupture choisi par l'app). */
+html.__bw-side .app-header .app-eyebrow,html.__bw-side .app-header .brand{display:none!important}
 </style>
 <script>
 (function(){
@@ -181,18 +200,37 @@ html.__bw-side .app-header .app-eyebrow{display:none!important}
     }catch(e){ return false; }
   }
   function sync(){ try{ document.documentElement.classList.toggle('__bw-side', sideOn()); }catch(e){} }
-  function boot(){
-    /* Filet : aucune zone de marque connue → on pose une eyebrow vide en tête de
-       l'en-tête, que le CSS ci-dessus peint en wordmark. On teste les MÊMES zones
-       que le CSS : une eyebrow qui ne vit que dans .topbar ne compte pas. */
+  function ensure(zone){
+    /* Pose une .app-eyebrow (que le CSS peint en wordmark) en tête d'une zone qui
+       n'en a pas — filet pour les apps qui n'ont pas suivi la structure canonique. */
     try{
-      if(!document.querySelector('.sidebar .app-eyebrow,.side-brand .app-eyebrow,.sidebar-brand,.app-header .app-eyebrow')){
-        var head=document.querySelector('.app-header')||document.querySelector('header');
-        if(head){ var d=document.createElement('div'); d.className='app-eyebrow'; head.insertBefore(d, head.firstChild); }
+      if(!zone) return;
+      if(zone.querySelector('.app-eyebrow')) return;
+      var d=document.createElement('div'); d.className='app-eyebrow';
+      zone.insertBefore(d, zone.firstChild);
+    }catch(e){}
+  }
+  function fit(){
+    /* Idempotent — rejoué à CHAQUE mutation : une app qui re-rend sa sidebar ou son
+       en-tête via innerHTML balaierait l'eyebrow insérée ; on la repose aussitôt. */
+    try{
+      /* Sidebar sans eyebrow (ex. app générée avec sa propre marque maison) : on en
+         insère une dans son bloc de marque, sinon en tête de la sidebar. */
+      var side=document.querySelector('.side-brand,.sidebar-brand');
+      if(side){ ensure(side); }
+      else{
+        var bar=document.querySelector('.sidebar,aside.sidebar,nav.sidebar');
+        if(bar && !bar.querySelector('.app-eyebrow')) ensure(bar);
       }
+      /* En-tête mobile sans eyebrow : idem. */
+      var head=document.querySelector('.app-header')||document.querySelector('header');
+      if(head && !head.querySelector('.app-eyebrow')) ensure(head.querySelector('.brand')||head);
     }catch(e){}
     sync();
-    try{ new MutationObserver(sync).observe(document.body,{childList:true,subtree:true}); }catch(e){}
+  }
+  function boot(){
+    fit();
+    try{ new MutationObserver(fit).observe(document.body,{childList:true,subtree:true}); }catch(e){}
     try{ window.addEventListener('resize', sync); }catch(e){}
   }
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);

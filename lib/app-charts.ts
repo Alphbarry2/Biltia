@@ -82,8 +82,20 @@ function _cwatch(host,fn){
   });
   try{ro.observe(host);host.__cro=ro;}catch(e){}
 }
+/* Teinte CLAIRE dérivée de la couleur d'accent — même ton, éclairci vers le blanc.
+   Sert de haut de dégradé quand l'app ne fournit pas color2 : le dégradé reste dans
+   LA couleur de l'app. Avant, le repli était un violet FIXE (#A78BFA) → une app à
+   accent bleu/vert/ambre héritait d'un dégradé qui JURAIT (bug signalé user 16/07). */
+function _clite(c){
+  try{
+    var m=/^#?([0-9a-fA-F]{6})$/.exec(String(c==null?"":c).trim()); if(!m)return c;
+    var n=parseInt(m[1],16),r=(n>>16)&255,g=(n>>8)&255,b=n&255;
+    var f=function(x){return Math.round(x+(255-x)*0.52);};
+    return "rgb("+f(r)+","+f(g)+","+f(b)+")";
+  }catch(e){ return c; }
+}
 function drawBars(host,series,opt){
-  if(!host||!series||!series.length)return; opt=opt||{}; var c1=opt.color||"#6D5EF6",c2=opt.color2||"#A78BFA",fmt=opt.fmt||function(v){return Math.round(v).toLocaleString("fr-FR");},unit=opt.unit||"";
+  if(!host||!series||!series.length)return; opt=opt||{}; var c1=opt.color||"#6D5EF6",c2=opt.color2||_clite(c1),fmt=opt.fmt||function(v){return Math.round(v).toLocaleString("fr-FR");},unit=opt.unit||"";
   var g=_cgeom(host,series,opt.h||150,12,22),slot=g.iw/g.n,bw=Math.min(46,slot*0.56); if(bw<5)bw=Math.max(4,slot*0.6);
   var bars=series.map(function(s,i){ var h=(_cnum(s.value)/g.max)*g.ih; var x=g.pl+i*slot+(slot-bw)/2; return {x:x,y:g.pt+g.ih-h,h:h,bw:bw,v:_cnum(s.value),label:s.label,tip:s.tip||s.label,base:g.pt+g.ih}; });
   var gid="bg"+(opt.id||"");

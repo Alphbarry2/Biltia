@@ -379,7 +379,17 @@ export function ClarifyWidget({
       const n = a.values.filter((v) => v !== "__choose__" && v !== "__all__").length;
       return n ? [tr(`${n} élément(s) sélectionné(s)`, `${n} item(s) selected`)] : [];
     }
-    const labels = a.values.map((v) => qu.options.find((o) => o.value === v)?.label ?? v);
+    const labels = a.values.map((v) => {
+      const o = qu.options.find((op) => op.value === v);
+      if (!o) return v;
+      // Palette : joindre les HEX au libellé — le générateur reçoit les couleurs
+      // EXACTES choisies (« Ambre & crème (#D97706, #FEF3C7) »), plus de devinette
+      // entre le nom marketing de la palette et les variables CSS à poser.
+      if (qu.type === "color-palette" && o.palette?.length && v !== "surprise") {
+        return `${o.label} (${o.palette.join(", ")})`;
+      }
+      return o.label;
+    });
     if (a.custom.trim()) labels.push(a.custom.trim());
     return labels;
   };

@@ -26,15 +26,19 @@ window.biltia = {
 };
 <\/script>`;
 
+import { injectInterfaceWordmark } from "@/lib/app-brand";
+
 /**
  * Prépare le HTML d'une app pour un aperçu figé : injecte le stub avant tout le
- * reste (le SDK réel s'efface). Idempotent au sens où un second passage réinjecte
- * un stub inoffensif. Renvoie le HTML inchangé s'il est vide.
+ * reste (le SDK réel s'efface), puis le wordmark Biltia — la vignette montre la
+ * MÊME marque que la visionneuse (jamais le « B » brut ni le nom de l'app).
+ * Idempotent au sens où un second passage réinjecte un stub inoffensif. Renvoie
+ * le HTML inchangé s'il est vide.
  */
 export function toPreviewHtml(html: string): string {
   if (!html) return html;
-  if (/<head[^>]*>/i.test(html)) {
-    return html.replace(/<head[^>]*>/i, (m) => m + "\n" + PREVIEW_STUB);
-  }
-  return PREVIEW_STUB + html;
+  const withStub = /<head[^>]*>/i.test(html)
+    ? html.replace(/<head[^>]*>/i, (m) => m + "\n" + PREVIEW_STUB)
+    : PREVIEW_STUB + html;
+  return injectInterfaceWordmark(withStub);
 }

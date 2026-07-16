@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase-server";
 import { getActiveMembershipServer } from "@/lib/tenant-server";
 import { getFlagshipApp, renderFlagshipHtml } from "@/lib/flagship-apps";
 import { injectBiltiaSDK } from "@/lib/biltia-sdk";
+import { injectInterfaceWordmark } from "@/lib/app-brand";
 import { getLocale } from "@/lib/i18n/server";
 import { pick } from "@/lib/i18n/config";
 
@@ -47,7 +48,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     // pas de session lisible → on garde le nom par défaut, l'app reste vide.
   }
 
-  const html = injectBiltiaSDK(renderFlagshipHtml(app, entreprise, locale));
+  // Wordmark Biltia (une fois, jamais le « B ») — même marque que la visionneuse.
+  const html = injectInterfaceWordmark(injectBiltiaSDK(renderFlagshipHtml(app, entreprise, locale)));
   return new Response(html, {
     status: 200,
     headers: {

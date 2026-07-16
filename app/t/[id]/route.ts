@@ -1,5 +1,6 @@
 import { TEMPLATE_APPS } from "@/data/templates-html";
 import { getFlagshipApp, renderFlagshipPreview, FLAGSHIP_IDS } from "@/lib/flagship-apps";
+import { injectInterfaceWordmark } from "@/lib/app-brand";
 import { getLocale } from "@/lib/i18n/server";
 import { pick, type Locale } from "@/lib/i18n/config";
 
@@ -22,7 +23,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
   const flag = getFlagshipApp(id);
   if (flag && flag.ready) {
-    return new Response(renderFlagshipPreview(flag, lang), {
+    // Même marque que partout ailleurs : wordmark Biltia complet, une fois — l'aperçu
+    // public montre EXACTEMENT ce que l'utilisateur aura (zéro « B », zéro nom d'app).
+    return new Response(injectInterfaceWordmark(renderFlagshipPreview(flag, lang)), {
       status: 200,
       headers: {
         "content-type": "text/html; charset=utf-8",
