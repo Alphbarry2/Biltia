@@ -133,14 +133,16 @@ function Card({ children }: { children: React.ReactNode }) {
   return <div className="bg-white border border-[#E7E7E4] rounded-2xl p-5 sm:p-6">{children}</div>;
 }
 
-function Switch({ on, onClick }: { on: boolean; onClick: () => void }) {
+function Switch({ on, onClick, disabled = false, ariaLabel }: { on: boolean; onClick: () => void; disabled?: boolean; ariaLabel?: string }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={on}
+      aria-label={ariaLabel}
+      disabled={disabled}
       onClick={onClick}
-      className={`w-10 h-6 rounded-full flex items-center px-0.5 flex-shrink-0 transition-colors ${on ? "bg-violet-500" : "bg-black/[0.12]"}`}
+      className={`w-10 h-6 rounded-full flex items-center px-0.5 flex-shrink-0 transition-colors disabled:opacity-50 ${on ? "bg-violet-500" : "bg-black/[0.12]"}`}
     >
       <span className={`w-5 h-5 rounded-full bg-white shadow-sm transition-transform ${on ? "translate-x-4" : ""}`} />
     </button>
@@ -1075,12 +1077,13 @@ export default function SettingsPage() {
                         onChange={setInviteRole}
                         ariaLabel={t("Rôle du collaborateur", "Collaborator role")}
                         size="sm"
-                        className="flex-shrink-0 sm:w-44"
+                        stacked
+                        className="flex-shrink-0 sm:w-60"
                         options={[
-                          { value: "member", label: t("Employé", "Employee"), hint: t("Utilise l'outil", "Uses the tool") },
-                          { value: "manager", label: t("Manager", "Manager"), hint: t("Gère les données", "Manages data") },
-                          { value: "admin", label: t("Admin", "Admin"), hint: t("Gère l'équipe", "Manages the team") },
-                          { value: "viewer", label: t("Lecture seule", "Read-only"), hint: t("Consulte", "Views") },
+                          { value: "member", label: t("Employé", "Employee"), hint: t("Utilise les apps, voit ses données", "Uses the apps, sees own data") },
+                          { value: "manager", label: t("Manager", "Manager"), hint: t("Crée et gère les données", "Creates and manages data") },
+                          { value: "admin", label: t("Admin", "Admin"), hint: t("Gère l'équipe et les réglages", "Manages team and settings") },
+                          { value: "viewer", label: t("Lecture seule", "Read-only"), hint: t("Consulte, sans rien modifier", "Views only, no changes") },
                         ]}
                       />
                       <button
@@ -1426,23 +1429,12 @@ export default function SettingsPage() {
                         </p>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={contributesToBrain}
-                      aria-label={t("Contribuer au cerveau collectif", "Contribute to the collective brain")}
-                      disabled={savingBrain}
+                    <Switch
+                      on={contributesToBrain}
                       onClick={() => toggleBrain(!contributesToBrain)}
-                      className={`relative flex-shrink-0 h-6 w-11 rounded-full transition-colors disabled:opacity-50 ${
-                        contributesToBrain ? "bg-violet-600" : "bg-[#D9D9D6]"
-                      }`}
-                    >
-                      <span
-                        className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-                          contributesToBrain ? "translate-x-[22px]" : "translate-x-0.5"
-                        }`}
-                      />
-                    </button>
+                      disabled={savingBrain}
+                      ariaLabel={t("Contribuer au cerveau collectif", "Contribute to the collective brain")}
+                    />
                   </div>
                 </Card>
 

@@ -35,6 +35,7 @@ export function Dropdown({
   ariaLabel,
   disabled = false,
   size = "md",
+  stacked = false,
   className = "",
 }: {
   value: string | null | undefined;
@@ -46,6 +47,11 @@ export function Dropdown({
   ariaLabel?: string;
   disabled?: boolean;
   size?: "sm" | "md";
+  /** Options sur DEUX lignes : libellé en gras au-dessus, description (hint) en
+   *  dessous. Pour les listes où le hint est une vraie DESCRIPTION (ex. rôles :
+   *  « Employé / Utilise l'outil »), et non un prix aligné à droite. Évite la
+   *  troncature « Emp… » dans un menu étroit. */
+  stacked?: boolean;
   className?: string;
 }) {
   const tr = useT();
@@ -199,7 +205,7 @@ export function Dropdown({
                         aria-selected={active}
                         onMouseEnter={() => setHi(i)}
                         onClick={() => { onChange(o.value); setOpen(false); btnRef.current?.focus(); }}
-                        className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 text-left transition-colors ${sm ? "py-2" : "py-2.5"} ${
+                        className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 text-left transition-colors ${sm ? (stacked ? "py-2.5" : "py-2") : "py-2.5"} ${
                           active ? "bg-[#F3EFFC]" : hi === i ? "bg-[#F6F4FB]" : ""
                         }`}
                       >
@@ -208,9 +214,16 @@ export function Dropdown({
                             {active && <Check className="h-2.5 w-2.5 text-white" strokeWidth={4} />}
                           </span>
                           {o.icon && <span className="flex-shrink-0 leading-none">{o.icon}</span>}
-                          <span className={`truncate ${sm ? "text-[13px]" : "text-[13.5px]"} ${active ? "font-bold text-[#0A0A0A]" : "font-medium text-[#3A3A46]"}`}>{o.label}</span>
+                          {stacked ? (
+                            <span className="flex min-w-0 flex-col">
+                              <span className={`${sm ? "text-[13px]" : "text-[13.5px]"} font-semibold ${active ? "text-[#0A0A0A]" : "text-[#0A0A0A]"}`}>{o.label}</span>
+                              {o.hint && <span className="text-[11.5px] leading-tight text-[#8B8B96]">{o.hint}</span>}
+                            </span>
+                          ) : (
+                            <span className={`truncate ${sm ? "text-[13px]" : "text-[13.5px]"} ${active ? "font-bold text-[#0A0A0A]" : "font-medium text-[#3A3A46]"}`}>{o.label}</span>
+                          )}
                         </span>
-                        {o.hint && <span className={`flex-shrink-0 ${sm ? "text-[12px]" : "text-[13px]"} tabular-nums ${active ? "font-bold text-[#7C3AED]" : "text-[#8B8B96]"}`}>{o.hint}</span>}
+                        {!stacked && o.hint && <span className={`flex-shrink-0 ${sm ? "text-[12px]" : "text-[13px]"} tabular-nums ${active ? "font-bold text-[#7C3AED]" : "text-[#8B8B96]"}`}>{o.hint}</span>}
                       </button>
                     );
                   })}
