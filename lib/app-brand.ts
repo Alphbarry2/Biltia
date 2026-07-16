@@ -88,8 +88,15 @@ export function injectAppBrand(html: string, brand: BrandKit): string {
   }
   function boot(){
     place();
+    /* Regroupe les mutations en rafale en UN SEUL passage par image (voir le même
+       correctif sur injectInterfaceWordmark — incident drag-and-drop 2026-07-16). */
+    var scheduled=false;
+    function schedulePlace(){
+      if(scheduled) return; scheduled=true;
+      (window.requestAnimationFrame||window.setTimeout)(function(){ scheduled=false; place(); });
+    }
     try{
-      new MutationObserver(function(){ place(); })
+      new MutationObserver(schedulePlace)
         .observe(document.body, { childList:true, subtree:true });
     }catch(e){}
   }
@@ -212,7 +219,12 @@ html.__bw-side .app-header .app-eyebrow,html.__bw-side .app-header .brand{displa
   }
   function fit(){
     /* Idempotent — rejoué à CHAQUE mutation : une app qui re-rend sa sidebar ou son
-       en-tête via innerHTML balaierait l'eyebrow insérée ; on la repose aussitôt. */
+       en-tête via innerHTML balaierait l'eyebrow insérée ; on la repose aussitôt.
+       ⚠️ NE JAMAIS appeler sync() ici (getClientRects force un reflow synchrone) :
+       une app à glisser-déposer (Kanban) mute le DOM en rafale pendant un drag, et un
+       reflow forcé à CHAQUE mutation sature le fil principal → drag saccadé, clics
+       perdus par intermittence (incident 2026-07-16, panel commercial en prod).
+       sync() ne dépend que du point de rupture (mobile↔desktop) : resize suffit. */
     try{
       /* Sidebar sans eyebrow (ex. app générée avec sa propre marque maison) : on en
          insère une dans son bloc de marque, sinon en tête de la sidebar. */
@@ -226,11 +238,19 @@ html.__bw-side .app-header .app-eyebrow,html.__bw-side .app-header .brand{displa
       var head=document.querySelector('.app-header')||document.querySelector('header');
       if(head && !head.querySelector('.app-eyebrow')) ensure(head.querySelector('.brand')||head);
     }catch(e){}
-    sync();
   }
   function boot(){
     fit();
-    try{ new MutationObserver(fit).observe(document.body,{childList:true,subtree:true}); }catch(e){}
+    sync();
+    /* Regroupe les mutations en rafale (drag, re-render de liste…) en UN SEUL passage
+       par image plutôt qu'un par mutation — sans ça, un Kanban qui bouge 30 nœuds
+       pendant un drag déclenche 30 exécutions de fit() dans la même frame. */
+    var scheduled=false;
+    function scheduleFit(){
+      if(scheduled) return; scheduled=true;
+      (window.requestAnimationFrame||window.setTimeout)(function(){ scheduled=false; fit(); });
+    }
+    try{ new MutationObserver(scheduleFit).observe(document.body,{childList:true,subtree:true}); }catch(e){}
     try{ window.addEventListener('resize', sync); }catch(e){}
   }
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
