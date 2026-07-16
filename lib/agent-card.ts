@@ -23,10 +23,13 @@ export type AgentCardStatus = "active" | "pending";
  *  front (pour l'i18n de l'habillage) ; seule la VALEUR (déjà en français, comme
  *  tout le reste des messages d'agent) vient du serveur. */
 export type AgentCardRow = {
-  kind: "when" | "action" | "cost" | "recipients";
+  kind: "when" | "action" | "cost" | "recipients" | "channel";
   value: string;
   /** Détail secondaire grisé sous la valeur (« ≈ 880 crédits / mois »). */
   hint?: string | null;
+  /** Lien d'action affiché en bout de ligne (« Changer » → /connecteurs). Rare :
+   *  seule la ligne `channel` l'utilise aujourd'hui. */
+  action?: { label: string; href: string } | null;
 };
 
 export type AgentCard = {
@@ -80,4 +83,27 @@ export function agentCostRow(
 export function capitalizeAction(s: string): string {
   const t = (s ?? "").trim();
   return t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
+}
+
+/**
+ * LA LIGNE « ENVOI DEPUIS » — annonce le compte que l'agent va VRAIMENT utiliser
+ * pour écrire au nom de l'artisan (Gmail ou Outlook, décidé par
+ * lib/send-preference.ts : le choix explicite de l'utilisateur, sinon le premier
+ * connecté). Avant, un agent qui envoyait des emails ne le disait jamais — l'artisan
+ * découvrait après coup que ça partait de son compte perso plutôt que du pro.
+ *
+ * `provider` = le PREMIER de `preferredProviderOrder(tenantId, userId, "email")`,
+ * ou `null` si rien n'est connecté (l'agent enverra alors via Biltia — pas la peine
+ * d'annoncer un compte qu'il n'y a pas encore, ni un bouton « Changer » qui n'aurait
+ * rien à changer). Renvoie `null` dans ce cas : PAS de ligne plutôt qu'une ligne vide.
+ */
+export function channelRow(provider: "google" | "microsoft" | null): AgentCardRow | null {
+  if (!provider) return null;
+  const label = provider === "google" ? "Gmail" : "Outlook";
+  return {
+    kind: "channel",
+    value: label,
+    hint: "Compte connecté par défaut",
+    action: { label: "Changer", href: "/connectors" },
+  };
 }

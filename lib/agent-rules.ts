@@ -40,7 +40,8 @@ import { buildSpec, coerceConditionGroup, coerceRecipientTargets, type ParsedAct
 import { buildEventWatcherDescription } from "./watcher-parser-docs";
 import { coerceRelativeDate, RELATIVE_DATE_FIELDS, type RelativeDateConfig } from "./agent-triggers";
 import { ACTION_CREDITS } from "./plans";
-import { agentCostRow, capitalizeAction, type AgentCard, type AgentCardRow } from "./agent-card";
+import { agentCostRow, capitalizeAction, channelRow, type AgentCard, type AgentCardRow } from "./agent-card";
+import { preferredProviderOrder } from "./send-preference-server";
 
 // COMPRÉHENSION AVANT VITESSE (2026-07-07) : le recruteur d'agents lit la mission
 // avec Sonnet 5, pas Haiku. Comprendre la vraie intention (« relance mon ami tous
@@ -1481,6 +1482,9 @@ export async function createAgentRule(opts: {
       `🤖 Agent recruté : **${title}**. Je surveille la date « ${rel.dateField} » de vos ${rel.entityType} en continu — ` +
       `${whenLabel}, ${actLabel}. Chaque fiche n'est traitée qu'une fois.${warnNote} Retrouvez-le dans **Agents**.`;
     const relCostUnit = evType === "send_email" ? "relance" : evType === "act" ? "action" : "fiche traitée";
+    // Agent actif ET envoie des emails → annonce le compte utilisé (voir channelRow).
+    const relChannel =
+      evType === "send_email" ? channelRow((await preferredProviderOrder(tenantId, userId, "email"))[0] ?? null) : null;
     const relAgentCard: AgentCard = {
       ruleId: insertedRel.id,
       title,
@@ -1488,6 +1492,7 @@ export async function createAgentRule(opts: {
       rows: [
         { kind: "when", value: `${whenLabel} la date « ${rel.dateField} »`, hint: `sur vos ${rel.entityType}` },
         { kind: "action", value: capitalizeAction(actLabel) },
+        ...(relChannel ? [relChannel] : []),
         agentCostRow(action.estimatedCreditsPerRun, { event: true, perUnitLabel: relCostUnit }),
       ],
       footnote: "Chaque fiche n'est traitée qu'une seule fois.",
@@ -1638,6 +1643,12 @@ export async function createAgentRule(opts: {
             : evType === "act"
               ? "action"
               : "lot analysé";
+      // Agent ACTIF (pas en attente d'une autre connexion) ET envoie des emails →
+      // annonce le compte utilisé.
+      const evChannel =
+        !pendingConnection && evType === "send_email"
+          ? channelRow((await preferredProviderOrder(tenantId, userId, "email"))[0] ?? null)
+          : null;
       const evAgentCard: AgentCard = {
         ruleId: insertedEvt.id,
         title,
@@ -1645,6 +1656,7 @@ export async function createAgentRule(opts: {
         rows: [
           { kind: "when", value: "Dès qu'une fiche correspond", hint: `${watching}${daysNote}`.trim() },
           { kind: "action", value: capitalizeAction(actLabel.replace(/\s*\([^)]*\)/g, "").trim()) },
+          ...(evChannel ? [evChannel] : []),
           agentCostRow(action.estimatedCreditsPerRun, { event: true, perUnitLabel: evCostUnit }),
         ],
         footnote: pendingConnection ? null : "En continu · chaque fiche n'est traitée qu'une seule fois.",
@@ -1825,6 +1837,12 @@ export async function createAgentRule(opts: {
       value: `${action.recipients.length} personne(s)${qui ? ` ${qui}` : ""}`,
       hint: liste || null,
     });
+  }
+  // Agent ACTIF (pas bloqué) ET envoie des emails/le planning → annonce le compte
+  // utilisé (Gmail/Outlook, voir channelRow) — l'artisan ne le découvre plus après coup.
+  if (!blocked && (action.type === "team_planning" || action.type === "send_email")) {
+    const sched = channelRow((await preferredProviderOrder(tenantId, userId, "email"))[0] ?? null);
+    if (sched) schedRows.push(sched);
   }
   schedRows.push(agentCostRow(action.estimatedCreditsPerRun, { perMonth }));
   const schedBlockedHint =

@@ -15,7 +15,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Clock, Zap, Coins, Users, ArrowRight, AlertTriangle } from "lucide-react";
+import { Clock, Zap, Coins, Users, Mail, ArrowRight, AlertTriangle } from "lucide-react";
 import type { AgentCard, AgentCardRow } from "@/lib/agent-card";
 import { useT } from "@/lib/i18n/context";
 
@@ -24,6 +24,7 @@ const ROW_ICON: Record<AgentCardRow["kind"], typeof Clock> = {
   action: Zap,
   cost: Coins,
   recipients: Users,
+  channel: Mail,
 };
 
 export function AgentCreatedCard({ card }: { card: AgentCard }) {
@@ -48,6 +49,8 @@ export function AgentCreatedCard({ card }: { card: AgentCard }) {
         return t("Coût", "Cost");
       case "recipients":
         return t("Destinataires", "Recipients");
+      case "channel":
+        return t("Envoi depuis", "Sending from");
     }
   };
 
@@ -103,8 +106,18 @@ export function AgentCreatedCard({ card }: { card: AgentCard }) {
                   <div className="text-[10.5px] font-semibold uppercase tracking-[0.04em] text-[#A0A0AC]">
                     {rowLabel(row.kind)}
                   </div>
-                  <div className="text-[13.5px] font-medium leading-snug text-[#0A0A0A]">
-                    {row.value}
+                  <div className="flex items-center gap-2">
+                    <div className="text-[13.5px] font-medium leading-snug text-[#0A0A0A]">
+                      {row.value}
+                    </div>
+                    {row.action && (
+                      <Link
+                        href={row.action.href}
+                        className="text-[11.5px] font-semibold text-[#7C5CFF] hover:underline flex-shrink-0"
+                      >
+                        {row.action.label}
+                      </Link>
+                    )}
                   </div>
                   {row.hint && (
                     <div className="mt-0.5 text-[12px] leading-snug text-[#9A9AA5]">{row.hint}</div>
