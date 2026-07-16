@@ -60,7 +60,7 @@ export const DATA_QUESTION: ClarifyQuestion = {
   question: "Comment souhaitez-vous gérer les données de l'application ?",
   multi: false,
   options: [
-    { value: "zero",      label: "On part de zéro",                  hint: "Saisie au fur et à mesure, exemples fictifs pour tester" },
+    { value: "zero",      label: "On part de zéro",                  hint: "Application vide — vous saisissez vos données au fur et à mesure" },
     { value: "workspace", label: "Données déjà dans le workspace",   hint: "Clients, chantiers, employés… déjà enregistrés dans Biltia" },
     { value: "import",    label: "Importer un fichier Excel / CSV",  hint: "J'ai déjà des données à intégrer" },
   ],
@@ -70,7 +70,7 @@ const DATA_QUESTION_EN: ClarifyQuestion = {
   question: "How would you like to handle the app's data?",
   multi: false,
   options: [
-    { value: "zero",      label: "Start from scratch",            hint: "Enter data as you go, sample records to test" },
+    { value: "zero",      label: "Start from scratch",            hint: "Empty app — you enter your own data as you go" },
     { value: "workspace", label: "Data already in the workspace", hint: "Clients, projects, staff… already saved in Biltia" },
     { value: "import",    label: "Import an Excel / CSV file",    hint: "I already have data to bring in" },
   ],

@@ -278,30 +278,22 @@ export async function POST(req: Request) {
     } catch { /* tracking best-effort : jamais bloquant */ }
   }
 
-  // DIRECTIVE USER (2026-07-12) : si la demande contient DÉJÀ assez de contexte,
-  // on n'embête pas l'utilisateur — on exécute directement (ceci ASSOUPLIT la
-  // règle « question DONNÉES systématique » du 2026-07-07 : la source des données
-  // n'est demandée que si elle n'est pas déjà connue). Le client, en recevant
-  // skipClarify, lance la génération telle quelle.
-  if (ready) {
-    return Response.json({ skipClarify: true, kind: "module" });
-  }
-
-  // Sinon : on ne pose QUE ce qui manque. Les apps sont responsive par défaut
-  // (pas de question support/layout). Ordre : questions SPÉCIFIQUES au besoin →
-  // DONNÉES (seulement si la source n'est pas déjà donnée) → Palette (seulement
-  // si aucune couleur n'est mentionnée).
+  // ── NON NÉGOCIABLE (décision user 2026-07-16) ──────────────────────────────
+  // La SOURCE DES DONNÉES (vide / importer / workspace) et les COULEURS sont
+  // TOUJOURS demandées avant de créer une app — jamais de données fictives, jamais
+  // une palette devinée. Ceci REMPLACE la directive du 2026-07-12 qui laissait tout
+  // sauter dès que la demande semblait « claire ». Le LLM garde le droit de sauter
+  // SES questions spécifiques (ready) — mais PAS ces deux étapes obligatoires.
+  // `askData`/`askStyle` du modèle ne servent plus à masquer ces questions : elles
+  // sont toujours là (le widget saute la portée workspace si « workspace » n'est pas
+  // choisi). Voir [[feedback_no_demo_data_in_product]] : workspace vide = app vide.
+  void askData; void askStyle; // conservés (compat tool) mais n'éteignent plus rien
   const questions = [
-    ...specific.slice(0, 2),
-    ...(askData ? [dataQuestion(locale), workspaceScopeQuestion(locale)] : []),
-    ...(askStyle ? [themeQuestion(locale)] : []),
+    ...(ready ? [] : specific.slice(0, 2)),
+    dataQuestion(locale),
+    workspaceScopeQuestion(locale),
+    themeQuestion(locale),
   ];
-
-  // Filet : le modèle n'a rien à demander mais ne s'est pas déclaré ready →
-  // on construit directement plutôt que d'afficher un questionnaire vide.
-  if (questions.length === 0) {
-    return Response.json({ skipClarify: true, kind: "module" });
-  }
 
   return Response.json({ questions });
 }
