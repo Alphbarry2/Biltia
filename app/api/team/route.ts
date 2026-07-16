@@ -26,28 +26,12 @@ import { isFounderEmail } from "@/lib/founder";
 import { logActivity } from "@/lib/activity";
 import { sendEmail } from "@/lib/mailer";
 import { signInviteToken } from "@/lib/invite-link";
+import { brandedEmailHtml } from "@/lib/branded-email";
 import { getLocale } from "@/lib/i18n/server";
 import { pick } from "@/lib/i18n/config";
 
 const ASSIGNABLE_ROLES = ["admin", "manager", "member", "viewer"] as const;
 const MANAGER_ROLES = ["owner", "admin"];
-
-// Email de marque Biltia (barre d'accent + bouton dégradé), même identité que les
-// templates Supabase. Sert à PRÉVENIR un collaborateur qui a DÉJÀ un compte (donc
-// non couvert par l'email d'invitation Supabase) qu'il a été ajouté à une équipe.
-function brandedEmailHtml(opts: { heading: string; body: string; btnText: string; btnUrl: string }): string {
-  return `<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#FCFCFD;padding:32px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-<tr><td align="center"><table width="480" cellpadding="0" cellspacing="0" role="presentation" style="max-width:480px;width:100%;background:#fff;border:1px solid #ECECF2;border-radius:20px;overflow:hidden;box-shadow:0 8px 30px rgba(60,40,120,0.06);">
-<tr><td style="height:4px;background:#7C3AED;background-image:linear-gradient(90deg,#6366F1,#8B5CF6,#EC4899);font-size:0;line-height:0;">&nbsp;</td></tr>
-<tr><td style="padding:32px 36px 8px;"><table cellpadding="0" cellspacing="0" role="presentation"><tr>
-<td><img src="https://www.biltia.com/icon.png" width="38" height="38" alt="Biltia" style="display:block;border-radius:10px;"></td>
-<td style="padding-left:10px;font-size:17px;font-weight:800;letter-spacing:-0.02em;color:#0A0A0A;">Biltia</td>
-</tr></table></td></tr>
-<tr><td style="padding:20px 36px 0;"><h1 style="margin:0 0 10px;font-size:24px;font-weight:800;letter-spacing:-0.03em;color:#0A0A0A;">${opts.heading}</h1>
-<p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#5B5B66;">${opts.body}</p></td></tr>
-<tr><td style="padding:0 36px 32px;"><a href="${opts.btnUrl}" style="display:inline-block;background:#7C3AED;background-image:linear-gradient(135deg,#6366F1 0%,#8B5CF6 55%,#EC4899 100%);color:#fff;text-decoration:none;font-size:15px;font-weight:600;padding:14px 30px;border-radius:12px;box-shadow:0 8px 22px rgba(124,58,237,0.38);">${opts.btnText}</a></td></tr>
-</table></td></tr></table>`;
-}
 
 type MemberRow = {
   id: string;
@@ -378,6 +362,20 @@ export async function POST(req: Request) {
     );
   }
 
+  // Un NOUVEL invité doit toujours définir son mot de passe ; un compte EXISTANT ne
+  // le doit que s'il ne s'est jamais connecté. Détermine aussi le statut initial
+  // (accepted_at) : en attente tant qu'il n'a pas RÉELLEMENT choisi son mot de passe
+  // (cf. /invitation + /api/invitation/complete), pas au simple ajout.
+  let pending = invitedNew;
+  if (!invitedNew) {
+    try {
+      const { data: u } = await admin.auth.admin.getUserById(memberUserId);
+      pending = !!u.user && !u.user.last_sign_in_at;
+    } catch {
+      pending = false;
+    }
+  }
+
   const { data: created, error: insertError } = await admin
     .from("tenant_members")
     .insert({
@@ -386,7 +384,7 @@ export async function POST(req: Request) {
       role: role as "admin" | "manager" | "member" | "viewer",
       invited_by: user.id,
       invited_at: new Date().toISOString(),
-      accepted_at: new Date().toISOString(),
+      accepted_at: pending ? null : new Date().toISOString(),
     })
     .select("id, user_id, role")
     .single();
@@ -415,17 +413,6 @@ export async function POST(req: Request) {
     .maybeSingle();
   const workspaceName = (tenantRow as { name?: string } | null)?.name || "votre équipe";
   let actionUrl = `${appUrl}/login`;
-  // Un NOUVEL invité doit toujours définir son mot de passe ; un compte EXISTANT ne
-  // le doit que s'il ne s'est jamais connecté.
-  let pending = invitedNew;
-  if (!invitedNew) {
-    try {
-      const { data: u } = await admin.auth.admin.getUserById(memberUserId);
-      pending = !!u.user && !u.user.last_sign_in_at;
-    } catch {
-      pending = false;
-    }
-  }
   if (pending) {
     // Lien signé (24h glissantes, cf. lib/invite-link.ts) vers NOTRE page /invitation —
     // jamais directement vers Supabase. /api/invitation/start ne génère le lien de
@@ -461,7 +448,7 @@ export async function POST(req: Request) {
   });
 
   return NextResponse.json({
-    member: { id: created.id, user_id: created.user_id, email, role: created.role, accepted: true, isYou: false },
+    member: { id: created.id, user_id: created.user_id, email, role: created.role, accepted: !pending, isYou: false },
     invited: invitedNew,
     emailSent,
   });

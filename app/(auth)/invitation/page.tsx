@@ -151,6 +151,13 @@ function InvitationForm() {
     } catch {
       /* best-effort */
     }
+    // Marque la membership comme acceptée (statut "Actif" côté admin) — best-effort,
+    // ne bloque jamais l'entrée dans l'app si l'appel échoue.
+    try {
+      await fetch("/api/invitation/complete", { method: "POST" });
+    } catch {
+      /* best-effort */
+    }
     router.push("/dashboard");
     router.refresh();
   };

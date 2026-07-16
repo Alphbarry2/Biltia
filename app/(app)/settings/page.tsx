@@ -42,6 +42,7 @@ import {
   Download,
   Trash2,
   Palette,
+  RefreshCw,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -235,6 +236,7 @@ export default function SettingsPage() {
   const [inviteRole, setInviteRole] = useState("member");
   const [inviting, setInviting] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [resendingId, setResendingId] = useState<string | null>(null);
 
   // Notifications push (Web Push)
   const [pushSupported, setPushSupported] = useState(false);
@@ -392,6 +394,14 @@ export default function SettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ memberId }),
       });
+      // 404 = la fiche n'existe déjà plus (déjà retirée depuis un autre onglet, double
+      // clic...) : le résultat voulu (plus dans l'équipe) est de toute façon atteint,
+      // pas la peine d'afficher une erreur qui donne l'impression que ça a échoué.
+      if (res.status === 404) {
+        setTeam((prev) => prev.filter((m) => m.id !== memberId));
+        setRemovingId(null);
+        return;
+      }
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? t("Retrait impossible.", "Removal failed."));
       setTeam((prev) => prev.filter((m) => m.id !== memberId));
@@ -400,6 +410,24 @@ export default function SettingsPage() {
       setError(err instanceof Error ? err.message : t("Retrait impossible.", "Removal failed."));
     }
     setRemovingId(null);
+  }
+
+  async function resendInvite(memberId: string) {
+    setError(null);
+    setResendingId(memberId);
+    try {
+      const res = await fetch("/api/team/resend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memberId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? t("Relance impossible.", "Resend failed."));
+      flash(t("Invitation relancée : un nouveau lien vient d'être envoyé.", "Invitation resent: a new link was just sent."));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("Relance impossible.", "Resend failed."));
+    }
+    setResendingId(null);
   }
 
   async function saveName() {
@@ -1051,9 +1079,34 @@ export default function SettingsPage() {
                             </div>
                           )}
                         </div>
+                        {!m.isYou && (
+                          <span
+                            className={`flex-shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-full ${
+                              m.accepted
+                                ? "text-emerald-700 bg-emerald-50 border border-emerald-200"
+                                : "text-amber-700 bg-amber-50 border border-amber-200"
+                            }`}
+                          >
+                            {m.accepted ? t("Actif", "Active") : t("En attente", "Pending")}
+                          </span>
+                        )}
                         <span className="flex-shrink-0 text-[11px] font-semibold text-violet-700 bg-violet-50 border border-violet-200 px-2.5 py-1 rounded-full">
                           {roleLabel[m.role] ?? m.role}
                         </span>
+                        {canManageTeam && !m.isYou && !m.accepted && (
+                          <button
+                            onClick={() => resendInvite(m.id)}
+                            disabled={resendingId === m.id}
+                            className="flex-shrink-0 p-1.5 text-[#9A9A97] hover:text-violet-600 rounded-lg hover:bg-violet-50 transition-colors disabled:opacity-50"
+                            title={t("Renvoyer l'invitation", "Resend invitation")}
+                          >
+                            {resendingId === m.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <RefreshCw className="w-4 h-4" />
+                            )}
+                          </button>
+                        )}
                         {canManageTeam && !m.isYou && m.role !== "owner" && (
                           <button
                             onClick={() => removeMember(m.id)}
