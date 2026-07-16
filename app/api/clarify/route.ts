@@ -44,15 +44,10 @@ const LLM_TIMEOUT_MS = 20000;
 const PLAN_TOOL = {
   name: "plan_clarification",
   description:
-    "Décide s'il faut poser des questions AVANT de créer l'app. Si la demande contient déjà assez d'infos pour construire directement, renvoie ready=true et questions vide. Sinon, propose UNIQUEMENT les questions vraiment manquantes.",
+    "Choisit ENTRE 1 ET 3 questions à poser AVANT de créer l'app, sur son contenu/besoin réel (jamais 0, jamais plus de 3). Le nombre dépend de ce que la demande précise déjà.",
   input_schema: {
     type: "object",
     properties: {
-      ready: {
-        type: "boolean",
-        description:
-          "true si la demande contient DÉJÀ assez d'infos pour créer une app utile SANS rien demander (but concret clair + contenu/éléments principaux connus). Dans ce cas, questions doit être vide.",
-      },
       ask_data_source: {
         type: "boolean",
         description:
@@ -65,10 +60,10 @@ const PLAN_TOOL = {
       },
       questions: {
         type: "array",
-        minItems: 0,
-        maxItems: 2,
+        minItems: 1,
+        maxItems: 3,
         description:
-          "UNIQUEMENT les questions VRAIMENT manquantes sur le besoin ou le contenu (tableau VIDE si la demande est déjà claire). Jamais de question sur les couleurs, la mise en page, le support ni la source des données.",
+          "1 à 3 questions VRAIMENT utiles sur le besoin ou le contenu — JAMAIS vide, JAMAIS plus de 3. 1 seule si la demande est déjà très détaillée (pages/contenu déjà décrits, il ne reste qu'un point à affiner) ; 3 si la demande est vague (juste le sujet, sans détail sur les pages/le contenu). Jamais de question sur les couleurs, la mise en page, le support ni la source des données.",
         items: {
           type: "object",
           properties: {
@@ -94,30 +89,35 @@ const PLAN_TOOL = {
         },
       },
     },
-    required: ["ready", "ask_data_source", "ask_style", "questions"],
+    required: ["ask_data_source", "ask_style", "questions"],
   },
 } as Anthropic.Tool;
 
-const CLARIFY_SYSTEM = `Tu prépares la création d'une application SUR MESURE pour un pro du BTP. Ton rôle : décider s'il faut CLARIFIER la demande avant de construire, et si oui, ne poser QUE les questions vraiment nécessaires.
+const CLARIFY_SYSTEM = `Tu prépares la création d'une application SUR MESURE pour un pro du BTP. Ton rôle : CLARIFIER la demande avant de construire, avec entre 1 et 3 questions sur son contenu/besoin réel.
 
-RÈGLE D'OR : si la demande contient déjà assez d'infos pour construire une app utile, NE POSE AUCUNE QUESTION (ready=true, questions vide). On n'embête JAMAIS un utilisateur qui a déjà été précis — on exécute sa demande, point.
+RÈGLE D'OR : pose TOUJOURS au moins 1 question sur le contenu/besoin réel de l'app — JAMAIS 0, JAMAIS plus de 3. On ne construit JAMAIS à l'aveugle, mais on n'embête pas non plus un utilisateur déjà précis avec des questions inutiles : le NOMBRE de questions (1, 2 ou 3) doit refléter FIDÈLEMENT ce qu'il manque, pas un chiffre fixe.
 
-La demande est SUFFISANTE (ready=true) dès qu'on comprend :
-- CE QUE l'app doit faire / gérer (son but concret), ET
-- GROSSO MODO ce qu'elle manipule (les éléments principaux ou les infos à suivre).
-Pour un besoin BTP standard nommé explicitement (suivi de chantiers, devis, factures, clients, planning d'équipe, stock, pointage des heures…), les champs habituels sont connus : considère-le SUFFISANT sauf demande vraiment inhabituelle. Dans le doute quand le but est clair, préfère ready=true.
+Choisis le nombre de questions selon ce que la demande précise DÉJÀ :
+- DÉJÀ TRÈS DÉTAILLÉE (les pages/écrans souhaités et le contenu principal sont déjà décrits) → 1 SEULE question, pour affiner le point le plus important qui reste flou (ex: une priorité, un détail de contenu manquant).
+- BUT CLAIR mais le CONTENU reste vague (on sait ce que l'app doit faire, mais pas ce qu'elle doit précisément afficher/suivre) → 2 questions.
+- VAGUE (juste le sujet, ex: « une app de suivi de chantier » sans rien de plus) → 3 questions qui couvrent les pages/écrans voulus, le contenu/les infos à suivre en priorité, et un point métier clé (ex: équipes, statuts, notifications).
 
-Exemples SUFFISANTS (ready=true, 0 question) :
+Exemple DÉJÀ TRÈS DÉTAILLÉE (1 question) :
+- « Je veux un suivi de chantier avec un tableau de bord (vue sur tous mes chantiers), une page avec tous mes chantiers, une page avec mes équipes et sur quel chantier elles sont. » → le contenu principal et les pages sont donnés ; pose 1 question sur ce qui reste vraiment ouvert (ex: veut-il aussi une page dédiée aux documents/photos par chantier, ou un budget par chantier ?).
+
+Exemple VAGUE (3 questions) :
+- « Une app de suivi de chantier. » → demande : (1) quelles pages/écrans il veut voir (tableau de bord, liste des chantiers, équipes…), (2) quelles infos suivre en priorité par chantier (budget, avancement, statut…), (3) un point métier clé pertinent (ex: faut-il suivre les équipes assignées à chaque chantier ?).
+
+Autres exemples DÉJÀ TRÈS DÉTAILLÉE (1 question) :
 - « Une app pour suivre mes chantiers : client, adresse, budget, date de début, avancement, statut. »
-- « Un carnet de devis avec le client, le montant, la date et l'état (envoyé / accepté / refusé). »
-- « Une app pour pointer les heures de mes ouvriers par chantier. »
+- « Un carnet de devis avec le client, le montant, la date et l'état (envoyé / accepté / refusé), et une page pour relancer les devis en attente. »
+
+Autres exemples VAGUES (3 questions) :
+- « Je veux une app pour mieux gérer mon activité. »
+- « Une app pour mon entreprise. »
 - « Un suivi de mes factures clients. »
 
-Exemples INSUFFISANTS (ready=false, 1 à 2 questions CIBLÉES) :
-- « Je veux une app pour mieux gérer mon activité. » → trop vague : demande ce qu'il veut suivre en priorité.
-- « Une app pour mon entreprise. » → demande le besoin n°1.
-
-Quand tu poses des questions (ready=false), elles sont VRAIMENT SPÉCIFIQUES à SA demande, dans SON vocabulaire, avec des options CONCRÈTES de son métier (jamais « option 1/2 »), chacune avec un hint clair d'une ligne. Couvre le besoin réel et/ou le contenu concret. N'invente pas de question de remplissage : s'il ne manque qu'une chose, ne pose qu'UNE question.
+Tes questions sont VRAIMENT SPÉCIFIQUES à SA demande, dans SON vocabulaire, avec des options CONCRÈTES de son métier (jamais « option 1/2 »), chacune avec un hint clair d'une ligne. Couvre les pages/écrans voulus ET/OU le contenu concret à suivre — jamais de question de remplissage sans valeur ajoutée réelle.
 
 INTERDIT dans questions : couleurs, mise en page, support (mobile/desktop), source des données — ils sont pilotés par ask_style et ask_data_source, pas par toi.
 
@@ -189,7 +189,6 @@ export async function POST(req: Request) {
   // — questions génériques + Données + Palette. Le chemin « exécute directement »
   // n'est emprunté QUE quand le modèle a bien jugé la demande suffisante.
   let specific: ClarifyQuestion[] = fallbackSpecific(locale);
-  let ready = false;
   let askData = true;
   let askStyle = true;
   let usage: { inputTokens: number; outputTokens: number } | null = null;
@@ -217,19 +216,17 @@ export async function POST(req: Request) {
       const block = message.content.find((b) => b.type === "tool_use");
       if (block && block.type === "tool_use") {
         const input = block.input as {
-          ready?: boolean;
           ask_data_source?: boolean;
           ask_style?: boolean;
           questions?: ClarifyQuestion[];
         };
-        ready = input.ready === true;
         // Défaut prudent : on demande la source/le style SAUF si le modèle dit
         // explicitement que c'est déjà précisé (false). Absent = on demande.
         askData = input.ask_data_source !== false;
         askStyle = input.ask_style !== false;
         const qs = (input.questions ?? [])
           .filter((q) => q && q.question && Array.isArray(q.options) && q.options.length >= 2)
-          .slice(0, 2)
+          .slice(0, 3)
           .map((q) => ({
             id: String(q.id || "q").slice(0, 40),
             question: String(q.question).slice(0, 160),
@@ -240,9 +237,9 @@ export async function POST(req: Request) {
               hint:  o.hint ? String(o.hint).slice(0, 90) : undefined,
             })),
           }));
-        // Le modèle a répondu : ses questions font foi (même 0). On n'impose plus
-        // les 2 questions génériques du repli quand il juge la demande claire.
-        specific = qs;
+        // Le modèle a répondu : ses questions font foi (1 à 3, jamais 0 — voir
+        // CLARIFY_SYSTEM). Filet ci-dessous si jamais il en renvoie 0 malgré tout.
+        if (qs.length) specific = qs;
       }
     } catch (e) {
       // NE JAMAIS ÉCHOUER EN SILENCE. Ce repli sert des questions ÉCRITES EN DUR
@@ -281,15 +278,18 @@ export async function POST(req: Request) {
   // ── NON NÉGOCIABLE (décision user 2026-07-16) ──────────────────────────────
   // La SOURCE DES DONNÉES (vide / importer / workspace) et les COULEURS sont
   // TOUJOURS demandées avant de créer une app — jamais de données fictives, jamais
-  // une palette devinée. Ceci REMPLACE la directive du 2026-07-12 qui laissait tout
-  // sauter dès que la demande semblait « claire ». Le LLM garde le droit de sauter
-  // SES questions spécifiques (ready) — mais PAS ces deux étapes obligatoires.
-  // `askData`/`askStyle` du modèle ne servent plus à masquer ces questions : elles
-  // sont toujours là (le widget saute la portée workspace si « workspace » n'est pas
-  // choisi). Voir [[feedback_no_demo_data_in_product]] : workspace vide = app vide.
+  // une palette devinée. `askData`/`askStyle` du modèle ne servent plus à masquer
+  // ces questions : elles sont toujours là (le widget saute la portée workspace
+  // si « workspace » n'est pas choisi). Voir [[feedback_no_demo_data_in_product]].
+  //
+  // Question(s) de CONTENU (décision user 2026-07-16, distincte de ce qui précède) :
+  // toujours 1 à 3 questions sur le besoin/contenu réel de l'app — JAMAIS 0 (on ne
+  // construit jamais à l'aveugle), JAMAIS plus de 3 (on n'embête pas non plus un
+  // utilisateur déjà précis). `specific` porte déjà cette règle (voir CLARIFY_SYSTEM
+  // + le filet ci-dessus qui retombe sur fallbackSpecific si le modèle renvoie 0).
   void askData; void askStyle; // conservés (compat tool) mais n'éteignent plus rien
   const questions = [
-    ...(ready ? [] : specific.slice(0, 2)),
+    ...specific.slice(0, 3),
     dataQuestion(locale),
     workspaceScopeQuestion(locale),
     themeQuestion(locale),
