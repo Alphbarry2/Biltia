@@ -42,6 +42,7 @@ import { createAgentRule } from "@/lib/agent-rules";
 import { connectorsForCapability } from "@/lib/capabilities";
 import { capabilityGate } from "@/lib/capability-gate";
 import { runAgentLoop, buildWorkspaceToolsSystem } from "@/lib/agent-tools";
+import { answerNeedsWorkspace, WSB_TOOL_ADDENDUM } from "@/lib/answer-tools";
 import { connectionSnapshot, buildConnectionsBlock } from "@/lib/connection-snapshot";
 import { toMessages, threadAsText } from "@/lib/chat-thread";
 import { canSendOutbound, sendOutboundEmail } from "@/lib/outbound-email";
@@ -2419,6 +2420,115 @@ Traiter un (1) comme un (3), c'est perdre un client pour un clic. Traiter un (2)
           console.error("Refund failed after failed answer:", refundErr);
         }
       };
+
+      // ── WS-B : question OPÉRATIONNELLE (mentionne des données de l'entreprise)
+      // → l'agent LIT vraiment le workspace (outils read-only) avant de répondre,
+      // puis répond exactement ou dit franchement « je n'ai pas l'info ». La voie
+      // rapide (question générale) garde le streaming ci-dessous, inchangée.
+      if (answerNeedsWorkspace(prompt)) {
+        const toolStream = new ReadableStream({
+          async start(controller) {
+            const send = (obj: unknown) =>
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+            try {
+              // Données privées lues via outils → modèle résistant au jailbreak
+              // (même invariant sécurité que le chemin ancré). Lecture SEULE : une
+              // question ne peut RIEN modifier ni envoyer.
+              const loop = await runAgentLoop({
+                model: ANSWER_MODEL,
+                system: `${answerSystem}\n\n${WSB_TOOL_ADDENDUM}`,
+                userMessage: prompt,
+                history,
+                db: supabase,
+                actor: { tenantId, userId: user.id, label: "Copilote Biltia" },
+                readOnly: true,
+                maxIterations: 5,
+                maxTokens: 800,
+              });
+              let answer = (loop.finalText ?? "").trim();
+              // Garde anti-fuite AUSSI sur cette sortie (le streaming ne s'y applique pas).
+              if (answer && containsLeak(answer)) {
+                answer = pick(locale, LEAK_REFUSAL.fr, LEAK_REFUSAL.en);
+                console.warn("Answer(tools) leak-guard tripped", { tenantId, userId: user.id, prompt: prompt.slice(0, 120) });
+              }
+              if (!answer) {
+                await refundHold();
+                send({ type: "error", error: pick(locale, "La réponse a échoué. Réessayez — vos crédits ont été remboursés.", "The answer failed. Try again — your credits have been refunded.") });
+                return;
+              }
+              send({ type: "delta", text: answer });
+
+              let realCredits = holdCredits;
+              if (holdCredits > 0 || founder) {
+                try {
+                  const tracked = await trackAiUsage({
+                    supabase,
+                    userId: user.id,
+                    tenantId,
+                    action: "ask",
+                    model: ANSWER_MODEL,
+                    inputTokens: loop.usage.inputTokens,
+                    outputTokens: loop.usage.outputTokens,
+                    agent: route.agent,
+                    sector: sector ?? undefined,
+                    billedCredits: holdCredits,
+                  });
+                  realCredits = founder ? 0 : tracked;
+                } catch (meterErr) {
+                  console.error("Metering failed after answer(tools):", meterErr);
+                }
+              }
+              try {
+                await logActivity(supabase, {
+                  tenantId,
+                  userId: user.id,
+                  action: "ask",
+                  entityType: "question",
+                  description: `Question résolue : « ${prompt.slice(0, 90)}${prompt.length > 90 ? "…" : ""} »`,
+                });
+              } catch {
+                // Journal best-effort : jamais bloquant.
+              }
+              try {
+                await supabase.from("app_events").insert({
+                  user_id: user.id,
+                  tenant_id: tenantId,
+                  event_type: "question_asked",
+                  agent: route.agent,
+                  sector,
+                  prompt_length: prompt.length,
+                  metadata: { topic: classifyQuestionTopic(prompt), question: prompt.slice(0, 200), tools: true },
+                });
+              } catch {
+                // le tracking ne bloque jamais la réponse
+              }
+
+              send({ type: "done", kind: "answer", creditsUsed: realCredits, agent: route.agent });
+            } catch (err) {
+              console.error("Answer(tools) failed:", err);
+              await refundHold();
+              try {
+                send({ type: "error", error: pick(locale, "La réponse a échoué. Réessayez — vos crédits ont été remboursés.", "The answer failed. Try again — your credits have been refunded.") });
+              } catch {
+                // Flux déjà fermé côté client.
+              }
+            } finally {
+              try {
+                controller.close();
+              } catch {
+                // Déjà fermé.
+              }
+            }
+          },
+        });
+        return new Response(toolStream, {
+          headers: {
+            "Content-Type": "text/event-stream; charset=utf-8",
+            "Cache-Control": "no-cache, no-transform",
+            Connection: "keep-alive",
+          },
+        });
+      }
 
       const stream = new ReadableStream({
         async start(controller) {

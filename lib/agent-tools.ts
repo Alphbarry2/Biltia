@@ -557,6 +557,12 @@ export async function runAgentLoop(opts: {
    * false : il peut créer/mettre à jour, JAMAIS supprimer sans humain dans la boucle.
    */
   allowDelete?: boolean;
+  /**
+   * WS-B : mode LECTURE SEULE — n'expose QUE les outils de lecture (workspace_list,
+   * workspace_get, collections d'app). Aucune écriture/suppression/envoi possible.
+   * Utilisé par le chemin RÉPONSE du chat : une question ne doit jamais rien modifier.
+   */
+  readOnly?: boolean;
   maxIterations?: number;
   maxTokens?: number;
   /**
@@ -569,14 +575,17 @@ export async function runAgentLoop(opts: {
    */
   maxDestructiveWrites?: number;
 }): Promise<AgentLoopResult> {
-  const { model, system, userMessage, history, db, actor, finishTool, allowEmail = false, allowSms = false, allowDelete = true, maxIterations = 6, maxTokens = 1500, maxDestructiveWrites = Infinity } = opts;
+  const { model, system, userMessage, history, db, actor, finishTool, allowEmail = false, allowSms = false, allowDelete = true, readOnly = false, maxIterations = 6, maxTokens = 1500, maxDestructiveWrites = Infinity } = opts;
 
-  const tools: Anthropic.Tool[] = [
-    ...(allowDelete ? WORKSPACE_TOOLS : WORKSPACE_TOOLS.filter((t) => t.name !== "workspace_delete")),
-    ...APP_DATA_TOOLS,
-  ];
-  if (allowEmail) tools.push(SEND_EMAIL_TOOL);
-  if (allowSms) tools.push(SEND_SMS_TOOL);
+  // WS-B : en lecture seule, on n'expose QUE list/get (aucune écriture ni envoi).
+  const workspaceTools = readOnly
+    ? WORKSPACE_TOOLS.filter((t) => t.name === "workspace_list" || t.name === "workspace_get")
+    : allowDelete
+      ? WORKSPACE_TOOLS
+      : WORKSPACE_TOOLS.filter((t) => t.name !== "workspace_delete");
+  const tools: Anthropic.Tool[] = [...workspaceTools, ...APP_DATA_TOOLS];
+  if (!readOnly && allowEmail) tools.push(SEND_EMAIL_TOOL);
+  if (!readOnly && allowSms) tools.push(SEND_SMS_TOOL);
   if (finishTool) tools.push(finishTool);
   // Le fil PUIS la demande, normalisés ensemble (démarrage sur l'utilisateur,
   // alternance stricte) : un fil tronqué peut commencer par une réponse, et
