@@ -1,0 +1,174 @@
+name: DB integration (ephemeral, local Supabase)
+
+# Déclenchement STRICTEMENT limité à la branche de test temporaire.
+# Aucun push sur main, aucune autre branche, aucun pull_request, aucun schedule.
+on:
+  push:
+    branches:
+      - ci/db-integration-test
+
+# Aucune permission d'écriture GitHub.
+permissions:
+  contents: read
+
+concurrency:
+  group: biltia-db-integration
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  db-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      # ── 0. Ressources RÉELLES + portée du test (rédigé) ────────────────────
+      - name: Runner resources & scope
+        run: |
+          set -euo pipefail
+          {
+            echo "## Ressources runner"
+            echo '```'; echo "nproc: $(nproc)"; free -h; df -h /; echo '```'
+            echo "## Portée du test"
+            echo "Ces tests valident la chaîne de migrations, le schéma, les politiques RLS,"
+            echo "l'isolation tenant, les fonctions pures et des requêtes d'intégration."
+            echo "Certaines requêtes sont RÉPLIQUÉES dans les scripts et ne constituent pas"
+            echo "encore un test complet des wrappers Next.js réels. Ce n'est PAS un"
+            echo "end-to-end conversationnel intégral."
+          } >> "$GITHUB_STEP_SUMMARY"
+          nproc; free -h; df -h /
+
+      - uses: actions/checkout@v4
+
+      # ── 1. Dépendances ─────────────────────────────────────────────────────
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: Install deps
+        run: |
+          set -euo pipefail
+          npm ci
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.51.0
+
+      # ── 2. Supabase RÉDUIT. Applique migrations + seed. Échec = arrêt strict. ─
+      - name: Supabase init (non interactif)
+        run: |
+          set -euo pipefail
+          printf 'n\nn\nn\n' | supabase init || supabase init --force
+      - name: Supabase start (reduced) + migrations + seed
+        id: sbstart
+        run: |
+          set -euo pipefail
+          supabase start \
+            -x realtime,storage-api,imgproxy,mailpit,studio,edge-runtime,logflare,vector,supavisor,postgres-meta \
+            2>&1 | tee /tmp/supabase-start.log
+      - name: Migrations appliquées (artefact, même en échec)
+        if: always()
+        run: |
+          {
+            echo "## Migrations"
+            echo '```'
+            supabase migration list 2>&1 | tail -80 || tail -60 /tmp/supabase-start.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ── 3. Identifiants LOCAUX : masqués, jamais affichés en clair. ─────────
+      - name: Export local credentials (masked)
+        run: |
+          set -euo pipefail
+          supabase status -o env > /tmp/sb.env
+          # Masque chaque valeur sensible sans afficher le fichier.
+          while IFS= read -r val; do [ -n "$val" ] && echo "::add-mask::$val"; done \
+            < <(grep -E "SERVICE_ROLE_KEY|ANON_KEY|JWT_SECRET" /tmp/sb.env | sed 's/^[^=]*=//; s/^"//; s/"$//')
+          # shellcheck disable=SC1091
+          source /tmp/sb.env
+          {
+            echo "SUPABASE_URL=$API_URL"
+            echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
+            echo "SUPABASE_ANON_KEY=$ANON_KEY"
+            echo "SUPABASE_JWT_SECRET=$JWT_SECRET"
+            echo "DB_URL=$DB_URL"
+            echo "BILTIA_INTEGRATION_TEST=1"
+            echo "ALLOW_REMOTE_TEST_DB=1"
+          } >> "$GITHUB_ENV"
+
+      # ── 4. Contrôle de schéma 066/067 (psql strict) ────────────────────────
+      - name: Schema check 066/067
+        run: |
+          set -euo pipefail
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -f scripts/integration/schema-066-067.sql | tee /tmp/schema.log
+
+      # ── 5. Scripts d'intégration (arrêt au premier échec) ──────────────────
+      - name: WS-D — contexte & isolation A/B
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types scripts/integration/wsd.mjs | tee /tmp/wsd.log
+      - name: WS-E — agent_run_steps & supervision
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types scripts/integration/wse.mjs | tee /tmp/wse.log
+      - name: Avenant — objet réel, montants, isolation
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types scripts/integration/avenant.mjs | tee /tmp/avenant.log
+      - name: WS-C — confirmation & RBAC
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types scripts/integration/wsc.mjs | tee /tmp/wsc.log
+
+      # ── 6. Rollback 066/067 puis ré-application (fichiers de migration) ─────
+      - name: Rollback + re-apply 066/067
+        run: |
+          set -euo pipefail
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -f scripts/integration/rollback-066-067.sql | tee /tmp/rollback.log
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/066_agent_run_steps.sql | tee -a /tmp/rollback.log
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/067_devis_avenant.sql | tee -a /tmp/rollback.log
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -f scripts/integration/schema-066-067.sql | tee -a /tmp/rollback.log
+
+      # ── 7. Artefacts : logs RÉDIGÉS uniquement (aucun secret). ─────────────
+      - name: Upload redacted logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-integration-logs
+          path: |
+            /tmp/schema.log
+            /tmp/wsd.log
+            /tmp/wse.log
+            /tmp/avenant.log
+            /tmp/wsc.log
+            /tmp/rollback.log
+          if-no-files-found: ignore
+          retention-days: 3
+
+      # ── 8. NETTOYAGE GARANTI : stop Supabase + suppression des identifiants ─
+      - name: Cleanup (always)
+        if: always()
+        run: |
+          supabase stop --no-backup || true
+          docker system prune -af || true
+          rm -f /tmp/sb.env /tmp/*.env || true
+          if [ -f /tmp/sb.env ]; then echo "ATTENTION: /tmp/sb.env subsiste"; exit 1; else echo "ok: aucun fichier d'identifiants temporaire résiduel"; fi
+
+      # ── 9-11. Qualité (Supabase ARRÊTÉ : le build ne concurrence plus la RAM)
+      - name: Unit tests
+        run: |
+          set -euo pipefail
+          node --test --experimental-strip-types \
+            lib/workspace-retard.test.ts lib/answer-tools.test.ts \
+            lib/agent-observability.test.ts lib/agent-supervision.test.ts \
+            lib/action-risk.test.ts lib/devis-amounts.test.ts
+      - name: TypeScript
+        run: |
+          set -euo pipefail
+          npx tsc --noEmit
+      - name: Build
+        run: |
+          set -euo pipefail
+          npm run build

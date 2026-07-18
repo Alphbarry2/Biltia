@@ -4,5 +4,10 @@
       "path": "/api/admin/promote-insights",
       "schedule": "0 3 * * *"
     }
-  ]
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "ci/db-integration-test": false
+    }
+  }
 }
