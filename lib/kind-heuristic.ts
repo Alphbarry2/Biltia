@@ -43,6 +43,11 @@ export type KindResult = {
   /** PRÉ-VOL LÉGER : checklist des résultats attendus (intents/expectedOutputs/
    *  toolGroups/complexity). Toujours présent (fallback minimal si non produit). */
   preflight?: LightAgentPreflight;
+  /** AIGUILLAGE HYBRIDE : décision BRUTE du modèle (avant barrière déterministe),
+   *  conservée pour l'observabilité. `kind` porte la décision EFFECTIVE (résolue). */
+  classifiedKind?: BiltiaKind;
+  /** Raison de la correction déterministe, si `kind` diffère de `classifiedKind`. */
+  overrideReason?: string;
 };
 
 function normalize(s: string): string {

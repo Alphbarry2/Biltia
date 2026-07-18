@@ -32,6 +32,7 @@ import {
 } from "./kind-heuristic";
 import type { BiltiaKind, KindResult } from "./kind-heuristic";
 import { normalizePreflight, fallbackPreflight } from "./mission-preflight";
+import { resolveOperationalKind, deriveIntentsFromSignals } from "./hybrid-routing";
 
 export { classifyKindHeuristic, looksLikePureQuestion, mentionsExternalStorage };
 export type { BiltiaKind, KindMethod, KindResult } from "./kind-heuristic";
@@ -73,7 +74,7 @@ export const DOC_TYPES = [
 
 // ── LLM (Haiku + tool use forcé) ─────────────────────────────────────────────
 
-function buildKindSystem(hasExistingApp: boolean): string {
+export function buildKindSystem(hasExistingApp: boolean): string {
   const modContext = hasExistingApp
     ? `
 
@@ -98,7 +99,7 @@ LES 10 FORMATS :
 - "calendar" — l'utilisateur veut CONSULTER SON agenda À LUI (« qu'est-ce que j'ai lundi ? », « ma semaine ? », « mes rendez-vous ? »), AJOUTER un rendez-vous (« ajoute un RDV client mardi à 14h », « planifie une visite chantier jeudi 9h », « note un rendez-vous demain 10h »), OU TROUVER UN CRÉNEAU LIBRE / une disponibilité (« trouve-moi un créneau libre jeudi », « quand suis-je dispo cette semaine pour 2h ? », « propose un créneau au client »). C'est SON agenda PERSONNEL — ni une question de savoir métier ("answer") ni une écriture dans tes données workspace ("data").
   ⚠ ATTENTION AU MOT « PLANNING ». Le planning de SON ÉQUIPE n'est PAS son agenda : c'est un OUTIL à construire → "module". « le planning de la semaine de mon équipe », « le planning de mes compagnons », « qui va où cette semaine » = "module". Seul « MA semaine / MES rendez-vous / MON agenda » (lui, tout seul) = "calendar".
 - "email" — l'utilisateur veut ENVOYER un message/email à quelqu'un, MAINTENANT, une fois : « envoie un email à jean@x.fr pour lui dire que… », « écris à ce client qu'on passe lundi », « relance ce fournisseur par mail ». C'est le VERBE D'ENVOI (« envoie/écris/relance… par mail/email ») qui décide — même si le message PARLE de factures, de fichiers ou de chantiers : ça, c'est le CONTENU du mail, PAS un traitement de fichiers. Quand kind="email", remplis email_to (l'adresse ou le nom du destinataire), email_subject (objet court) et email_body (le corps complet, professionnel, prêt à envoyer).
-- "task" — l'utilisateur veut ENVOYER un message MAINTENANT à un GROUPE de son workspace (pas à UNE personne précise : ça, c'est "email") : « envoie un message à TOUS MES CLIENTS pour le portes ouvertes vendredi », « préviens MON ÉQUIPE qu'on commence à 7h demain », « écris à MES FOURNISSEURS ». Biltia résout la liste dans le workspace, montre un APERÇU, et envoie seulement après validation. Remplis task_audience (all_clients / team / all_suppliers), email_subject (objet court) et email_body (le message complet, professionnel, prêt à envoyer). Ce qui décide : un VERBE D'ENVOI + une CIBLE COLLECTIVE. Un destinataire unique nommé → "email". Une récurrence (« …chaque lundi ») → "rule".
+- "task" — ⚠ NE VEUT PAS DIRE « fiche tâche » ! "task" = ENVOYER un message MAINTENANT à un GROUPE de son workspace, ET RIEN D'AUTRE (aucune écriture de fiche) : « envoie un message à TOUS MES CLIENTS pour le portes ouvertes vendredi », « préviens MON ÉQUIPE qu'on commence à 7h demain », « écris à MES FOURNISSEURS ». Si la demande écrit AUSSI une fiche (décaler un chantier, créer une tâche…), ce n'est PAS "task" mais "data". Biltia résout la liste dans le workspace, montre un APERÇU, et envoie seulement après validation. Remplis task_audience (all_clients / team / all_suppliers), email_subject (objet court) et email_body (le message complet, professionnel, prêt à envoyer). Ce qui décide : un VERBE D'ENVOI + une CIBLE COLLECTIVE. Un destinataire unique nommé → "email". Une récurrence (« …chaque lundi ») → "rule".
 - "document" — l'utilisateur veut UN livrable officiel unique, à imprimer/envoyer/signer : avenant, PV de réception, mise en demeure, devis, facture, attestation (TVA…), courrier/relance, ordre de service, bon de commande, levée de réserves. Indices : « sors-moi l'avenant », « rédige une mise en demeure », « fais-lui signer », « attestation TVA », « un devis pour… » (un seul, pas un outil de gestion de devis).
 - "action" — l'utilisateur a DES DONNÉES/FICHIERS EXISTANTS à traiter par lot, UNE fois, maintenant : vérifier, comparer, rapprocher, contrôler. Indices : « glisse tes 30 bons de livraison, je vérifie les prix vs devis », « compare ces factures », « détecte les erreurs ». Ce n'est JAMAIS « envoyer un email » (ça, c'est "email").
 - "image" — l'utilisateur veut VOIR À QUOI RESSEMBLERA le résultat d'un chantier, pour le MONTRER À SON CLIENT : « fais-moi un rendu de la salle de bain une fois rénovée », « montre à quoi ressemblera la façade après le ravalement », « une image de la cuisine finie pour le devis de Mme Martin », « visualise les combles aménagés ». C'est du COMMERCIAL : une image d'ambiance qui aide à VENDRE le chantier.
@@ -107,7 +108,7 @@ LES 10 FORMATS :
 
 - "module" — l'utilisateur veut un OUTIL/APPLICATION pour capturer ou suivre de la donnée dans la durée : suivi de chantiers, pointage des heures, inventaire, CRM, planning, carnet d'entretien. Indices : « je veux un tableau/outil pour gérer/suivre… », « application de pointage ».
 - "rule" — l'utilisateur DÉLÈGUE une mission PERMANENTE que Biltia devra exécuter SEUL, à répétition ou sur déclencheur, sans qu'il ait à redemander : « relance ce client tous les jours à midi », « chaque soir à 18h vérifie les pointages », « occupe-toi de relancer mes factures impayées », « préviens-moi dès qu'un document expire ». Indices décisifs : récurrence (« tous les jours », « chaque lundi », « chaque soir »), déclencheur (« dès que »), délégation (« occupe-toi de », « automatiquement »).
-- "data" — l'utilisateur veut agir sur UNE FICHE de son workspace, MAINTENANT, une fois : ajouter (« ajoute un client Jean Dupont, 06 12 34 56 78 »), modifier (« mets à jour le téléphone de Karim », « passe le devis D-2026-04 en accepté », « le chantier Morel est à 80% »), supprimer (« supprime le client Martin »). Ni un outil, ni un document, ni une mission répétée : une écriture directe dans les données.
+- "data" — l'utilisateur veut AGIR sur les données de son workspace (chantiers, clients, devis, factures, TÂCHES, interventions, employés…), MAINTENANT : ajouter / modifier / décaler / déplacer / supprimer / affecter une ou PLUSIEURS fiches, ÉVENTUELLEMENT en enchaînant plusieurs actions et/ou une communication dans le MÊME élan. Exemples : « ajoute un client Jean Dupont », « passe le devis D-2026-04 en accepté », « CRÉE une tâche pour Karim », « décale le chantier Dupont de 3 jours, DÉPLACE les tâches associées ET préviens l'équipe ». ⚠ RÈGLE FORTE : dès que la demande ÉCRIT une fiche du workspace (même si elle prévient aussi quelqu'un, même s'il y a plusieurs actions), c'est "data" — PAS "task", PAS "module". Créer/modifier une FICHE tâche = "data" (le mot « tâche » n'impose JAMAIS "task").
 RÈGLE DE DÉPARTAGE :
 - Une question qui attend un SAVOIR ou un CHIFFRE → "answer". Une demande qui attend une PRODUCTION (document, outil, traitement) → un des trois formats de production. Une demande de DÉLÉGUER une tâche répétitive → "rule".
 - Un livrable UNIQUE à signer/envoyer → "document". Un OUTIL qui gère plusieurs entrées dans le temps → "module". La MÊME intention assortie d'une récurrence/délégation → "rule" (« relance-le » = document ; « relance-le chaque semaine » = rule).
@@ -150,7 +151,7 @@ PRÉ-VOL (à remplir TOUJOURS) — la « checklist » de la mission :
 Réponds UNIQUEMENT en appelant l'outil classify_request.`;
 }
 
-const CLASSIFY_TOOL = {
+export const CLASSIFY_TOOL = {
   name: "classify_request",
   description: "Choisit le format de sortie le plus efficace pour la demande.",
   strict: true,
@@ -411,13 +412,47 @@ export async function classifyKind(opts: {
   if (useLLM && hasKey && !heuristicIsSure) {
     try {
       const llm = await classifyWithLLM(prompt, sector, hasExistingApp, history);
-      if (llm) return llm;
+      if (llm) return applyHybridRouting(llm, prompt);
     } catch {
       // Crédits épuisés, réseau, etc. → repli silencieux sur l'heuristique.
     }
   }
 
-  return heuristic;
+  return applyHybridRouting(heuristic, prompt);
+}
+
+/**
+ * AIGUILLAGE HYBRIDE — barrière déterministe APRÈS le classifieur : corrige un kind
+ * incompatible avec des signaux opérationnels évidents (task/module/email/action →
+ * data quand la demande ÉCRIT une fiche), puis complète le pré-vol par des signaux
+ * quand le modèle n'a pas produit d'intentions exploitables. La décision BRUTE est
+ * conservée (`classifiedKind`) ; `kind` porte la décision EFFECTIVE.
+ */
+function applyHybridRouting(result: KindResult, prompt: string): KindResult {
+  const { resolvedKind, overrideReason } = resolveOperationalKind({ prompt, classifiedKind: result.kind });
+  let preflight = result.preflight ?? fallbackPreflight(resolvedKind, prompt);
+  const usableIntents = preflight.intents.filter((i) => i !== "other");
+  // FALLBACK DÉTERMINISTE des intentions, par UNION : les signaux forts COMPLÈTENT
+  // ce que le modèle a produit (il rate souvent 1 volet sur 3). Conservateur : les
+  // signaux ne détectent que des combinaisons évidentes → peu de faux positifs.
+  const derived = deriveIntentsFromSignals(prompt);
+  const merged = Array.from(new Set([...usableIntents, ...derived]));
+  if (merged.length) {
+    const complexity = merged.length <= 1 ? "simple" : merged.length <= 3 ? "multi_step" : "complex";
+    preflight = normalizePreflight(
+      { goal: preflight.goal, intents: merged, expected_outputs: preflight.expectedOutputs, tool_groups: [], complexity, confidence: preflight.confidence },
+      resolvedKind,
+      prompt
+    );
+  }
+  preflight = { ...preflight, kind: resolvedKind };
+  return {
+    ...result,
+    classifiedKind: result.kind,
+    kind: resolvedKind,
+    overrideReason: resolvedKind !== result.kind ? overrideReason : undefined,
+    preflight,
+  };
 }
 
 // ── EXTRACTION AGENDA (dédiée) ────────────────────────────────────────────────
