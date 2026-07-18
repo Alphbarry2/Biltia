@@ -47,7 +47,9 @@ jobs:
       - run: npm ci
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.109.1 # épinglé : évite la résolution « latest » (rate limit API non-authentifiée)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - name: Ne PAS rejouer la chaîne historique (001→067 cassée)
         run: |
           mkdir -p /tmp/hist-mig
