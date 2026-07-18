@@ -7,6 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit --incremental false",
+    "test:unit": "node --test --experimental-strip-types lib/*.test.ts",
+    "test:e2e": "E2E_ROOT=\"$PWD\" node --test --experimental-strip-types --import ./e2e/register.mjs e2e/*.e2e.mjs",
     "ingest:knowledge": "node --env-file=.env.local scripts/ingest-knowledge.mjs"
   },
   "dependencies": {

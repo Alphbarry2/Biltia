@@ -1,0 +1,13 @@
+const at = await import("@/lib/agent-tools");
+const fns = Object.keys(at);
+console.log("agent-tools loaded. exports:", fns.length);
+console.log("has runAgentLoop:", typeof at.runAgentLoop);
+console.log("has runAgentTool:", typeof at.runAgentTool);
+console.log("has verifyExecutedTool:", typeof at.verifyExecutedTool);
+console.log("has buildWorkspaceToolsSystem:", typeof at.buildWorkspaceToolsSystem);
+const av = await import("@/lib/action-verification");
+console.log("has buildVerifiedReport:", typeof av.buildVerifiedReport);
+const ws = await import("@/lib/workspace-search");
+console.log("has searchWorkspace:", typeof ws.searchWorkspace);
+const llm = await import("@/lib/llm");
+console.log("llm client patchable:", typeof llm.client?.messages?.create);

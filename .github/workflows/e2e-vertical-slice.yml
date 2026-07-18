@@ -1,0 +1,49 @@
+# E2E — parcours vertical de l'agent (branche temporaire uniquement).
+# Aucun secret de production, aucun déploiement, aucune donnée réelle.
+# La base de la couche E2E est EN MÉMOIRE (fake fidèle) + modèle SIMULÉ : le job
+# est 100 % déterministe et n'a besoin ni de Docker ni de Supabase.
+name: e2e-vertical-slice
+
+on:
+  push:
+    branches:
+      - agent/e2e-vertical-slice
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Units + TypeScript + E2E déterministe
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ressources de l'exécuteur
+        run: |
+          echo "nproc:"; nproc
+          echo "mémoire:"; free -h || true
+          echo "disque:"; df -h || true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci
+      - name: Tests unitaires
+        run: node --test --experimental-strip-types lib/*.test.ts
+      - name: TypeScript
+        run: npx tsc --noEmit --incremental false
+      - name: E2E vertical slice (orchestration réelle · modèle simulé · base en mémoire)
+        run: E2E_ROOT="$PWD" node --test --experimental-strip-types --import ./e2e/register.mjs e2e/*.e2e.mjs
+
+  build:
+    name: next build (best-effort)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci
+      - name: Build Next.js
+        run: npx next build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"

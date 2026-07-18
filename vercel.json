@@ -4,5 +4,10 @@
       "path": "/api/admin/promote-insights",
       "schedule": "0 3 * * *"
     }
-  ]
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "agent/e2e-vertical-slice": false
+    }
+  }
 }
