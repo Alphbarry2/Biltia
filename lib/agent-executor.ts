@@ -27,6 +27,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { computeNextRun, type AgentAction, type AgentSchedule, type AgentTrigger, type TeamFilter } from "./agent-rules";
 import { getEntitlementsForTenant } from "./entitlements";
 import { getWorkspaceContextFor, buildWorkspaceBlock } from "./workspace-context";
+import { persistRunSteps, type RunStepDraft } from "./agent-observability";
 import { neutralizeMarkers, fenceUntrusted } from "./untrusted";
 import { runAgentLoop, buildWorkspaceToolsSystem, type ToolTrace } from "./agent-tools";
 import { getWatcher, buildFireKey, isSupplierRelanceWatcher, type WatcherDef, type WatcherMatch } from "./agent-watchers";
@@ -165,6 +166,7 @@ async function compose(opts: {
   subject: string;
   body: string;
   traces: ToolTrace[];
+  steps: RunStepDraft[];
   usage: { inputTokens: number; outputTokens: number };
 } | null> {
   const hasKey =
@@ -231,6 +233,7 @@ Quand la mission du passage est accomplie, TERMINE OBLIGATOIREMENT en appelant l
       subject: String(i.subject).slice(0, 180),
       body: String(i.body).slice(0, 6000),
       traces: loop.traces,
+      steps: loop.steps,
       usage: loop.usage,
     };
   } catch {
@@ -613,7 +616,7 @@ async function composeAct(opts: {
   watcher: WatcherDef;
   match: WatcherMatch;
   allowEmail: boolean;
-}): Promise<{ summary: string; traces: ToolTrace[]; usage: { inputTokens: number; outputTokens: number } } | null> {
+}): Promise<{ summary: string; traces: ToolTrace[]; steps: RunStepDraft[]; usage: { inputTokens: number; outputTokens: number } } | null> {
   const hasKey = hasAnyLlmKey();
   if (!hasKey) return null;
 
@@ -667,7 +670,7 @@ Quand c'est fait, TERMINE en appelant l'outil compose : subject = titre court, b
     const summary =
       composed || (loop.traces.length ? loop.traces.map((t) => t.description).join(" · ") : "");
     if (!summary && loop.traces.length === 0) return null;
-    return { summary: summary.slice(0, 800), traces: loop.traces, usage: loop.usage };
+    return { summary: summary.slice(0, 800), traces: loop.traces, steps: loop.steps, usage: loop.usage };
   } catch {
     return null;
   }
@@ -1084,6 +1087,7 @@ async function executeEventRule(
       if (rule.created_by && judged.usage.inputTokens + judged.usage.outputTokens > 0) {
         try {
           const tracked = await trackAiUsage({
+            runId: run.id,
             supabase: admin,
             userId: rule.created_by,
             tenantId: rule.tenant_id,
@@ -1199,6 +1203,7 @@ async function executeEventRule(
       if (inTok + outTok > 0) {
         try {
           const tracked = await trackAiUsage({
+            runId: run.id,
             supabase: admin,
             userId: rule.created_by,
             tenantId: rule.tenant_id,
@@ -1267,6 +1272,7 @@ async function executeEventRule(
       const okLabels: string[] = [];
       const reports: string[] = [];
       const allTraces: ToolTrace[] = [];
+      let stepSeq = 0; // WS-E : ordre continu des étapes sur l'ensemble du passage
       for (const m of batch) {
         const res = await composeAct({
           model: execModel,
@@ -1291,6 +1297,8 @@ async function executeEventRule(
         okLabels.push(m.label);
         reports.push(`${m.label} → ${res.summary}`);
         allTraces.push(...res.traces);
+        await persistRunSteps(admin, run.id, rule.tenant_id, res.steps, stepSeq); // WS-E
+        stepSeq += res.steps.length;
         await logActivity(admin, {
           tenantId: rule.tenant_id,
           userId: rule.created_by ?? undefined,
@@ -1305,6 +1313,7 @@ async function executeEventRule(
       if (inTok + outTok > 0) {
         try {
           const tracked = await trackAiUsage({
+            runId: run.id,
             supabase: admin,
             userId: rule.created_by,
             tenantId: rule.tenant_id,
@@ -1491,6 +1500,7 @@ async function executeEventRule(
       if (rule.created_by && inTok + outTok > 0) {
         try {
           const tracked = await trackAiUsage({
+            runId: run.id,
             supabase: admin,
             userId: rule.created_by,
             tenantId: rule.tenant_id,
@@ -1839,6 +1849,7 @@ async function executeV2Rule(
     if (rule.created_by && emailUsage.inTok + emailUsage.outTok > 0) {
       try {
         const tracked = await trackAiUsage({
+          runId: run.id,
           supabase: admin,
           userId: rule.created_by,
           tenantId: rule.tenant_id,
@@ -1992,6 +2003,7 @@ export async function executeRule(
       if (!rule.created_by || montant <= 0) return 0;
       try {
         const tracked = await trackAiUsage({
+          runId: run.id,
           supabase: admin,
           userId: rule.created_by,
           tenantId: rule.tenant_id,
@@ -2288,6 +2300,9 @@ export async function executeRule(
       return { status: "failed", summary: "rédaction impossible" };
     }
 
+    // WS-E : trace rédigée des étapes de ce passage (best-effort, tolérant).
+    await persistRunSteps(admin, run.id, rule.tenant_id, composed.steps);
+
     // ── DÉBIT — la GRILLE décide (lib/plans.ts → ACTION_CREDITS), pas le coût du
     // modèle : sinon un moteur 8× moins cher brade l'offre au lieu d'améliorer la
     // marge. Le tarif suit ce que l'agent FAIT, et c'est exactement ce qui lui a
@@ -2303,6 +2318,7 @@ export async function executeRule(
     if (rule.created_by) {
       try {
         const tracked = await trackAiUsage({
+          runId: run.id,
           supabase: admin,
           userId: rule.created_by,
           tenantId: rule.tenant_id,

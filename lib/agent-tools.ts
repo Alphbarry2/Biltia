@@ -28,6 +28,7 @@ import {
   TRANSFORM_LABEL,
 } from "./workspace-transforms";
 import { logActivity } from "./activity";
+import { draftToolStep, draftBlockedStep, type RunStepDraft } from "./agent-observability";
 import { listAppCollections, listAppRecords } from "./app-records";
 import { sendOutboundEmail } from "./outbound-email";
 import { sendSms } from "./outbound-sms";
@@ -521,6 +522,8 @@ export type AgentLoopResult = {
   finishInput: Record<string, unknown> | null;
   /** Écritures effectuées (trace lisible). */
   traces: ToolTrace[];
+  /** WS-E : étapes RÉDIGÉES (lectures + écritures) pour agent_run_steps. */
+  steps: RunStepDraft[];
   usage: { inputTokens: number; outputTokens: number };
   iterations: number;
 };
@@ -583,6 +586,7 @@ export async function runAgentLoop(opts: {
     content: m.content,
   }));
   const traces: ToolTrace[] = [];
+  const steps: RunStepDraft[] = []; // WS-E : trace rédigée de CHAQUE appel d'outil (lecture incluse)
   let inputTokens = 0;
   let outputTokens = 0;
   let destructiveWrites = 0; // suppressions + mises à jour déjà effectuées ce passage
@@ -601,7 +605,7 @@ export async function runAgentLoop(opts: {
         .map((b) => b.text)
         .join("\n")
         .trim();
-      return { finalText: text || null, finishInput: null, traces, usage: { inputTokens, outputTokens }, iterations: i + 1 };
+      return { finalText: text || null, finishInput: null, traces, steps, usage: { inputTokens, outputTokens }, iterations: i + 1 };
     }
 
     // Outil final (compose) → mission terminée avec livrable structuré.
@@ -611,6 +615,7 @@ export async function runAgentLoop(opts: {
         finalText: null,
         finishInput: finish.input as Record<string, unknown>,
         traces,
+        steps,
         usage: { inputTokens, outputTokens },
         iterations: i + 1,
       };
@@ -625,6 +630,7 @@ export async function runAgentLoop(opts: {
       // qui enchaînerait les suppressions/écrasements sans validation humaine.
       const isDestructive = block.name === "workspace_delete" || block.name === "workspace_update";
       if (isDestructive && destructiveWrites >= maxDestructiveWrites) {
+        steps.push(draftBlockedStep(block.name, block.input as Record<string, unknown>));
         results.push({
           type: "tool_result",
           tool_use_id: block.id,
@@ -636,6 +642,7 @@ export async function runAgentLoop(opts: {
         continue;
       }
       const result = await runAgentTool(db, actor, block.name, block.input as Record<string, unknown>, traces);
+      steps.push(draftToolStep(block.name, block.input as Record<string, unknown>, result));
       if (isDestructive && (result as { ok?: boolean }).ok) destructiveWrites++;
       results.push({
         type: "tool_result",
@@ -651,6 +658,7 @@ export async function runAgentLoop(opts: {
     finalText: null,
     finishInput: null,
     traces,
+    steps,
     usage: { inputTokens, outputTokens },
     iterations: maxIterations,
   };

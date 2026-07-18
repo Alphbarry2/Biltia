@@ -112,6 +112,8 @@ interface TrackUsageParams {
    *  Le coût, lui, reste journalisé dans `cost_usd` : c'est ce qui permet de
    *  SURVEILLER la marge sans qu'il la pilote. */
   billedCredits?: number;
+  /** WS-E : relie ce coût à un passage d'agent (agent_runs.id). Null pour le chat. */
+  runId?: string | null;
   agent?: string;
   sector?: string;
   promptType?: "create" | "modify" | "autofix";
@@ -132,6 +134,7 @@ export async function trackAiUsage({
   cachedInputTokens = 0,
   realCostUsd,
   billedCredits,
+  runId,
   agent,
   sector,
   promptType,
@@ -163,7 +166,7 @@ export async function trackAiUsage({
   const admin = createAdminClient();
   const writer = admin ?? supabase;
 
-  const { error: usageError } = await writer.from("ai_usage").insert({
+  const baseRow = {
     user_id: userId,
     tenant_id: tenantId,
     app_id: appId ?? null,
@@ -177,7 +180,18 @@ export async function trackAiUsage({
     agent: agent ?? null,
     sector: sector ?? null,
     prompt_type: promptType ?? null,
-  });
+  };
+  // WS-E : on relie le coût au passage. TOLÉRANT — si la colonne run_id n'est pas
+  // encore déployée (migration 066), l'insert avec run_id échoue et on réessaie
+  // SANS le lien, pour ne jamais perdre la ligne d'usage (aucune régression).
+  // Cast : run_id peut ne pas être dans les types générés (database.types.ts).
+  const insertUsage = (row: Record<string, unknown>) =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (writer.from as any)("ai_usage").insert(row) as Promise<{ error: { message: string } | null }>;
+  let { error: usageError } = await insertUsage(runId ? { ...baseRow, run_id: runId } : baseRow);
+  if (usageError && runId) {
+    ({ error: usageError } = await insertUsage(baseRow));
+  }
   if (usageError) console.error("ai_usage insert failed:", usageError.message);
 
   // Renvoie les crédits réels pour réconciliation par l'appelant (reconcileCredits).
