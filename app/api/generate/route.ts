@@ -47,6 +47,7 @@ import { requiresConfirmation } from "@/lib/action-risk";
 import { connectionSnapshot, buildConnectionsBlock } from "@/lib/connection-snapshot";
 import { toMessages, threadAsText } from "@/lib/chat-thread";
 import { canSendOutbound, sendOutboundEmail } from "@/lib/outbound-email";
+import { canSendSms } from "@/lib/outbound-sms";
 import { resolveAudience, isTaskAudience, audienceLabels, SEND_CAP } from "@/lib/task-now";
 import { pick } from "@/lib/i18n/config";
 import {
@@ -1324,7 +1325,7 @@ export async function POST(req: Request) {
         }
       }
       const traces: ToolTrace[] = [];
-      const actor = { tenantId, userId: user.id, label: "Assistant" };
+      const actor = { tenantId, userId: user.id, label: "Assistant", fromEmail: user.email ?? null };
       let denied = 0;
       for (const action of plan) {
         const tool = typeof action?.tool === "string" ? action.tool : "";
@@ -2111,6 +2112,9 @@ ${buildWorkspaceToolsSystem()}
 ## Sûreté — OPÉRATION EN MASSE (règle ABSOLUE)
 Si la demande vise PLUSIEURS fiches d'un coup en SUPPRESSION ou en ÉCRASEMENT de statut (« supprime TOUS mes clients », « passe TOUTES mes factures impayées en payées », « efface tout », « remets tous les chantiers à zéro ») : tu n'exécutes RIEN d'abord. Tu comptes les fiches concernées (workspace_list en lecture seule), puis tu DEMANDES une confirmation explicite en citant le nombre (« Cela concerne 24 clients. Confirme en écrivant "oui, supprime les 24" et je le fais. »). Tu n'effectues l'opération qu'après cette confirmation nette dans la demande. Une opération sur UNE fiche identifiée (« supprime le client Martin », « passe le devis D-12 en accepté ») reste normale : exécute-la directement.
 
+## Prévenir quelqu'un (email / SMS) — TOUJOURS AVEC CONFIRMATION
+Tu peux aussi PRÉVENIR une personne concernée : send_email (et send_sms si disponible). Trouve d'abord son contact RÉEL dans le workspace (workspace_list sur clients/employees) — jamais de placeholder ([nom], XXX). Ces envois ne partent JAMAIS tout seuls : ils sont soumis à la confirmation de l'utilisateur (comme les suppressions). Tu RÉDIGES le message et tu le PROPOSES ; l'utilisateur validera avant l'envoi. Enchaîne naturellement dans le MÊME tour : « décale le chantier Dupont ET préviens l'équipe » = mets à jour la fiche PUIS prépare l'email aux employés concernés.
+
 ## Ta réponse finale (français, brève)
 - Opération faite → confirme FACTUELLEMENT ce qui a été fait, avec les valeurs clés (« ✓ Client **Jean Dupont** ajouté (06 12 34 56 78) »).
 - Ambiguïté → liste les fiches candidates et demande laquelle. Tu n'as RIEN modifié.
@@ -2121,8 +2125,13 @@ Si la demande vise PLUSIEURS fiches d'un coup en SUPPRESSION ou en ÉCRASEMENT d
           // voyait pas la facture proposée au tour d'avant et redemandait tout.
           history,
           db: supabase,
-          actor: { tenantId, userId: user.id, label: "Assistant" },
+          actor: { tenantId, userId: user.id, label: "Assistant", fromEmail: user.email ?? null },
           maxIterations: 6,
+          // WS-A : le triptyque en UN tour — l'opérateur peut aussi COMMUNIQUER
+          // (email/SMS). Ces envois sont niveau « obligatoire » → interceptés par
+          // le confirmGate (proposés, jamais envoyés sans le « oui » de l'utilisateur).
+          allowEmail: true,
+          allowSms: canSendSms(),
           // Filet dur : au plus 3 suppressions/écrasements par passage de chat.
           // Un « supprime tous mes clients » demande d'abord confirmation (règle
           // ci-dessus) ; si le modèle passe outre, il est stoppé net à 3 fiches.
