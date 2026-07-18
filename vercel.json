@@ -7,7 +7,8 @@
   ],
   "git": {
     "deploymentEnabled": {
-      "agent/e2e-vertical-slice": false
+      "agent/e2e-vertical-slice": false,
+      "release/agent-v1": false
     }
   }
 }

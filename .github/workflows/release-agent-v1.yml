@@ -1,0 +1,83 @@
+# Release candidate — Agent V1. Branche release/agent-v1 UNIQUEMENT.
+# Aucun secret de production, aucun déploiement (vercel.json désactive la branche).
+name: release-agent-v1
+
+on:
+  push:
+    branches:
+      - release/agent-v1
+
+permissions:
+  contents: read
+
+jobs:
+  # ── 1) Déterministe : units + TypeScript + E2E (base en mémoire) + build ──────
+  checks:
+    name: Units + TypeScript + E2E déterministe + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ressources
+        run: |
+          echo "nproc: $(nproc)"; free -h || true; df -h / || true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci
+      - name: Tests unitaires
+        run: node --test --experimental-strip-types lib/*.test.ts
+      - name: TypeScript
+        run: npx tsc --noEmit --incremental false
+      - name: E2E déterministe (orchestration réelle · base en mémoire)
+        run: E2E_ROOT="$PWD" node --test --experimental-strip-types --import ./e2e/register.mjs e2e/vertical-slice.e2e.mjs
+      - name: Build Next.js
+        run: npx next build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+
+  # ── 2) Réel : PostgreSQL + Auth + PostgREST + RLS (Supabase local éphémère) ───
+  postgres-e2e:
+    name: E2E PostgreSQL / Auth / RLS (Supabase local)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Ne PAS rejouer la chaîne historique (001→067 cassée)
+        run: |
+          mkdir -p /tmp/hist-mig
+          mv supabase/migrations/*.sql /tmp/hist-mig/ 2>/dev/null || true
+          echo "migrations historiques mises de côté (baseline contractuel utilisé)"
+      - name: Démarrer Supabase local (postgres + auth + rest + kong)
+        run: supabase start -x studio,imgproxy,vector,logflare,edge-runtime
+      - name: Appliquer le baseline contractuel (schéma + RLS)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -v ON_ERROR_STOP=1 -f supabase/baselines/agent-v1-schema.sql
+      - name: Exporter l'URL + clés du stack local
+        run: |
+          # Clés LOCALES éphémères (démo), jamais de production.
+          supabase status -o env > /tmp/sb.env
+          echo "Variables exposées :"; grep -oE '^[A-Za-z_]+=' /tmp/sb.env || true
+          set -a; . /tmp/sb.env; set +a
+          URL="${API_URL:-${SUPABASE_URL:-http://127.0.0.1:54321}}"
+          ANON="${ANON_KEY:-${SUPABASE_ANON_KEY:-}}"
+          SRK="${SERVICE_ROLE_KEY:-${SUPABASE_SERVICE_ROLE_KEY:-}}"
+          if [ -z "$ANON" ] || [ -z "$SRK" ]; then
+            echo "::error::clés locales introuvables dans 'supabase status -o env'"; exit 1
+          fi
+          {
+            echo "SUPABASE_URL=$URL"
+            echo "SUPABASE_ANON_KEY=$ANON"
+            echo "SUPABASE_SERVICE_ROLE_KEY=$SRK"
+          } >> "$GITHUB_ENV"
+      - name: E2E réel (parcours vertical + RLS + isolation tenant)
+        run: E2E_ROOT="$PWD" node --test --experimental-strip-types --import ./e2e/register.mjs e2e/postgres-e2e.mjs
+      - name: Arrêter Supabase
+        if: always()
+        run: supabase stop || true
