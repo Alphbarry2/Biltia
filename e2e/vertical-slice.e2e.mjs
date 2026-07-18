@@ -20,6 +20,7 @@ process.env.ANTHROPIC_API_KEY ||= "e2e-test-key";
 import { runAgentLoop, executeConfirmedPlan, buildWorkspaceToolsSystem } from "@/lib/agent-tools";
 import { requiresConfirmation } from "@/lib/action-risk";
 import { classifyKind } from "@/lib/kind-router";
+import { budgetForComplexity } from "@/lib/mission-preflight";
 import { client } from "@/lib/llm";
 import { createFakeSupabase } from "./fake-supabase.mjs";
 
@@ -70,15 +71,23 @@ function extractResults(messages) {
 }
 
 let uid = 0;
-function makeMissionModel() {
+function makeMissionModel(opts = {}) {
+  const { skipComms = false } = opts;
   return async (params) => {
     const { messages } = params;
     const usage = { input_tokens: 12, output_tokens: 8 };
-    // ── Étape CLASSIFICATION : la demande naturelle est un ordre sur des DONNÉES →
-    //    kind = "data" (le chemin opérationnel de /api/generate).
+    // ── Étape CLASSIFICATION : demande naturelle = ordre sur des DONNÉES → kind=data,
+    //    + PRÉ-VOL : trois intentions (chantier, tâches, communication).
     const isClassify = (params.tools || []).some((t) => t.name === "classify_request") || params.tool_choice?.name === "classify_request";
     if (isClassify) {
-      return { content: [{ type: "tool_use", id: `k${++uid}`, name: "classify_request", input: { kind: "data", doc_type: "", email_to: "", email_subject: "", email_body: "", task_audience: "", targets_open_app: false, out_of_scope: false, oos_alternative: "", confidence: 0.96 } }], usage, stop_reason: "tool_use" };
+      return { content: [{ type: "tool_use", id: `k${++uid}`, name: "classify_request", input: {
+        kind: "data", doc_type: "", email_to: "", email_subject: "", email_body: "", task_audience: "", targets_open_app: false, out_of_scope: false, oos_alternative: "", confidence: 0.96,
+        goal: "Décaler le chantier et coordonner ses conséquences",
+        intents: ["update_chantier", "update_related_tasks", "prepare_communication"],
+        expected_outputs: ["chantier déplacé de 3 jours", "tâches associées déplacées", "communications équipe préparées"],
+        tool_groups: ["workspace_read", "workspace_write", "communication"],
+        complexity: "multi_step",
+      } }], usage, stop_reason: "tool_use" };
     }
     const say = (text) => ({ content: [{ type: "text", text }], usage, stop_reason: "end_turn" });
     const T = (name, input) => ({ type: "tool_use", id: `t${++uid}`, name, input });
@@ -118,7 +127,9 @@ function makeMissionModel() {
       const blocks = [
         T("workspace_update", { entity: "chantiers", id: chId, values: { date_debut: addDays(ch.date_debut, 3), date_fin_prevue: addDays(ch.date_fin_prevue, 3) } }),
         ...tasks.map((t) => T("workspace_update", { entity: "tasks", id: t.id, values: { due_date: addDays(t.due_date, 3) } })),
-        ...emps.map((e) => T("send_email", { to: [e.email], subject: "Chantier Rénovation Dupont décalé de 3 jours", body: `Bonjour ${e.prenom}, le chantier Rénovation Dupont est décalé de 3 jours. Merci d'en tenir compte.` })),
+        // skipComms : le modèle OUBLIE volontairement de prévenir l'équipe → la
+        // checklist du pré-vol doit le rattraper (relance puis compte rendu honnête).
+        ...(skipComms ? [] : emps.map((e) => T("send_email", { to: [e.email], subject: "Chantier Rénovation Dupont décalé de 3 jours", body: `Bonjour ${e.prenom}, le chantier Rénovation Dupont est décalé de 3 jours. Merci d'en tenir compte.` }))),
       ];
       return emit(blocks);
     }
@@ -132,12 +143,14 @@ const confirmGate = (tool) => requiresConfirmation(tool, { alwaysConfirm: true }
 
 // Parcours réel : message → CLASSIFICATION → boucle data (recherche → lecture →
 // proposition → …). Renvoie le kind classé + le résultat de la boucle (tour 1).
-async function runTurn1(db, mission = MISSION) {
-  client.messages.create = makeMissionModel();
+async function runTurn1(db, mission = MISSION, modelOpts = {}) {
+  client.messages.create = makeMissionModel(modelOpts);
   const classified = await classifyKind({ prompt: mission, sector: null, useLLM: true, hasExistingApp: false, history: [] });
   const loop = await runAgentLoop({
     model: "test-model", system: buildWorkspaceToolsSystem(), userMessage: mission, history: [], db, actor: ACTOR,
-    allowEmail: true, allowSms: false, maxIterations: 6, maxTokens: 1000, confirmGate,
+    allowEmail: true, allowSms: false, maxTokens: 1000, confirmGate,
+    // PRÉ-VOL réel : checklist + budget d'itérations dérivé de la complexité.
+    preflight: classified.preflight, maxIterations: budgetForComplexity(classified.preflight?.complexity),
   });
   return { kind: classified.kind, classified, loop };
 }
@@ -268,6 +281,30 @@ test("E2E-C · ambiguïté : deux chantiers Dupont → resolution ambiguous, auc
 // ══════════════════════════════════════════════════════════════════════════════
 // Scénario D — sécurité tenant (§13) : un acteur tenant B ne voit RIEN de tenant A
 // ══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
+// Scénario E — le PRÉ-VOL rattrape un volet oublié par le modèle
+// ══════════════════════════════════════════════════════════════════════════════
+test("E2E-E · pré-vol : le modèle oublie « prévenir l'équipe » → checklist le rattrape", async () => {
+  globalThis.__E2E_SENT = [];
+  globalThis.__E2E_TRANSPORT = {};
+  const sb = createFakeSupabase(baseSeed());
+
+  // Le modèle simulé n'émet PAS les emails (skipComms) : sans checklist, il
+  // conclurait avec « prévenir l'équipe » oublié.
+  const { kind, classified, loop } = await runTurn1(sb, MISSION, { skipComms: true });
+  assert.equal(kind, "data");
+  console.log("[E] budget (multi_step) :", budgetForComplexity(classified?.preflight?.complexity), "| itérations :", loop.iterations, "| proposées :", loop.proposed.length);
+
+  // Le chantier + les 3 tâches sont proposés ; AUCUN email → la communication reste
+  // pending → le compte rendu déterministe le signale (jamais « tout est prêt »).
+  assert.equal(loop.proposed.filter((p) => p.tool === "send_email").length, 0, "aucun email proposé (oubli du modèle)");
+  assert.equal(loop.proposed.filter((p) => p.tool === "workspace_update").length, 4, "chantier + 3 tâches proposés");
+  console.log("[E] finalText :", String(loop.finalText).replace(/\s+/g, " ").slice(0, 200));
+  assert.match(String(loop.finalText), /Communications préparées|communication/i);
+  assert.match(String(loop.finalText), /non encore traité|n'est pas entièrement préparée/i);
+  assert.doesNotMatch(String(loop.finalText), /tout est prêt|tout est terminé/i);
+});
+
 test("E2E-D · isolation : un acteur du tenant B ne trouve pas le chantier du tenant A", async () => {
   globalThis.__E2E_SENT = [];
   globalThis.__E2E_TRANSPORT = {};

@@ -5,6 +5,8 @@
 // La partie LLM (Haiku) vit dans kind-router.ts (serveur uniquement).
 // ─────────────────────────────────────────────────────────────────────────────
 
+import type { LightAgentPreflight } from "./mission-preflight";
+
 export type BiltiaKind = "answer" | "document" | "action" | "module" | "rule" | "data" | "email" | "calendar" | "task" | "image";
 
 export type KindMethod = "llm" | "heuristic" | "default";
@@ -38,6 +40,9 @@ export type KindResult = {
   /** Tokens consommés SI la classification a appelé le LLM (Haiku). Absent sur
    *  le chemin heuristique (gratuit). Sert au tracking de coût côté route. */
   usage?: { model: string; inputTokens: number; outputTokens: number };
+  /** PRÉ-VOL LÉGER : checklist des résultats attendus (intents/expectedOutputs/
+   *  toolGroups/complexity). Toujours présent (fallback minimal si non produit). */
+  preflight?: LightAgentPreflight;
 };
 
 function normalize(s: string): string {

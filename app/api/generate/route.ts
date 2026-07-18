@@ -43,6 +43,7 @@ import { connectorsForCapability } from "@/lib/capabilities";
 import { capabilityGate } from "@/lib/capability-gate";
 import { runAgentLoop, runAgentTool, executeConfirmedPlan, buildWorkspaceToolsSystem } from "@/lib/agent-tools";
 import { getCompanyProfile, companyProfileToDocumentBlock } from "@/lib/company-profile";
+import { budgetForComplexity, type LightAgentPreflight } from "@/lib/mission-preflight";
 import { tauxTvaPour } from "@/lib/tva";
 import { answerNeedsWorkspace, WSB_TOOL_ADDENDUM } from "@/lib/answer-tools";
 import { requiresConfirmation } from "@/lib/action-risk";
@@ -1365,6 +1366,7 @@ export async function POST(req: Request) {
     let taskDraft: { audience: string; subject: string; body: string } | undefined;
     let outOfScope = false;
     let oosAlternative = "";
+    let missionPreflight: LightAgentPreflight | undefined;
     if (isAutoFix) {
       // Auto-fix : on itère toujours sur le livrable existant, pas de reclasse.
       kind = providedKind ?? "module";
@@ -1372,6 +1374,7 @@ export async function POST(req: Request) {
     } else {
       const k = await classifyKind({ prompt, sector, hasExistingApp: isModification, history });
       logAuxUsage(k.usage, "classify_kind");
+      missionPreflight = k.preflight; // PRÉ-VOL : checklist des résultats attendus
       emailDraft = k.email;
       taskDraft = k.task;
       outOfScope = k.outOfScope === true;
@@ -2116,7 +2119,11 @@ Si on te demande un AVENANT (« prépare un avenant de X € pour les travaux su
           history,
           db: supabase,
           actor: { tenantId, userId: user.id, label: "Assistant", fromEmail: user.email ?? null },
-          maxIterations: 6,
+          // PRÉ-VOL : checklist des résultats attendus (la boucle ne conclut pas en
+          // oubliant un volet) + budget d'itérations selon la complexité (calculé
+          // côté code, jamais choisi par le LLM ; plafond dur).
+          preflight: missionPreflight,
+          maxIterations: budgetForComplexity(missionPreflight?.complexity),
           // WS-A : le triptyque en UN tour — l'opérateur peut aussi COMMUNIQUER
           // (email/SMS). Ces envois sont niveau « obligatoire » → interceptés par
           // le confirmGate (proposés, jamais envoyés sans le « oui » de l'utilisateur).

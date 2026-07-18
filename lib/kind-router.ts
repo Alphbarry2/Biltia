@@ -31,6 +31,7 @@ import {
   looksLikeCalendar,
 } from "./kind-heuristic";
 import type { BiltiaKind, KindResult } from "./kind-heuristic";
+import { normalizePreflight, fallbackPreflight } from "./mission-preflight";
 
 export { classifyKindHeuristic, looksLikePureQuestion, mentionsExternalStorage };
 export type { BiltiaKind, KindMethod, KindResult } from "./kind-heuristic";
@@ -138,6 +139,14 @@ L'ALTERNATIVE est vraie et elle est bonne, sers-t'en : les devis et les factures
 "doc_type" : uniquement si kind="document" — un de : ${DOC_TYPES.join(", ")} (ou un slug court si aucun ne colle). Vide sinon.
 "confidence" : 0 à 1.
 
+PRÉ-VOL (à remplir TOUJOURS) — la « checklist » de la mission :
+⚠ LE PRÉ-VOL NE CHANGE PAS "kind". Choisis d'abord "kind" selon les règles ci-dessus, PUIS décris les volets dans "intents". Une demande qui AGIT sur des fiches (« décale le chantier ») ET prévient quelqu'un reste kind="data" : l'envoi est un intent SECONDAIRE (prepare_communication), PAS kind="task". kind="task" est réservé à un envoi PUR à un groupe, sans écriture de fiche.
+- "goal" : le vrai objectif en une phrase.
+- "intents" : TOUTES les intentions, dans l'ordre, EN N'UTILISANT QUE ces valeurs exactes : retrieve, update_chantier, update_related_tasks, create_object, prepare_communication, send_communication, generate_document, create_application, create_automation, monitor, other. Une demande peut en contenir PLUSIEURS. Ex : « décale le chantier Dupont de 3 jours, déplace les tâches associées ET préviens l'équipe » → ["update_chantier","update_related_tasks","prepare_communication"]. N'OUBLIE aucun volet.
+- "expected_outputs" : un résultat concret par intention.
+- "tool_groups" : parmi workspace_read, workspace_write, company_profile, communication, documents, applications, automation.
+- "complexity" : simple (1 action) | multi_step (2-3 volets) | complex (4+).
+
 Réponds UNIQUEMENT en appelant l'outil classify_request.`;
 }
 
@@ -194,8 +203,38 @@ const CLASSIFY_TOOL = {
         type: "number",
         description: "Confiance de 0 à 1.",
       },
+      goal: {
+        type: "string",
+        description: "PRÉ-VOL : le VRAI objectif en une phrase (ex : « Décaler un chantier et coordonner ses conséquences »).",
+      },
+      intents: {
+        type: "array",
+        items: {
+          type: "string",
+          enum: ["retrieve", "update_chantier", "update_related_tasks", "create_object", "prepare_communication", "send_communication", "generate_document", "create_application", "create_automation", "monitor", "other"],
+        },
+        description: "PRÉ-VOL : TOUTES les intentions de la demande, dans l'ordre. Une demande peut en avoir PLUSIEURS (« décale le chantier ET déplace les tâches ET préviens l'équipe » = update_chantier, update_related_tasks, prepare_communication). N'en oublie aucune.",
+      },
+      expected_outputs: {
+        type: "array",
+        items: { type: "string" },
+        description: "PRÉ-VOL : la liste des RÉSULTATS concrets attendus, un par intention (ex : « chantier déplacé de 3 jours », « tâches associées déplacées », « messages équipe préparés »).",
+      },
+      tool_groups: {
+        type: "array",
+        items: {
+          type: "string",
+          enum: ["workspace_read", "workspace_write", "company_profile", "communication", "documents", "applications", "automation"],
+        },
+        description: "PRÉ-VOL : les groupes d'outils UTILES (pour éviter l'exploration hors sujet). Ex : lire+écrire des fiches + prévenir = workspace_read, workspace_write, communication.",
+      },
+      complexity: {
+        type: "string",
+        enum: ["simple", "multi_step", "complex"],
+        description: "PRÉ-VOL : simple (une seule action), multi_step (2-3 volets), complex (4+ volets / dépendances).",
+      },
     },
-    required: ["kind", "doc_type", "email_to", "email_subject", "email_body", "task_audience", "targets_open_app", "out_of_scope", "oos_alternative", "confidence"],
+    required: ["kind", "doc_type", "email_to", "email_subject", "email_body", "task_audience", "targets_open_app", "out_of_scope", "oos_alternative", "confidence", "goal", "intents", "expected_outputs", "tool_groups", "complexity"],
     additionalProperties: false,
   },
 } as Anthropic.Tool;
@@ -257,6 +296,11 @@ async function classifyWithLLM(
     out_of_scope?: boolean;
     oos_alternative?: string;
     confidence?: number;
+    goal?: string;
+    intents?: unknown;
+    expected_outputs?: unknown;
+    tool_groups?: unknown;
+    complexity?: string;
   };
   // Le garde et l'énumération de l'outil doivent grandir ENSEMBLE. Une chaîne de
   // `!==` recopiée à la main a déjà, dans ce fichier, ignoré en silence une
@@ -289,6 +333,13 @@ async function classifyWithLLM(
           body: (input.email_body ?? "").trim(),
         }
       : undefined;
+  // PRÉ-VOL : normalisé (validé + fallback si absent/invalide) à partir de la MÊME
+  // sortie de classification — aucun appel LLM supplémentaire.
+  const preflight = normalizePreflight(
+    { goal: input.goal, intents: input.intents, expected_outputs: input.expected_outputs, tool_groups: input.tool_groups, complexity: input.complexity, confidence: input.confidence },
+    kind,
+    prompt
+  );
   return {
     kind,
     docType,
@@ -302,6 +353,7 @@ async function classifyWithLLM(
     method: "llm",
     confidence: typeof input.confidence === "number" ? input.confidence : 0.7,
     reasoning: "classification Haiku",
+    preflight,
     usage: {
       model: KIND_MODEL,
       inputTokens: message.usage.input_tokens,
@@ -335,6 +387,9 @@ export async function classifyKind(opts: {
   //     production (ancien « garde-fou » : désormais on n'appelle plus le LLM).
   //   • signaux forts (confiance ≥ 0.8 = plusieurs mots-clés concordants).
   const heuristic = classifyKindHeuristic(prompt, hasExistingApp);
+  // PRÉ-VOL : l'heuristique n'en produit pas → fallback minimal sûr (§9). La voie
+  // LLM, elle, renseigne un pré-vol riche (intents/expectedOutputs/…).
+  if (!heuristic.preflight) heuristic.preflight = fallbackPreflight(heuristic.kind, prompt);
   // On ne court-circuite le modèle QUE pour une pure question d'information : là
   // l'heuristique fait autorité (et le garde-fou « une question ne devient jamais
   // une production » l'exige de toute façon). Pour TOUT le reste — création,

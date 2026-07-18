@@ -55,6 +55,14 @@ import { sendOutboundEmail } from "./outbound-email";
 import { sendSms } from "./outbound-sms";
 import { toMessages, type ChatTurn } from "./chat-thread";
 import { can } from "./permissions";
+import {
+  checklistPromptBlock,
+  buildChecklistReport,
+  evaluateOutcomes,
+  pendingOutcomes,
+  appToolsAllowed,
+  type LightAgentPreflight,
+} from "./mission-preflight";
 
 // Client base minimal (session RLS ou service_role) — motif lib/activity.ts.
 type MinimalClient = {
@@ -817,8 +825,15 @@ export async function runAgentLoop(opts: {
    * de correction sans fin).
    */
   maxCorrectionAttempts?: number;
+  /**
+   * PRÉ-VOL LÉGER (checklist) : cadre la boucle avec les résultats attendus. La
+   * boucle ne conclut pas tant qu'un volet reste `pending`, et n'expose pas les
+   * outils hors sujet (ex. app_collections pour une mission chantier). Optionnel :
+   * absent → comportement historique inchangé.
+   */
+  preflight?: LightAgentPreflight;
 }): Promise<AgentLoopResult> {
-  const { model, system, userMessage, history, db, actor, finishTool, allowEmail = false, allowSms = false, allowDelete = true, readOnly = false, confirmGate, maxIterations = 6, maxTokens = 1500, maxDestructiveWrites = Infinity, verifyWrites = true, maxCorrectionAttempts = 1 } = opts;
+  const { model, system, userMessage, history, db, actor, finishTool, allowEmail = false, allowSms = false, allowDelete = true, readOnly = false, confirmGate, maxIterations = 6, maxTokens = 1500, maxDestructiveWrites = Infinity, verifyWrites = true, maxCorrectionAttempts = 1, preflight } = opts;
 
   // WS-B : en lecture seule, on n'expose QUE list/get (aucune écriture ni envoi).
   const workspaceTools = readOnly
@@ -829,12 +844,18 @@ export async function runAgentLoop(opts: {
   // company_profile_get : lecture seule, TOUJOURS disponible (chat data, réponses
   // opérationnelles en lecture seule, exécuteur d'agents) — l'agent n'est plus
   // aveugle à l'identité de sa propre entreprise.
+  // PRÉ-VOL : hors mission « applications », on n'expose PAS les outils de données
+  // d'app (évite le détour app_collections). Fallback permissif si pré-vol absent.
+  const appTools = preflight && !appToolsAllowed(preflight) ? [] : APP_DATA_TOOLS;
   const tools: Anthropic.Tool[] = [
     ...workspaceTools,
-    ...APP_DATA_TOOLS,
+    ...appTools,
     COMPANY_PROFILE_TOOL as unknown as Anthropic.Tool,
     WORKSPACE_SEARCH_TOOL as unknown as Anthropic.Tool, // lecture seule, toujours dispo
   ];
+  // PRÉ-VOL : la checklist des résultats attendus est ajoutée au prompt système.
+  const checklistBlock = preflight ? checklistPromptBlock(preflight) : "";
+  const effectiveSystem = checklistBlock ? `${system}\n\n${checklistBlock}` : system;
   if (!readOnly && allowEmail) tools.push(SEND_EMAIL_TOOL);
   if (!readOnly && allowSms) tools.push(SEND_SMS_TOOL);
   if (finishTool) tools.push(finishTool);
@@ -855,9 +876,11 @@ export async function runAgentLoop(opts: {
   let inputTokens = 0;
   let outputTokens = 0;
   let destructiveWrites = 0; // suppressions + mises à jour déjà effectuées ce passage
+  let missionNudges = 0; // PRÉ-VOL : relances « il reste un volet à traiter » (bornées)
+  const MAX_NUDGES = 2;
 
   for (let i = 0; i < maxIterations; i++) {
-    const msg = await client.messages.create({ model, max_tokens: maxTokens, system, tools, messages });
+    const msg = await client.messages.create({ model, max_tokens: maxTokens, system: effectiveSystem, tools, messages });
     inputTokens += msg.usage.input_tokens;
     outputTokens += msg.usage.output_tokens;
 
@@ -870,10 +893,35 @@ export async function runAgentLoop(opts: {
         .map((b) => b.text)
         .join("\n")
         .trim();
+
+      // PRÉ-VOL : le modèle ne peut pas conclure en OUBLIANT un volet. On évalue la
+      // checklist sur les actions RÉELLES (proposées + vérifiées) ; s'il reste un
+      // résultat `pending` et qu'il reste du budget, on relance (borné). Sinon, le
+      // compte rendu déterministe de la checklist PASSE DEVANT le texte du modèle.
+      const outcomes = preflight
+        ? evaluateOutcomes(preflight, {
+            proposed: proposed.map((p) => ({ tool: p.tool, entity: typeof p.input?.entity === "string" ? (p.input.entity as string) : undefined })),
+            verifications: verifications.map((v) => ({ toolName: v.toolName, entity: v.entity, status: v.status })),
+          })
+        : [];
+      const pending = pendingOutcomes(outcomes);
+      if (preflight && pending.length && i < maxIterations - 1 && missionNudges < MAX_NUDGES) {
+        missionNudges++;
+        messages.push({ role: "assistant", content: msg.content });
+        messages.push({
+          role: "user",
+          content: [{ type: "text", text: `RAPPEL — la mission n'est PAS terminée. Il reste à traiter : ${pending.map((o) => o.label).join(" ; ")}. Traite CHAQUE point (agis, propose à confirmation, ou explique pourquoi c'est impossible) AVANT de conclure.` }],
+        });
+        continue;
+      }
+
       // GARANTIE dure et PARTAGÉE (composeVerifiedText) : dès qu'une écriture n'est
-      // pas vérifiée, l'état RÉEL (déterministe) passe DEVANT le texte du modèle →
-      // impossible d'annoncer « c'est fait » à tort.
-      const finalText = composeVerifiedText(modelText, verifications);
+      // pas vérifiée, l'état RÉEL (déterministe) passe DEVANT le texte du modèle.
+      let finalText = composeVerifiedText(modelText, verifications);
+      if (preflight && pending.length) {
+        const report = buildChecklistReport(outcomes);
+        finalText = finalText ? `${report}\n\n${finalText}` : report;
+      }
       return { finalText, finishInput: null, traces, steps, proposed, verifications, verificationEvents, verifiedReport: buildVerifiedReport(verifications), allVerified: allVerifiedFn(verifications), usage: { inputTokens, outputTokens }, iterations: i + 1 };
     }
 
