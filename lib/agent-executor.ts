@@ -30,6 +30,7 @@ import { getWorkspaceContextFor, buildWorkspaceBlock } from "./workspace-context
 import { persistRunSteps, type RunStepDraft } from "./agent-observability";
 import { neutralizeMarkers, fenceUntrusted } from "./untrusted";
 import { runAgentLoop, buildWorkspaceToolsSystem, type ToolTrace } from "./agent-tools";
+import { composeVerifiedText } from "./action-verification";
 import { getWatcher, buildFireKey, isSupplierRelanceWatcher, type WatcherDef, type WatcherMatch } from "./agent-watchers";
 import { normalizeRule, type AgentRuleV2 } from "./agent-model";
 import { consumeOutbox } from "./agent-event-consumer";
@@ -168,6 +169,10 @@ async function compose(opts: {
   traces: ToolTrace[];
   steps: RunStepDraft[];
   usage: { inputTokens: number; outputTokens: number };
+  /** VÉRIF : rapport déterministe des écritures de ce passage (vide si aucune). */
+  verifiedReport: string;
+  /** VÉRIF : toutes les écritures vérifiées ? (true si aucune écriture). */
+  allVerified: boolean;
 } | null> {
   const hasKey =
     hasAnyLlmKey();
@@ -235,6 +240,8 @@ Quand la mission du passage est accomplie, TERMINE OBLIGATOIREMENT en appelant l
       traces: loop.traces,
       steps: loop.steps,
       usage: loop.usage,
+      verifiedReport: loop.verifiedReport,
+      allVerified: loop.allVerified,
     };
   } catch {
     return null;
@@ -670,7 +677,11 @@ Quand c'est fait, TERMINE en appelant l'outil compose : subject = titre court, b
     const summary =
       composed || (loop.traces.length ? loop.traces.map((t) => t.description).join(" · ") : "");
     if (!summary && loop.traces.length === 0) return null;
-    return { summary: summary.slice(0, 800), traces: loop.traces, steps: loop.steps, usage: loop.usage };
+    // VÉRIF : le texte libre du modèle ne peut ni remplacer ni contredire l'état
+    // RÉEL des écritures. Un mismatch met le rapport déterministe EN TÊTE du résumé
+    // — qui alimente à la fois le résumé persisté ET la notification au patron.
+    const honest = composeVerifiedText(summary, loop.verifications) ?? summary;
+    return { summary: honest.slice(0, 800), traces: loop.traces, steps: loop.steps, usage: loop.usage };
   } catch {
     return null;
   }
@@ -2377,7 +2388,10 @@ export async function executeRule(
       const who = action.recipients.map((r) => r.name).join(", ");
       const channel = sent.via === "gmail" ? "depuis votre Gmail" : "via Biltia";
       const extra = composed.traces.length ? ` ${composed.traces.length} action(s) workspace.` : "";
-      const summary = `Email « ${composed.subject} » envoyé à ${who} ${channel}.${extra}`;
+      const base = `Email « ${composed.subject} » envoyé à ${who} ${channel}.${extra}`;
+      // VÉRIF : si une écriture du passage n'est pas vérifiée, l'état RÉEL précède
+      // le résumé — pour le résumé PERSISTÉ (finishRun) ET la notification (notifyOwner).
+      const summary = composed.allVerified ? base : `${composed.verifiedReport}\n${base}`;
       await finishRun("success", summary, {
         subject: composed.subject,
         body: composed.body,
@@ -2401,19 +2415,25 @@ export async function executeRule(
     // notify / report → notification push + journal (le corps complet vit dans
     // le journal, consultable dans /agents).
     const extra = composed.traces.length ? ` ${composed.traces.length} action(s) workspace.` : "";
-    const summary =
+    const base =
       action.type === "report"
         ? `Contrôle effectué : ${composed.subject}${extra}`
         : action.type === "act"
           ? `Action effectuée : ${composed.subject}${extra}`
           : `Rappel envoyé : ${composed.subject}${extra}`;
+    // VÉRIF : une écriture non vérifiée n'est JAMAIS annoncée « effectuée ». Le
+    // rapport déterministe précède le résumé PERSISTÉ ET la notification.
+    const summary = composed.allVerified ? base : `${composed.verifiedReport}\n${base}`;
+    const notifyBody = composed.allVerified
+      ? composed.body.slice(0, 240)
+      : `${composed.verifiedReport}\n\n${composed.body}`.slice(0, 240);
     await finishRun("success", summary, {
       subject: composed.subject,
       body: composed.body,
       workspace_actions: composed.traces,
     });
     await reschedule();
-    await notifyOwner(composed.subject, composed.body.slice(0, 240));
+    await notifyOwner(composed.subject, notifyBody);
     await logActivity(admin, {
       tenantId: rule.tenant_id,
       userId: rule.created_by ?? undefined,

@@ -41,7 +41,8 @@ import { sendPushToUser } from "@/lib/push";
 import { createAgentRule } from "@/lib/agent-rules";
 import { connectorsForCapability } from "@/lib/capabilities";
 import { capabilityGate } from "@/lib/capability-gate";
-import { runAgentLoop, runAgentTool, buildWorkspaceToolsSystem, type ToolTrace } from "@/lib/agent-tools";
+import { runAgentLoop, runAgentTool, verifyExecutedTool, buildWorkspaceToolsSystem, type ToolTrace } from "@/lib/agent-tools";
+import { isVerifiableWrite, buildVerifiedReport, allVerified as allVerifiedFn, type ActionVerification } from "@/lib/action-verification";
 import { answerNeedsWorkspace, WSB_TOOL_ADDENDUM } from "@/lib/answer-tools";
 import { requiresConfirmation } from "@/lib/action-risk";
 import { connectionSnapshot, buildConnectionsBlock } from "@/lib/connection-snapshot";
@@ -1327,6 +1328,10 @@ export async function POST(req: Request) {
       const traces: ToolTrace[] = [];
       const actor = { tenantId, userId: user.id, label: "Assistant", fromEmail: user.email ?? null };
       let denied = 0;
+      // VÉRIFICATION POST-ACTION — MÊME chemin que runAgentLoop (verifyExecutedTool) :
+      // aucune implémentation divergente. On relit l'état SERVEUR final (tenant forcé)
+      // après chaque écriture réellement exécutée.
+      const verifications: ActionVerification[] = [];
       for (const action of plan) {
         const tool = typeof action?.tool === "string" ? action.tool : "";
         const input = action?.input && typeof action.input === "object" ? (action.input as Record<string, unknown>) : {};
@@ -1336,19 +1341,28 @@ export async function POST(req: Request) {
           tool === "workspace_create" || tool === "workspace_update" || tool === "workspace_transform" || tool === "send_email" || tool === "send_sms";
         if (isDelete && !can(role, "data.delete")) { denied++; continue; }
         if (isWrite && !can(role, "data.write")) { denied++; continue; }
-        await runAgentTool(supabase, actor, tool, input, traces);
+        // Exécution RÉELLE (tenant forcé + colonnes whitelistées côté serveur).
+        const result = await runAgentTool(supabase, actor, tool, input, traces);
+        if (isVerifiableWrite(tool) && (result as { ok?: boolean }).ok) {
+          verifications.push(await verifyExecutedTool(supabase, actor, tool, input, result));
+        }
       }
       const done = traces.length;
       if (done === 0 && CONFIRM_HOLD > 0) {
         const admin = createAdminClient();
         if (admin) { try { await admin.rpc("refund_credits", { p_user_id: user.id, p_amount: CONFIRM_HOLD }); } catch { /* best-effort */ } }
       }
+      // Compte rendu DÉTERMINISTE (✓ vérifié / ⚠ écart / ✕ échec / • envoi accepté) —
+      // JAMAIS un « c'est fait » global tant qu'une action n'est pas vérifiée.
+      const report = buildVerifiedReport(verifications);
       const parts: string[] = [];
-      if (done > 0) parts.push(pick(locale, `✓ C'est fait (${done} opération${done > 1 ? "s" : ""}).`, `✓ Done (${done} operation${done > 1 ? "s" : ""}).`));
+      if (report) parts.push(report);
+      else if (done > 0) parts.push(pick(locale, `✓ C'est fait (${done} opération${done > 1 ? "s" : ""}).`, `✓ Done (${done} operation${done > 1 ? "s" : ""}).`));
       if (denied > 0) parts.push(pick(locale, "Certaines actions demandaient des droits que tu n'as pas.", "Some actions required permissions you don't have."));
       return Response.json({
         kind: "data",
-        message: parts.join(" ") || pick(locale, "Rien n'a été exécuté.", "Nothing was executed."),
+        message: parts.join("\n\n") || pick(locale, "Rien n'a été exécuté.", "Nothing was executed."),
+        verified: allVerifiedFn(verifications),
         creditsUsed: done > 0 ? CONFIRM_HOLD : 0,
       });
     }
@@ -2203,9 +2217,14 @@ Si on te demande un AVENANT (« prépare un avenant de X € pour les travaux su
           });
         }
 
+        // `loop.finalText` est DÉJÀ le texte honnête (composeVerifiedText : le
+        // rapport déterministe passe en tête dès qu'une écriture n'est pas
+        // vérifiée). Le repli `verifiedReport` est une ceinture-bretelles : jamais
+        // un « ✓ Opération effectuée » global si tout n'est pas vérifié.
         return Response.json({
           kind: "data",
-          message: loop.finalText || pick(locale, "✓ Opération effectuée.", "✓ Done."),
+          message: loop.finalText || loop.verifiedReport || pick(locale, "✓ Opération effectuée.", "✓ Done."),
+          verified: loop.allVerified,
           creditsUsed: DATA_HOLD,
         });
       } catch (err) {

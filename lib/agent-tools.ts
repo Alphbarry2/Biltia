@@ -26,10 +26,27 @@ import {
   avenantFromDevis,
   isTransformAction,
   TRANSFORM_ACTIONS,
+  TRANSFORM_TARGET,
   TRANSFORM_LABEL,
 } from "./workspace-transforms";
+import { computeDevisLines, computeDevisTotals } from "./devis-amounts";
 import { logActivity } from "./activity";
 import { draftToolStep, draftBlockedStep, type RunStepDraft } from "./agent-observability";
+import {
+  verifyAction,
+  buildVerifiedReport,
+  composeVerifiedText,
+  allVerified as allVerifiedFn,
+  summarizeVerificationForModel,
+  isVerifiableWrite,
+  targetKey,
+  resultTargetKey,
+  isCorrectionBudgetExhausted,
+  statusToEvent,
+  type ActionVerification,
+  type VerificationEvent,
+  type VerificationStatus,
+} from "./action-verification";
 import { listAppCollections, listAppRecords } from "./app-records";
 import { sendOutboundEmail } from "./outbound-email";
 import { sendSms } from "./outbound-sms";
@@ -588,9 +605,57 @@ export type AgentLoopResult = {
   steps: RunStepDraft[];
   /** WS-C : actions interceptées par le confirmGate, à exécuter après confirmation. */
   proposed: ProposedAction[];
+  /** VÉRIF post-action : une entrée par écriture vérifiée (create/update/delete/transform/avenant/envoi). */
+  verifications: ActionVerification[];
+  /** Journal d'événements (tool/vérif) EN MÉMOIRE — non persisté (pas de migration ici). */
+  verificationEvents: VerificationEvent[];
+  /** Compte rendu DÉTERMINISTE construit à partir des vérifications (✓/⚠/✕/•). */
+  verifiedReport: string;
+  /** Toutes les écritures vérifiables sont-elles « verified » ? (true si aucune écriture). */
+  allVerified: boolean;
   usage: { inputTokens: number; outputTokens: number };
   iterations: number;
 };
+
+/**
+ * Résout, pour un outil d'écriture, la table à relire et les colonnes comparables
+ * (via ENTITIES / TRANSFORM_TARGET). SOURCE UNIQUE : `runAgentLoop` ET le chemin de
+ * confirmation (route confirmPlan) l'utilisent — aucune implémentation divergente.
+ */
+export function resolveVerifySchema(
+  toolName: string,
+  input: Record<string, unknown>
+): { table?: string; writable?: string[]; targetTable?: string } {
+  if (toolName === "workspace_create" || toolName === "workspace_update" || toolName === "workspace_delete") {
+    const e = typeof input.entity === "string" ? input.entity : "";
+    const def = ENTITIES[e];
+    return def ? { table: def.table, writable: def.writable } : {};
+  }
+  if (toolName === "workspace_transform") {
+    const a = typeof input.action === "string" ? input.action : "";
+    return { targetTable: (TRANSFORM_TARGET as Record<string, string>)[a] };
+  }
+  return {};
+}
+
+/** Dépendances de calcul injectées à la vérification (montants serveur, jamais LLM). */
+const VERIFY_DEPS = { computeLines: computeDevisLines, computeTotals: computeDevisTotals };
+
+/**
+ * Vérifie UNE action déjà exécutée (schéma résolu + montants serveur injectés).
+ * Utilisé par le chemin de confirmation (confirmPlan) pour NE PAS diverger de la
+ * vérification de `runAgentLoop`.
+ */
+export async function verifyExecutedTool(
+  db: MinimalClient,
+  actor: { tenantId: string },
+  toolName: string,
+  input: Record<string, unknown>,
+  result: Record<string, unknown>
+): Promise<ActionVerification> {
+  const schema = resolveVerifySchema(toolName, input);
+  return verifyAction(db, actor, { toolName, input, result, ...schema }, VERIFY_DEPS);
+}
 
 /**
  * Boucle Claude + outils workspace. S'arrête quand le modèle répond en texte
@@ -645,8 +710,23 @@ export async function runAgentLoop(opts: {
    * le fixe bas pour qu'un « supprime tous mes clients » ne parte jamais en vrille.
    */
   maxDestructiveWrites?: number;
+  /**
+   * VÉRIFICATION POST-ACTION (défaut true) : après chaque écriture réussie, relit
+   * la source et compare déterministiquement l'état obtenu à l'intention. Le
+   * résultat est renvoyé au modèle (il ne peut PAS présenter un mismatch comme
+   * fait) et alimente `verifiedReport`. Passer false ne l'expose plus (tests /
+   * chemins purement lecture).
+   */
+  verifyWrites?: boolean;
+  /**
+   * Nombre MAX de tentatives CORRECTIVES par fiche et par passage (défaut 1) :
+   * l'écriture d'origine + au plus 1 correction. Au-delà, si la fiche reste non
+   * conforme, une nouvelle écriture sur la MÊME cible est bloquée (pas de boucle
+   * de correction sans fin).
+   */
+  maxCorrectionAttempts?: number;
 }): Promise<AgentLoopResult> {
-  const { model, system, userMessage, history, db, actor, finishTool, allowEmail = false, allowSms = false, allowDelete = true, readOnly = false, confirmGate, maxIterations = 6, maxTokens = 1500, maxDestructiveWrites = Infinity } = opts;
+  const { model, system, userMessage, history, db, actor, finishTool, allowEmail = false, allowSms = false, allowDelete = true, readOnly = false, confirmGate, maxIterations = 6, maxTokens = 1500, maxDestructiveWrites = Infinity, verifyWrites = true, maxCorrectionAttempts = 1 } = opts;
 
   // WS-B : en lecture seule, on n'expose QUE list/get (aucune écriture ni envoi).
   const workspaceTools = readOnly
@@ -668,6 +748,10 @@ export async function runAgentLoop(opts: {
   const traces: ToolTrace[] = [];
   const steps: RunStepDraft[] = []; // WS-E : trace rédigée de CHAQUE appel d'outil (lecture incluse)
   const proposed: ProposedAction[] = []; // WS-C : actions sensibles en attente de confirmation
+  const verifications: ActionVerification[] = []; // VÉRIF : une entrée par écriture vérifiée
+  const verificationEvents: VerificationEvent[] = []; // journal en mémoire (non persisté)
+  // Tentatives par cible (clé entité:id ou transform/avenant) → borne les corrections.
+  const attemptsByTarget = new Map<string, { attempts: number; lastStatus: VerificationStatus }>();
   let inputTokens = 0;
   let outputTokens = 0;
   let destructiveWrites = 0; // suppressions + mises à jour déjà effectuées ce passage
@@ -681,12 +765,16 @@ export async function runAgentLoop(opts: {
 
     if (toolBlocks.length === 0) {
       // Réponse texte = fin de mission (chat).
-      const text = msg.content
+      const modelText = msg.content
         .filter((b): b is Anthropic.TextBlock => b.type === "text")
         .map((b) => b.text)
         .join("\n")
         .trim();
-      return { finalText: text || null, finishInput: null, traces, steps, proposed, usage: { inputTokens, outputTokens }, iterations: i + 1 };
+      // GARANTIE dure et PARTAGÉE (composeVerifiedText) : dès qu'une écriture n'est
+      // pas vérifiée, l'état RÉEL (déterministe) passe DEVANT le texte du modèle →
+      // impossible d'annoncer « c'est fait » à tort.
+      const finalText = composeVerifiedText(modelText, verifications);
+      return { finalText, finishInput: null, traces, steps, proposed, verifications, verificationEvents, verifiedReport: buildVerifiedReport(verifications), allVerified: allVerifiedFn(verifications), usage: { inputTokens, outputTokens }, iterations: i + 1 };
     }
 
     // Outil final (compose) → mission terminée avec livrable structuré.
@@ -698,6 +786,10 @@ export async function runAgentLoop(opts: {
         traces,
         steps,
         proposed,
+        verifications,
+        verificationEvents,
+        verifiedReport: buildVerifiedReport(verifications),
+        allVerified: allVerifiedFn(verifications),
         usage: { inputTokens, outputTokens },
         iterations: i + 1,
       };
@@ -722,6 +814,28 @@ export async function runAgentLoop(opts: {
         });
         continue;
       }
+      const input = block.input as Record<string, unknown>;
+      verificationEvents.push({ type: "tool_started", toolName: block.name });
+      // VÉRIF : budget de correction épuisé sur CETTE cible (l'écriture d'origine
+      // + 1 correction ont laissé la fiche NON conforme) → on bloque une écriture
+      // de plus. Pas de boucle de correction sans fin.
+      const preKey = verifyWrites ? targetKey(block.name, input) : null;
+      if (preKey) {
+        if (isCorrectionBudgetExhausted(attemptsByTarget.get(preKey), maxCorrectionAttempts)) {
+          steps.push(draftBlockedStep(block.name, input));
+          verificationEvents.push({ type: "verification_blocked", toolName: block.name, target: preKey });
+          results.push({
+            type: "tool_result",
+            tool_use_id: block.id,
+            is_error: true,
+            content: JSON.stringify({
+              error:
+                "Limite de correction atteinte sur cette fiche : une tentative corrective a déjà été effectuée et le résultat reste NON conforme. STOP — ne retente pas cette écriture. Explique honnêtement l'écart à l'utilisateur.",
+            }),
+          });
+          continue;
+        }
+      }
       // FILET DE SÛRETÉ : au-delà du plafond d'écritures destructrices (opt-in),
       // on n'exécute PAS l'opération et on demande au modèle de s'arrêter pour
       // confirmation. Protège contre un « supprime/passe TOUTES les fiches »
@@ -739,13 +853,36 @@ export async function runAgentLoop(opts: {
         });
         continue;
       }
-      const result = await runAgentTool(db, actor, block.name, block.input as Record<string, unknown>, traces);
-      steps.push(draftToolStep(block.name, block.input as Record<string, unknown>, result));
+      const result = await runAgentTool(db, actor, block.name, input, traces);
+      steps.push(draftToolStep(block.name, input, result));
       if (isDestructive && (result as { ok?: boolean }).ok) destructiveWrites++;
+
+      // ── VÉRIFICATION POST-ACTION ──────────────────────────────────────────
+      // Après une écriture RÉUSSIE, on RELIT la source et on compare. Le verdict
+      // est renvoyé AU MODÈLE (dans le tool_result) : un mismatch/échec lui
+      // INTERDIT de présenter l'action comme faite. Un envoi → « non vérifiable »
+      // (accepté ≠ livré). Les lectures/erreurs ne déclenchent aucune vérif.
+      let payload: Record<string, unknown> = result;
+      if (verifyWrites && isVerifiableWrite(block.name) && (result as { ok?: boolean }).ok) {
+        verificationEvents.push({ type: "tool_succeeded", toolName: block.name });
+        verificationEvents.push({ type: "verification_started", toolName: block.name });
+        const schema = resolveVerifySchema(block.name, input);
+        const v = await verifyAction(db, actor, { toolName: block.name, input, result, ...schema }, VERIFY_DEPS);
+        verifications.push(v);
+        verificationEvents.push({ type: statusToEvent(v.status), toolName: block.name, target: resultTargetKey(v) ?? preKey ?? undefined });
+        // Comptabilité des corrections (les envois « non vérifiables » ne comptent pas).
+        const postKey = resultTargetKey(v) ?? preKey;
+        if (postKey && v.status !== "not_verifiable") {
+          const prev = attemptsByTarget.get(postKey);
+          attemptsByTarget.set(postKey, { attempts: (prev?.attempts ?? 0) + 1, lastStatus: v.status });
+        }
+        payload = { ...result, verification: summarizeVerificationForModel(v) };
+      }
+
       results.push({
         type: "tool_result",
         tool_use_id: block.id,
-        content: JSON.stringify(result).slice(0, 8000),
+        content: JSON.stringify(payload).slice(0, 8000),
       });
     }
     messages.push({ role: "assistant", content: msg.content });
@@ -753,11 +890,17 @@ export async function runAgentLoop(opts: {
   }
 
   return {
-    finalText: null,
+    // Itérations épuisées : si des écritures restent non vérifiées, l'état RÉEL
+    // (déterministe) devient le texte final plutôt qu'un null muet.
+    finalText: composeVerifiedText(null, verifications),
     finishInput: null,
     traces,
     steps,
     proposed,
+    verifications,
+    verificationEvents,
+    verifiedReport: buildVerifiedReport(verifications),
+    allVerified: allVerifiedFn(verifications),
     usage: { inputTokens, outputTokens },
     iterations: maxIterations,
   };
