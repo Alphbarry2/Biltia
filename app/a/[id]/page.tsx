@@ -16,6 +16,7 @@ import type { Metadata, Viewport } from "next";
 import { redirect, notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase-server";
 import { injectInterfaceWordmark } from "@/lib/app-brand";
+import { injectComponentEngine } from "@/lib/app-components";
 import { StandaloneApp } from "@/components/standalone-app";
 
 export const dynamic = "force-dynamic";
@@ -88,7 +89,10 @@ export default async function StandaloneAppPage({
   // déjà créées en profitent sans être régénérées, et le nom de l'app disparaît de
   // l'en-tête (il reste dans le manifeste ci-dessous). Le logo de l'ARTISAN, lui,
   // coiffe ses documents et ses portails clients, pas son propre outil.
-  const html = injectInterfaceWordmark(app.html_content);
+  // Même principe pour le runtime `biltiaUI` : un correctif du moteur (résolution
+  // des relations dans les tableaux, par ex.) doit profiter aux apps déjà créées,
+  // pas seulement aux prochaines générations.
+  const html = injectComponentEngine(injectInterfaceWordmark(app.html_content));
 
   return (
     <>

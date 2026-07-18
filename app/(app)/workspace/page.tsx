@@ -49,13 +49,15 @@ import {
   PenLine,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { ENTITIES, FORM_FIELDS, RELATION_DISPLAY, fieldLabel, fieldPlaceholder, optionLabel, type FormField } from "@/lib/data-entities";
+import { ENTITIES, FORM_FIELDS, RELATION_DISPLAY, fieldLabel, fieldPlaceholder, optionLabel, withGeoFields, recordLabel, type FormField } from "@/lib/data-entities";
 import { VOCABS, FIELD_VOCAB, vocabLabel, splitAutre, slugify } from "@/lib/vocabulaires";
 import { useSession } from "@/components/session-provider";
 import { useT, useLocale } from "@/lib/i18n/context";
 import type { Locale } from "@/lib/i18n/config";
 import { AddToCalendar } from "@/components/add-to-calendar";
 import { getCurrentPosition, gpsLine, type CalendarEvent } from "@/lib/integrations";
+import { AddressAutocomplete, type GeoPick } from "@/components/address-autocomplete";
+import { SiteMap, type MapPoint } from "@/components/site-map";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Workspace — la mémoire de l'entreprise.
@@ -2063,7 +2065,8 @@ function RecordFormModal({
   const t = useT();
   const locale = useLocale();
   const isEdit = !!row;
-  const fields = FORM_FIELDS[entity] ?? [];
+  // Tout champ `adresse` devient un champ géolocalisé (autocomplétion + carte).
+  const fields = withGeoFields(FORM_FIELDS[entity] ?? []);
   const [values, setValues] = useState<Record<string, FormValue>>(() => initialFormValues(fields, row));
   const [relOptions, setRelOptions] = useState<Record<string, { id: string; label: string }[]>>({});
   const [saving, setSaving] = useState(false);
@@ -2094,6 +2097,14 @@ function RecordFormModal({
   }, [entity]);
 
   const set = (key: string, v: FormValue) => setValues((prev) => ({ ...prev, [key]: v }));
+  // Écrit plusieurs champs d'un coup (une adresse choisie remplit voie/ville/CP/lat/lng).
+  const patch = (obj: Record<string, FormValue>) => setValues((prev) => ({ ...prev, ...obj }));
+  // Valeur numérique d'un champ (lat/lng stockés en chaîne dans le formulaire) → number|null.
+  const asNum = (v: FormValue | undefined): number | null => {
+    if (typeof v !== "string" || v.trim() === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
 
   // Cible de relation « créable à la volée » : sa SEULE contrainte requise est un
   // champ texte (nom / désignation…). On peut alors la créer sans quitter le form.
@@ -2198,12 +2209,38 @@ function RecordFormModal({
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-          {fields.map((f: FormField) => (
-            <div key={f.key} className={f.type === "textarea" ? "sm:col-span-2" : ""}>
+          {fields.map((f: FormField) => f.hidden ? null : (
+            <div key={f.key} className={f.type === "textarea" || f.type === "address" ? "sm:col-span-2" : ""}>
               <label className="block text-[12px] font-semibold text-[#6E6E6C] mb-1.5">
                 {fieldLabel(f.label, locale)} {f.required && <span className="text-rose-500">*</span>}
               </label>
-              {f.type === "select" && f.vocab ? (
+              {f.type === "address" ? (
+                <AddressAutocomplete
+                  value={String(values[f.key] ?? "")}
+                  lat={asNum(values[f.geo?.latKey ?? ""])}
+                  lng={asNum(values[f.geo?.lngKey ?? ""])}
+                  onTextChange={(v) => set(f.key, v)}
+                  onPick={(p: GeoPick) => {
+                    const g = f.geo ?? {};
+                    const next: Record<string, FormValue> = { [f.key]: p.street || p.label };
+                    if (g.villeKey) next[g.villeKey] = p.city ?? "";
+                    if (g.cpKey) next[g.cpKey] = p.postcode ?? "";
+                    if (g.latKey) next[g.latKey] = p.lat != null ? String(p.lat) : "";
+                    if (g.lngKey) next[g.lngKey] = p.lng != null ? String(p.lng) : "";
+                    patch(next);
+                  }}
+                  onClear={() => {
+                    const g = f.geo ?? {};
+                    const next: Record<string, FormValue> = {};
+                    if (g.latKey) next[g.latKey] = "";
+                    if (g.lngKey) next[g.lngKey] = "";
+                    patch(next);
+                  }}
+                  inputClassName={inputCls}
+                  placeholder={fieldPlaceholder(f.placeholder, locale)}
+                  locale={locale === "en" ? "en" : "fr"}
+                />
+              ) : f.type === "select" && f.vocab ? (
                 <VocabField vocabId={f.vocab} value={String(values[f.key] ?? "")} onChange={(v) => set(f.key, v)} locale={locale} />
               ) : f.type === "select" ? (
                 <select value={String(values[f.key] ?? "")} onChange={(e) => set(f.key, e.target.value)} className={inputCls}>
@@ -2342,6 +2379,7 @@ export default function WorkspacePage() {
   const [addEntity, setAddEntity] = useState<string | null>(null);
   const [editRecord, setEditRecord] = useState<{ entity: string; row: Row } | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [entityView, setEntityView] = useState<"list" | "map">("list"); // liste ou carte
 
   // ⚠️ AVANT : 25 `POST /api/data`, un par entité — et CHACUN refaisait côté serveur
   // getUser() → membership → requête. Soit ~78 allers-retours pour UN affichage, que
@@ -2395,7 +2433,22 @@ export default function WorkspacePage() {
   const openDrawer = useCallback((entity: string, id: string) => setDrawer({ entity, id }), []);
 
   // Sélection multiple pour suppression, réinitialisée quand on change d'entité.
-  useEffect(() => { setSelectedIds(new Set()); }, [selected]);
+  useEffect(() => { setSelectedIds(new Set()); setEntityView("list"); }, [selected]);
+
+  // Entité localisable = elle a un champ `adresse` (donc lat/lng). Points de carte
+  // = les fiches déjà géolocalisées. Recalculé quand l'entité ou ses données changent.
+  const geoCapable = !!selected && (FORM_FIELDS[selected] ?? []).some((f) => f.key === "adresse");
+  const mapPoints: MapPoint[] = useMemo(() => {
+    if (!selected || !geoCapable) return [];
+    return (data[selected] ?? [])
+      .map((r): MapPoint | null => {
+        const lat = Number(r.latitude);
+        const lng = Number(r.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        return { lat, lng, label: recordLabel(selected, r), id: String(r.id) };
+      })
+      .filter((p): p is MapPoint => p !== null);
+  }, [selected, geoCapable, data]);
   const toggleSelect = (id: string) =>
     setSelectedIds((prev) => {
       const n = new Set(prev);
@@ -2445,7 +2498,7 @@ export default function WorkspacePage() {
           <span className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500/15 to-pink-500/10 flex items-center justify-center flex-shrink-0">
             <Boxes className="w-5 h-5 text-violet-600" />
           </span>
-          <h1 className="text-xl sm:text-2xl font-black text-[#0A0A0A] tracking-[-0.03em]">{t("Workspace", "Workspace")}</h1>
+          <h1 className="text-xl sm:text-2xl font-black text-[#0A0A0A] tracking-[-0.03em]">{t("Entreprise", "Workspace")}</h1>
           <div className="ml-auto flex items-center gap-2 flex-wrap justify-end">
             {total > 0 && <ExportButton entity="all" label={t("Exporter", "Export")} />}
             <button
@@ -2516,6 +2569,22 @@ export default function WorkspacePage() {
               <h2 className="text-lg font-bold text-[#0A0A0A]">{tEntityLabel(locale, selected)}</h2>
               <span className="text-[13px] text-[#9A9A97] tabular-nums">{data[selected]?.length ?? 0}</span>
               <div className="ml-auto flex items-center gap-2 flex-wrap justify-end">
+                {geoCapable && (data[selected]?.length ?? 0) > 0 && (
+                  <div className="inline-flex items-center rounded-full border border-[#E7E7EE] bg-white p-0.5">
+                    <button
+                      onClick={() => setEntityView("list")}
+                      className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12.5px] font-semibold transition-colors ${entityView === "list" ? "bg-[#0A0A0A] text-white" : "text-[#6E6E6C] hover:text-[#0A0A0A]"}`}
+                    >
+                      <ListChecks className="w-3.5 h-3.5" /> {t("Liste", "List")}
+                    </button>
+                    <button
+                      onClick={() => setEntityView("map")}
+                      className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12.5px] font-semibold transition-colors ${entityView === "map" ? "bg-[#0A0A0A] text-white" : "text-[#6E6E6C] hover:text-[#0A0A0A]"}`}
+                    >
+                      <MapPin className="w-3.5 h-3.5" /> {t("Carte", "Map")}
+                    </button>
+                  </div>
+                )}
                 <ExportButton entity={selected} />
                 <button
                   onClick={() => setImportEntity(selected)}
@@ -2549,6 +2618,36 @@ export default function WorkspacePage() {
                   >
                     <Plus className="w-3.5 h-3.5" /> {t(`Ajouter ${ENTITY_META[selected].label.toLowerCase().replace(/s$/, "")}`, `Add ${tEntityLabel(locale, selected).toLowerCase().replace(/s$/, "")}`)}
                   </button>
+                )}
+              </div>
+            ) : entityView === "map" && geoCapable ? (
+              // ─── Vue CARTE : toutes les fiches géolocalisées d'un coup ───
+              <div>
+                {mapPoints.length > 0 ? (
+                  <>
+                    <SiteMap
+                      points={mapPoints}
+                      onPointClick={(id) => openDrawer(selected, id)}
+                      className="w-full h-[min(60vh,520px)] rounded-2xl overflow-hidden border border-[#E7E7E4]"
+                      ariaLabel={t("Carte des fiches", "Records map")}
+                    />
+                    <p className="mt-2 text-[12px] text-[#8A8A94]">
+                      {t(
+                        `${mapPoints.length} sur ${data[selected]?.length ?? 0} géolocalisé${mapPoints.length > 1 ? "s" : ""} · cliquez un point pour ouvrir la fiche`,
+                        `${mapPoints.length} of ${data[selected]?.length ?? 0} geolocated · click a pin to open the record`
+                      )}
+                    </p>
+                  </>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-16 text-center">
+                    <div className="w-12 h-12 rounded-2xl border border-[#E7E7EE] bg-[#FAFAFC] flex items-center justify-center mb-3 text-[#B4B8C2]">
+                      <MapPin className="w-5 h-5" strokeWidth={1.5} />
+                    </div>
+                    <p className="text-[14px] font-semibold text-[#0A0A0A] mb-1">{t("Aucune fiche géolocalisée", "Nothing geolocated yet")}</p>
+                    <p className="text-[13px] text-[#9A9A97] max-w-xs leading-relaxed">
+                      {t("Renseignez l'adresse d'une fiche (en choisissant une suggestion) pour la voir sur la carte.", "Set a record's address (pick a suggestion) to see it on the map.")}
+                    </p>
+                  </div>
                 )}
               </div>
             ) : (

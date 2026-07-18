@@ -185,7 +185,9 @@ async function applySubscription(
   const periodEnd = periodEndTs ? new Date(periodEndTs * 1000).toISOString() : null;
 
   // Schéma prod : subscriptions est indexé par tenant_id (pas de user_id /
-  // credits_per_month / stripe_price_id / cancel_at_period_end).
+  // cancel_at_period_end). stripe_price_id/credits_per_month persistés depuis
+  // la migration 063 (le MRR affiché en admin reste calculé EN DIRECT sur
+  // Stripe — ces colonnes servent au détail par client, pas au calcul du CA).
   await db.from("subscriptions").upsert(
     {
       tenant_id: tenantId,
@@ -193,6 +195,8 @@ async function applySubscription(
       status: sub.status,
       stripe_customer_id: customerId,
       stripe_subscription_id: sub.id,
+      stripe_price_id: priceId,
+      credits_per_month: match?.tier.credits ?? 0,
       current_period_end: periodEnd,
     },
     { onConflict: "tenant_id" }
@@ -354,6 +358,7 @@ export async function POST(req: Request) {
               plan: "free",
               status: "canceled",
               stripe_subscription_id: null,
+              canceled_at: new Date().toISOString(),
             })
             .eq("tenant_id", resolved.tenantId);
           // GEL : crédits du forfait à 0 + apps en ligne dépubliées.

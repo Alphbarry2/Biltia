@@ -258,12 +258,13 @@ Un moteur de graphiques (interactif + animé, zéro dépendance) est PRÉ-INJECT
 RÈGLE NON NÉGOCIABLE : dès qu'une brique LIT ou ÉCRIT une entité du workspace (tableau, formulaire, kanban, KPI), tu DOIS passer par \`window.biltiaUI\`, un runtime déterministe PRÉ-INJECTÉ. Écrire à la main un \`<form>\`, un \`<table>\` ou un kanban branché sur une entité du workspace est INTERDIT : c'est la première cause d'apps qui s'affichent bien mais n'enregistrent RIEN (le bouton « Enregistrer » ne sauve pas, le glisser-déposer ne persiste pas, le select « Client » reste vide). \`biltiaUI\` garantit la liaison \`window.biltia\`, le CRUD, la recherche/tri, le glisser-déposer QUI PERSISTE, les selects relationnels peuplés automatiquement et la validation des requis.
 Ces composants réutilisent TON design system (\`.table-wrap\`, \`.btn\`, \`.kpi\`, \`.card\`, \`.modal\`) : le rendu est identique à ce que tu écrirais toi-même. Tu ne perds AUCUNE liberté visuelle, tu gagnes la fiabilité.
 Tu poses un conteneur \`<div id="…"></div>\` puis tu appelles, APRÈS avoir injecté le HTML de la vue, dans un try/catch :
-- \`biltiaUI.table('host', { entity:'chantiers', columns:[{key:'nom',label:'Nom'},{key:'statut',label:'Statut'},{key:'budget',label:'Budget',type:'currency'}], search:true, onRowClick:function(row){…}, rowActions:[{label:'Voir',onClick:function(row){…}}] })\` → tableau réel (recherche, tri au clic d'en-tête, clic ligne), câblé et rechargé depuis le workspace, avec état vide propre.
+- \`biltiaUI.table('host', { entity:'pointages', columns:[{key:'date_pointage',label:'Date',type:'date'},{key:'employee_id',label:'Équipier',type:'relation',relation:'employees'},{key:'chantier_id',label:'Chantier',type:'relation',relation:'chantiers'},{key:'heures',label:'Heures'},{key:'type',label:'Type'}], search:true, onRowClick:function(row){…}, rowActions:[{label:'Voir',onClick:function(row){…}}] })\` → tableau réel (recherche, tri au clic d'en-tête, clic ligne), câblé et rechargé depuis le workspace, avec état vide propre. RÈGLE NON NÉGOCIABLE : toute colonne \`*_id\` (référence vers une autre entité) DOIT déclarer \`type:'relation', relation:'entité'\` — sinon l'artisan voit un uuid brut au lieu d'un nom, ce qui est INTERDIT dans toutes les circonstances.
 - \`biltiaUI.form('host', { entity:'clients', fields:[{key:'nom',label:'Nom',type:'text',required:true},{key:'chantier_id',label:'Chantier',type:'relation',relation:'chantiers'},{key:'statut',type:'select',options:['actif','inactif']}], record:ficheAModifier, onSaved:function(row){…} })\` → formulaire qui CRÉE/MET À JOUR via \`window.biltia\`, selects relationnels peuplés automatiquement, validation des requis.
 - \`biltiaUI.kanban('host', { entity:'tasks', statusField:'status', columns:[{value:'todo',label:'À faire'},{value:'doing',label:'En cours'},{value:'done',label:'Terminé'}], cardTitle:function(r){return r.title;}, cardMeta:function(r){return r.due_date||'';}, onCardClick:function(r){…} })\` → kanban dont le glisser-déposer PERSISTE le statut (+ boutons ‹ › au tap mobile).
 - \`biltiaUI.kpi('host', { entity:'factures', label:'Encaissé', compute:'sum', field:'montant_paye', type:'currency' })\` → KPI calculé en direct (\`compute\` = 'count' | 'sum' | 'avg').
 - \`biltiaUI.format(valeur, 'currency'|'date'|'percentage'|'number'|'boolean')\` → formatage FR partagé.
-Types de champ reconnus (form/table) : text, long_text, number, currency, percentage, boolean, date, datetime, email, phone, url, select, status, relation.
+Types de champ reconnus (form/table) : text, long_text, number, currency, percentage, boolean, date, datetime, email, phone, url, select, status, relation, address.
+Le type \`address\` est OBLIGATOIRE pour tout champ adresse/lieu (chantier, client, site, livraison…) : il affiche une autocomplétion d'adresses réelles (France + Belgique + Europe) et une mini-carte du point choisi. Il remplit automatiquement, sur la même entité, les colonnes \`ville\`, \`code_postal\`, \`latitude\`, \`longitude\` si elles existent (ne les ajoute PAS comme champs séparés du formulaire). N'écris JAMAIS un champ adresse en \`text\`.
 PARTAGE DES RÔLES, sans ambiguïté :
 - \`biltiaUI\` = TOUTE brique de DONNÉES (liste, fiche, formulaire, kanban, KPI d'entité). OBLIGATOIRE, aucune exception.
 - TOI = TOUT le reste, et tu y es entièrement libre : mise en page, navigation, hero/cockpit, sections d'ambiance, graphiques, textes, ergonomie mobile. C'est là que se joue ton style, et tu ne te censures pas.
@@ -388,7 +389,7 @@ input.invalid,select.invalid,textarea.invalid{border-color:#E11D48;box-shadow:0 
    flex:1 + min-width:0 sur .app-main sont VITAUX : sans eux le contenu se tasse à gauche. */
 .shell{display:flex;min-height:100vh}
 .sidebar{display:none}
-.side-brand{display:flex;align-items:center;gap:11px;padding:6px 8px 20px}
+.side-brand{display:flex;align-items:center;gap:11px;padding:6px 8px 40px}
 .side-nav{display:flex;flex-direction:column;gap:3px}
 .side-item{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:11px;border:none;background:none;cursor:pointer;font-family:inherit;font-size:13.5px;font-weight:600;color:var(--mut);text-align:left;width:100%;transition:background .15s,color .15s}
 .side-item:hover{background:var(--soft);color:var(--ink)}
@@ -411,10 +412,11 @@ input.invalid,select.invalid,textarea.invalid{border-color:#E11D48;box-shadow:0 
 .section-pad{padding:0 16px 16px}
 .table-wrap{background:#fff;border:1px solid var(--line);border-radius:18px;overflow-x:auto;-webkit-overflow-scrolling:touch;box-shadow:var(--shadow)}
 table{width:100%;border-collapse:collapse}
-th{font-size:10px;font-weight:700;color:#9A9AA6;text-transform:uppercase;letter-spacing:.08em;padding:10px 16px;background:#FAFAFC;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
-td{padding:13px 16px;border-bottom:1px solid #F4F4F7;color:var(--ink);vertical-align:middle;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+th{font-size:10px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.08em;padding:10px 16px;background:var(--soft);border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+td{padding:13px 16px;border-bottom:1px solid var(--soft);color:var(--ink);vertical-align:middle;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 tr:last-child td{border-bottom:none}
-tr:hover td{background:#FAFAFC}
+tr:nth-child(even) td{background:var(--soft)}
+tr:hover td{background:var(--tint)}
 .overlay{position:fixed;inset:0;background:rgba(10,10,10,.4);backdrop-filter:blur(6px);z-index:200;display:flex;align-items:flex-end;justify-content:center}
 @media(min-width:600px){.overlay{align-items:center;padding:20px}}
 .modal{background:#fff;border-radius:24px 24px 0 0;width:100%;max-width:560px;max-height:88vh;overflow-y:auto;padding:24px 20px;box-shadow:var(--shadow-lg)}
@@ -832,14 +834,24 @@ Réponds UNIQUEMENT avec le code HTML complet. Aucune explication, aucun texte a
 // puis on le COMPLÈTE ou on le MODIFIE selon la demande (ajouter / supprimer /
 // changer / reformuler / traduire), sans jamais toucher au reste.
 const DOC_FILL_MODE = `# TU REMPLIS OU MODIFIES UN DOCUMENT FOURNI (un fichier est joint : image ou PDF)
-L'utilisateur t'a joint un document. Ta mission :
-1. LIS le document joint EN ENTIER : identifie sa NATURE (devis, facture, attestation, courrier, contrat, formulaire, document juridique/technique/administratif…) et TOUTES ses rubriques, champs, articles, paragraphes.
-2. REPRODUIS-le PROPREMENT et FIDÈLEMENT en HTML (même type de document, mêmes sections, même ordre, même esprit, même vocabulaire) — une belle feuille A4 lisible, PAS une photo ni une copie pixel par pixel. Un document de TOUTE nature est accepté, pas seulement du BTP.
-3. APPLIQUE la demande de l'utilisateur :
-   • REMPLISSAGE / COMPLÉTER : remplis chaque champ avec les SOURCES DE VÉRITÉ, dans cet ordre : réponses/contexte de l'utilisateur > FICHE ENTREPRISE (en-tête émetteur) > WORKSPACE (client, coordonnées, chantiers) > contenu déjà présent dans le document.
+L'utilisateur t'a joint un document existant. Ta mission N'EST PAS de créer un document Biltia standard : c'est de reproduire CELUI-LÀ, tel quel, et de le compléter. LE FICHIER JOINT FAIT AUTORITÉ sur sa propre forme — aucun gabarit de structure ou de CSS ne t'a été imposé pour cette demande, PRÉCISÉMENT pour que tu ne recopies pas un design par défaut à la place du sien.
+
+1. AVANT d'écrire la moindre ligne de HTML, EXTRAIS du fichier joint (tu le VOIS, sers-t'en vraiment) ses vrais choix visuels, en te posant CHAQUE question suivante :
+   • Couleur(s) de fond de l'en-tête / des bandeaux de section (blanc ? une couleur pleine, laquelle approximativement ?).
+   • Les champs sont-ils des LIGNES À COMPLÉTER en ligne (« Libellé : ______________ », label et valeur côte à côte ou label puis trait) ou des CHAMPS ENCADRÉS avec étiquette AU-DESSUS (style formulaire web moderne) ? Ce sont deux styles TRÈS différents — reproduis EXACTEMENT celui du fichier, jamais l'autre.
+   • Les cases à cocher : petit carré simple à cocher d'une croix/coche, ou un autre glyphe ? Une bordure fine ou épaisse ?
+   • Les sections sont-elles délimitées par un simple filet/ligne, un encadré gris clair, ou rien du tout ? Y a-t-il des ombres portées, des coins arrondis ? (la plupart des formulaires imprimables n'en ont AUCUN — n'en invente pas).
+   • Sur COMBIEN DE PAGES tient le document original ? C'est une contrainte dure (cf. règle 3).
+   Identifie aussi sa NATURE (devis, facture, attestation, courrier, contrat, formulaire, document juridique/technique/administratif…) et TOUTES ses rubriques/champs/cases à cocher/articles/paragraphes.
+2. REPRODUIS ces choix FIDÈLEMENT en HTML/CSS propre et imprimable (PAS une photo ni une copie pixel par pixel, mais un même MODE de mise en page) : MÊME style de champs (ligne à compléter ou encadré — JAMAIS l'un à la place de l'autre), MÊME découpage des sections, MÊME thème visuel (couleurs, typographie, style des cadres/tableaux/cases) que le document joint. Ce n'est PAS une occasion de redesigner : un document qui ressemblait à une grille administrative dense reste une grille administrative dense — PAS un formulaire web moderne à champs encadrés et espacés, même si ce style est habituellement le tien pour un document créé de zéro. C'est l'ERREUR la plus fréquente sur ce mode : ne la refais pas.
+3. DENSITÉ ET PAGINATION : si l'original tient sur N pages A4, le tien doit tenir sur un nombre de pages ÉQUIVALENT (N, N+1 grand maximum) — jamais le double ou plus. Un gonflement du nombre de pages est le signe que tu as trop espacé/agrandi les champs par rapport à l'original : resserre les marges, tailles de police et paddings pour coller à la densité réelle du fichier source.
+4. N'AJOUTE ni logo, ni en-tête, ni coordonnées de l'entreprise de l'utilisateur QUI NE FIGURAIENT PAS DÉJÀ sur le document joint. La FICHE ENTREPRISE (tes propres infos utilisateur) ne sert QUE si le document joint a lui-même un champ vide à ce sujet (ex : « Entreprise intervenante : ……… », « Prestataire : » vide) — jamais pour remplacer ou surcharger une identité, un en-tête ou un logo DÉJÀ présents sur le document (client, émetteur d'origine, tiers).
+5. APPLIQUE la demande de l'utilisateur :
+   • REMPLISSAGE / COMPLÉTER : remplis CHAQUE champ concerné avec les SOURCES DE VÉRITÉ, dans cet ordre : réponses/contexte de l'utilisateur > contenu déjà présent dans le document > WORKSPACE (client, coordonnées, chantiers) > FICHE ENTREPRISE (uniquement si un champ vide l'appelle, cf. règle 4 ci-dessus). Une case à cocher se coche (∎/✓), une ligne vide reçoit sa valeur — RIEN D'AUTRE ne change : pas de réorganisation, pas de reformulation des champs déjà remplis, pas de section ajoutée qui n'existait pas.
    • MODIFICATION (modifier une valeur, AJOUTER une clause/section/ligne, SUPPRIMER un passage, DÉPLACER ou RÉORDONNER des blocs — ex : « mets le texte avant le tableau » —, reformuler, corriger, traduire) : reproduis tout le document à l'identique et applique UNIQUEMENT le changement demandé. Ne supprime, ne réécris et n'omets RIEN d'autre — le reste doit rester mot pour mot identique.
-4. NE RECOPIE PAS les zones vides « …… » ou « [à remplir] » : REMPLIS-les. N'INVENTE jamais un nom, un montant, une quantité, une clause ni une date : si l'info manque VRAIMENT (et n'a pas été fournie), mets un placeholder clair entre crochets « [Montant HT] » — jamais du faux définitif.
-5. Calcule les totaux exactement (HT → TVA → TTC) si le document en comporte. Format français.
+6. NE RECOPIE PAS les zones vides « …… » ou « [à remplir] » : REMPLIS-les. N'INVENTE jamais un nom, un montant, une quantité, une clause ni une date : si l'info manque VRAIMENT (et n'a pas été fournie), mets un placeholder clair entre crochets « [Montant HT] » — jamais du faux définitif.
+7. Calcule les totaux exactement (HT → TVA → TTC) si le document en comporte. Format français.
+8. Si le document joint a une ZONE DE SIGNATURE (ligne « Signature », case « Bon pour accord », cadre vide en bas) : place à cet endroit \`<canvas class="sign-pad"></canvas>\` (dans un conteneur adapté au style du document — sa CSS fonctionnelle est déjà couverte, cf. règle TECHNIQUE #9). Le document joint n'a PAS de zone de signature (facture, note interne…) → n'en invente aucune.
 Le résultat est un document fini, prêt à imprimer / enregistrer en PDF / signer — l'utilisateur pourra le prévisualiser et le télécharger.`;
 
 // Consigne quand on CRÉE UNE APP à partir d'un fichier joint (Excel, CSV, PDF,
@@ -2874,6 +2886,7 @@ Traiter un (1) comme un (3), c'est perdre un client pour un clic. Traiter un (2)
                 // La fiche entreprise (émetteur) rejoint les sources de vérité du
                 // document → l'en-tête se remplit sans redemander SIRET/adresse.
                 workspace: [workspaceBlock, companyBlock].filter(Boolean).join("\n\n"),
+                docFill: contextFiles.length > 0,
               }) +
               // Un fichier joint = document à REMPLIR : on bascule en mode remplissage.
               (contextFiles.length ? "\n\n" + DOC_FILL_MODE : "") +
@@ -3589,6 +3602,15 @@ RATTRAPAGE RESPONSIVE (amélioration attendue, PAS un écart) : si le CSS de l'a
             appType: route.appType,
             kind,
             docType,
+            // Un document REPRODUIT à partir d'un fichier joint (docFill) garde
+            // la DA du fichier SOURCE — le client s'en sert pour ne JAMAIS
+            // poser le logo de l'artisan dessus (règle : le logo/la DA de
+            // l'artisan n'habille QUE les documents créés de zéro, jamais un
+            // document tiers reproduit tel quel). Un simple mot dans le prompt
+            // ne suffisait pas : le modèle pouvait toujours l'ignorer — ce
+            // drapeau rend l'interdiction DÉTERMINISTE côté client, plutôt que
+            // dépendante de son obéissance.
+            fromUpload: isDocument && contextFiles.length > 0,
             actionFallback: kind === "action",
             dataMode: connectedEntities,
             creditsUsed: realCredits,

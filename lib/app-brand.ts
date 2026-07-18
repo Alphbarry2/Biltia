@@ -184,6 +184,10 @@ export function injectInterfaceWordmark(html: string): string {
    tout le contenu se tassait dans une colonne à gauche. Posé ici, à l'affichage,
    ça répare TOUTES les apps — y compris celles déjà générées. */
 .shell>.app-main{flex:1 1 auto!important;min-width:0!important}
+/* ESPACEMENT SIDEBAR (retour user 2026-07-17) : le logo était collé aux pages de
+   navigation, à peine 20px d'écart. Posé ici (comme le garde-fou ci-dessus), ça
+   corrige aussi les apps déjà générées, sans attendre une régénération. */
+.side-brand{padding-bottom:40px!important}
 /* La zone de marque (sidebar desktop / en-tête mobile-tablette) devient le wordmark
    Biltia complet. Texte conservé (masqué) pour les lecteurs d'écran ; contain →
    jamais déformé, quelle que soit la place. */

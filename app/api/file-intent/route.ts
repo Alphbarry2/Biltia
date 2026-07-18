@@ -9,8 +9,10 @@ import { getLocale } from "@/lib/i18n/server";
 // ─────────────────────────────────────────────────────────────────────────────
 // /api/file-intent — AIGUILLAGE D'UNE DEMANDE AVEC FICHIER(S) JOINT(S).
 //
-// Un fichier joint ouvre quatre portes : l'ANALYSER (lecture seule), l'ANNOTER,
-// en tirer un DOCUMENT fini, ou en tirer une APPLICATION. Le choix se faisait
+// Un fichier joint ouvre plusieurs portes : l'ANALYSER (lecture seule),
+// l'ANNOTER, en tirer un DOCUMENT fini, en tirer une APPLICATION, ou — si un
+// livrable est déjà ouvert dans l'atelier — MODIFIER CET OUVERT en utilisant le
+// fichier comme simple référence (`openKind`, optionnel). Le choix se faisait
 // par regex côté client — « crée-moi une app à partir de CE fichier » partait en
 // régénération de PDF (verbe « crée » + anaphore « ce »), et aucun chemin ne
 // menait au générateur d'app. On confie donc la décision au même modèle que le
@@ -31,9 +33,11 @@ export async function POST(req: Request) {
   if (limited) return limited;
 
   let prompt = "";
+  let openKind: "module" | "document" | null = null;
   try {
     const body = await req.json();
     prompt = typeof body.prompt === "string" ? body.prompt.slice(0, 2000) : "";
+    openKind = body.openKind === "module" || body.openKind === "document" ? body.openKind : null;
   } catch { /* corps vide toléré */ }
 
   // Consigne vide → rien à comprendre : analyse (lecture seule), sans appel LLM.
@@ -47,7 +51,7 @@ export async function POST(req: Request) {
   let result = null;
   try {
     result = await Promise.race([
-      classifyFileIntent(prompt, sectorCtx.block),
+      classifyFileIntent(prompt, sectorCtx.block, openKind),
       new Promise<null>((resolve) => setTimeout(() => resolve(null), LLM_TIMEOUT_MS)),
     ]);
   } catch { /* jamais bloquant */ }

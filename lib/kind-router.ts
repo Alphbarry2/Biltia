@@ -471,7 +471,7 @@ export function coerceKind(value: unknown): BiltiaKind | null {
 // AUCUN chemin ne menait au générateur d'app avec un fichier joint.
 // Ici, comme pour l'agenda : appel FOCALISÉ (tool simple, non surchargé), bien
 // plus fiable que le classifieur généraliste. Repli client sur les regex si KO.
-export type FileIntent = "analyze" | "annotate" | "document" | "module";
+export type FileIntent = "analyze" | "annotate" | "document" | "module" | "modify_open";
 
 export type FileIntentResult = {
   intent: FileIntent;
@@ -488,7 +488,7 @@ const FILE_INTENT_TOOL = {
     properties: {
       intent: {
         type: "string",
-        enum: ["analyze", "annotate", "document", "module"],
+        enum: ["analyze", "annotate", "document", "module", "modify_open"],
         description: "La destination du fichier joint.",
       },
       confidence: { type: "number", description: "Confiance de 0 à 1." },
@@ -498,41 +498,65 @@ const FILE_INTENT_TOOL = {
   },
 } as Anthropic.Tool;
 
-const FILE_INTENT_SYSTEM = `Un artisan du BTP a JOINT un ou plusieurs fichiers (photo, plan, PDF, Excel, CSV) dans le chat de Biltia, avec une consigne. Tu choisis ce que Biltia doit en faire. Tu ne fais rien toi-même : tu aiguilles.
+// `openKind` : un module ou un document est DÉJÀ ouvert dans l'atelier (visite
+// normale de /generate → le dernier livrable est restauré par continuité).
+// Sans ce contexte, un fichier fraîchement joint avec une consigne comme
+// « complète ce document » était TOUJOURS traité comme du contexte pour
+// modifier ce qui restait affiché à l'écran (le fichier ne servait jamais de
+// SOURCE) → bug confirmé : joindre une demande d'intervention à compléter,
+// avec une app déjà ouverte, faisait régénérer/modifier CETTE app au lieu de
+// produire le document demandé. "modify_open" nomme explicitement ce cas pour
+// que le fichier PUISSE aussi être une source neuve, indépendante de l'écran.
+function buildFileIntentSystem(openKind: "module" | "document" | null): string {
+  const openContext = openKind
+    ? `
 
-LES 5 DESTINATIONS :
+CONTEXTE — UN ${openKind === "document" ? "DOCUMENT" : "OUTIL/APPLICATION"} EST DÉJÀ OUVERT dans l'atelier (l'utilisateur le voit à l'écran). Le fichier qu'il vient de joindre peut avoir DEUX rôles bien différents :
+1. Une PREUVE/RÉFÉRENCE pour corriger ou compléter CE QUI EST DÉJÀ AFFICHÉ (une capture d'écran du bug, un cahier des charges qui ajoute un champ à l'outil ouvert, une photo qui illustre un problème sur le document en cours) → "modify_open".
+2. Une SOURCE NEUVE, sans rapport avec ce qui est ouvert : le fichier joint contient LUI-MÊME les données à transformer en document ou en application, même si autre chose tourne par ailleurs dans l'atelier (« complète ce devis » sur un NOUVEAU devis joint, alors qu'une autre app est ouverte, reste "document" — pas "modify_open") → "document" ou "module" selon la nature de la demande, EXACTEMENT comme s'il n'y avait rien d'ouvert.
+
+Test simple : si la consigne parle du fichier joint lui-même comme la chose à remplir/transformer (« complète-le », « remplis ce formulaire », « fais une app à partir de ce fichier ») → "document"/"module". Si elle parle d'un problème ou d'un ajout sur l'écran actuellement ouvert, et que le fichier n'est là que pour l'illustrer/l'étayer → "modify_open".`
+    : "";
+  return `Un artisan du BTP a JOINT un ou plusieurs fichiers (photo, plan, PDF, Excel, CSV) dans le chat de Biltia, avec une consigne. Tu choisis ce que Biltia doit en faire. Tu ne fais rien toi-même : tu aiguilles.
+
+LES DESTINATIONS :
 - "analyze" — il veut COMPRENDRE / VÉRIFIER / EXTRAIRE ce que contient le fichier, sans rien produire de nouveau : « résume ce document », « c'est quoi ce devis ? », « combien d'heures dans ce pointage ? », « vérifie les prix vs mon devis », « compare ces factures », « détecte les erreurs ». C'est le DÉFAUT.
 - "annotate" — il veut POSER DES REPÈRES SUR l'image / le plan : « annote ce plan », « numérote les pièces », « entoure les défauts », « repère les fenêtres », « montre-moi où sont les réserves ».
 - "document" — il veut UNE FEUILLE FINIE à imprimer / envoyer / signer, construite À PARTIR du fichier joint : le REMPLIR (« complète ce devis pour le client Morel »), le MODIFIER (« ajoute une clause », « supprime ce paragraphe », « corrige le montant »), le traduire, ou le refaire proprement. Résultat = un document A4, PAS un outil.
-- "module" — il veut une APPLICATION / un OUTIL de gestion, dont les DONNÉES viennent du fichier joint : « crée une app de suivi de chantiers à partir de ce fichier », « fais-moi un outil pour gérer ce catalogue Excel », « transforme ce tableau en application », « importe ce CSV dans une app de pointage ». Indice décisif : il parle d'une APP / APPLICATION / OUTIL / TABLEAU DE BORD qu'il rouvrira et alimentera DANS LA DURÉE.
+- "module" — il veut une APPLICATION / un OUTIL de gestion, dont les DONNÉES viennent du fichier joint : « crée une app de suivi de chantiers à partir de ce fichier », « fais-moi un outil pour gérer ce catalogue Excel », « transforme ce tableau en application », « importe ce CSV dans une app de pointage ». Indice décisif : il parle d'une APP / APPLICATION / OUTIL / TABLEAU DE BORD qu'il rouvrira et alimentera DANS LA DURÉE.${openContext}
 
 RÈGLE DE DÉPARTAGE :
 - Une FEUILLE qu'on imprime/signe une fois = "document". Un OUTIL qu'on rouvre et qu'on alimente = "module".
 - « complète ce devis » = document. « fais une app pour gérer mes devis à partir de ce fichier » = module.
+- CONSIGNE LONGUE, DICTÉE, avec une LISTE de valeurs de champs (nom, montant, adresse, date…) juste après une phrase d'ouverture du type « complète/remplis ce document avec les infos que j'ai » : c'est TOUJOURS "document", jamais "analyze". Le mur de valeurs n'est PAS une question à laquelle répondre — c'est la MATIÈRE que le document doit reprendre. Plus la consigne est détaillée, PLUS elle est prête à être remplie, jamais moins : ne bascule pas vers "analyze" parce que la consigne est longue.
 - S'il demande seulement de LIRE / vérifier / résumer / compter / comparer → "analyze".
 - Consigne vide ou purement descriptive → "analyze".
 - En cas de DOUTE RÉEL → "analyze" : c'est la lecture seule, on ne produit jamais rien à tort.
 
 Réponds UNIQUEMENT en appelant l'outil route_file_request.`;
+}
 
 /**
  * Aiguille une demande AVEC fichier(s) joint(s) vers analyze / annotate /
- * document / module. Retourne null si le LLM est indisponible ou échoue — le
- * client retombe alors sur ses heuristiques regex (jamais d'exception propagée).
+ * document / module / modify_open. Retourne null si le LLM est indisponible ou
+ * échoue — le client retombe alors sur ses heuristiques regex (jamais
+ * d'exception propagée).
  */
 export async function classifyFileIntent(
   prompt: string,
-  sectorBlock?: string
+  sectorBlock?: string,
+  openKind: "module" | "document" | null = null
 ): Promise<FileIntentResult | null> {
   // La clé du fournisseur RÉELLEMENT appelé, jamais « la clé Anthropic » (cf. lib/llm.ts).
   const hasKey = hasKeyFor(KIND_MODEL);
   if (!hasKey || !prompt.trim()) return null;
 
   try {
+    const system = buildFileIntentSystem(openKind);
     const message = await client.messages.create({
       model: FILE_INTENT_MODEL,
       max_tokens: 128,
-      system: sectorBlock ? `${FILE_INTENT_SYSTEM}\n\n${sectorBlock}` : FILE_INTENT_SYSTEM,
+      system: sectorBlock ? `${system}\n\n${sectorBlock}` : system,
       tools: [FILE_INTENT_TOOL],
       tool_choice: { type: "tool", name: "route_file_request" },
       messages: [{ role: "user", content: `Consigne de l'utilisateur : « ${prompt} »` }],
@@ -544,7 +568,7 @@ export async function classifyFileIntent(
     // avait gardé les 4 destinations d'origine, et renvoyait donc null sur une
     // 5e parfaitement valide. Le client retombait alors sur ses regex, sans le
     // moindre bruit. Une liste unique, dérivée du type : plus de divergence.
-    const DESTINATIONS: FileIntent[] = ["analyze", "annotate", "document", "module"];
+    const DESTINATIONS: FileIntent[] = ["analyze", "annotate", "document", "module", "modify_open"];
     if (!DESTINATIONS.includes(input.intent as FileIntent)) return null;
     return {
       intent: input.intent as FileIntent,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
@@ -12,7 +12,6 @@ import { BiltiaLogo } from "@/components/brand";
 import { CreditPacksDialog } from "@/components/credit-packs";
 import { ReferralClaim } from "@/components/referral-claim";
 import { ReferralDialog } from "@/components/referral-dialog";
-import { LanguageSwitcher } from "@/components/language-switcher";
 import { useT, useLocale } from "@/lib/i18n/context";
 import {
   Home,
@@ -74,7 +73,7 @@ function Sidebar({
 
   const nav = [
     { label: t("Accueil", "Home"), href: "/dashboard", icon: <Home className="w-4 h-4" /> },
-    { label: t("Workspace", "Workspace"), href: "/workspace", icon: <Boxes className="w-4 h-4" /> },
+    { label: t("Entreprise", "Workspace"), href: "/workspace", icon: <Boxes className="w-4 h-4" /> },
     { label: t("Bibliothèque", "Library"), href: "/library", icon: <Library className="w-4 h-4" /> },
     { label: t("Agents", "Agents"), href: "/agents", icon: <Bot className="w-4 h-4" /> },
     { label: t("Connecteurs", "Connectors"), href: "/connectors", icon: <Plug className="w-4 h-4" /> },
@@ -85,7 +84,11 @@ function Sidebar({
   const initial = (email || userName || "?")[0].toUpperCase();
 
   return (
-    <aside className={`flex flex-col h-full pt-safe pb-safe ${collapsed ? "w-[68px]" : "w-[240px]"} bg-[#FCFCFD] border-r border-[#EDEDE9] flex-shrink-0 transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]`}>
+    // Largeur au CONTENU (w-fit), pas un fixe arbitraire : elle se coupe juste après le
+    // plus long libellé (« Bibliothèque »/« Connecteurs »). max-w en garde-fou (une
+    // entreprise au nom démesuré ne doit pas l'élargir : email et nom tronquent au lieu
+    // de pousser la largeur, cf. min-w-0 plus bas et sur WorkspaceSwitcher).
+    <aside className={`flex flex-col h-full pt-safe pb-safe ${collapsed ? "w-[68px]" : "w-fit max-w-[224px] min-w-[188px]"} bg-[#FCFCFD] border-r border-[#EDEDE9] flex-shrink-0 transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]`}>
       {/* Header */}
       <div className={`flex items-center h-[64px] border-b border-[#EDEDE9] flex-shrink-0 ${collapsed ? "justify-center px-0" : "justify-between px-4"}`}>
         {!collapsed && (
@@ -220,11 +223,6 @@ function Sidebar({
       </div>
       <ReferralDialog open={refOpen} onClose={() => setRefOpen(false)} />
 
-      {/* Langue (FR / EN) — bascule tout le logiciel */}
-      <div className={`px-2.5 pb-3 ${collapsed ? "flex justify-center" : ""}`}>
-        <LanguageSwitcher variant={collapsed ? "ghost" : "sidebar"} className={collapsed ? "" : "w-full"} />
-      </div>
-
       {/* User */}
       <div className="px-2.5 pb-4 border-t border-[#EDEDE9] pt-3 flex-shrink-0">
         <div className={`flex items-center gap-3 py-1.5 ${collapsed ? "justify-center px-0" : "px-2"}`}>
@@ -233,7 +231,7 @@ function Sidebar({
           </div>
           {!collapsed && (
             <>
-              <p className="text-xs text-[#6E6E6C] truncate flex-1">{email || "…"}</p>
+              <p className="text-xs text-[#6E6E6C] truncate flex-1 min-w-0">{email || "…"}</p>
               <button
                 onClick={handleLogout}
                 className="text-[#9A9A97] hover:text-[#0A0A0A] transition-colors"
@@ -275,9 +273,25 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const pathname = usePathname();
   const isGenerate = pathname === "/generate";
+  // Tant que l'utilisateur n'a jamais cliqué le bouton replier/déplier lui-même,
+  // la barre suit la largeur d'écran (repliée en icônes sous 1024px — une
+  // tablette perd trop de place utile avec les 240px déployés) plutôt que de
+  // rester figée sur le dernier état choisi par défaut (false).
+  const userSetRef = useRef(false);
 
   useEffect(() => {
-    try { setCollapsed(localStorage.getItem("biltia_sidebar_collapsed") === "1"); } catch {}
+    let stored: string | null = null;
+    try { stored = localStorage.getItem("biltia_sidebar_collapsed"); } catch {}
+    if (stored !== null) {
+      setCollapsed(stored === "1");
+      userSetRef.current = true;
+      return;
+    }
+    const mq = window.matchMedia("(max-width: 1024px)");
+    const apply = () => { if (!userSetRef.current) setCollapsed(mq.matches); };
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
   }, []);
 
   // Préchauffage DEV : compile toutes les pages principales en arrière-plan
@@ -292,12 +306,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     );
     return () => timers.forEach(clearTimeout);
   }, []);
-  const toggleCollapsed = () =>
+  const toggleCollapsed = () => {
+    userSetRef.current = true; // choix explicite : ne plus suivre la largeur d'écran
     setCollapsed((c) => {
       const n = !c;
       try { localStorage.setItem("biltia_sidebar_collapsed", n ? "1" : "0"); } catch {}
       return n;
     });
+  };
 
   return (
     // La session est résolue UNE fois ici, puis partagée. Tout ce qui est en dessous

@@ -19,6 +19,7 @@
 import { createAdminClient } from "@/lib/supabase-admin";
 import { injectPoweredBy, publicNotFoundPage } from "@/lib/powered-by";
 import { injectAppBrand, injectInterfaceWordmark } from "@/lib/app-brand";
+import { injectComponentEngine } from "@/lib/app-components";
 import { getBrandKit } from "@/lib/brand";
 import { injectShareBridge } from "@/lib/share-bridge";
 import { isShareToken, isLinkLive } from "@/lib/share";
@@ -92,7 +93,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ token: 
 
   // Lien 'client' : on branche le bridge de données scopées (window.biltia →
   // /api/share/data avec le token). 'preview' reste sans données (aperçu seul).
-  let out = mod.html_content as string;
+  // Le moteur biltiaUI est réinjecté à sa version courante ici aussi : un
+  // correctif (résolution des relations dans les tableaux, par ex.) doit
+  // profiter aux apps déjà créées, PAS SEULEMENT à ce qu'on montre en interne —
+  // c'est le client final qui regarde cet écran.
+  let out = injectComponentEngine(mod.html_content as string);
   if (link.kind === "client") out = injectShareBridge(out, token);
 
   // Le portail que voit le CLIENT est une INTERFACE (une app) → il porte le logo

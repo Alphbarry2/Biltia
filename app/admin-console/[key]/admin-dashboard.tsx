@@ -8,22 +8,28 @@ import {
   ShieldCheck, RefreshCw, LogOut, LayoutDashboard, Wallet, Coins, Users, Sparkles,
   TrendingUp, Cpu, Building2, Boxes, FileText, MessageSquare, Rocket, Timer, Activity,
   Repeat, AlertTriangle, Lock, GitBranch, Plug, Upload, Globe, Trophy, HelpCircle,
-  Layers, Tag, FileSignature, Wrench, Briefcase, BarChart3,
+  Layers, Tag, FileSignature, Wrench, Briefcase, BarChart3, KanbanSquare, Menu, X,
+  Bot, Gift, UserPlus, Hourglass,
 } from "lucide-react";
 import { AGENTS } from "@/lib/agents";
 import { getSector } from "@/lib/sectors";
 import {
-  Card, Kpi, Tile, AreaChart, BarList, Donut, BlockTitle,
-  nf, eur, usd, tok, pct, dur, type Point, type BarRow,
+  Card, Kpi, Tile, AreaChart, BarList, Donut, BlockTitle, TimeRangeSelect,
+  nf, eur, usd, tok, pct, dur, type Point, type BarRow, type RangeKey,
 } from "./admin-ui";
 import DemoBookingsSection from "./demo-bookings-section";
+import CrmSection from "./crm-section";
 
 // ── Type miroir de /api/admin/stats ──────────────────────────────────────────
 type Bucket = { key: string; calls: number; inTok: number; outTok: number; costUsd: number; credits: number };
 type Count = { key: string; count: number };
 type Stats = {
   generatedAt: string;
-  meta: { truncated: boolean; founderAccounts: number; costIsEstimate: boolean };
+  range: string;
+  meta: {
+    truncated: boolean; founderAccounts: number; costIsEstimate: boolean;
+    founderUnmetRequests: number; mrrIsEstimate: boolean; stripeConfigured: boolean;
+  };
   totals: {
     calls: number; costUsd: number; costEur: number; credits: number;
     inputTokens: number; outputTokens: number; salePerCreditEur: number;
@@ -33,6 +39,16 @@ type Stats = {
     clientConsumedValueEur: number; clientCredits: number; clientCostUsd: number;
     clientCostEur: number; marginPct: number | null; salePerCreditEur: number;
   };
+  revenueByPeriod: { day: string; amountEur: number }[];
+  agents: {
+    byStatus: Count[]; byTrigger: Count[]; runsTotal: number;
+    runsSuccessPct: number | null; runsFailed: number; runsBlocked: number;
+    creditsUsed: number; topRules: { title: string; runs: number; creditsUsed: number }[];
+  };
+  referralsStats: { byStatus: Count[]; totalBonusCredits: number };
+  invitations: { total: number; accepted: number; acceptanceRatePct: number | null; avgAcceptHours: number | null };
+  connectorsByProvider: Count[];
+  trial: { active: number; expiringSoon: number; convertedPct: number | null };
   internal: { costUsd: number; costEur: number; credits: number; calls: number };
   product: {
     users: number; tenants: number; apps: number; edits: number; documents: number;
@@ -95,19 +111,31 @@ const unmetLabel = (k: string) =>
   k === "capability" ? "Hors capacités (téléphonie, physique…)" : `Intégration : ${prettySlug(k.slice("integration:".length))}`;
 
 // ── Sections ──────────────────────────────────────────────────────────────────
-type SectionId = "overview" | "revenue" | "usage" | "clients" | "demand";
+type SectionId = "overview" | "revenue" | "usage" | "clients" | "demand" | "agents" | "crm";
 const NAV: { id: SectionId; label: string; icon: typeof LayoutDashboard; desc: string }[] = [
   { id: "overview", label: "Vue d'ensemble", icon: LayoutDashboard, desc: "L'essentiel en un coup d'œil : marge, argent, activité." },
-  { id: "revenue", label: "Revenus", icon: Wallet, desc: "Revenu estimé, marge, abonnements et crédits par client." },
+  { id: "revenue", label: "Revenus", icon: Wallet, desc: "CA réel Stripe, marge, abonnements, crédits et parrainage." },
   { id: "usage", label: "Usage & coûts", icon: Coins, desc: "Coûts API réels par modèle, par tâche et dans le temps." },
-  { id: "clients", label: "Clients & rétention", icon: Users, desc: "Activation, engagement et profil de la clientèle." },
+  { id: "clients", label: "Clients & rétention", icon: Users, desc: "Activation, engagement, secteurs, équipe et essai gratuit." },
   { id: "demand", label: "Demande produit", icon: Sparkles, desc: "Ce que demandent les utilisateurs et l'adoption." },
+  { id: "agents", label: "Agents IA", icon: Bot, desc: "Règles actives, exécutions et fiabilité des agents." },
+  { id: "crm", label: "CRM prospection", icon: KanbanSquare, desc: "Prospects démarchés : import CSV/Excel, pipeline, notes." },
 ];
 
 const costByDay = (d: Stats): Point[] => d.byDay.map((r) => ({ x: r.day.slice(5), y: r.costUsd, tip: `${r.calls} appel${r.calls > 1 ? "s" : ""}` }));
 // Valeur THÉORIQUE de la consommation (tout compris, tests inclus) — ≠ chiffre d'affaires.
 const valueByDay = (d: Stats): Point[] => d.byDay.map((r) => ({ x: r.day.slice(5), y: r.credits * d.totals.salePerCreditEur, tip: `${nf.format(r.credits)} crédits` }));
 const signupsPts = (d: Stats): Point[] => d.signupsByDay.map((r) => ({ x: r.day.slice(5), y: r.count, tip: r.day }));
+// Revenus ENCAISSÉS réels (Stripe, factures payées) — c'est du cash, pas une estimation.
+const revenuePts = (d: Stats): Point[] => d.revenueByPeriod.map((r) => ({ x: r.day.slice(5), y: r.amountEur, tip: r.day }));
+const AGENT_STATUS_LABELS: Record<string, string> = { active: "Actif", paused: "En pause", blocked: "Bloqué" };
+const agentStatusLabel = (k: string) => AGENT_STATUS_LABELS[k] ?? k;
+const AGENT_TRIGGER_LABELS: Record<string, string> = { schedule: "Planifié", event: "Événementiel" };
+const agentTriggerLabel = (k: string) => AGENT_TRIGGER_LABELS[k] ?? k;
+const REFERRAL_STATUS_LABELS: Record<string, string> = {
+  signed_up: "Inscrit", converted: "Converti (payant)", released: "Bonus versé", refunded: "Remboursé", void: "Annulé",
+};
+const referralStatusLabel = (k: string) => REFERRAL_STATUS_LABELS[k] ?? k;
 
 function CompanySizeTable({ rows }: { rows: Stats["byCompanySize"] }) {
   if (!rows.length) return <p className="py-4 text-sm text-[#9A9AA6]">Aucune entreprise avec un effectif renseigné.</p>;
@@ -172,7 +200,7 @@ function ActivityFeed({ rows }: { rows: Stats["activity"] }) {
   );
 }
 
-const GRID4 = "grid grid-cols-2 gap-4 lg:grid-cols-4";
+const GRID4 = "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4";
 const GRID3 = "grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3";
 
 function Overview({ d }: { d: Stats }) {
@@ -185,7 +213,7 @@ function Overview({ d }: { d: Stats }) {
         <Kpi icon={<Coins className="h-4 w-4" />} value={usd(d.totals.costUsd)} label="Coût API (estimé)" hint={`${eur(d.totals.costEur)} · ${d.totals.calls} appels`} />
         <Kpi icon={<Cpu className="h-4 w-4" />} value={usd(d.internal.costUsd)} label="Tests internes (R&D)" hint={`${nf.format(d.internal.calls)} appels · ${nf.format(d.internal.credits)} crédits`} />
       </div>
-      <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-6">
         <Tile icon={<Users className="h-4 w-4" />} value={nf.format(d.product.clientUsers)} label="Clients" />
         <Tile icon={<Building2 className="h-4 w-4" />} value={nf.format(d.product.tenants)} label="Espaces" />
         <Tile icon={<Boxes className="h-4 w-4" />} value={nf.format(d.product.apps)} label="Apps" />
@@ -206,17 +234,38 @@ function Revenue({ d }: { d: Stats }) {
   return (
     <div className="space-y-6">
       <div className={GRID4}>
-        <Kpi accent icon={<Wallet className="h-4 w-4" />} value={eur(d.business.mrrEur)} label="CA réel (MRR)" hint="abonnements payants actifs" />
+        <Kpi
+          accent
+          icon={<Wallet className="h-4 w-4" />}
+          value={eur(d.business.mrrEur)}
+          label="CA réel (MRR)"
+          hint={d.meta.mrrIsEstimate ? "estimation — Stripe indisponible" : "abonnements Stripe, lu en direct"}
+        />
         <Kpi icon={<TrendingUp className="h-4 w-4" />} value={pct(d.business.businessMarginPct)} label="Marge business" hint={d.business.payingTenants > 0 ? "(MRR − coût client) / MRR" : "aucun client payant"} />
         <Kpi icon={<Coins className="h-4 w-4" />} value={eur(d.business.clientConsumedValueEur)} label="Valeur consommée client" hint="théorique, si facturée au tarif Pro" />
         <Kpi icon={<Users className="h-4 w-4" />} value={nf.format(d.business.payingTenants)} label="Clients payants" hint="abonnements Pro actifs" />
       </div>
+      <Card className="p-5">
+        <BlockTitle icon={<Wallet className="h-4 w-4" />}>Revenus encaissés / jour (Stripe, sur la période)</BlockTitle>
+        <p className="mb-3 text-[12px] text-[#9A9AA6]">Factures réellement payées — du cash, pas une estimation.</p>
+        <AreaChart data={revenuePts(d)} format={eur} color="#7C3AED" empty={d.meta.stripeConfigured ? "Aucun encaissement sur la période." : "Stripe non configuré."} />
+      </Card>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card className="p-5"><BlockTitle icon={<Wallet className="h-4 w-4" />}>Valeur consommée / jour (théorique)</BlockTitle><AreaChart data={valueByDay(d)} format={eur} color="#EC4899" empty="Aucun crédit consommé." /></Card>
         <Card className="p-5"><BlockTitle icon={<Layers className="h-4 w-4" />}>Répartition des abonnements</BlockTitle><Donut data={d.plans.map((p) => ({ label: p.key, value: p.count }))} empty="Aucun abonnement payant." /></Card>
       </div>
       <Card className="p-5"><BlockTitle icon={<Users className="h-4 w-4" />}>Payé &amp; crédits par taille d&apos;entreprise</BlockTitle><CompanySizeTable rows={d.byCompanySize} /></Card>
       <Card className="p-5"><BlockTitle icon={<Trophy className="h-4 w-4" />}>Top comptes (crédits)</BlockTitle><TopConsumers rows={d.topConsumers} metric="credits" /></Card>
+      <Card className="p-5">
+        <BlockTitle icon={<Gift className="h-4 w-4" />}>Parrainage</BlockTitle>
+        <div className="grid gap-5 sm:grid-cols-2">
+          <BarList rows={toRows(d.referralsStats.byStatus, referralStatusLabel)} format={(n) => nf.format(n)} empty="Aucun parrainage." />
+          <div className="flex flex-col justify-center gap-1 rounded-xl bg-[#FAFAFB] p-4">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8A8A96]">Bonus versés (crédits)</p>
+            <p className="text-2xl font-black tabular-nums text-[#0A0A0A]">{nf.format(d.referralsStats.totalBonusCredits)}</p>
+          </div>
+        </div>
+      </Card>
     </div>
   );
 }
@@ -259,14 +308,21 @@ function Clients({ d }: { d: Stats }) {
       </div>
       <Card className="p-5"><BlockTitle icon={<Rocket className="h-4 w-4" />}>Inscriptions par jour</BlockTitle><AreaChart data={signupsPts(d)} format={(n) => nf.format(n)} color="#6366F1" empty="Aucune inscription." /></Card>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card className="p-5"><BlockTitle icon={<Briefcase className="h-4 w-4" />}>Secteur déclaré à l&apos;inscription</BlockTitle><BarList rows={toRows(d.demographics.bySector, sectorLabel)} format={(n) => nf.format(n)} empty="Aucun profil renseigné." /></Card>
         <Card className="p-5"><BlockTitle icon={<Globe className="h-4 w-4" />}>Par pays</BlockTitle><BarList rows={toRows(d.demographics.byCountry, countryLabel)} format={(n) => nf.format(n)} empty="Aucun profil renseigné." /></Card>
-        <Card className="p-5"><BlockTitle icon={<Users className="h-4 w-4" />}>Par effectif</BlockTitle><BarList rows={toRows(d.demographics.byHeadcount, headcountLabel)} format={(n) => nf.format(n)} empty="Aucun profil renseigné." /></Card>
       </div>
+      <Card className="p-5"><BlockTitle icon={<Users className="h-4 w-4" />}>Par effectif</BlockTitle><BarList rows={toRows(d.demographics.byHeadcount, headcountLabel)} format={(n) => nf.format(n)} empty="Aucun profil renseigné." /></Card>
       <div className={GRID4}>
         <Kpi icon={<AlertTriangle className="h-4 w-4" />} value={pct(d.quality.failureRatePct)} label="Échecs génération" hint={`${nf.format(d.quality.generationsFailed)} raté(s)`} />
         <Kpi icon={<Lock className="h-4 w-4" />} value={nf.format(d.quality.creditsBlocked)} label="Crédits bloqués" hint="occasions d'upsell" />
         <Kpi icon={<GitBranch className="h-4 w-4" />} value={d.iteration.avgVersionsPerApp == null ? "—" : `${d.iteration.avgVersionsPerApp}`} label="Versions / app" hint={`${d.iteration.appsHeavilyIterated} app(s) > 3 versions`} />
         <Kpi icon={<Repeat className="h-4 w-4" />} value={d.iteration.editToCreate == null ? "—" : `${d.iteration.editToCreate}×`} label="Modif / création" hint="itérations par app" />
+      </div>
+      <div className={GRID4}>
+        <Kpi icon={<UserPlus className="h-4 w-4" />} value={nf.format(d.invitations.total)} label="Invitations envoyées" />
+        <Kpi icon={<UserPlus className="h-4 w-4" />} value={pct(d.invitations.acceptanceRatePct)} label="Taux d'acceptation" hint={`${d.invitations.accepted}/${d.invitations.total} acceptée(s)`} />
+        <Kpi icon={<Hourglass className="h-4 w-4" />} value={d.trial.active === 0 && d.trial.expiringSoon === 0 ? "—" : nf.format(d.trial.active)} label="Essais gratuits actifs" hint={`${d.trial.expiringSoon} expire(nt) sous 7 j`} />
+        <Kpi icon={<TrendingUp className="h-4 w-4" />} value={pct(d.trial.convertedPct)} label="Conversion essai → payant" />
       </div>
     </div>
   );
@@ -309,6 +365,11 @@ function Demand({ d }: { d: Stats }) {
             </div>
           </div>
         )}
+        {d.meta.founderUnmetRequests > 0 && (
+          <p className="mt-3 border-t border-[#F0F0F4] pt-3 text-[11px] text-[#B4B4BE]">
+            + {d.meta.founderUnmetRequests} demande{d.meta.founderUnmetRequests > 1 ? "s" : ""} issue{d.meta.founderUnmetRequests > 1 ? "s" : ""} d&apos;un compte de test (dont potentiellement le vôtre), exclue{d.meta.founderUnmetRequests > 1 ? "s" : ""} pour ne pas polluer le signal client réel.
+          </p>
+        )}
       </Card>
       <Card className="p-5">
         <BlockTitle icon={<MessageSquare className="h-4 w-4" />}>Questions récentes</BlockTitle>
@@ -339,6 +400,41 @@ function Demand({ d }: { d: Stats }) {
           <Tile icon={<FileSignature className="h-4 w-4" />} value={nf.format(d.adoption.generatedDocuments)} label="Docs générés" />
         </div>
       </div>
+      <Card className="p-5"><BlockTitle icon={<Plug className="h-4 w-4" />}>Connecteurs par fournisseur</BlockTitle><BarList rows={toRows(d.connectorsByProvider, prettySlug)} format={nfmt} empty="Aucun connecteur branché." /></Card>
+    </div>
+  );
+}
+
+function TopRules({ rows }: { rows: Stats["agents"]["topRules"] }) {
+  if (!rows.length) return <p className="py-4 text-sm text-[#9A9AA6]">Aucune règle exécutée sur la période.</p>;
+  return (
+    <div className="divide-y divide-[#F0F0F4]">
+      {rows.map((r, i) => (
+        <div key={i} className="flex items-center gap-3 py-2.5">
+          <span className="min-w-0 flex-1 truncate text-sm text-[#0A0A0A]">{r.title}</span>
+          <span className="w-24 text-right text-xs text-[#9A9AA6]">{r.runs} exécution{r.runs > 1 ? "s" : ""}</span>
+          <span className="w-20 text-right text-sm font-semibold tabular-nums text-[#0A0A0A]">{nf.format(r.creditsUsed)} cr</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Agents({ d }: { d: Stats }) {
+  const nfmt = (n: number) => nf.format(n);
+  return (
+    <div className="space-y-6">
+      <div className={GRID4}>
+        <Kpi icon={<Bot className="h-4 w-4" />} value={nf.format(d.agents.runsTotal)} label="Exécutions" hint="sur la période" />
+        <Kpi icon={<TrendingUp className="h-4 w-4" />} value={pct(d.agents.runsSuccessPct)} label="Taux de succès" hint={`${d.agents.runsFailed} échec(s)`} />
+        <Kpi icon={<Lock className="h-4 w-4" />} value={nf.format(d.agents.runsBlocked)} label="Bloquées" hint="budget ou config manquante" />
+        <Kpi icon={<Coins className="h-4 w-4" />} value={nf.format(d.agents.creditsUsed)} label="Crédits consommés" hint="par les agents" />
+      </div>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card className="p-5"><BlockTitle icon={<Bot className="h-4 w-4" />}>Règles par statut</BlockTitle><BarList rows={toRows(d.agents.byStatus, agentStatusLabel)} format={nfmt} empty="Aucun agent créé." /></Card>
+        <Card className="p-5"><BlockTitle icon={<Timer className="h-4 w-4" />}>Par déclencheur</BlockTitle><BarList rows={toRows(d.agents.byTrigger, agentTriggerLabel)} format={nfmt} empty="Aucun agent créé." /></Card>
+      </div>
+      <Card className="p-5"><BlockTitle icon={<Trophy className="h-4 w-4" />}>Agents les plus actifs</BlockTitle><TopRules rows={d.agents.topRules} /></Card>
     </div>
   );
 }
@@ -350,12 +446,14 @@ export default function AdminDashboard({ email }: { email: string }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [section, setSection] = useState<SectionId>("overview");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [range, setRange] = useState<RangeKey>("30d");
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (r: RangeKey) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/admin/stats", { cache: "no-store" });
+      const res = await fetch(`/api/admin/stats?range=${r}`, { cache: "no-store" });
       if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error ?? "Erreur");
       setData((await res.json()) as Stats);
     } catch (e) {
@@ -366,8 +464,8 @@ export default function AdminDashboard({ email }: { email: string }) {
   }, []);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void load(range);
+  }, [load, range]);
 
   const signOut = async () => {
     await createClient().auth.signOut();
@@ -378,8 +476,21 @@ export default function AdminDashboard({ email }: { email: string }) {
 
   return (
     <div className="flex h-[100dvh] overflow-hidden bg-[#FCFCFD] text-[#0A0A0A]">
+      {/* Backdrop mobile */}
+      {sidebarOpen && (
+        <div
+          aria-hidden
+          className="fixed inset-0 z-20 bg-black/30 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <aside className="relative z-10 flex w-60 shrink-0 flex-col border-r border-[#ECECF2] bg-white">
+      <aside
+        className={`fixed inset-y-0 left-0 z-30 flex w-72 max-w-[85vw] shrink-0 flex-col border-r border-[#ECECF2] bg-white transition-transform duration-200 ease-out lg:static lg:z-10 lg:w-60 lg:max-w-none lg:translate-x-0 ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
         <div className="flex items-center gap-2.5 px-5 py-5">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 via-violet-500 to-pink-500 shadow-[0_8px_20px_rgba(139,92,246,0.4)]">
             <ShieldCheck className="h-5 w-5 text-white" />
@@ -388,6 +499,13 @@ export default function AdminDashboard({ email }: { email: string }) {
             <p className="text-[15px] font-black leading-tight tracking-[-0.02em]">Console Biltia</p>
             <p className="text-[11px] text-[#9A9AA6]">Terminal interne</p>
           </div>
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="ml-auto rounded-lg p-1.5 text-[#9A9AA6] hover:bg-[#F6F6F9] lg:hidden"
+            aria-label="Fermer le menu"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
         <nav className="flex flex-1 flex-col gap-1 px-3 py-2">
           {NAV.map((item) => {
@@ -396,7 +514,10 @@ export default function AdminDashboard({ email }: { email: string }) {
             return (
               <button
                 key={item.id}
-                onClick={() => setSection(item.id)}
+                onClick={() => {
+                  setSection(item.id);
+                  setSidebarOpen(false);
+                }}
                 className={`flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
                   on
                     ? "bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 text-white shadow-[0_8px_20px_rgba(139,92,246,0.32)]"
@@ -433,59 +554,79 @@ export default function AdminDashboard({ email }: { email: string }) {
         </div>
 
         {/* Top bar */}
-        <div className="sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-[#ECECF2] bg-[#FCFCFD]/80 px-8 py-4 backdrop-blur-md">
-          <div>
-            <h1 className="text-lg font-black tracking-[-0.02em]">{active.label}</h1>
-            <p className="text-xs text-[#9A9AA6]">{active.desc}</p>
+        <div className="sticky top-0 z-20 flex flex-col gap-3 border-b border-[#ECECF2] bg-[#FCFCFD]/80 px-4 py-3 backdrop-blur-md sm:px-6 lg:px-8 lg:py-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className="shrink-0 rounded-xl border border-[#ECECF2] bg-white p-2 text-[#4B4B55] hover:bg-[#F6F6F9] lg:hidden"
+                aria-label="Ouvrir le menu"
+              >
+                <Menu className="h-4 w-4" />
+              </button>
+              <div className="min-w-0">
+                <h1 className="truncate text-base font-black tracking-[-0.02em] sm:text-lg">{active.label}</h1>
+                <p className="hidden text-xs text-[#9A9AA6] sm:block">{active.desc}</p>
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+              <span className="hidden text-[11px] text-[#9A9AA6] md:block">
+                {data ? `maj ${new Date(data.generatedAt).toLocaleTimeString("fr-FR")}` : ""}
+              </span>
+              <button
+                onClick={() => load(range)}
+                disabled={loading}
+                className="flex items-center gap-2 rounded-xl border border-[#ECECF2] bg-white px-3 py-2 text-sm font-semibold text-[#0A0A0A] transition-colors hover:bg-[#F6F6F9] disabled:opacity-60 sm:px-3.5"
+              >
+                <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+                <span className="hidden sm:inline">Actualiser</span>
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="hidden text-[11px] text-[#9A9AA6] sm:block">
-              {data ? `maj ${new Date(data.generatedAt).toLocaleTimeString("fr-FR")}` : ""}
-            </span>
-            <button
-              onClick={load}
-              disabled={loading}
-              className="flex items-center gap-2 rounded-xl border border-[#ECECF2] bg-white px-3.5 py-2 text-sm font-semibold text-[#0A0A0A] transition-colors hover:bg-[#F6F6F9] disabled:opacity-60"
-            >
-              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Actualiser
-            </button>
-          </div>
+          {section !== "crm" && <TimeRangeSelect value={range} onChange={setRange} />}
         </div>
 
-        <div className="mx-auto max-w-[1400px] px-8 py-6">
-          {loading && !data && (
-            <div className="flex items-center gap-2 text-sm text-[#6E6E6C]">
-              <RefreshCw className="h-4 w-4 animate-spin" /> Chargement des statistiques réelles…
-            </div>
-          )}
-          {error && (
-            <Card className="border-rose-100 bg-rose-50 p-4">
-              <p className="text-sm text-rose-600">{error}</p>
-            </Card>
-          )}
-          {data && (
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={section}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.22 }}
-              >
-                {section === "overview" && <Overview d={data} />}
-                {section === "revenue" && <Revenue d={data} />}
-                {section === "usage" && <Usage d={data} />}
-                {section === "clients" && <Clients d={data} />}
-                {section === "demand" && <Demand d={data} />}
-              </motion.div>
-            </AnimatePresence>
-          )}
+        <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8">
+          {section === "crm" ? (
+            <CrmSection />
+          ) : (
+            <>
+              {loading && !data && (
+                <div className="flex items-center gap-2 text-sm text-[#6E6E6C]">
+                  <RefreshCw className="h-4 w-4 animate-spin" /> Chargement des statistiques réelles…
+                </div>
+              )}
+              {error && (
+                <Card className="border-rose-100 bg-rose-50 p-4">
+                  <p className="text-sm text-rose-600">{error}</p>
+                </Card>
+              )}
+              {data && (
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={section}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    transition={{ duration: 0.22 }}
+                  >
+                    {section === "overview" && <Overview d={data} />}
+                    {section === "revenue" && <Revenue d={data} />}
+                    {section === "usage" && <Usage d={data} />}
+                    {section === "clients" && <Clients d={data} />}
+                    {section === "demand" && <Demand d={data} />}
+                    {section === "agents" && <Agents d={data} />}
+                  </motion.div>
+                </AnimatePresence>
+              )}
 
-          <p className="mt-8 text-center text-[11px] text-[#B4B4BE]">
-            {data
-              ? `Toutes les lignes agrégées (${usd(data.totals.costUsd)} de coût API estimé sur ${data.totals.calls} appels, dont ${data.meta.founderAccounts} compte(s) de test isolé(s)). CA = abonnements payants réels ; « valeur consommée » = théorique. Coût API estimé (calcul interne, peut différer légèrement de la facture fournisseur : tarif intro Sonnet, cache). Optimisé pour desktop.`
-              : "…"}
-          </p>
+              <p className="mt-8 text-center text-[11px] text-[#B4B4BE]">
+                {data
+                  ? `Toutes les lignes agrégées (${usd(data.totals.costUsd)} de coût API estimé sur ${data.totals.calls} appels, dont ${data.meta.founderAccounts} compte(s) de test isolé(s)). CA = ${data.meta.mrrIsEstimate ? "estimation (Stripe indisponible)" : "abonnements Stripe réels"} ; « valeur consommée » = théorique. Coût API estimé (calcul interne, peut différer légèrement de la facture fournisseur : tarif intro Sonnet, cache).`
+                  : "…"}
+              </p>
+            </>
+          )}
         </div>
       </main>
     </div>

@@ -29,26 +29,26 @@ export const PRODUCTS: Product[] = [
   {
     slug: "agents",
     name: "Agents autonomes",
-    tagline: "Des employés IA qui travaillent tous les jours",
+    tagline: "Des agents IA qui exécutent vos tâches récurrentes et vous rendent compte de chaque action.",
     icon: "Bot",
     accent: ["#7C3AED", "#22D3EE"],
     hero: "Dites-le une fois. C'est fait tous les jours.",
     sub: "Relances clients, contrôles du soir, rappels d'échéances : confiez la mission une seule fois, Biltia l'exécute seul, en temps et en heure, et vous rend compte.",
     features: [
-      { title: "Recruté en une phrase", body: "« Relance mes devis sans réponse tous les jours à 9h. » C'est tout : l'agent est au travail dès le lendemain." },
+      { title: "Recruté en une phrase", body: "« Relance mes devis sans réponse tous les jours à 9 h. » C'est tout : l'agent est au travail dès le lendemain." },
       { title: "Fiable et transparent", body: "Chaque passage est tracé dans un journal. S'il lui manque une info (un email, un numéro), il vous la demande au lieu d'inventer." },
       { title: "Sous votre contrôle", body: "Pause, reprise, suppression en un clic. Le coût est annoncé au recrutement et débité au réel, jamais de surprise." },
     ],
     examples: [
       "Relance le client Martin tous les jours à midi jusqu'à sa réponse.",
-      "Chaque soir à 18h, vérifie mes factures impayées et fais-moi le point.",
+      "Chaque soir à 18 h, vérifie mes factures impayées et fais-moi le point.",
       "Préviens-moi dès qu'un document d'un sous-traitant expire.",
     ],
   },
   {
     slug: "documents",
     name: "Documents intelligents",
-    tagline: "Avenants, PV, devis, courriers, prêts à signer",
+    tagline: "Devis, avenants, procès-verbaux et courriers générés à partir de vos informations.",
     icon: "FileText",
     accent: ["#6366F1", "#A855F7"],
     hero: "Le bon document, dicté en 30 secondes.",
@@ -56,7 +56,7 @@ export const PRODUCTS: Product[] = [
     features: [
       { title: "Conforme au métier", body: "Structure, mentions légales et calculs HT/TVA/TTC corrects selon le type de document." },
       { title: "Prêt à signer", body: "Bouton Imprimer / Enregistrer en PDF, et pavés de signature tactiles du bout du doigt." },
-      { title: "Pré-rempli", body: "Biltia reprend les données de votre workspace : clients, chantiers, tarifs." },
+      { title: "Pré-rempli", body: "Biltia reprend les données de la mémoire de votre entreprise : clients, chantiers, tarifs." },
     ],
     examples: [
       "Sors-moi l'avenant pour 45 m² de carrelage validé à 42 €/m² sur le chantier Villa Dumont.",
@@ -67,7 +67,7 @@ export const PRODUCTS: Product[] = [
   {
     slug: "applications",
     name: "Applications sur mesure",
-    tagline: "Des outils métier générés en secondes",
+    tagline: "Des outils métier adaptés à votre façon de travailler, créés à partir d'une simple demande.",
     icon: "LayoutGrid",
     accent: ["#A855F7", "#EC4899"],
     hero: "Votre outil, exactement comme vous le voulez.",
@@ -75,7 +75,7 @@ export const PRODUCTS: Product[] = [
     features: [
       { title: "En quelques secondes", body: "Une description en français suffit. Pas de menus, pas de configuration." },
       { title: "Modifiable à la voix", body: "Ajoutez une colonne, une alerte, une signature. Dites-le, c'est fait." },
-      { title: "Reliée au workspace", body: "Vos apps partagent les mêmes clients, chantiers et équipes." },
+      { title: "Reliée à votre entreprise", body: "Vos apps partagent les mêmes clients, chantiers et équipes." },
     ],
     examples: [
       "Je veux un suivi de mes chantiers avec le client, l'avancement en % et le reste à facturer.",
@@ -86,7 +86,7 @@ export const PRODUCTS: Product[] = [
   {
     slug: "automatisations",
     name: "Automatisations",
-    tagline: "Vérifications, rapprochements, workflows",
+    tagline: "Des tâches déclenchées automatiquement selon vos règles, vos dates et vos données.",
     icon: "Zap",
     accent: ["#EC4899", "#FB923C"],
     hero: "Les corvées répétitives, en pilote automatique.",
@@ -105,7 +105,7 @@ export const PRODUCTS: Product[] = [
   {
     slug: "analyse",
     name: "Analyse de documents",
-    tagline: "Devis, factures et plans, lus et résumés",
+    tagline: "Vos devis, factures, plans et PDF sont lus, vérifiés et résumés.",
     icon: "ScanLine",
     accent: ["#FB923C", "#F43F5E"],
     hero: "Vos documents, compris en un instant.",
@@ -113,7 +113,7 @@ export const PRODUCTS: Product[] = [
     features: [
       { title: "Extraction fiable", body: "Montants, échéances, quantités, références : l'essentiel remonte automatiquement." },
       { title: "Questions en langage naturel", body: "Demandez ce que vous voulez savoir sur un document, obtenez la réponse." },
-      { title: "Alimente le workspace", body: "Les données extraites enrichissent la mémoire de l'entreprise." },
+      { title: "Alimente la mémoire de l'entreprise", body: "Les données extraites enrichissent la mémoire de l'entreprise." },
     ],
     examples: [
       "Analyse ce devis fournisseur et dis-moi si les prix sont cohérents avec le marché.",
@@ -123,14 +123,14 @@ export const PRODUCTS: Product[] = [
   },
   {
     slug: "copilote",
-    name: "Copilote & réponses",
-    tagline: "Répond à vos questions sur vos données",
+    name: "Réponses instantanées",
+    tagline: "Posez des questions sur vos clients, vos chantiers, vos devis et votre activité.",
     icon: "MessageCircle",
     accent: ["#22D3EE", "#6366F1"],
     hero: "Une question ? Une réponse, tout de suite.",
-    sub: "Quels chantiers sont en retard ? Combien me doit ce client ? Biltia interroge votre workspace et répond, sourcé sur vos vraies données.",
+    sub: "Quels chantiers sont en retard ? Combien me doit ce client ? Biltia interroge la mémoire de votre entreprise et répond, sourcé sur vos vraies données.",
     features: [
-      { title: "Appuyé sur vos données", body: "Les réponses viennent de votre workspace, pas d'un modèle générique." },
+      { title: "Appuyé sur vos données", body: "Les réponses viennent de la mémoire de votre entreprise, pas d'un modèle générique." },
       { title: "Métier BTP natif", body: "DOE, situations, retenue de garantie, RGE : Biltia parle votre langue." },
       { title: "Toujours à jour", body: "Chaque demande s'appuie sur ce que vous avez enregistré la veille." },
     ],
@@ -142,8 +142,8 @@ export const PRODUCTS: Product[] = [
   },
   {
     slug: "workspace",
-    name: "Workspace unifié",
-    tagline: "La mémoire de votre entreprise",
+    name: "Mémoire de l'entreprise",
+    tagline: "Toutes les informations de votre entreprise sont reliées et réutilisables.",
     icon: "FolderKanban",
     accent: ["#6366F1", "#22D3EE"],
     hero: "La mémoire irremplaçable de votre entreprise.",
@@ -183,7 +183,7 @@ const PRODUCT_EN: Record<
 > = {
   agents: {
     name: "Autonomous agents",
-    tagline: "AI employees that show up every single day",
+    tagline: "AI agents that run your recurring tasks and report back on every action.",
     hero: "Say it once. It gets done every day.",
     sub: "Client follow-ups, evening checks, deadline reminders: hand over the job just once, and Biltia runs it on its own, right on time, and reports back to you.",
     features: [
@@ -199,13 +199,13 @@ const PRODUCT_EN: Record<
   },
   documents: {
     name: "Smart documents",
-    tagline: "Change orders, sign-offs, quotes, letters, ready to sign",
+    tagline: "Quotes, change orders, sign-off reports and letters generated from your own information.",
     hero: "The right document, dictated in 30 seconds.",
     sub: "Change order, handover sign-off, quote, formal notice, certificate, letter. Biltia writes it, runs the numbers, and gets it ready to sign.",
     features: [
       { title: "Built for the trade", body: "Correct structure, legal wording, and net/VAT/gross calculations for each type of document." },
       { title: "Ready to sign", body: "Print / Save as PDF button, plus signature blocks you can sign right on screen with your finger." },
-      { title: "Pre-filled", body: "Biltia pulls in your workspace data: clients, job sites, pricing." },
+      { title: "Pre-filled", body: "Biltia pulls in your company's memory: clients, job sites, pricing." },
     ],
     examples: [
       "Draw up the change order for 45 sq m of tiling approved at €42/sq m on the Villa Dumont job.",
@@ -215,13 +215,13 @@ const PRODUCT_EN: Record<
   },
   applications: {
     name: "Custom applications",
-    tagline: "Business tools generated in seconds",
+    tagline: "Business tools shaped around how you work, built from a simple request.",
     hero: "Your tool, exactly the way you want it.",
     sub: "Job tracking, timesheets, inventory, scheduling. Describe what you need and Biltia builds the app, ready to use from the job site.",
     features: [
       { title: "In just seconds", body: "A plain-English description is all it takes. No menus, no setup." },
       { title: "Editable by voice", body: "Add a column, an alert, a signature. Just say it, and it's done." },
-      { title: "Wired to your workspace", body: "Your apps share the same clients, job sites, and crews." },
+      { title: "Connected to your business", body: "Your apps share the same clients, job sites, and crews." },
     ],
     examples: [
       "I want a job tracker with the client, percent complete, and amount left to invoice.",
@@ -231,7 +231,7 @@ const PRODUCT_EN: Record<
   },
   automatisations: {
     name: "Automations",
-    tagline: "Checks, reconciliations, workflows",
+    tagline: "Tasks triggered automatically by your rules, dates and data.",
     hero: "The repetitive grunt work, on autopilot.",
     sub: "Price checks, delivery-note reconciliation, follow-ups. Biltia processes your batches of files and flags whatever's off.",
     features: [
@@ -247,13 +247,13 @@ const PRODUCT_EN: Record<
   },
   analyse: {
     name: "Document analysis",
-    tagline: "Quotes, invoices, and plans, read and summarized",
+    tagline: "Your quotes, invoices, plans and PDFs, read, checked and summarized.",
     hero: "Your documents, understood in an instant.",
     sub: "Quotes, invoices, plans, PDFs: Biltia reads them, pulls out what matters, and answers your questions about them.",
     features: [
       { title: "Reliable extraction", body: "Amounts, due dates, quantities, references: the essentials surface automatically." },
       { title: "Questions in plain language", body: "Ask whatever you need to know about a document and get the answer." },
-      { title: "Feeds the workspace", body: "The extracted data enriches your company's memory." },
+      { title: "Feeds your company's memory", body: "The extracted data enriches your company's memory." },
     ],
     examples: [
       "Analyze this supplier quote and tell me whether the prices are in line with the market.",
@@ -262,12 +262,12 @@ const PRODUCT_EN: Record<
     ],
   },
   copilote: {
-    name: "Copilot & answers",
-    tagline: "Answers your questions about your data",
+    name: "Instant answers",
+    tagline: "Ask questions about your clients, your job sites, your quotes and your activity.",
     hero: "Got a question? An answer, right away.",
-    sub: "Which jobs are behind schedule? How much does this client owe me? Biltia queries your workspace and answers, sourced from your real data.",
+    sub: "Which jobs are behind schedule? How much does this client owe me? Biltia queries your company's memory and answers, sourced from your real data.",
     features: [
-      { title: "Grounded in your data", body: "Answers come from your workspace, not a generic model." },
+      { title: "Grounded in your data", body: "Answers come from your company's memory, not a generic model." },
       { title: "Native to the building trade", body: "DOE (as-builts), progress billing, retention, RGE: Biltia speaks your language." },
       { title: "Always current", body: "Every request draws on what you logged the day before." },
     ],
@@ -278,8 +278,8 @@ const PRODUCT_EN: Record<
     ],
   },
   workspace: {
-    name: "Unified workspace",
-    tagline: "Your company's memory",
+    name: "Company memory",
+    tagline: "All your company's information, connected and reusable.",
     hero: "Your company's irreplaceable memory.",
     sub: "Clients, job sites, documents, crews, applications, and history, all in one place. The more you use Biltia, the better it understands your business.",
     features: [

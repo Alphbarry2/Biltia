@@ -15,7 +15,7 @@
 // CSS déjà présent (.table-wrap, .btn, .modal, .badge, .kpi…).
 // ─────────────────────────────────────────────────────────────────────────────
 
-const COMPONENT_MARKER = "__biltia_ui_v3__";
+const COMPONENT_MARKER = "__biltia_ui_v4__";
 
 export const BILTIA_UI_SCRIPT = `<script>
 /* ${COMPONENT_MARKER} */
@@ -62,21 +62,70 @@ export const BILTIA_UI_SCRIPT = `<script>
   // ── TABLE ────────────────────────────────────────────────────────────────
   // opts: { entity, columns:[{key,label,type}], search, order, ascending, match,
   //         limit, onRowClick(row), rowActions:[{label,onClick(row)}], title }
+  // Colonne relationnelle : { key:'employee_id', label:'Équipier', type:'relation',
+  // relation:'employees' } → résout l'uuid en libellé humain (même patron que
+  // biltiaUI.form). Filet de sécurité : même sans déclaration, tout id brut à
+  // l'écran est masqué (« — ») plutôt qu'affiché — un artisan ne doit JAMAIS voir
+  // un uuid ou un code, seulement des noms qu'il reconnaît.
+  var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  function looksLikeId(v){ return typeof v === 'string' && UUID_RE.test(v); }
+  function relatedLabel(row){ return (row.prenom ? (row.prenom+' '+(row.nom||'')).trim() : null) || row.nom || row.title || row.titre || row.numero || row.designation || row.id; }
+  function ensureTableStyle(){
+    if (document.getElementById('biltia-tbl-style')) return;
+    var st = document.createElement('style'); st.id = 'biltia-tbl-style';
+    // Tient l'accent de CHAQUE app (var(--soft)/--tint sont posées par son propre thème) :
+    // un tableau généré ne doit jamais retomber sur du gris neutre plat.
+    st.textContent = '.biltia-tbl-th{background:var(--soft,#F6F6F9);color:var(--mut,#6E6E6C)}'
+      + '.biltia-tbl-row:hover td{background:var(--tint,#EEEBFE)}'
+      + '.biltia-tbl-row:nth-child(even) td{background:var(--soft,#FAFAFA)}'
+      + '.biltia-tbl-row:nth-child(even):hover td{background:var(--tint,#EEEBFE)}';
+    document.head.appendChild(st);
+  }
   function table(h, opts){
     var node = host(h); if(!node) return;
     opts = opts || {}; var cols = opts.columns || [];
-    var state = { rows: [], q: '', sortKey: null, sortAsc: true };
+    ensureTableStyle();
+    var relEntities = []; cols.forEach(function(c){ if(c.type==='relation' && c.relation && relEntities.indexOf(c.relation)<0) relEntities.push(c.relation); });
+    var state = { rows: [], q: '', sortCol: null, sortAsc: true, rel: {} };
     var firstLoad = true;
     setState(node,'loading');
+    function loadRelations(){
+      if (!relEntities.length) return Promise.resolve();
+      return Promise.all(relEntities.map(function(ent){
+        return window.biltia.list(ent,{limit:500}).then(function(rows){
+          var map={}; (rows||[]).forEach(function(r){ map[r.id]=relatedLabel(r); });
+          state.rel[ent]=map;
+        }).catch(function(){ state.rel[ent]=state.rel[ent]||{}; });
+      }));
+    }
+    function resolvedValue(row, c){
+      var raw = row[c.key];
+      if (c.type === 'relation' && c.relation){
+        if (raw == null || raw === '') return null;
+        var map = state.rel[c.relation] || {};
+        return map[raw] != null ? map[raw] : null;
+      }
+      return raw;
+    }
+    function displayValue(row, c){
+      if (c.type === 'relation' && c.relation){ var v=resolvedValue(row,c); return v==null?'—':String(v); }
+      var raw = row[c.key];
+      if (looksLikeId(raw)) return '—';
+      return fmt(raw, c.type);
+    }
+    function sortValue(row, c){ var v = resolvedValue(row, c); return looksLikeId(v) ? null : v; }
+    function searchValue(row, c){ var v = resolvedValue(row, c); return looksLikeId(v) ? '' : (v == null ? '' : String(v)); }
     function load(){
-      return window.biltia.list(opts.entity, { order: opts.order||'created_at', ascending: opts.ascending===true, match: opts.match||null, limit: opts.limit||200 })
-        .then(function(rows){ state.rows = rows||[]; render(); if(firstLoad){ firstLoad=false; trk('view_opened',{view:'table',entity:opts.entity}); } })
+      return Promise.all([
+        window.biltia.list(opts.entity, { order: opts.order||'created_at', ascending: opts.ascending===true, match: opts.match||null, limit: opts.limit||200 }),
+        loadRelations()
+      ]).then(function(res){ state.rows = res[0]||[]; render(); if(firstLoad){ firstLoad=false; trk('view_opened',{view:'table',entity:opts.entity}); } })
         .catch(function(){ setState(node,'error','Impossible de charger les données du workspace.'); trk('action_failed',{entity:opts.entity,action:'load'}); });
     }
     function filtered(){
       var r = state.rows;
-      if (state.q){ var q = state.q.toLowerCase(); r = r.filter(function(row){ return cols.some(function(c){ return String(row[c.key]==null?'':row[c.key]).toLowerCase().indexOf(q) >= 0; }); }); }
-      if (state.sortKey){ r = r.slice().sort(function(a,b){ var x=a[state.sortKey], y=b[state.sortKey]; if(x==null)return 1; if(y==null)return -1; if(x<y)return state.sortAsc?-1:1; if(x>y)return state.sortAsc?1:-1; return 0; }); }
+      if (state.q){ var q = state.q.toLowerCase(); r = r.filter(function(row){ return cols.some(function(c){ return String(searchValue(row,c)).toLowerCase().indexOf(q) >= 0; }); }); }
+      if (state.sortCol){ var col = state.sortCol; r = r.slice().sort(function(a,b){ var x=sortValue(a,col), y=sortValue(b,col); if(x==null)return 1; if(y==null)return -1; if(x<y)return state.sortAsc?-1:1; if(x>y)return state.sortAsc?1:-1; return 0; }); }
       return r;
     }
     function render(){
@@ -89,8 +138,8 @@ export const BILTIA_UI_SCRIPT = `<script>
       var wrap = el('div',{class:'table-wrap'});
       var tbl = el('table');
       var thead = el('thead'); var htr = el('tr');
-      cols.forEach(function(c){ htr.appendChild(el('th',{ style:'cursor:pointer', onclick:function(){ if(state.sortKey===c.key)state.sortAsc=!state.sortAsc; else{state.sortKey=c.key;state.sortAsc=true;} renderBody(); }, text: c.label||c.key })); });
-      if (opts.rowActions && opts.rowActions.length) htr.appendChild(el('th',{text:''}));
+      cols.forEach(function(c){ htr.appendChild(el('th',{ class:'biltia-tbl-th', style:'cursor:pointer', onclick:function(){ if(state.sortCol===c)state.sortAsc=!state.sortAsc; else{state.sortCol=c;state.sortAsc=true;} renderBody(); }, text: c.label||c.key })); });
+      if (opts.rowActions && opts.rowActions.length) htr.appendChild(el('th',{class:'biltia-tbl-th',text:''}));
       thead.appendChild(htr); tbl.appendChild(thead);
       var tbody = el('tbody'); tbl.appendChild(tbody); wrap.appendChild(tbl); node.appendChild(wrap);
       node._tbody = tbody; renderBody();
@@ -100,8 +149,8 @@ export const BILTIA_UI_SCRIPT = `<script>
       var rows = filtered();
       if (!rows.length){ var tr=el('tr'); tr.appendChild(el('td',{colspan:String(cols.length+1),html:'<div class="empty"><div class="empty-title">Aucun résultat</div></div>'})); tbody.appendChild(tr); return; }
       rows.forEach(function(row){
-        var tr = el('tr',{ style: opts.onRowClick?'cursor:pointer':'', onclick: opts.onRowClick?function(){opts.onRowClick(row);}:null });
-        cols.forEach(function(c){ tr.appendChild(el('td',{title:String(row[c.key]==null?'':row[c.key]),text: fmt(row[c.key], c.type)})); });
+        var tr = el('tr',{ class:'biltia-tbl-row', style: opts.onRowClick?'cursor:pointer':'', onclick: opts.onRowClick?function(){opts.onRowClick(row);}:null });
+        cols.forEach(function(c){ var dv=displayValue(row,c); tr.appendChild(el('td',{title:String(dv),text: dv})); });
         if (opts.rowActions && opts.rowActions.length){
           var td = el('td'); opts.rowActions.forEach(function(a){ td.appendChild(el('button',{class:'btn btn-ghost btn-sm',style:'margin-right:6px',onclick:function(ev){ev.stopPropagation();a.onClick(row);},text:a.label})); }); tr.appendChild(td);
         }
@@ -180,7 +229,7 @@ export const BILTIA_UI_SCRIPT = `<script>
       var input;
       if (f.type==='relation' && f.relation){
         input = el('select'); input.appendChild(el('option',{value:'',text:'—'}));
-        window.biltia.list(f.relation,{limit:500}).then(function(rows){ (rows||[]).forEach(function(r){ var label=r.nom||(r.prenom?(r.prenom+' '+(r.nom||'')):null)||r.title||r.titre||r.numero||r.designation||r.id; var o=el('option',{value:r.id,text:label}); if(String(rec[f.key])===String(r.id))o.setAttribute('selected','selected'); input.appendChild(o); }); }).catch(function(){});
+        window.biltia.list(f.relation,{limit:500}).then(function(rows){ (rows||[]).forEach(function(r){ var o=el('option',{value:r.id,text:relatedLabel(r)}); if(String(rec[f.key])===String(r.id))o.setAttribute('selected','selected'); input.appendChild(o); }); }).catch(function(){});
       } else if (f.type==='select' || f.type==='status'){
         input = el('select'); input.appendChild(el('option',{value:'',text:'—'}));
         (f.options||[]).forEach(function(op){ var o=el('option',{value:op,text:op}); if(rec[f.key]===op)o.setAttribute('selected','selected'); input.appendChild(o); });
@@ -188,11 +237,49 @@ export const BILTIA_UI_SCRIPT = `<script>
         input = el('textarea',{rows:'3'}); if(rec[f.key]!=null)input.value=rec[f.key];
       } else if (f.type==='boolean'){
         input = el('input',{type:'checkbox'}); if(rec[f.key])input.setAttribute('checked','checked');
+      } else if (f.type==='address'){
+        // Adresse géolocalisée : autocomplétion (France + Europe via /api/geo/search),
+        // remplissage des colonnes voisines, mini-carte SANS dépendance (embed OSM).
+        var awrap = el('div',{style:'position:relative'});
+        input = el('input',{type:'text',autocomplete:'off',placeholder:'Commencez à taper une adresse…'});
+        if(rec[f.key]!=null)input.value=rec[f.key];
+        input._geo=null;
+        var amenu = el('div',{style:'position:absolute;left:0;right:0;top:100%;z-index:60;margin-top:4px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;max-height:240px;overflow:auto;box-shadow:0 12px 30px rgba(20,20,50,.15);display:none'});
+        var amap = el('div',{style:'margin-top:8px;display:none'});
+        var ashow = function(la,lo){ if(la==null||lo==null){amap.style.display='none';amap.innerHTML='';return;} var dd=0.004; amap.innerHTML=''; amap.appendChild(el('iframe',{style:'width:100%;height:150px;border:1px solid #e5e7eb;border-radius:10px',loading:'lazy',src:'https://www.openstreetmap.org/export/embed.html?bbox='+(lo-dd)+','+(la-dd)+','+(lo+dd)+','+(la+dd)+'&layer=mapnik&marker='+la+','+lo})); amap.style.display='block'; };
+        var rla=rec[f.latKey||'latitude'], rlo=rec[f.lngKey||'longitude'];
+        if(rla!=null&&rlo!=null&&isFinite(Number(rla))&&isFinite(Number(rlo)))ashow(Number(rla),Number(rlo));
+        var atmr=null, aac=null;
+        var aclose=function(){amenu.style.display='none';amenu.innerHTML='';};
+        input.addEventListener('input',function(){
+          input._geo=null; amap.style.display='none';
+          var q=input.value.trim(); if(atmr)clearTimeout(atmr);
+          if(q.length<3){aclose();return;}
+          atmr=setTimeout(function(){
+            if(aac)aac.abort(); aac=new AbortController();
+            fetch('/api/geo/search?q='+encodeURIComponent(q),{signal:aac.signal}).then(function(r){return r.json();}).then(function(j){
+              var list=(j&&j.results)||[]; amenu.innerHTML='';
+              if(!list.length){aclose();return;}
+              list.forEach(function(s){
+                var sub=[s.postcode,s.city,(s.country&&s.country!=='France')?s.country:''].filter(Boolean).join(' ');
+                var it=el('div',{style:'padding:8px 10px;cursor:pointer;border-bottom:1px solid #f1f1f5'},[el('div',{style:'font-size:13px;color:#0a0a0a',text:s.street||s.label}),el('div',{style:'font-size:11px;color:#8a8a94',text:sub})]);
+                it.addEventListener('mouseenter',function(){it.style.background='#f6f3ff';});
+                it.addEventListener('mouseleave',function(){it.style.background='';});
+                it.addEventListener('mousedown',function(ev){ev.preventDefault(); input.value=s.street||s.label; input._geo={ville:s.city||'',code_postal:s.postcode||'',latitude:s.lat,longitude:s.lng}; aclose(); if(s.lat!=null&&s.lng!=null)ashow(s.lat,s.lng);});
+                amenu.appendChild(it);
+              });
+              amenu.style.display='block';
+            }).catch(function(){});
+          },250);
+        });
+        document.addEventListener('mousedown',function(ev){if(!awrap.contains(ev.target))aclose();});
+        awrap.appendChild(input); awrap.appendChild(amenu);
+        fg.appendChild(awrap); fg.appendChild(amap);
       } else {
         var itype = f.type==='number'||f.type==='currency'||f.type==='percentage'?'number': f.type==='date'?'date': f.type==='datetime'?'datetime-local': f.type==='email'?'email': f.type==='phone'?'tel': f.type==='url'?'url':'text';
         input = el('input',{type:itype}); if(rec[f.key]!=null)input.value=rec[f.key];
       }
-      inputs[f.key]=input; fg.appendChild(input);
+      inputs[f.key]=input; if(!fg.contains(input)) fg.appendChild(input);
       var err = el('span',{class:'field-error',style:'display:none'}); fg.appendChild(err); inputs[f.key]._err=err;
       frm.appendChild(fg);
     });
@@ -201,12 +288,21 @@ export const BILTIA_UI_SCRIPT = `<script>
     frm.appendChild(actions);
     frm.addEventListener('submit', function(e){
       e.preventDefault(); var values={}; var ok=true;
+      var fieldKeys={}; fields.forEach(function(f){ fieldKeys[f.key]=1; });
       fields.forEach(function(f){ var input=inputs[f.key]; var v = f.type==='boolean'?input.checked:input.value;
         input.classList.remove('invalid'); input._err.style.display='none';
         if (f.required && (v==null || v==='')){ ok=false; input.classList.add('invalid'); input._err.textContent='Champ requis'; input._err.style.display='block'; }
         if (v==='' && f.type!=='boolean') v = null;
         if ((f.type==='number'||f.type==='currency'||f.type==='percentage') && v!=null) v = Number(v);
         values[f.key]=v;
+        // Adresse choisie : renseigne aussi ville/CP/lat/lng (sauf si l'app a déjà
+        // ces champs à part). Colonnes inconnues d'une entité = ignorées côté serveur.
+        if (f.type==='address' && input._geo){ var g=input._geo;
+          if(!fieldKeys[f.villeKey||'ville']) values[f.villeKey||'ville']=g.ville||null;
+          if(!fieldKeys[f.cpKey||'code_postal']) values[f.cpKey||'code_postal']=g.code_postal||null;
+          values[f.latKey||'latitude']=(g.latitude!=null?g.latitude:null);
+          values[f.lngKey||'longitude']=(g.longitude!=null?g.longitude:null);
+        }
       });
       if(!ok) return;
       submit.disabled=true; submit.textContent='…';

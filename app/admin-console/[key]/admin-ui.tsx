@@ -70,7 +70,7 @@ export function Kpi({
         <span className={accent ? "text-white" : "text-[#7C3AED]"}>{icon}</span>
         <span className="truncate">{label}</span>
       </div>
-      <p className={`text-[26px] font-black leading-none tabular-nums ${accent ? "text-white" : "text-[#0A0A0A]"}`}>
+      <p className={`text-[20px] font-black leading-none tabular-nums sm:text-[26px] ${accent ? "text-white" : "text-[#0A0A0A]"}`}>
         {value}
       </p>
       {hint && <p className={`mt-1.5 text-[11px] ${accent ? "text-white/75" : "text-[#9A9AA6]"}`}>{hint}</p>}
@@ -218,20 +218,18 @@ export function BarList({
   rows,
   format,
   empty,
-  labelWidth = "9rem",
 }: {
   rows: BarRow[];
   format: (n: number) => string;
   empty?: string;
-  labelWidth?: string;
 }) {
   if (!rows.length) return <p className="py-4 text-sm text-[#9A9AA6]">{empty ?? "Aucune donnée."}</p>;
   const max = Math.max(1, ...rows.map((r) => r.value));
   return (
     <div className="space-y-2.5">
       {rows.slice(0, 12).map((r, i) => (
-        <div key={r.label + i} className="flex items-center gap-3" title={r.title}>
-          <span className="shrink-0 truncate text-xs text-[#4B4B55]" style={{ width: labelWidth }}>
+        <div key={r.label + i} className="flex items-center gap-2 sm:gap-3" title={r.title}>
+          <span className="w-16 shrink-0 truncate text-xs text-[#4B4B55] sm:w-28 md:w-36">
             {r.label}
           </span>
           <div className="relative h-2.5 flex-1 overflow-hidden rounded-full bg-[#F3F3F7]">
@@ -242,8 +240,39 @@ export function BarList({
               transition={{ duration: 0.7, ease: "easeOut", delay: i * 0.03 }}
             />
           </div>
-          <span className="w-16 shrink-0 text-right text-xs font-semibold tabular-nums text-[#0A0A0A]">{format(r.value)}</span>
+          <span className="w-14 shrink-0 text-right text-xs font-semibold tabular-nums text-[#0A0A0A] sm:w-20">{format(r.value)}</span>
         </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Sélecteur de période (pills), pour filtrer les métriques temporelles ─────
+export type RangeKey = "7d" | "30d" | "90d" | "180d" | "365d" | "all";
+const RANGE_OPTIONS: { key: RangeKey; label: string }[] = [
+  { key: "7d", label: "7 j" },
+  { key: "30d", label: "30 j" },
+  { key: "90d", label: "3 mois" },
+  { key: "180d", label: "6 mois" },
+  { key: "365d", label: "1 an" },
+  { key: "all", label: "Tout" },
+];
+
+export function TimeRangeSelect({ value, onChange }: { value: RangeKey; onChange: (r: RangeKey) => void }) {
+  return (
+    <div className="flex items-center gap-1 overflow-x-auto rounded-xl border border-[#ECECF2] bg-white p-1">
+      {RANGE_OPTIONS.map((o) => (
+        <button
+          key={o.key}
+          onClick={() => onChange(o.key)}
+          className={`shrink-0 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+            value === o.key
+              ? "bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 text-white"
+              : "text-[#6E6E6C] hover:bg-[#F6F6F9]"
+          }`}
+        >
+          {o.label}
+        </button>
       ))}
     </div>
   );

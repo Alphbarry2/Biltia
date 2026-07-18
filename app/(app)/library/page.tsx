@@ -442,7 +442,7 @@ export default function LibraryPage() {
               <p className="mb-6 max-w-xs text-sm leading-relaxed text-[#6E6E6C]">
                 {t("Chaque session de chat de l'atelier est enregistrée ici automatiquement, et se rouvre d'un clic.", "Every chat session in the workshop is saved here automatically, and reopens in one click.")}
               </p>
-              <Link href="/generate" className="text-[13px] font-semibold text-violet-600 transition-opacity hover:opacity-80">
+              <Link href="/generate?new=chat" className="text-[13px] font-semibold text-violet-600 transition-opacity hover:opacity-80">
                 {t("Démarrer une conversation", "Start a conversation")}
               </Link>
             </div>
@@ -477,7 +477,10 @@ export default function LibraryPage() {
                   ? t("Glissez plusieurs bons de livraison ou factures dans l'atelier : le rapport d'écarts arrivera ici.", "Drop several delivery notes or invoices into the workshop: the discrepancy report will land here.")
                   : t("Analysez un devis, une facture ou un plan dans l'atelier : le rapport arrivera ici.", "Analyze a quote, invoice or plan in the workshop: the report will land here.")}
               </p>
-              <Link href="/generate" className="text-[13px] font-semibold text-violet-600 transition-opacity hover:opacity-80">
+              <Link
+                href={filter === "automations" ? "/generate?new=automation" : "/generate?new=report"}
+                className="text-[13px] font-semibold text-violet-600 transition-opacity hover:opacity-80"
+              >
                 {t("Lancer dans l'atelier", "Launch in the workshop")}
               </Link>
             </div>

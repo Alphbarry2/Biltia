@@ -609,7 +609,7 @@ export function SiteFooter() {
           <div className="flex items-center gap-2.5 mb-3">
             <BiltiaLogo className="h-6 w-auto text-[#0A0A0A]" />
           </div>
-          <p className="text-[13px] text-[#7A7A86] max-w-[240px] leading-relaxed">{t("L'OS conversationnel du BTP. Dictez votre problème, repartez avec la solution.", "The conversational OS for construction. Describe your problem, walk away with the solution.")}</p>
+          <p className="text-[13px] text-[#7A7A86] max-w-[260px] leading-relaxed">{t("L'OS conversationnel du BTP. Décrivez votre problème. Biltia crée l'outil, le document ou l'automatisation dont vous avez besoin.", "The conversational OS for construction. Describe your problem. Biltia builds the tool, the document, or the automation you need.")}</p>
           {/* LinkedIn : lien externe (nouvel onglet) + rel de sécurité. L'URL vient
               de lib/brand-entity.ts, la même qui alimente le sameAs du JSON-LD. */}
           <a

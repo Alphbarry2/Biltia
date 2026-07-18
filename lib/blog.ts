@@ -225,7 +225,7 @@ export const BLOG_POSTS: BlogPost[] = [
         heading: "5. L'assistant conversationnel : Biltia",
         body: [
           "Biltia part d'une idée différente : au lieu de choisir un logiciel puis d'apprendre à s'en servir, vous décrivez votre problème en français, à l'écrit ou à la voix, et l'outil livre la solution.",
-          "Selon la demande, Biltia bascule seul sur le bon format : un document prêt à signer, une application métier générée sur mesure, une réponse sourcée sur vos données ou une automatisation. Vous ne choisissez jamais l'outil, vous décrivez le besoin. Et tout s'appuie sur la mémoire de votre entreprise, qui s'enrichit à chaque demande.",
+          "Selon la demande, Biltia bascule seul sur le bon format : un document prêt à signer, une application métier générée sur mesure, une réponse sourcée sur vos données ou une automatisation. Vous décrivez le besoin, Biltia choisit l'outil. Et tout s'appuie sur la mémoire de votre entreprise, qui s'enrichit à chaque demande.",
         ],
         list: [
           "Pour : aucun paramétrage, une seule barre, mobile, dictée vocale, s'appuie sur vos données",

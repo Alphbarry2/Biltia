@@ -82,21 +82,36 @@ tableau des réserves levées avec dates.
   exactement. Retenue de garantie 5%, acompte 30% si mentionnés.
 - Numérotation : propose un numéro cohérent (ex : AV-2026-001, F-2026-014) si non fourni.`;
 
-// ── Charte visuelle imprimable (feuille A4) — bloc CSS imposé ────────────────
+// ── Charte visuelle imprimable (feuille A4) — bloc CSS imposé UNIQUEMENT pour
+// un document créé DE ZÉRO. Un document REPRODUIT à partir d'un fichier joint
+// (docFill) ne reçoit PAS ce bloc : lui garde SA propre DA (cf. DOC_FILL_MODE,
+// app/api/generate/route.ts). Dire au modèle « ignore le bloc ci-dessus » ne
+// suffisait pas assez fiablement — un bloc explicitement « à copier
+// fidèlement » l'emporte trop souvent sur une réserve venue après. On ne lui
+// donne donc plus DU TOUT ce gabarit quand un fichier est joint. ─────────────
 
-const DOC_BUILD_RULES = `# COMMENT TU CONSTRUIS LE DOCUMENT
-
-## TECHNIQUE (obligatoire)
+const DOC_TECHNIQUE = `## TECHNIQUE (obligatoire, quel que soit le document — création OU remplissage)
 1. Un seul fichier HTML complet : commence par \`<!DOCTYPE html>\`, finit par \`</html>\`.
    Rien avant, rien après, aucune balise markdown.
 2. \`<meta charset="utf-8">\` + \`<meta name="viewport" content="width=device-width, initial-scale=1">\`.
-3. Google Fonts Inter : \`<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">\`.
+3. Google Fonts Inter disponible si utile (un document REPRODUIT garde plutôt la police
+   approximative du fichier source) : \`<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">\`.
 4. PAS de Tailwind, PAS de framework, PAS de localStorage. CSS pur inline dans \`<style>\`.
+   Inclus toujours \`*,*::before,*::after{box-sizing:border-box}\` et \`@page{size:A4;margin:16mm}\`
+   (pagination d'impression correcte) — ceci est de la PLOMBERIE, pas un choix de design.
 5. N'inclus PAS de bouton d'impression ni de JavaScript : la barre d'outils
-   « Imprimer / PDF » et les pavés de signature sont ajoutés automatiquement.
+   « Imprimer / PDF » est ajoutée automatiquement.
 6. \`<title>\` = intitulé humain du document (ex : « Avenant n°AV-2026-001 — Chantier Liège »).
+7. Français impeccable, ton professionnel. Calculs financiers EXACTS (HT/TVA/TTC).
+8. INTERDIT, quel que soit le document : la balise \`<header>\` nue et les classes \`.app-header\`/\`.app-eyebrow\`/\`.sidebar\`/\`.side-brand\`. Elles appartiennent au gabarit des APPLICATIONS (autre format) ; leur présence dans un document déclenche à tort l'injection automatique du logo de l'entreprise dans cette zone. L'en-tête d'un document est TOUJOURS \`.doc-header\` (ou la structure du fichier source en mode remplissage), jamais \`<header>\`.
+9. Si une zone de signature existe (créée de zéro OU reprise d'un fichier joint), le
+   \`<canvas class="sign-pad">\` qui la rend tactile a BESOIN de cette règle CSS pour être
+   visible et utilisable, à inclure systématiquement dès qu'un \`.sign-pad\` est présent :
+   \`.sign-pad{display:block;width:100%;min-height:80px;border:1px dashed #CBD5E1;border-radius:6px;background:#fff;cursor:crosshair;touch-action:none}\`.
+   C'est une contrainte FONCTIONNELLE (la zone de dessin doit avoir une taille), pas un choix
+   esthétique — adapte au besoin les couleurs de bordure au thème du document.`;
 
-## STRUCTURE HTML IMPOSÉE
+const DOC_STRUCTURE_CSS = `## STRUCTURE HTML IMPOSÉE (document créé DE ZÉRO — aucun fichier joint)
 - \`<body>\` → un seul \`<div class="sheet">\` (la feuille A4). Pour un document long,
   plusieurs \`.sheet\` à la suite (une page chacune).
 - En-tête : \`<div class="doc-header">\` avec à gauche \`<div class="emitter">\` (nom de
@@ -110,7 +125,9 @@ const DOC_BUILD_RULES = `# COMMENT TU CONSTRUIS LE DOCUMENT
 - Signatures : \`<div class="signatures">\` avec, par signataire, un
   \`<div class="sign-box"><h4>…</h4><p class="sign-hint">Date, « Bon pour accord » et signature</p><canvas class="sign-pad"></canvas></div>\`.
   Le \`<canvas class="sign-pad">\` est OBLIGATOIRE dans chaque bloc à signer : il devient
-  un pavé de signature tactile.
+  un pavé de signature tactile. Réserve toujours au moins un pavé de signature dans les
+  documents qui se signent (avenant, PV, devis, attestation, courrier engageant). Une
+  facture ne se signe pas.
 - Mentions légales : \`<footer class="legal">…</footer>\`.
 
 ## BLOC CSS À INCLURE FIDÈLEMENT (copie-le dans le <style>)
@@ -152,10 +169,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:now
 FIN_CSS
 
 ## QUALITÉ
-- Français impeccable, ton professionnel. Calculs financiers EXACTS (HT/TVA/TTC).
-- Aucune fonctionnalité « à faire » : le document est complet et cohérent tout de suite.
-- Réserve toujours au moins un pavé de signature dans les documents qui se signent
-  (avenant, PV, devis, attestation, courrier engageant). Une facture ne se signe pas.`;
+- Aucune fonctionnalité « à faire » : le document est complet et cohérent tout de suite.`;
 
 function docTypeHint(docType?: string | null): string {
   if (!docType) return "";
@@ -183,6 +197,11 @@ export function buildDocumentSystemPrompt(opts: {
   expertise?: string;
   workspace?: string;
   sources?: string;
+  // Un fichier est joint à compléter/modifier : le gabarit de structure/CSS et
+  // les impératifs par type (« en-tête entreprise complet », etc. — calibrés
+  // pour une création DE ZÉRO) ne sont PAS envoyés. Le fichier source fait
+  // autorité sur sa propre forme (cf. DOC_FILL_MODE, app/api/generate/route.ts).
+  docFill?: boolean;
 }): string {
   const focus = opts.expertise
     ? `\n# FOCUS MÉTIER (corps de métier de l'utilisateur)\n${opts.expertise}\n`
@@ -193,8 +212,9 @@ export function buildDocumentSystemPrompt(opts: {
   return `Tu es BiltiaAI Documents, le générateur de documents officiels du BTP français. Tu transformes une demande dictée ou tapée — même en argot de chantier — en un document professionnel, juridiquement propre, prêt à imprimer, envoyer et signer.
 
 ${DOC_KNOWLEDGE}
-${focus}${ws}${docTypeHint(opts.docType)}
-${DOC_BUILD_RULES}
+${focus}${ws}${opts.docFill ? "" : docTypeHint(opts.docType)}
+${DOC_TECHNIQUE}
+${opts.docFill ? "" : DOC_STRUCTURE_CSS}
 ${src}
 # SORTIE
 Réponds UNIQUEMENT avec le code HTML complet du document. Aucune explication, aucun texte, aucune balise markdown. Le premier caractère est \`<\` et le dernier est \`>\`.`;

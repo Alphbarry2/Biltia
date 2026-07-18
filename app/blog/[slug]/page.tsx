@@ -164,7 +164,7 @@ export default async function BlogArticle({ params }: { params: Promise<{ slug: 
                       « {post.cta} »
                     </p>
                     <p className="text-[14px] text-white/70 leading-relaxed mb-6 max-w-lg">
-                      {pick(locale, "Biltia bascule sur le bon produit, ici ", "Biltia switches to the right product, here ")}{product.name.toLowerCase()}{pick(locale, ", et livre la solution. Vous ne choisissez jamais l'outil, vous décrivez le problème.", ", and delivers the solution. You never pick the tool, you describe the problem.")}
+                      {pick(locale, "Biltia bascule sur le bon produit, ici ", "Biltia switches to the right product, here ")}{product.name.toLowerCase()}{pick(locale, ", et livre la solution. Vous décrivez le problème, Biltia choisit l'outil.", ", and delivers the solution. You describe the problem, Biltia picks the tool.")}
                     </p>
                     <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
                       <Link

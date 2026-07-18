@@ -36,7 +36,7 @@ export const ENTITIES: Record<string, EntityDef> = {
     table: "chantiers",
     label: "Chantiers",
     writable: [
-      "nom", "client_id", "adresse", "ville", "code_postal", "description",
+      "nom", "client_id", "adresse", "ville", "code_postal", "latitude", "longitude", "description",
       "budget", "budget_engage", "avancement", "statut",
       "date_debut", "date_fin_prevue", "date_fin_reelle", "chef_chantier_id",
       "site_id", "demande_id",
@@ -50,7 +50,7 @@ export const ENTITIES: Record<string, EntityDef> = {
   clients: {
     table: "clients",
     label: "Clients",
-    writable: ["nom", "siret", "type", "statut", "source", "email", "tel", "adresse", "ville", "code_postal", "notes"],
+    writable: ["nom", "siret", "type", "statut", "source", "email", "tel", "adresse", "ville", "code_postal", "latitude", "longitude", "notes"],
     fields:
       "nom (texte, requis), siret, type (particulier|entreprise|collectivite), " +
       "statut (prospect|actif|inactif|archive, défaut actif), " +
@@ -92,7 +92,7 @@ export const ENTITIES: Record<string, EntityDef> = {
     label: "Fournisseurs / Sous-traitants",
     writable: [
       "nom", "siret", "type", "categorie", "specialite", "email", "tel",
-      "adresse", "ville", "code_postal", "assurance_decennale", "assurance_expire", "notes",
+      "adresse", "ville", "code_postal", "latitude", "longitude", "assurance_decennale", "assurance_expire", "notes",
     ],
     fields:
       "nom (requis), categorie (fournisseur|sous_traitant), siret, type, " +
@@ -241,7 +241,7 @@ export const ENTITIES: Record<string, EntityDef> = {
   sites: {
     table: "sites",
     label: "Sites / Adresses",
-    writable: ["client_id", "nom", "type", "adresse", "ville", "code_postal", "contact_nom", "contact_tel", "notes"],
+    writable: ["client_id", "nom", "type", "adresse", "ville", "code_postal", "latitude", "longitude", "contact_nom", "contact_tel", "notes"],
     fields:
       "Adresse/site d'un client (un client peut en avoir plusieurs). " +
       "client_id (uuid → clients), nom (requis, ex: « Villa Morel », « Siège »), " +
@@ -370,8 +370,15 @@ export const ALLOWED_ENTITIES = Object.keys(ENTITIES);
 export type FormField = {
   key: string;
   label: string;
-  /** `tags` = liste de mots (colonne text[]) : les alias d'un article, par exemple. */
-  type: "text" | "email" | "tel" | "date" | "number" | "select" | "textarea" | "relation" | "checkbox" | "tags";
+  /**
+   * `tags` = liste de mots (colonne text[]) : les alias d'un article, par exemple.
+   * `address` = champ d'adresse géolocalisé (autocomplétion + mini-carte) : il
+   * remplit sa propre colonne (la voie) ET les colonnes voisines déclarées dans
+   * `geo` (ville, code postal, latitude, longitude).
+   */
+  type:
+    | "text" | "email" | "tel" | "date" | "number" | "select"
+    | "textarea" | "relation" | "checkbox" | "tags" | "address";
   required?: boolean;
   /** Valeurs pour type=select. Dérivées du RÉFÉRENTIEL quand `vocab` est présent. */
   options?: string[];
@@ -382,6 +389,10 @@ export type FormField = {
   vocab?: string;
   /** Liste longue → le formulaire affiche une recherche, pas un <select> déroulant. */
   searchable?: boolean;
+  /** Champ porté en base mais NON affiché (ex: latitude/longitude d'une adresse). */
+  hidden?: boolean;
+  /** type=address : colonnes voisines que l'adresse choisie remplit. */
+  geo?: { villeKey?: string; cpKey?: string; latKey?: string; lngKey?: string };
 };
 
 /** Colonnes qui composent le libellé d'une fiche liée (selects de relation). */
@@ -509,7 +520,9 @@ const FORM_FIELDS_BASE: Record<string, FormField[]> = {
     { key: "tel", label: "Téléphone", type: "tel" },
     { key: "email", label: "Email", type: "email" },
     { key: "siret", label: "SIRET", type: "text" },
+    { key: "adresse", label: "Adresse", type: "text" },
     { key: "ville", label: "Ville", type: "text" },
+    { key: "code_postal", label: "Code postal", type: "text" },
     { key: "assurance_decennale", label: "Assurance décennale (n°/assureur)", type: "text" },
     { key: "assurance_expire", label: "Assurance expire le", type: "date" },
     { key: "notes", label: "Notes", type: "textarea" },
@@ -840,6 +853,33 @@ export const FORM_FIELDS: Record<string, FormField[]> = Object.fromEntries(
     }),
   ])
 );
+
+// ─── ADRESSE GÉOLOCALISÉE (couche UI seulement) ──────────────────────────────
+// Transforme TOUT champ `adresse` en champ « address » (autocomplétion + carte)
+// et ajoute les colonnes lat/lng masquées. Appliqué UNIQUEMENT côté interface
+// (Workspace), jamais dans le FORM_FIELDS partagé : les agents / le SDK / la
+// génération continuent de voir une adresse en texte simple. Idempotent.
+export function withGeoFields(fields: FormField[]): FormField[] {
+  const keys = new Set(fields.map((f) => f.key));
+  if (!keys.has("adresse")) return fields;
+  const out = fields.map((f): FormField =>
+    f.key === "adresse" && f.type === "text"
+      ? {
+          ...f,
+          type: "address",
+          geo: {
+            villeKey: keys.has("ville") ? "ville" : undefined,
+            cpKey: keys.has("code_postal") ? "code_postal" : undefined,
+            latKey: "latitude",
+            lngKey: "longitude",
+          },
+        }
+      : f
+  );
+  if (!keys.has("latitude")) out.push({ key: "latitude", label: "", type: "number", hidden: true });
+  if (!keys.has("longitude")) out.push({ key: "longitude", label: "", type: "number", hidden: true });
+  return out;
+}
 
 // ─── i18n des FORMULAIRES (labels / placeholders / options) ──────────────────
 // FORM_FIELDS reste la SOURCE FR (partagée SDK/agents/apps, inchangée). Pour

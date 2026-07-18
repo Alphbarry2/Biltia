@@ -59,6 +59,7 @@ import {
 import { CreditPacksPanel } from "@/components/credit-packs";
 import KnowledgeManager from "@/components/knowledge-manager";
 import BrandSettings from "@/components/brand-settings";
+import { AddressAutocomplete } from "@/components/address-autocomplete";
 import {
   DEFAULT_PREFERENCES,
   normalizePreferences,
@@ -190,7 +191,7 @@ export default function SettingsPage() {
 
   // Entreprise (tenants.company_info : pays FR/BE, TVA, SIRET/BCE, adresse)
   const [companyName, setCompanyName] = useState("");
-  const [companyInfo, setCompanyInfo] = useState({ country: "FR", vat: "", siret: "", address: "" });
+  const [companyInfo, setCompanyInfo] = useState({ country: "FR", vat: "", siret: "", address: "", lat: "", lng: "" });
   // company_info porte AUSSI des clés que cet écran n'édite pas (headcount,
   // activity_type et sector_detail posés à l'inscription, brand = identité
   // visuelle). On garde le JSON complet pour le REFUSIONNER à l'enregistrement :
@@ -460,6 +461,8 @@ export default function SettingsPage() {
         vat: ci.vat ?? "",
         siret: ci.siret ?? "",
         address: ci.address ?? "",
+        lat: ci.lat ?? "",
+        lng: ci.lng ?? "",
       });
       setContributesToBrain(data?.contributes_to_brain === true);
     });
@@ -954,11 +957,23 @@ export default function SettingsPage() {
                     </Field>
                   </div>
                   <Field label={t("Adresse", "Address")}>
-                    <input
+                    <AddressAutocomplete
                       value={companyInfo.address}
-                      onChange={(e) => setCompanyInfo((c) => ({ ...c, address: e.target.value }))}
+                      lat={companyInfo.lat ? Number(companyInfo.lat) : null}
+                      lng={companyInfo.lng ? Number(companyInfo.lng) : null}
+                      onTextChange={(v) => setCompanyInfo((c) => ({ ...c, address: v }))}
+                      onPick={(p) =>
+                        setCompanyInfo((c) => ({
+                          ...c,
+                          address: p.label || [p.street, p.postcode, p.city].filter(Boolean).join(" "),
+                          lat: p.lat != null ? String(p.lat) : "",
+                          lng: p.lng != null ? String(p.lng) : "",
+                        }))
+                      }
+                      onClear={() => setCompanyInfo((c) => ({ ...c, lat: "", lng: "" }))}
+                      inputClassName={inputCls}
                       placeholder={companyInfo.country === "BE" ? "Rue de la Loi 1, 1000 Bruxelles" : "12 rue des Acacias, 59000 Lille"}
-                      className={inputCls}
+                      locale={locale === "en" ? "en" : "fr"}
                     />
                   </Field>
 

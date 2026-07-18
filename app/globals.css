@@ -51,6 +51,13 @@
   /* Breakpoint mobile fin : l'app est pensée 375px d'abord. `xs` = 30rem (480px)
      pour basculer libellés longs → courts, colonnes 1→2, etc. */
   --breakpoint-xs: 30rem;
+
+  /* Un MacBook (13"→16") affiche entre ~1280 et ~1730px de large en logique — déjà
+     au-delà de `2xl` (1536px). Un grand écran externe (34" ultrawide, 1920/2560/3440)
+     dépasse largement ce seuil. Sans palier dédié, le contenu pensé pour le grand
+     écran (titres, espacements) paraît surdimensionné sur le Mac lui-même. `3xl` =
+     120rem (1920px) réserve le traitement le plus généreux aux VRAIS grands écrans. */
+  --breakpoint-3xl: 120rem;
 }
 
 /* ── Dark mode ───────────────────────────────────────────────────────── */
@@ -399,6 +406,11 @@ button, a, [role="button"], input[type="button"], input[type="submit"], summary,
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #E7E7E4; border-radius: 3px; }
+
+/* Bandeaux défilants (suggestions, statistiques) : le scroll horizontal reste
+   utilisable, mais la barre ne s'affiche pas — un seul rang, jamais d'empilement. */
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
 
 /* ── Bordure lumineuse en deux arcs (barre de chat) ───────────────────────
    Deux lueurs douces et discrètes se font face (coin haut-droite / bas-gauche)

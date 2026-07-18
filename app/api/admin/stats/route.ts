@@ -27,6 +27,19 @@ import { createAdminClient } from "@/lib/supabase-admin";
 import { isAdminEmail } from "@/lib/admin";
 import { isFounderEmail } from "@/lib/founder";
 import { PLANS } from "@/lib/plans";
+import { getStripe } from "@/lib/stripe";
+import { getCurrentMrrEur, getRevenueByRange } from "@/lib/stripe-revenue";
+
+/** Fenêtres de période disponibles dans le sélecteur admin. */
+const RANGE_DAYS: Record<string, number | null> = {
+  "7d": 7, "30d": 30, "90d": 90, "180d": 180, "365d": 365, all: null,
+};
+
+function sinceIsoFor(range: string): string | null {
+  const days = RANGE_DAYS[range] ?? 30;
+  if (days == null) return null;
+  return new Date(Date.now() - days * 86_400_000).toISOString();
+}
 
 /** Coûts modèles facturés en USD, marge exprimée en EUR (cohérent ai-usage.ts). */
 const USD_TO_EUR = 0.92;
@@ -86,16 +99,20 @@ async function founderUserIds(admin: SupabaseClient): Promise<Set<string>> {
  * silencieux : les totaux sont de vrais totaux. Garde-fou dur à 200 000 lignes
  * (au-delà, basculer cette agrégation dans une RPC SQL service_role-only).
  */
-async function fetchAllUsage(admin: SupabaseClient): Promise<{ rows: UsageRow[]; truncated: boolean }> {
+async function fetchAllUsage(
+  admin: SupabaseClient,
+  sinceIso: string | null
+): Promise<{ rows: UsageRow[]; truncated: boolean }> {
   const rows: UsageRow[] = [];
   const PAGE = 1000;
   const HARD_CAP = 200_000;
   for (let from = 0; from < HARD_CAP; from += PAGE) {
-    const { data, error } = await admin
+    let q = admin
       .from("ai_usage")
       .select("user_id, model, action, cost_usd, credits, input_tokens, output_tokens, created_at")
-      .order("created_at", { ascending: false })
-      .range(from, from + PAGE - 1);
+      .order("created_at", { ascending: false });
+    if (sinceIso) q = q.gte("created_at", sinceIso);
+    const { data, error } = await q.range(from, from + PAGE - 1);
     const batch = (data ?? []) as UsageRow[];
     if (error || batch.length === 0) break;
     rows.push(...batch);
@@ -104,7 +121,7 @@ async function fetchAllUsage(admin: SupabaseClient): Promise<{ rows: UsageRow[];
   return { rows, truncated: rows.length >= HARD_CAP };
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   // Barrière 1 — email autorisé.
   const supabase = await createClient();
   const {
@@ -118,6 +135,9 @@ export async function GET() {
   if (!admin) {
     return Response.json({ error: "Service role non configuré." }, { status: 503 });
   }
+
+  const range = new URL(req.url).searchParams.get("range") ?? "30d";
+  const sinceIso = sinceIsoFor(range);
 
   // ── Comptes de tables (rapides : head:true, aucune ligne rapatriée) ─────────
   // .from() attend un nom de table littéral (types générés) ; la table est ici
@@ -143,7 +163,7 @@ export async function GET() {
   const isFounder = (uid: string | null | undefined): boolean => !!uid && founderIds.has(uid);
 
   // ── ai_usage : le cœur coûts / marge (TOUTES les lignes, pagination) ────────
-  const { rows, truncated } = await fetchAllUsage(admin);
+  const { rows, truncated } = await fetchAllUsage(admin, sinceIso);
 
   const byModelMap = new Map<string, Bucket>();
   const byActionMap = new Map<string, Bucket>();
@@ -202,11 +222,13 @@ export async function GET() {
   const round = (n: number, p = 2) => Math.round(n * 10 ** p) / 10 ** p;
   const sale = salePerCreditEur();
 
-  // ── Abonnements → CA RÉEL (MRR) + répartition par plan ──────────────────────
-  const { data: subs } = await admin.from("subscriptions").select("tenant_id, plan, status");
+  // ── Abonnements → répartition par plan + résolution des tenants payants ─────
+  const { data: subs } = await admin
+    .from("subscriptions")
+    .select("tenant_id, plan, status, stripe_customer_id");
   const planMap = new Map<string, number>();
   const payingTenantSet = new Set<string>();
-  for (const s of (subs ?? []) as { tenant_id?: string; plan?: string; status?: string }[]) {
+  for (const s of (subs ?? []) as { tenant_id?: string; plan?: string; status?: string; stripe_customer_id?: string | null }[]) {
     const k = `${s.plan ?? "—"}/${s.status ?? "—"}`;
     planMap.set(k, (planMap.get(k) ?? 0) + 1);
     if (s.tenant_id && s.plan && s.plan !== "free" && PAID_STATUSES.has(s.status ?? "")) {
@@ -214,10 +236,50 @@ export async function GET() {
     }
   }
   const payingTenants = payingTenantSet.size;
-  // Le palier exact d'un abonnement n'est pas stocké (schéma subscriptions) : on
-  // prend le palier Pro de base comme PLANCHER honnête. Quand le palier réel sera
-  // persisté, remplacer par la somme des prix réels. Aujourd'hui : 0 payant → 0 €.
-  const mrrEur = round(payingTenants * proBaseMonthlyEur(), 2);
+
+  // Profil entreprise (renseigné à l'onboarding) + appartenances, pour la
+  // démographie, la détection des tenants fondateur, et l'analyse « payé /
+  // crédits PAR TAILLE d'entreprise ». Récupérés tôt pour pouvoir exclure les
+  // clients Stripe fondateur AVANT le calcul du MRR.
+  const { data: tenantRows } = await admin
+    .from("tenants")
+    .select("id, company_info, trial_ends_at")
+    .limit(10000);
+  const { data: memberRows } = await admin.from("tenant_members").select("tenant_id, user_id, role").limit(20000);
+  const founderTenants = new Set<string>();
+  for (const m of (memberRows ?? []) as { tenant_id: string; user_id: string }[]) {
+    if (isFounder(m.user_id)) founderTenants.add(m.tenant_id);
+  }
+  const excludedCustomerIds = new Set<string>(
+    ((subs ?? []) as { tenant_id?: string; stripe_customer_id?: string | null }[])
+      .filter((s) => s.tenant_id && founderTenants.has(s.tenant_id) && s.stripe_customer_id)
+      .map((s) => s.stripe_customer_id as string)
+  );
+
+  // ── CA RÉEL (MRR) — lu EN DIRECT sur Stripe (source de vérité, jamais de
+  // drift). Repli sur l'ancienne estimation « plancher » si Stripe n'est pas
+  // configuré, avec meta.mrrIsEstimate pour l'honnêteté (cf. costIsEstimate).
+  const stripe = getStripe();
+  let mrrEur: number;
+  let mrrIsEstimate = false;
+  let revenueByPeriod: { day: string; amountEur: number }[] = [];
+  if (stripe) {
+    try {
+      const [mrrSnap, revenue] = await Promise.all([
+        getCurrentMrrEur(stripe, excludedCustomerIds),
+        getRevenueByRange(stripe, sinceIso, excludedCustomerIds),
+      ]);
+      mrrEur = mrrSnap.mrrEur;
+      revenueByPeriod = revenue;
+    } catch (e) {
+      console.error("[admin/stats] Stripe indisponible, repli sur l'estimation", e);
+      mrrEur = round(payingTenants * proBaseMonthlyEur(), 2);
+      mrrIsEstimate = true;
+    }
+  } else {
+    mrrEur = round(payingTenants * proBaseMonthlyEur(), 2);
+    mrrIsEstimate = true;
+  }
 
   // Valeur THÉORIQUE de la consommation CLIENT (« si facturée au tarif Pro ») —
   // ce n'est PAS du chiffre d'affaires, juste un repère d'unit-economics.
@@ -236,12 +298,9 @@ export async function GET() {
   const { data: credits } = await admin.from("user_credits").select("balance").limit(10000);
   const outstandingCredits = (credits ?? []).reduce((a, c) => a + (c.balance ?? 0), 0);
 
-  // Profil entreprise (renseigné à l'onboarding) + appartenances, pour la
-  // démographie et l'analyse « payé / crédits PAR TAILLE d'entreprise ».
-  const { data: tenantRows } = await admin.from("tenants").select("id, company_info").limit(10000);
-  const { data: memberRows } = await admin.from("tenant_members").select("tenant_id, user_id, role").limit(20000);
-
-  // ── Inscriptions par jour (30 j) — hors comptes fondateur ───────────────────
+  // Profils récupérés SANS filtre de période (5000 plus récents) : servent au
+  // pairage signup→activation (TTFV) et à la démographie, qui ont besoin de la
+  // date d'inscription même si elle précède la période sélectionnée.
   const { data: profs } = await admin
     .from("profiles")
     .select("user_id, company_name, created_at")
@@ -249,9 +308,13 @@ export async function GET() {
     .limit(5000);
   const clientProfiles = (profs ?? []).filter((p) => !isFounder((p as { user_id?: string }).user_id));
   const founderAccounts = (profs ?? []).length - clientProfiles.length;
+
+  // ── Inscriptions par jour — SEULEMENT la période sélectionnée ───────────────
   const signupsMap = new Map<string, number>();
   for (const p of clientProfiles) {
-    const day = ((p as { created_at?: string }).created_at ?? "").slice(0, 10);
+    const created = (p as { created_at?: string }).created_at ?? "";
+    if (sinceIso && created < sinceIso) continue;
+    const day = created.slice(0, 10);
     if (day) signupsMap.set(day, (signupsMap.get(day) ?? 0) + 1);
   }
 
@@ -264,12 +327,14 @@ export async function GET() {
     if (USER_FACING.has(a)) reqTypeMap.set(a, (reqTypeMap.get(a) ?? 0) + 1);
   }
 
-  // 2) Thèmes des créations : depuis app_events (apps + documents).
-  const { data: eventRows } = await admin
+  // 2) Thèmes des créations : depuis app_events (apps + documents), sur la période.
+  let eventsQuery = admin
     .from("app_events")
     .select("user_id, event_type, created_at, agent, sector, app_type, metadata")
     .order("created_at", { ascending: false })
     .limit(5000);
+  if (sinceIso) eventsQuery = eventsQuery.gte("created_at", sinceIso);
+  const { data: eventRows } = await eventsQuery;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const allEvents = (eventRows ?? []) as any[];
   // Les tests fondateur ne doivent pas polluer « ce que demandent les clients ».
@@ -305,14 +370,20 @@ export async function GET() {
   // (generate/route.ts) — capacité hors périmètre (téléphonie, physique,
   // ingénierie…) ou intégration tierce absente (Loom, Sage…). C'est la liste
   // « ce que les clients réclament qu'on n'a pas » → priorisation roadmap.
-  const { data: unmetRows } = await db
+  let unmetQuery = db
     .from("app_records")
     .select("data, created_by, created_at")
     .eq("collection", "__unmet_requests")
     .order("created_at", { ascending: false })
     .limit(500);
-  const unmet = ((unmetRows ?? []) as { data: Record<string, unknown> | null; created_by: string | null; created_at: string | null }[])
-    .filter((r) => !isFounder(r.created_by));
+  if (sinceIso) unmetQuery = unmetQuery.gte("created_at", sinceIso);
+  const { data: unmetRows } = await unmetQuery;
+  const unmetAll = (unmetRows ?? []) as { data: Record<string, unknown> | null; created_by: string | null; created_at: string | null }[];
+  const unmet = unmetAll.filter((r) => !isFounder(r.created_by));
+  // Transparence : combien de demandes ont été exclues car issues d'un compte
+  // fondateur/test (dont potentiellement le vôtre) — évite de croire à un bug
+  // quand la section semble vide alors que des demandes ont bien été testées.
+  const founderUnmetRequests = unmetAll.length - unmet.length;
   const unmetTally = new Map<string, number>();
   for (const r of unmet) {
     const kind = String(r.data?.kind ?? "capability");
@@ -455,6 +526,145 @@ export async function GET() {
   ]);
   const generatedDocuments = demand.byKind.find((k) => k.key === "document")?.count ?? 0;
 
+  // ── AGENTS IA : activité réelle (jusque-là absente de l'admin) ──────────────
+  const { data: ruleRows } = await admin
+    .from("agent_rules")
+    .select("id, title, status, trigger_type, created_by")
+    .limit(5000);
+  const rules = ((ruleRows ?? []) as { id: string; title: string; status: string; trigger_type: string; created_by: string | null }[]).filter(
+    (r) => !isFounder(r.created_by)
+  );
+  const ruleTitleById = new Map(rules.map((r) => [r.id, r.title]));
+  const agentStatusTally = new Map<string, number>();
+  const agentTriggerTally = new Map<string, number>();
+  for (const r of rules) {
+    agentStatusTally.set(r.status, (agentStatusTally.get(r.status) ?? 0) + 1);
+    agentTriggerTally.set(r.trigger_type, (agentTriggerTally.get(r.trigger_type) ?? 0) + 1);
+  }
+  let runsQuery = admin
+    .from("agent_runs")
+    .select("rule_id, status, credits_used, created_at")
+    .order("created_at", { ascending: false })
+    .limit(5000);
+  if (sinceIso) runsQuery = runsQuery.gte("created_at", sinceIso);
+  const { data: runRows } = await runsQuery;
+  // Runs des règles fondateur exclus (ruleTitleById ne connaît que les règles clients).
+  const runsList = ((runRows ?? []) as { rule_id: string; status: string; credits_used: number | null; created_at: string }[]).filter((r) =>
+    ruleTitleById.has(r.rule_id)
+  );
+  const runsByRule = new Map<string, { runs: number; creditsUsed: number }>();
+  let runsSuccess = 0;
+  let runsFailed = 0;
+  let runsBlocked = 0;
+  let runsCreditsUsed = 0;
+  for (const r of runsList) {
+    if (r.status === "success") runsSuccess += 1;
+    else if (r.status === "failed") runsFailed += 1;
+    else if (r.status === "blocked") runsBlocked += 1;
+    runsCreditsUsed += r.credits_used ?? 0;
+    const agg = runsByRule.get(r.rule_id) ?? { runs: 0, creditsUsed: 0 };
+    agg.runs += 1;
+    agg.creditsUsed += r.credits_used ?? 0;
+    runsByRule.set(r.rule_id, agg);
+  }
+  const runsFinished = runsSuccess + runsFailed; // "blocked" = jamais tenté (budget/config), hors taux de succès.
+  const agents = {
+    byStatus: [...agentStatusTally.entries()].map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count),
+    byTrigger: [...agentTriggerTally.entries()].map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count),
+    runsTotal: runsList.length,
+    runsSuccessPct: runsFinished > 0 ? round((runsSuccess / runsFinished) * 100, 1) : null,
+    runsFailed,
+    runsBlocked,
+    creditsUsed: runsCreditsUsed,
+    topRules: [...runsByRule.entries()]
+      .map(([ruleId, agg]) => ({ title: ruleTitleById.get(ruleId) ?? "—", runs: agg.runs, creditsUsed: agg.creditsUsed }))
+      .sort((a, b) => b.runs - a.runs)
+      .slice(0, 8),
+  };
+
+  // ── PARRAINAGE : funnel réel ─────────────────────────────────────────────────
+  // Tables absentes de database.types.ts (drift, cf. app_records plus haut) → `db` non typé.
+  let referralsQuery = db
+    .from("referrals")
+    .select("status, referrer_user_id, created_at")
+    .order("created_at", { ascending: false })
+    .limit(5000);
+  if (sinceIso) referralsQuery = referralsQuery.gte("created_at", sinceIso);
+  const { data: referralRows } = await referralsQuery;
+  const referralsFiltered = ((referralRows ?? []) as { status: string; referrer_user_id: string | null; created_at: string }[]).filter(
+    (r) => !isFounder(r.referrer_user_id)
+  );
+  const referralStatusTally = new Map<string, number>();
+  for (const r of referralsFiltered) referralStatusTally.set(r.status, (referralStatusTally.get(r.status) ?? 0) + 1);
+  let bonusQuery = db.from("referral_bonus_ledger").select("amount, created_at").limit(5000);
+  if (sinceIso) bonusQuery = bonusQuery.gte("created_at", sinceIso);
+  const { data: bonusRows } = await bonusQuery;
+  const totalBonusCredits = ((bonusRows ?? []) as { amount: number | null }[]).reduce((a, b) => a + (b.amount ?? 0), 0);
+  const referralsStats = {
+    byStatus: [...referralStatusTally.entries()].map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count),
+    totalBonusCredits,
+  };
+
+  // ── INVITATIONS D'ÉQUIPE ─────────────────────────────────────────────────────
+  let invitesQuery = admin
+    .from("tenant_members")
+    .select("invited_by, invited_at, accepted_at")
+    .not("invited_by", "is", null)
+    .order("invited_at", { ascending: false })
+    .limit(5000);
+  if (sinceIso) invitesQuery = invitesQuery.gte("invited_at", sinceIso);
+  const { data: inviteRows } = await invitesQuery;
+  const invitesFiltered = ((inviteRows ?? []) as { invited_by: string | null; invited_at: string; accepted_at: string | null }[]).filter(
+    (i) => !isFounder(i.invited_by)
+  );
+  const acceptedInvites = invitesFiltered.filter((i) => i.accepted_at);
+  const acceptHours: number[] = [];
+  for (const i of acceptedInvites) {
+    if (i.invited_at && i.accepted_at) {
+      const h = (Date.parse(i.accepted_at) - Date.parse(i.invited_at)) / 3_600_000;
+      if (h >= 0) acceptHours.push(h);
+    }
+  }
+  const invitations = {
+    total: invitesFiltered.length,
+    accepted: acceptedInvites.length,
+    acceptanceRatePct: invitesFiltered.length > 0 ? round((acceptedInvites.length / invitesFiltered.length) * 100, 1) : null,
+    avgAcceptHours: acceptHours.length > 0 ? round(acceptHours.reduce((a, b) => a + b, 0) / acceptHours.length, 1) : null,
+  };
+
+  // ── CONNECTEURS PAR FOURNISSEUR (snapshot — pas d'axe temporel pertinent) ────
+  const { data: connectionRows } = await admin.from("user_connections").select("provider, user_id").limit(5000);
+  const connectorTally = new Map<string, number>();
+  for (const c of (connectionRows ?? []) as { provider: string; user_id: string }[]) {
+    if (isFounder(c.user_id)) continue;
+    connectorTally.set(c.provider, (connectorTally.get(c.provider) ?? 0) + 1);
+  }
+  const connectorsByProvider = [...connectorTally.entries()].map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count);
+
+  // ── ESSAI GRATUIT : cohorte active + taux de conversion (snapshot) ───────────
+  let trialActive = 0;
+  let trialExpiringSoon = 0;
+  let trialConverted = 0;
+  let trialTotal = 0;
+  for (const t of (tenantRows ?? []) as { id: string; trial_ends_at: string | null }[]) {
+    if (founderTenants.has(t.id) || !t.trial_ends_at) continue;
+    trialTotal += 1;
+    if (payingTenantSet.has(t.id)) {
+      trialConverted += 1;
+      continue;
+    }
+    const endTs = Date.parse(t.trial_ends_at);
+    if (endTs > now) {
+      trialActive += 1;
+      if (endTs - now < 7 * DAY) trialExpiringSoon += 1;
+    }
+  }
+  const trial = {
+    active: trialActive,
+    expiringSoon: trialExpiringSoon,
+    convertedPct: trialTotal > 0 ? round((trialConverted / trialTotal) * 100, 1) : null,
+  };
+
   // ── Flux d'activité récent ──────────────────────────────────────────────────
   const { data: activity } = await admin
     .from("activity_logs")
@@ -471,11 +681,7 @@ export async function GET() {
   for (const m of (memberRows ?? []) as { tenant_id: string; user_id: string; role: string }[]) {
     if (!userTenant.has(m.user_id) || m.role === "owner") userTenant.set(m.user_id, m.tenant_id);
   }
-  // Tenant appartenant à un fondateur → exclu de la démographie business.
-  const founderTenants = new Set<string>();
-  for (const m of (memberRows ?? []) as { tenant_id: string; user_id: string }[]) {
-    if (isFounder(m.user_id)) founderTenants.add(m.tenant_id);
-  }
+  // (founderTenants déjà calculé plus haut, avant le MRR Stripe.)
   const tenantCredits = new Map<string, number>();
   for (const [uid, g] of userAgg) {
     const tid = userTenant.get(uid);
@@ -521,10 +727,14 @@ export async function GET() {
 
   return Response.json({
     generatedAt: new Date().toISOString(),
+    range,
     meta: {
       truncated, // true si le garde-fou 200k a été atteint (agrégats à basculer en RPC)
       founderAccounts, // nb de comptes fondateur isolés des métriques business
       costIsEstimate: true, // coût = estimé interne, ≈ facture fournisseur
+      founderUnmetRequests, // demandes produit exclues car compte de test (transparence)
+      mrrIsEstimate, // true si Stripe indisponible (repli sur l'estimation plancher)
+      stripeConfigured: !!stripe,
     },
     // Totaux TOUT COMPRIS = argent réellement dépensé en API (tests inclus).
     totals: {
@@ -555,6 +765,12 @@ export async function GET() {
       credits: internalCredits,
       calls: internalCalls,
     },
+    revenueByPeriod,
+    agents,
+    referralsStats,
+    invitations,
+    connectorsByProvider,
+    trial,
     product: { users, tenants, apps, edits, documents, reports, conversations, outstandingCredits, clientUsers },
     demographics: {
       byCountry: tallyToArr(countryTally),

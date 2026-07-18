@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase";
 import { injectInterfaceWordmark } from "@/lib/app-brand";
+import { injectComponentEngine } from "@/lib/app-components";
 import { ShareMenu } from "@/components/share-menu";
 import { type ShareLink } from "@/lib/share";
 import { requiresBiltiaHost } from "@/lib/app-connectivity";
@@ -203,7 +204,9 @@ export default function AppViewerPage() {
       // à l'affichage — les apps déjà créées en profitent sans régénération, et le
       // nom de l'app quitte l'en-tête. Le logo de l'ARTISAN, lui, coiffe ses
       // DOCUMENTS et ses portails clients, pas son propre outil.
-      const html = injectInterfaceWordmark(data.html_content as string);
+      // Même principe pour le runtime `biltiaUI` : réinjecté à sa version courante
+      // à l'affichage, un correctif du moteur profite aux apps déjà créées.
+      const html = injectComponentEngine(injectInterfaceWordmark(data.html_content as string));
       if (cancelled) return;
       setApp({ ...data, html_content: html });
       setLoading(false);

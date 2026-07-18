@@ -27,6 +27,7 @@ import { BrainOptInBanner } from "@/components/brain-optin-banner";
 import { useSession } from "@/components/session-provider";
 import { useT, useLocale } from "@/lib/i18n/context";
 import type { Locale } from "@/lib/i18n/config";
+import { ACCEPTED_FILE_TYPES, MAX_FILES_CLIENT, MAX_FILE_BYTES_CLIENT, fileToBase64 } from "@/lib/client-files";
 import {
   Sparkles,
   ArrowUpRight,
@@ -50,6 +51,11 @@ import {
   X,
   FileText,
   Loader2,
+  Calendar,
+  Bot,
+  LayoutGrid,
+  Zap,
+  Building2,
 } from "lucide-react";
 
 type App = {
@@ -62,13 +68,53 @@ type App = {
   updated_at: string | null;
 };
 
-const QUICK_PROMPTS = [
-  "Suivi de chantiers",
-  "Devis BTP",
-  "Pointage des heures",
-  "Sous-traitants",
-  "Planning chantiers",
-  "Factures & acomptes",
+// Suggestions cliquables sous la barre : remplissent le champ, l'utilisateur
+// garde la main (relit, ajuste, envoie). Les prompts reprennent des formulations
+// déjà éprouvées ailleurs dans le produit (landing, exemples des agents) plutôt
+// que d'en inventer de nouvelles.
+const SUGGESTIONS: { icon: typeof Mic; fr: string; en: string; promptFr: string; promptEn: string }[] = [
+  {
+    icon: Mic,
+    fr: "Créer un devis à la voix",
+    en: "Dictate a quote",
+    promptFr: "Je vais dicter un devis, prépare-toi à noter les lignes et les prix.",
+    promptEn: "I'm going to dictate a quote, get ready to note the lines and prices.",
+  },
+  {
+    icon: Calendar,
+    fr: "Préparer le planning de la semaine",
+    en: "Plan the week's schedule",
+    promptFr: "Prépare le planning de la semaine pour mes équipes, chantier par chantier.",
+    promptEn: "Prepare the week's schedule for my crews, job site by job site.",
+  },
+  {
+    icon: FileText,
+    fr: "Analyser un plan PDF",
+    en: "Analyze a PDF plan",
+    promptFr: "Analyse ce plan PDF que je vais déposer et résume-moi les points clés.",
+    promptEn: "Analyze this PDF plan I'm about to drop and summarize the key points.",
+  },
+  {
+    icon: Bot,
+    fr: "Créer un agent IA",
+    en: "Create an AI agent",
+    promptFr: "Chaque lundi à 8h, envoie-moi la liste de mes factures impayées.",
+    promptEn: "Every Monday at 8am, send me the list of my unpaid invoices.",
+  },
+  {
+    icon: LayoutGrid,
+    fr: "Créer une application de suivi de chantier",
+    en: "Build a job site tracker",
+    promptFr: "Je veux un suivi de mes chantiers avec l'avancement et le reste à facturer.",
+    promptEn: "I want a job tracker with progress and amount left to invoice.",
+  },
+  {
+    icon: Zap,
+    fr: "Automatiser les relances clients",
+    en: "Automate client follow-ups",
+    promptFr: "Relance mes devis sans réponse tous les jours à 9h jusqu'à ce que le client réponde.",
+    promptEn: "Chase my unanswered quotes every day at 9am until the client replies.",
+  },
 ];
 
 const DASH_PLACEHOLDERS_FR = [
@@ -253,6 +299,13 @@ export default function DashboardPage() {
   const [input, setInput] = useState("");
   const [isListening, setIsListening] = useState(false);
   const [firstName, setFirstName] = useState("");
+  const [stats, setStats] = useState<{
+    chantiersActifs: number;
+    chantiersEnRetard: number;
+    devisAEnvoyer: number;
+    interventionsAujourdhui: number;
+    agentsAujourdhui: number;
+  } | null>(null);
   const [tab, setTab] = useState<"ateliers" | "modeles">("ateliers");
   // Sous-filtre de l'onglet Modèles : applications à générer vs agents à activer.
   const [modelKind, setModelKind] = useState<"apps" | "agents">("apps");
@@ -348,8 +401,37 @@ export default function DashboardPage() {
     setLoading(false);
   };
 
+  // Bandeau de contexte discret : des VRAIS chiffres du tenant, jamais une
+  // démo. Workspace vide → toutes les valeurs à 0, et le bandeau ne s'affiche
+  // simplement pas (cf. rendu plus bas) plutôt que d'exhiber des zéros.
+  const fetchStats = async () => {
+    if (!membership?.tenant_id) { setStats(null); return; }
+    const supabase = createClient();
+    const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(); endOfDay.setHours(23, 59, 59, 999);
+    const tenantId = membership.tenant_id;
+    // `devis` existe en production (RLS incluse, migration 018) mais lib/database.types.ts
+    // n'a jamais été régénéré depuis — même contournement que createAdminClientUntyped()
+    // dans lib/supabase-admin.ts, appliqué ici au client anonyme faute d'équivalent client.
+    const untyped = supabase as unknown as import("@supabase/supabase-js").SupabaseClient;
+    const [chantiersActifs, chantiersEnRetard, devis, interventions, agents] = await Promise.all([
+      supabase.from("chantiers").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).in("statut", ["en_cours", "en_retard"]),
+      supabase.from("chantiers").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("statut", "en_retard"),
+      untyped.from("devis").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("statut", "brouillon"),
+      supabase.from("interventions").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).gte("date_prevue", startOfDay.toISOString()).lte("date_prevue", endOfDay.toISOString()),
+      supabase.from("agent_runs").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("status", "success").gte("created_at", startOfDay.toISOString()),
+    ]);
+    setStats({
+      chantiersActifs: chantiersActifs.count ?? 0,
+      chantiersEnRetard: chantiersEnRetard.count ?? 0,
+      devisAEnvoyer: devis.count ?? 0,
+      interventionsAujourdhui: interventions.count ?? 0,
+      agentsAujourdhui: agents.count ?? 0,
+    });
+  };
+
   // Prénom = premier mot du nom saisi à l'inscription. Jamais le début de l'email :
-  // « Quel problème réglons-nous, mwiatou.barry224 ? » n'a aucun sens.
+  // « Que puis-je faire pour vous, mwiatou.barry224 ? » n'a aucun sens.
   useEffect(() => {
     setFirstName((user?.name ?? "").trim().split(" ")[0] ?? "");
   }, [user]);
@@ -357,6 +439,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (sessionLoading) return;      // on attend que la session soit résolue
     fetchApps();
+    fetchStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionLoading, membership?.tenant_id]);
   useEffect(() => {
@@ -386,23 +469,56 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     const trimmed = input.trim();
     if ((!trimmed && files.length === 0) || launching) return;
     // Retour visuel IMMÉDIAT : la compilation de /generate peut prendre 2-3 s
     // en dev — sans spinner, l'envoi paraît mort.
     setLaunching(true);
+
+    // Fichiers joints : on transmet leur CONTENU (base64), pas que leur nom —
+    // sinon la demande repartait à l'aveugle, sans le fichier joint. Biltia
+    // répondait ou créait une app à partir du seul TEXTE, alors que l'artisan
+    // avait joint le document à compléter (bug confirmé). Seuls les types lus
+    // nativement (PDF/PNG/JPEG/WebP, cf. lib/vision.ts) sont transmis ; les
+    // autres restent mentionnés par leur nom dans le texte, comme avant.
+    const accepted: { name: string; mediaType: string; data: string; size: number }[] = [];
+    const skipped: string[] = files.slice(MAX_FILES_CLIENT).map((f) => f.name);
+    for (const f of files.slice(0, MAX_FILES_CLIENT)) {
+      if (!ACCEPTED_FILE_TYPES.includes(f.type) || f.size > MAX_FILE_BYTES_CLIENT) {
+        skipped.push(f.name);
+        continue;
+      }
+      try {
+        accepted.push({ name: f.name, mediaType: f.type, data: await fileToBase64(f), size: f.size });
+      } catch {
+        skipped.push(f.name);
+      }
+    }
+
     // On lance la generation directement : pas d'ecran intermediaire.
-    const note = files.length ? `\n\n[${t("Fichiers joints", "Attached files")} : ${files.map((f) => f.name).join(", ")}]` : "";
+    const note = skipped.length ? `\n\n[${t("Fichiers joints", "Attached files")} : ${skipped.join(", ")}]` : "";
     sessionStorage.setItem("biltia_prompt", (trimmed || t("Adapte-moi un outil à partir des fichiers joints.", "Build me a tool from the attached files.")) + note);
     sessionStorage.setItem("biltia_autostart", "1");
+    if (accepted.length) {
+      try {
+        sessionStorage.setItem("biltia_files", JSON.stringify(accepted));
+      } catch {
+        // Quota sessionStorage dépassé (fichiers volumineux) : on continue avec
+        // le texte seul plutôt que de bloquer l'envoi.
+      }
+    }
     router.push("/generate");
-    // Toujours là après 10 s = navigation en échec (serveur arrêté, réseau) →
-    // on réarme le bouton et on prévient au lieu de rester muet.
+    // Toujours là après le délai = navigation en échec (serveur arrêté, réseau) →
+    // on réarme le bouton et on prévient au lieu de rester muet. En dev, la
+    // PREMIÈRE navigation vers /generate après une modif de code compile la
+    // route à froid (page volumineuse) — 10 s peut être dépassé sans que rien
+    // ne soit cassé ; on est donc plus patient hors production.
+    const FAILSAFE_MS = process.env.NODE_ENV === "development" ? 25000 : 10000;
     launchTimerRef.current = setTimeout(() => {
       setLaunching(false);
       alert(t("Impossible d'ouvrir le générateur. Vérifiez que le serveur Biltia est bien démarré, puis réessayez.", "Couldn't open the generator. Check that the Biltia server is running, then try again."));
-    }, 10000);
+    }, FAILSAFE_MS);
   };
 
   // Ouvre un modèle dans l'atelier (aperçu live + chat). Les modifs créent une copie perso.
@@ -488,8 +604,51 @@ export default function DashboardPage() {
         <div className="relative z-10 w-full max-w-[62rem] mx-auto text-center">
           <ConnectToolsBadge />
 
-          <h1 className="text-[40px] sm:text-[58px] font-black text-[#0A0A0A] leading-[1.06] tracking-[-0.035em] mb-9 max-w-3xl mx-auto">
-            {t("Quel problème ", "What problem ")}<span className="text-gradient">{t("réglons-nous", "are we solving")}</span>{firstName ? `, ${firstName}` : t(" aujourd’hui", " today")}&nbsp;?
+          {/* Bandeau de contexte : discret, jamais un dashboard. N'apparaît que s'il y a
+              vraiment quelque chose à montrer (workspace vide → rien, pas des zéros). */}
+          {(firstName || (stats && (stats.chantiersActifs + stats.devisAEnvoyer + stats.interventionsAujourdhui + stats.agentsAujourdhui) > 0)) && (
+            <div className="mb-5 flex flex-col items-center gap-2.5 animate-reveal-up">
+              {firstName && (
+                <p className="text-[14px] text-[#6E6E7A]">{t("Bonjour", "Hello")} {firstName} 👋</p>
+              )}
+              {stats && (stats.chantiersActifs + stats.devisAEnvoyer + stats.interventionsAujourdhui + stats.agentsAujourdhui) > 0 && (
+                <div className="flex flex-nowrap items-center gap-2 overflow-x-auto no-scrollbar justify-start w-full px-6 sm:flex-wrap sm:overflow-visible sm:justify-center sm:w-auto sm:px-0">
+                  {stats.chantiersActifs > 0 && (
+                    <span className={`flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12.5px] font-medium glass ${stats.chantiersEnRetard > 0 ? "text-amber-700" : "text-[#4A4A56]"}`}>
+                      <Building2 className="w-3.5 h-3.5" />
+                      {stats.chantiersEnRetard > 0
+                        ? t(`${stats.chantiersActifs} chantier${stats.chantiersActifs > 1 ? "s" : ""} actif${stats.chantiersActifs > 1 ? "s" : ""} (${stats.chantiersEnRetard} en retard)`, `${stats.chantiersActifs} active job${stats.chantiersActifs > 1 ? "s" : ""} (${stats.chantiersEnRetard} behind)`)
+                        : t(`${stats.chantiersActifs} chantier${stats.chantiersActifs > 1 ? "s" : ""} actif${stats.chantiersActifs > 1 ? "s" : ""}`, `${stats.chantiersActifs} active job${stats.chantiersActifs > 1 ? "s" : ""}`)}
+                    </span>
+                  )}
+                  {stats.devisAEnvoyer > 0 && (
+                    <span className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12.5px] font-medium glass text-[#4A4A56]">
+                      <FileText className="w-3.5 h-3.5" />
+                      {t(`${stats.devisAEnvoyer} devis à envoyer`, `${stats.devisAEnvoyer} quote${stats.devisAEnvoyer > 1 ? "s" : ""} to send`)}
+                    </span>
+                  )}
+                  {stats.interventionsAujourdhui > 0 && (
+                    <span className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12.5px] font-medium glass text-[#4A4A56]">
+                      <Calendar className="w-3.5 h-3.5" />
+                      {t(`${stats.interventionsAujourdhui} intervention${stats.interventionsAujourdhui > 1 ? "s" : ""} aujourd'hui`, `${stats.interventionsAujourdhui} visit${stats.interventionsAujourdhui > 1 ? "s" : ""} today`)}
+                    </span>
+                  )}
+                  {stats.agentsAujourdhui > 0 && (
+                    <span className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12.5px] font-medium glass text-[#4A4A56]">
+                      <Bot className="w-3.5 h-3.5" />
+                      {t(`${stats.agentsAujourdhui} action${stats.agentsAujourdhui > 1 ? "s" : ""} d'agent aujourd'hui`, `${stats.agentsAujourdhui} agent action${stats.agentsAujourdhui > 1 ? "s" : ""} today`)}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* sm:46px couvre tout MacBook (jusqu'à ~1730px logiques, déjà au-delà de 2xl) :
+              le traitement à 58px ne se déclenche qu'à partir d'un vrai grand écran
+              externe (3xl, 1920px+), sinon le titre paraît surdimensionné sur laptop. */}
+          <h1 className="text-[40px] sm:text-[46px] 3xl:text-[58px] font-black text-[#0A0A0A] leading-[1.06] tracking-[-0.035em] mb-9 max-w-3xl mx-auto">
+            {t("Que puis-je ", "What can I ")}<span className="text-gradient">{t("faire pour vous", "do for you")}</span>{t(" aujourd’hui", " today")}&nbsp;?
           </h1>
 
           {/* Barre de chat, style Gemini/Lovable : + à gauche, micro à droite, envoi à la saisie.
@@ -635,6 +794,25 @@ export default function DashboardPage() {
               </>
             )}
           </div>
+          </div>
+
+          {/* Suggestions cliquables : remplissent le champ, l'utilisateur garde la main.
+              Un seul rang qui défile en dessous de sm — 6 pastilles qui s'enroulent sur
+              plusieurs lignes surchargeaient l'écran sur mobile/tablette. */}
+          <div className="mt-5 flex flex-nowrap items-center gap-2 overflow-x-auto no-scrollbar justify-start w-full px-6 sm:flex-wrap sm:overflow-visible sm:justify-center sm:w-auto sm:max-w-2xl sm:mx-auto sm:px-0">
+            {SUGGESTIONS.map((s) => (
+              <button
+                key={s.fr}
+                onClick={() => {
+                  setInput(t(s.promptFr, s.promptEn));
+                  requestAnimationFrame(() => textareaRef.current?.focus());
+                }}
+                className="flex-shrink-0 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-[12.5px] font-medium text-[#4A4A56] bg-white/70 border border-[#ECECF2] hover:border-[#D6D0E4] hover:bg-white transition-colors"
+              >
+                <s.icon className="w-3.5 h-3.5 text-[#7C3AED]" />
+                {t(s.fr, s.en)}
+              </button>
+            ))}
           </div>
         </div>
       </section>

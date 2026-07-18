@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase";
 import { injectAppBrand, injectInterfaceWordmark } from "@/lib/app-brand";
+import { injectComponentEngine } from "@/lib/app-components";
 import { requiresBiltiaHost } from "@/lib/app-connectivity";
 import { brandFromTenant, type BrandKit } from "@/lib/brand";
 import { isFounderEmail } from "@/lib/founder";
@@ -11,6 +12,13 @@ import { saveConversation, loadConversation } from "@/lib/conversations";
 import { looksLikePureQuestion, classifyKindHeuristic } from "@/lib/kind-heuristic";
 import { playCompletionChime } from "@/lib/chime";
 import { documentToPdfFile } from "@/lib/pdf-share";
+import {
+  type AttachedFile,
+  ACCEPTED_FILE_TYPES,
+  MAX_FILES_CLIENT,
+  MAX_FILE_BYTES_CLIENT,
+  fileToBase64,
+} from "@/lib/client-files";
 import { VoiceRecorder } from "@/components/voice-recorder";
 import { ClarifyWidget, type ClarifyQuestion } from "@/components/clarify-widget";
 import DataStartModal from "@/components/data-start-modal";
@@ -134,6 +142,15 @@ type GenOpts = {
   // Phase 2 : cette passe est une CORRECTION automatique de branchement (ne
   // réinitialise pas le budget anti-boucle, ne se re-corrige pas elle-même).
   isCorrection?: boolean;
+  // Un fichier fraîchement joint s'est avéré être une SOURCE NEUVE (docFill /
+  // appFromFiles) alors qu'un autre livrable était encore ouvert : on vient de
+  // vider `generatedHTML`/`kind` côté état, mais `executeGeneration` lit ces
+  // variables par CLOSURE — le `setState` de l'appelant n'a pas encore reflow
+  // dans CETTE même invocation synchrone (React ne remet pas la fermeture à
+  // jour avant le prochain rendu). Sans cet indicateur explicite,
+  // `isModification` resterait vrai sur la valeur PÉRIMÉE et docFill/
+  // appFromFiles seraient à nouveau ignorés silencieusement.
+  freshWorkshop?: boolean;
 };
 
 // Flux de connexion proposé dans le fil. Gardé HORS de `messages` (donc non
@@ -210,27 +227,10 @@ async function readGenerationDone(
 type Kind = "document" | "action" | "module";
 
 // ── Fichiers joints & résultats d'analyse (produits Analyse / Automatisations) ──
-type AttachedFile = { name: string; mediaType: string; data: string; size: number };
-
-// Types MIME acceptés côté client (miroir de lib/vision.ts).
-const ACCEPTED_TYPES = ["application/pdf", "image/png", "image/jpeg", "image/webp"];
-const MAX_FILES_CLIENT = 5;
-const MAX_FILE_BYTES_CLIENT = 3.5 * 1024 * 1024;
-
-
-// Lit un fichier en base64 pur (sans préfixe data-URL).
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const res = String(reader.result);
-      const comma = res.indexOf(",");
-      resolve(comma !== -1 ? res.slice(comma + 1) : res);
-    };
-    reader.onerror = () => reject(new Error("Lecture du fichier impossible."));
-    reader.readAsDataURL(file);
-  });
-}
+// Type + constantes + lecture base64 : PARTAGÉS avec le tableau de bord (voir
+// lib/client-files.ts) — un fichier joint depuis sa barre de création rapide
+// doit produire EXACTEMENT la même forme qu'un fichier joint ici.
+const ACCEPTED_TYPES = ACCEPTED_FILE_TYPES;
 
 const DOC_LABELS: Record<string, string> = {
   avenant: "Avenant",
@@ -407,6 +407,13 @@ export default function GeneratePage() {
   const [format, setFormat] = useState<Format>("auto");
   const [kind, setKind] = useState<Kind | null>(null);
   const [docType, setDocType] = useState<string | null>(null);
+  // Un document REPRODUIT à partir d'un fichier joint (docFill) garde la DA du
+  // fichier SOURCE : jamais le logo de l'artisan dessus, jamais le gabarit
+  // standard de Biltia (règle 2026-07-17 — le logo/la DA de l'artisan n'habille
+  // QUE les documents créés de zéro). Un mot dans le prompt ne suffisait pas :
+  // ce drapeau rend l'interdiction déterministe côté affichage plutôt que
+  // dépendante de l'obéissance du modèle.
+  const [docFromUpload, setDocFromUpload] = useState(false);
   const [tenantId, setTenantId] = useState<string | null>(null);
   // Identité visuelle du tenant : sert à coiffer l'APERÇU du logo de l'artisan.
   // Jamais « cuite » dans le HTML enregistré — sinon changer de logo laisserait
@@ -423,11 +430,17 @@ export default function GeneratePage() {
   //   • DOCUMENT → le logo de l'ARTISAN (le devis est SA vitrine, jamais Biltia).
   const previewHTML = useMemo(() => {
     if (!generatedHTML) return generatedHTML;
+    // Réinjecte le runtime biltiaUI à sa version courante : une app rechargée
+    // depuis la bibliothèque (editId / conv.app_id) peut porter un moteur figé
+    // à une version antérieure du correctif (résolution des relations…).
+    const html = injectComponentEngine(generatedHTML);
     if (kind === "document") {
-      return brandKit ? injectAppBrand(generatedHTML, brandKit) : generatedHTML;
+      // Reproduction d'un fichier uploadé : la DA du document JOINT fait
+      // autorité — jamais le logo de l'artisan par-dessus (cf. docFromUpload).
+      return brandKit && !docFromUpload ? injectAppBrand(html, brandKit) : html;
     }
-    return injectInterfaceWordmark(generatedHTML);
-  }, [generatedHTML, brandKit, kind]);
+    return injectInterfaceWordmark(html);
+  }, [generatedHTML, brandKit, kind, docFromUpload]);
   const [isAutoFixing, setIsAutoFixing] = useState(false);
   const [autoFixCount, setAutoFixCount] = useState(0);
   const [visualEditMode, setVisualEditMode] = useState(false);
@@ -494,6 +507,26 @@ export default function GeneratePage() {
   const [reloadNonce, setReloadNonce] = useState(0);
   // Aperçu desktop : format simulé (bureau / tablette / mobile) qui redimensionne l'iframe.
   const [previewDevice, setPreviewDevice] = useState<"desktop" | "tablet" | "mobile">("desktop");
+  // On ne peut simuler que des tailles ≤ la fenêtre RÉELLE de l'éditeur (impossible
+  // de prévisualiser du bureau dans une fenêtre tablette). Sur mobile, ce sélecteur
+  // est de toute façon masqué (cf. `hidden md:flex` plus bas) — inutile de le couvrir ici.
+  const [editorTier, setEditorTier] = useState<"desktop" | "tablet">("desktop");
+  useEffect(() => {
+    const mqDesktop = window.matchMedia("(min-width: 1024px)");
+    const apply = () => setEditorTier(mqDesktop.matches ? "desktop" : "tablet");
+    apply();
+    mqDesktop.addEventListener("change", apply);
+    return () => mqDesktop.removeEventListener("change", apply);
+  }, []);
+  const availablePreviewDevices = editorTier === "desktop"
+    ? (["desktop", "tablet", "mobile"] as const)
+    : (["tablet", "mobile"] as const);
+  useEffect(() => {
+    if (!(availablePreviewDevices as readonly string[]).includes(previewDevice)) {
+      setPreviewDevice(availablePreviewDevices[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editorTier]);
   const htmlSetAtRef = useRef(0);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   // Fichiers de la DERNIÈRE analyse, conservés pour qu'un clic sur une
@@ -683,10 +716,12 @@ export default function GeneratePage() {
       return;
     }
 
-    // 1bis) Démarrage FRAIS demandé (ex. « Recruter un agent » depuis /agents) :
+    // 1bis) Démarrage FRAIS demandé (ex. « Recruter un agent » depuis /agents, ou les
+    //       états vides de la Bibliothèque — conversation/rapport/automatisation) :
     //       page assistant VIERGE — on n'ouvre NI la dernière app NI le dernier fil
     //       (sinon on retombe sur une app existante, cf. bug remonté). Selon
-    //       l'intention (?new=agent), on oriente le message d'accueil.
+    //       l'intention (?new=agent|automation|report|chat), on oriente le message
+    //       d'accueil.
     const fresh = params.get("new");
     if (fresh) {
       conversationIdRef.current = null;
@@ -698,6 +733,22 @@ export default function GeneratePage() {
               t("Décrivez la **mission permanente** que je dois prendre en charge, et je m'en occupe tout seul, en temps et en heure.\n\nPar exemple :\n• « Chaque lundi à 8h, envoie-moi la liste de mes factures impayées »\n• « Relance le client Martin tous les 3 jours tant qu'il n'a pas payé »\n• « Tous les soirs à 18h, fais-moi le récap des heures pointées du jour »\n\nQue voulez-vous me déléguer ?", "Describe the **standing mission** you want me to take over, and I'll handle it on my own, on time.\n\nFor example:\n• “Every Monday at 8am, send me the list of my unpaid invoices”\n• “Chase client Martin every 3 days until he pays”\n• “Every evening at 6pm, give me the recap of the day's logged hours”\n\nWhat would you like to delegate to me?"),
           },
         ]);
+      } else if (fresh === "automation") {
+        setMessages([
+          {
+            role: "assistant",
+            content:
+              t("Glissez plusieurs bons de livraison ou factures à comparer : je vous sors un rapport d'écarts (quantités, prix, références manquantes).", "Drop several delivery notes or invoices to compare: I'll produce a discrepancy report (quantities, prices, missing references)."),
+          },
+        ]);
+      } else if (fresh === "report") {
+        setMessages([
+          {
+            role: "assistant",
+            content:
+              t("Déposez un devis, une facture ou un plan à analyser, et dites-moi ce que vous voulez en tirer.", "Drop a quote, invoice or plan to analyze, and tell me what you want out of it."),
+          },
+        ]);
       }
       return;
     }
@@ -705,9 +756,35 @@ export default function GeneratePage() {
     // 2) Prompt depuis l'accueil : on génère directement, sans écran intermédiaire.
     const saved = sessionStorage.getItem("biltia_prompt");
     const auto = sessionStorage.getItem("biltia_autostart");
+    const savedFiles = sessionStorage.getItem("biltia_files");
     sessionStorage.removeItem("biltia_prompt");
     sessionStorage.removeItem("biltia_autostart");
+    sessionStorage.removeItem("biltia_files");
     if (saved) {
+      // Fichier(s) joint(s) depuis la barre de création rapide du tableau de
+      // bord (qui navigue vers /generate avant d'exécuter) : sans ce relais,
+      // seul le NOM du fichier survivait (dans le texte du prompt), jamais son
+      // contenu — la demande repartait à l'aveugle, sans le fichier lui-même.
+      if (savedFiles) {
+        try {
+          const parsed = JSON.parse(savedFiles);
+          if (Array.isArray(parsed)) {
+            const restored: AttachedFile[] = parsed
+              .filter(
+                (f): f is AttachedFile =>
+                  !!f &&
+                  typeof f.name === "string" &&
+                  typeof f.mediaType === "string" &&
+                  typeof f.data === "string" &&
+                  typeof f.size === "number"
+              )
+              .slice(0, MAX_FILES_CLIENT);
+            if (restored.length) setAttached(restored);
+          }
+        } catch {
+          // Fichiers illisibles/corrompus : on continue avec le seul texte.
+        }
+      }
       if (auto) setBootPrompt(saved);
       else setInput(saved);
       return;
@@ -1278,6 +1355,7 @@ export default function GeneratePage() {
     setEntitySaved(false);
     setGeneratedHTML("");
     setKind(null);
+    setDocFromUpload(false);
     setExpectingBuild(false); // analyse/contrôle : pas d'écran de construction
     setIsGenerating(true);
 
@@ -1384,6 +1462,7 @@ export default function GeneratePage() {
     setReport(null);
     setGeneratedHTML("");
     setKind(null);
+    setDocFromUpload(false);
     setExpectingBuild(false);
     setIsGenerating(true);
     try {
@@ -1433,6 +1512,7 @@ export default function GeneratePage() {
     setReport(null);
     setGeneratedHTML("");
     setKind(null);
+    setDocFromUpload(false);
     setExpectingBuild(false);
     setUpsell(null);
     setAnnotations([]);
@@ -1558,12 +1638,95 @@ export default function GeneratePage() {
     const trimmed = (promptOverride ?? input).trim();
     if (isGenerating) return;
 
-    // Fichiers joints AVEC une app ouverte dans l'atelier → CONTEXTE de la
-    // modification (capture d'écran du problème, document de référence) :
-    // ils partent avec la demande à /api/generate, PAS vers l'analyse workspace.
-    if (attached.length > 0 && generatedHTML && kindRef.current !== "document") {
+    // Fichiers joints AVEC un livrable (app OU document) déjà ouvert dans
+    // l'atelier : le fichier peut être une simple RÉFÉRENCE pour corriger/
+    // compléter ce qui est déjà affiché, OU une SOURCE NEUVE (un document à
+    // remplir, une autre app à construire) sans rapport avec ce qui tourne
+    // déjà. Bug confirmé, sous DEUX formes : (1) un module déjà ouvert →
+    // joindre une demande d'intervention à compléter régénérait CE module au
+    // lieu de produire le document ; (2) un document déjà ouvert → le fichier
+    // partait tout droit en ANALYSE en lecture seule (/api/analyze), qui
+    // répond par un texte de synthèse au lieu de produire le document rempli
+    // — c'est ce que l'utilisateur décrit comme « il me sort des informations,
+    // pas le fichier ». Dans les deux cas le fichier partait TOUJOURS en
+    // contexte de ce qui est déjà ouvert, jamais en source. Le même aiguilleur
+    // que la case « atelier vide » (plus bas) tranche désormais ; repli sûr =
+    // modifier l'ouvert (comportement historique) si l'API est indisponible
+    // ou si aucune consigne n'est donnée.
+    if (attached.length > 0 && generatedHTML) {
       const files = attached.map((f) => ({ name: f.name, mediaType: f.mediaType, data: f.data }));
       const fileNames = attached.map((f) => f.name).join(", ");
+
+      let openIntent: "annotate" | "document" | "module" | "modify_open" = "modify_open";
+      if (trimmed) {
+        setLoadingLabel(t("J'analyse votre demande…", "Analyzing your request…"));
+        setExpectingBuild(false);
+        setIsGenerating(true);
+        try {
+          const ctrl = new AbortController();
+          const to = setTimeout(() => ctrl.abort(), 20000);
+          try {
+            const res = await fetch("/api/file-intent", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ prompt: trimmed, openKind: kindRef.current }),
+              signal: ctrl.signal,
+            });
+            clearTimeout(to);
+            const data = await res.json();
+            if (
+              res.ok &&
+              (data.intent === "annotate" ||
+                data.intent === "document" ||
+                data.intent === "module" ||
+                data.intent === "modify_open")
+            ) {
+              openIntent = data.intent;
+            }
+          } catch {
+            clearTimeout(to);
+          }
+        } finally {
+          setLoadingLabel(null);
+          setIsGenerating(false);
+        }
+      }
+
+      if (openIntent === "annotate") {
+        await handleAnnotate(trimmed);
+        return;
+      }
+
+      // DOCUMENT / MODULE : le fichier est la SOURCE, indépendante de ce qui est
+      // déjà ouvert — on repart d'un atelier propre. Sans ce nettoyage,
+      // `executeGeneration` verrait toujours `generatedHTML` non vide : il
+      // traiterait la demande comme une MODIFICATION (docFill/appFromFiles
+      // silencieusement ignorés) et écraserait l'ANCIEN enregistrement sauvegardé.
+      if (openIntent === "document" || openIntent === "module") {
+        setGeneratedHTML("");
+        setKind(null);
+        kindRef.current = null;
+        setDocType(null);
+        docTypeRef.current = null;
+        setSavedId(null);
+        savedIdRef.current = null;
+        setSlug(null);
+        setIsPublic(false);
+        setMessages((prev) => [...prev, { role: "user", content: `${trimmed}\n\n📎 ${fileNames}` }]);
+        setInput("");
+        setAttached([]);
+        setUpsell(null);
+        await executeGeneration(
+          trimmed,
+          openIntent === "document"
+            ? { files, docFill: true, freshWorkshop: true }
+            : { files, appFromFiles: true, freshWorkshop: true }
+        );
+        return;
+      }
+
+      // modify_open (défaut) : comportement historique — le fichier sert de
+      // contexte pour modifier ce qui est déjà ouvert.
       const instruction = trimmed || t("Regarde les fichiers joints et corrige le problème qu'ils montrent.", "Look at the attached files and fix the problem they show.");
       setMessages((prev) => [...prev, { role: "user", content: `${instruction}\n\n📎 ${fileNames}` }]);
       setInput("");
@@ -1671,14 +1834,6 @@ export default function GeneratePage() {
       // ANALYSE (défaut) : 1 fichier → /api/analyze, ≥2 → /api/automate.
       // Si un contrôle a été demandé AVANT de joindre les fichiers, on reprend
       // cette instruction mémorisée (promesse « décrivez le contrôle »).
-      const instruction = trimmed || pendingActionRef.current;
-      pendingActionRef.current = "";
-      await handleFiles(instruction);
-      return;
-    }
-
-    // Fichiers joints (app ouverte gérée plus haut) → analyse / automatisation.
-    if (attached.length > 0) {
       const instruction = trimmed || pendingActionRef.current;
       pendingActionRef.current = "";
       await handleFiles(instruction);
@@ -1940,7 +2095,7 @@ export default function GeneratePage() {
     // pas une paraphrase. Les corrections automatiques ne s'auto-mémorisent pas.
     if (!opts?.isCorrection) lastAttemptRef.current = { prompt: apiPrompt, opts };
 
-    const isModification = generatedHTML.length > 0;
+    const isModification = !opts?.freshWorkshop && generatedHTML.length > 0;
     const creditCost = isModification ? ACTION_CREDITS.modification_app : ACTION_CREDITS.application;
     // Nouvelle demande utilisateur → budget de correction workspace remis à neuf.
     if (!opts?.isCorrection) wsCorrectionRef.current = false;
@@ -2305,6 +2460,11 @@ export default function GeneratePage() {
           setSavedId(null);
           savedIdRef.current = null;
           setSlug(null);
+          // Reproduction d'un fichier uploadé → jamais le logo de l'artisan
+          // dessus (cf. previewHTML). Persiste tant qu'on modifie CE même
+          // document, même si un round de modification n'y rejoint pas de
+          // fichier ; ne se réévalue qu'à la prochaine CRÉATION.
+          setDocFromUpload(newKind === "document" && data.fromUpload === true);
         }
         // Mise à jour affichage — la déduction réelle est faite côté serveur
         updateCreditsDisplay(data.creditsUsed ?? creditCost);
@@ -2757,6 +2917,7 @@ export default function GeneratePage() {
     setDocType(null);
     kindRef.current = null;
     docTypeRef.current = null;
+    setDocFromUpload(false);
     setInput("");
     setAutoFixCount(0);
     setIsAutoFixing(false);
@@ -3339,7 +3500,9 @@ export default function GeneratePage() {
           <div className="flex items-center justify-center flex-shrink-0">
             {generatedHTML && (
               <div className="flex items-center gap-0.5 bg-[#F6F6F9] rounded-full p-0.5">
-                {([["desktop", Monitor, t("Vue bureau", "Desktop view")], ["tablet", Tablet, t("Vue tablette", "Tablet view")], ["mobile", Smartphone, t("Vue mobile", "Mobile view")]] as const).map(([d, Icon, label]) => (
+                {([["desktop", Monitor, t("Vue bureau", "Desktop view")], ["tablet", Tablet, t("Vue tablette", "Tablet view")], ["mobile", Smartphone, t("Vue mobile", "Mobile view")]] as const)
+                  .filter(([d]) => (availablePreviewDevices as readonly string[]).includes(d))
+                  .map(([d, Icon, label]) => (
                   <button
                     key={d}
                     onClick={() => setPreviewDevice(d)}

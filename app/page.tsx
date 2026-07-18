@@ -8,7 +8,7 @@ import {
   ArrowRight, ArrowUpRight, Mic, MicOff,
   FileText, LayoutGrid, MessageCircle, Zap,
   Users, Building2, HardHat, Clock, FolderKanban,
-  Bot, CheckCircle, Pause,
+  Bot, CheckCircle, Pause, Calendar,
 } from "lucide-react";
 import { PRODUCTS, localizeProduct } from "@/lib/products";
 import { BRAND_JSONLD } from "@/lib/brand-entity";
@@ -17,23 +17,58 @@ import {
   Reveal, Spot, InteractiveMesh, SiteNav, SiteFooter, TemplateCarousel,
 } from "@/components/site";
 import { useT, useLocale } from "@/lib/i18n/context";
-import { AGENT_CREDITS_PER_MONTH, creditsToEur } from "@/lib/plans";
+import { AGENT_CREDITS_PER_MONTH, creditsToEur, TRIAL_DAYS } from "@/lib/plans";
 
 // ── Héros ────────────────────────────────────────────────────────────────────
 
 const PLACEHOLDERS_FR = [
-  "Relance mes devis sans réponse tous les jours à 9h…",
-  "Sors-moi l'avenant pour le carrelage validé, 45 m²…",
-  "Un suivi de mes chantiers avec l'avancement…",
-  "Chaque soir à 18h, fais le point sur mes impayés…",
-  "Quels chantiers sont en retard cette semaine ?",
+  "Crée un devis pour le client Alpha Barry…",
+  "Quels chantiers sont en retard ?",
+  "Relance mes devis sans réponse depuis 7 jours…",
+  "Prépare le planning de la semaine prochaine…",
+  "Vérifie les documents de mes sous-traitants…",
+  "Crée une application pour suivre mes interventions…",
 ];
 const PLACEHOLDERS_EN = [
-  "Chase my unanswered quotes every day at 9am…",
-  "Draft the change order for the approved tiling, 45 m²…",
-  "A tracker for my job sites with progress…",
-  "Every evening at 6pm, review my unpaid invoices…",
-  "Which job sites are behind schedule this week?",
+  "Create a quote for client Alpha Barry…",
+  "Which job sites are behind schedule?",
+  "Chase my unanswered quotes from the last 7 days…",
+  "Prepare next week's schedule…",
+  "Check my subcontractors' documents…",
+  "Create an app to track my site visits…",
+];
+
+// Suggestions rapides sous le champ : remplissent le champ (curseur en fin de
+// texte), n'envoient JAMAIS automatiquement — l'utilisateur relit et valide.
+const HERO_SUGGESTIONS: { icon: typeof Mic; fr: string; en: string; promptFr: string; promptEn: string }[] = [
+  {
+    icon: FileText,
+    fr: "Créer un devis",
+    en: "Create a quote",
+    promptFr: "Crée un devis pour le client Alpha Barry avec trois lignes de prestation.",
+    promptEn: "Create a quote for client Alpha Barry with three line items.",
+  },
+  {
+    icon: Building2,
+    fr: "Suivre mes chantiers",
+    en: "Track my job sites",
+    promptFr: "Crée une application pour suivre l'avancement, les dépenses et le reste à facturer de mes chantiers.",
+    promptEn: "Create an app to track the progress, spending and amount left to invoice on my job sites.",
+  },
+  {
+    icon: Bot,
+    fr: "Relancer mes clients",
+    en: "Chase my clients",
+    promptFr: "Relance automatiquement mes devis sans réponse depuis plus de 7 jours.",
+    promptEn: "Automatically chase my quotes with no reply for more than 7 days.",
+  },
+  {
+    icon: Calendar,
+    fr: "Préparer un planning",
+    en: "Prepare a schedule",
+    promptFr: "Prépare le planning de mes équipes pour la semaine prochaine.",
+    promptEn: "Prepare my crews' schedule for next week.",
+  },
 ];
 function FormatPills() {
   const t = useT();
@@ -80,6 +115,19 @@ function HeroSection() {
     sessionStorage.setItem("biltia_prompt", input.trim());
     router.push("/signup?from=prompt");
   };
+  // Remplit le champ (curseur en FIN de texte) sans jamais envoyer : l'utilisateur
+  // relit, ajuste si besoin, et valide lui-même.
+  const fillSuggestion = (text: string) => {
+    setInput(text);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.style.height = "auto";
+      el.style.height = `${el.scrollHeight}px`;
+      el.focus();
+      el.setSelectionRange(text.length, text.length);
+    });
+  };
   const toggleVoice = () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const w = window as any;
@@ -110,8 +158,8 @@ function HeroSection() {
           <span className="block font-semibold text-[#2A2A32] text-[17px] sm:text-[21px] md:text-[24px] tracking-[-0.01em] mb-2.5">{t("Décrivez votre problème.", "Describe your problem.")}</span>
           <span className="block font-black text-gradient animate-gradient-x text-[46px] sm:text-[74px] md:text-[92px] leading-[0.88] tracking-[-0.05em] pb-2">{t("Biltia s'occupe du reste.", "Biltia handles the rest.")}</span>
         </h1>
-        <p className="text-[16px] sm:text-[18px] text-[#5B5B66] max-w-[400px] leading-[1.55] mt-4 mb-16 animate-reveal-up delay-200">
-          {t("Il gère ", "It runs ")}<span className="font-semibold text-[#0A0A0A]">{t("tout votre métier", "your whole business")}</span>{t(". Vos agents travaillent 24h/24.", ". Your agents work around the clock.")}
+        <p className="text-[16px] sm:text-[18px] text-[#5B5B66] max-w-[420px] leading-[1.55] mt-4 mb-16 animate-reveal-up delay-200">
+          {t("Biltia crée vos outils, prépare vos documents et automatise les tâches répétitives de votre entreprise.", "Biltia builds your tools, prepares your documents and automates your business's repetitive tasks.")}
         </p>
         <div className="w-full max-w-2xl animate-reveal-up delay-300">
           {/* Deux lueurs discrètes (haut-droite / bas-gauche) tournent autour de la carte (.chatframe). */}
@@ -145,6 +193,15 @@ function HeroSection() {
           </div>
         </div>
         <div className="animate-reveal-up delay-500"><FormatPills /></div>
+        <div className="flex flex-wrap items-center justify-center gap-2 mt-4 animate-reveal-up delay-500">
+          {HERO_SUGGESTIONS.map((s) => (
+            <button key={s.fr} onClick={() => fillSuggestion(t(s.promptFr, s.promptEn))}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-[12.5px] font-medium text-[#4A4A56] bg-white/70 border border-[#ECECF2] hover:border-[#D6D0E4] hover:bg-white transition-colors">
+              <s.icon className="w-3.5 h-3.5 text-[#7C3AED]" />
+              {t(s.fr, s.en)}
+            </button>
+          ))}
+        </div>
       </div>
     </section>
   );
@@ -161,7 +218,8 @@ function ProductsSection() {
       <div className="relative max-w-6xl mx-auto">
         <Reveal className="mb-12 max-w-2xl">
           <h2 className="text-[38px] sm:text-[56px] font-black text-[#0A0A0A] tracking-[-0.03em] leading-[0.98]">{t("Une barre.", "One bar.")} <span className="text-gradient">{t("Tous vos outils.", "All your tools.")}</span></h2>
-          <p className="text-[16px] text-[#5B5B66] mt-4 leading-relaxed">{t("Selon votre demande, Biltia bascule sur le bon produit. Vous ne le choisissez jamais.", "Depending on your request, Biltia switches to the right product. You never pick it.")}</p>
+          <p className="text-[16px] text-[#5B5B66] mt-4 leading-relaxed">{t("Décrivez ce que vous voulez obtenir. Biltia utilise automatiquement le bon outil pour vous répondre.", "Describe what you want to achieve. Biltia automatically uses the right tool to answer you.")}</p>
+          <p className="text-[13.5px] text-[#9A9AA6] mt-2 leading-relaxed">{t("Vous gardez toujours la possibilité de vérifier, modifier ou arrêter ce qui est créé.", "You can always review, edit, or stop what gets created.")}</p>
         </Reveal>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {PRODUCTS.map((pRaw, k) => {
@@ -182,7 +240,7 @@ function ProductsSection() {
                       </div>
                       <div className="min-w-0 flex-1">
                         <h3 className="text-[19px] font-bold text-[#0A0A0A] tracking-[-0.01em]">{p.name}</h3>
-                        <p className="text-[13.5px] text-[#5B5B66] leading-relaxed">{p.tagline}.</p>
+                        <p className="text-[13.5px] text-[#5B5B66] leading-relaxed">{p.tagline}</p>
                       </div>
                       <span className="flex-shrink-0 inline-flex items-center gap-1.5 text-[13px] font-semibold text-[#0A0A0A] group-hover:gap-2.5 transition-all">{t("En savoir plus", "Learn more")} <ArrowRight className="w-3.5 h-3.5" /></span>
                     </Spot>
@@ -192,7 +250,7 @@ function ProductsSection() {
                         <Icon className="w-6 h-6" />
                       </div>
                       <h3 className="text-[19px] font-bold text-[#0A0A0A] mb-1.5 tracking-[-0.01em]">{p.name}</h3>
-                      <p className="text-[13.5px] text-[#5B5B66] leading-relaxed mb-5">{p.tagline}.</p>
+                      <p className="text-[13.5px] text-[#5B5B66] leading-relaxed mb-5">{p.tagline}</p>
                       <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-[#0A0A0A] group-hover:gap-2.5 transition-all">{t("En savoir plus", "Learn more")} <ArrowRight className="w-3.5 h-3.5" /></span>
                     </Spot>
                   )}
@@ -263,7 +321,7 @@ function AnswerResult() {
         <div className="flex items-center justify-between rounded-lg bg-amber-50 border border-amber-100 px-3 py-2"><span className="text-[12px] text-[#0F172A] font-medium">École Bellevue</span><span className="text-[11px] text-[#B45309] font-medium">{t("J+6, 32%", "+6 days, 32%")}</span></div>
         <div className="flex items-center justify-between rounded-lg bg-rose-50 border border-rose-100 px-3 py-2"><span className="text-[12px] text-[#0F172A] font-medium">{t("Entrepôt Z.I. Nord", "North Ind. Park warehouse")}</span><span className="text-[11px] text-[#E11D48] font-medium">{t("Budget +8%", "Budget +8%")}</span></div>
       </div>
-      <p className="text-[10px] text-[#9CA3AF] mt-2.5">{t("Source : Workspace, mis à jour il y a 2 h", "Source: Workspace, updated 2 h ago")}</p>
+      <p className="text-[10px] text-[#9CA3AF] mt-2.5">{t("Source : Mémoire de l'entreprise, mis à jour il y a 2 h", "Source: Workspace, updated 2 h ago")}</p>
     </div>
   );
 }
@@ -286,7 +344,7 @@ function AgentResult() {
     <div className="rounded-2xl border border-[#ECECEA] bg-white p-4">
       <div className="flex items-start justify-between mb-3">
         <div>
-          <p className="text-[13px] font-semibold text-[#0F172A]">{t("Relance des devis en attente", "Chasing pending quotes")}</p>
+          <p className="text-[13px] font-semibold text-[#0F172A]">{t("Relance des devis sans réponse", "Chasing unanswered quotes")}</p>
           <p className="text-[11px] text-[#9CA3AF]">{t("tous les jours à 09:00 · prochain passage demain", "every day at 09:00 · next run tomorrow")}</p>
         </div>
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 text-[10px] font-semibold border border-emerald-100"><CheckCircle className="w-2.5 h-2.5" /> {t("Actif", "Active")}</span>
@@ -308,7 +366,7 @@ function AgentResult() {
 type Scenario = { problem: string; short: string; route: string; Icon: React.ComponentType<{ className?: string }>; accent: [string, string]; result: React.ReactNode };
 function buildScenarios(t: (fr: string, en: string) => string): Scenario[] {
   return [
-    { problem: t("Relance mes devis sans réponse tous les jours à 9h.", "Chase my unanswered quotes every day at 9am."), short: t("Relancer mes devis", "Chase my quotes"), route: t("Agent", "Agent"), Icon: Bot, accent: ["#6366F1", "#22D3EE"], result: <AgentResult /> },
+    { problem: t("Relance mes devis sans réponse tous les jours à 9 h.", "Chase my unanswered quotes every day at 9am."), short: t("Relancer mes devis", "Chase my quotes"), route: t("Agent", "Agent"), Icon: Bot, accent: ["#6366F1", "#22D3EE"], result: <AgentResult /> },
     { problem: t("Un suivi de mes chantiers avec l'avancement et le reste à facturer.", "A tracker for my job sites with progress and amount left to invoice."), short: t("Suivi de chantiers", "Job site tracker"), route: t("Application", "App"), Icon: LayoutGrid, accent: ["#6366F1", "#A855F7"], result: <AppResult /> },
     { problem: t("Sors-moi l'avenant pour le carrelage validé, 45 m² à 42 €/m².", "Draft the change order for the approved tiling, 45 m² at €42/m²."), short: t("Faire un avenant", "Draft a change order"), route: t("Document", "Document"), Icon: FileText, accent: ["#A855F7", "#EC4899"], result: <DocResult /> },
     { problem: t("Quels chantiers sont en retard cette semaine ?", "Which job sites are behind schedule this week?"), short: t("Chantiers en retard ?", "Sites behind?"), route: t("Réponse", "Answer"), Icon: MessageCircle, accent: ["#3B82F6", "#6366F1"], result: <AnswerResult /> },
@@ -396,8 +454,8 @@ function DemoSection() {
     <section id="demo" className="relative px-5 sm:px-8 py-28 sm:py-36 overflow-hidden">
       <div className="absolute inset-0 -z-10" style={{ background: "radial-gradient(60% 50% at 50% 50%, rgba(139,92,246,0.08), transparent 70%)" }} />
       <div className="max-w-2xl mx-auto text-center mb-10 sm:mb-12">
-        <Reveal><h2 className="text-[38px] sm:text-[56px] font-black text-[#0A0A0A] tracking-[-0.03em] leading-[0.98]">{t("Vous ne choisissez jamais.", "You never choose.")}</h2></Reveal>
-        <Reveal delay={0.08}><p className="text-[16px] sm:text-[18px] text-[#5B5B66] leading-relaxed mt-5 max-w-xl mx-auto">{t("Décrivez votre problème en une phrase. Biltia choisit le bon outil parmi cinq et vous livre le résultat. Vous, vous ne choisissez rien.", "Describe your problem in one sentence. Biltia picks the right tool among five and delivers the result. You choose nothing.")}</p></Reveal>
+        <Reveal><h2 className="text-[38px] sm:text-[56px] font-black text-[#0A0A0A] tracking-[-0.03em] leading-[0.98]">{t("Vous décrivez le besoin.", "You describe the need.")} <span className="text-gradient">{t("Biltia choisit la solution.", "Biltia picks the solution.")}</span></h2></Reveal>
+        <Reveal delay={0.08}><p className="text-[16px] sm:text-[18px] text-[#5B5B66] leading-relaxed mt-5 max-w-xl mx-auto">{t("Décrivez votre problème en une phrase. Biltia choisit le meilleur moyen de le résoudre et vous livre directement le résultat : application, document, réponse, automatisation ou agent autonome.", "Describe your problem in one sentence. Biltia picks the best way to solve it and delivers the result directly: app, document, answer, automation, or autonomous agent.")}</p></Reveal>
         <Reveal delay={0.14}><p className="text-[13px] font-semibold text-[#9A9AA6] mt-4">{t("Cliquez un exemple pour voir Biltia trancher.", "Click an example to see Biltia decide.")}</p></Reveal>
       </div>
       <Reveal delay={0.1} className="max-w-2xl mx-auto relative">
@@ -413,8 +471,8 @@ function DemoSection() {
 function AgentsSection() {
   const t = useT();
   const missions = [
-    t("Relance mes devis sans réponse tous les jours à 9h.", "Chase my unanswered quotes every day at 9am."),
-    t("Chaque soir à 18h, fais le point sur mes factures impayées.", "Every evening at 6pm, review my unpaid invoices."),
+    t("Relance mes devis sans réponse tous les jours à 9 h.", "Chase my unanswered quotes every day at 9am."),
+    t("Chaque soir à 18 h, fais le point sur mes factures impayées.", "Every evening at 6pm, review my unpaid invoices."),
     t("Préviens-moi dès qu'un document d'un sous-traitant expire.", "Alert me as soon as a subcontractor's document expires."),
   ];
   return (
@@ -426,7 +484,7 @@ function AgentsSection() {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-600 to-cyan-500 flex items-center justify-center"><Bot className="w-4 h-4 text-white" /></div>
-                <div><p className="text-[13px] font-semibold text-[#0A0A0A] leading-tight">{t("Relance des devis en attente", "Chasing pending quotes")}</p><p className="text-[11px] text-[#9A9AA6]">{t("tous les jours à 09:00", "every day at 09:00")}</p></div>
+                <div><p className="text-[13px] font-semibold text-[#0A0A0A] leading-tight">{t("Relance des devis sans réponse", "Chasing unanswered quotes")}</p><p className="text-[11px] text-[#9A9AA6]">{t("tous les jours à 09:00", "every day at 09:00")}</p></div>
               </div>
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-semibold border border-emerald-200"><CheckCircle className="w-3 h-3" /> {t("Actif", "Active")}</span>
             </div>
@@ -449,7 +507,7 @@ function AgentsSection() {
           </div>
         </Reveal>
         <Reveal delay={0.15} className="order-1 lg:order-2">
-          <h2 className="text-[36px] sm:text-[52px] font-black text-[#0A0A0A] tracking-[-0.03em] leading-[0.98] mb-5">{t("Des employés autonomes,", "Autonomous employees,")} <span className="text-gradient">{t("au travail 24h/24.", "working around the clock.")}</span></h2>
+          <h2 className="text-[36px] sm:text-[52px] font-black text-[#0A0A0A] tracking-[-0.03em] leading-[0.98] mb-5">{t("Des employés autonomes,", "Autonomous employees,")} <span className="text-gradient">{t("au travail 24 h/24.", "working around the clock.")}</span></h2>
           <p className="text-[16px] text-[#5B5B66] leading-relaxed mb-5 max-w-md">
             {t("Les relances, les contrôles du soir, les rappels d'échéances : dites-le une seule fois, et un agent s'en occupe tous les jours, en temps et en heure, pendant que vous êtes sur le chantier. Il connaît vos clients, vos chantiers et vos devis. Il vous rend compte de chaque passage.", "Follow-ups, evening checks, deadline reminders: say it once, and an agent handles it every day, on time, while you're on site. It knows your clients, your job sites and your quotes. It reports back on every run.")}
           </p>
@@ -466,8 +524,8 @@ function AgentsSection() {
                 300 crédits pour un agent qui en consomme 550 : la promesse d’accueil
                 se serait démentie au premier relevé de compte. */}
             {t(
-              `Un agent qui relance vos clients chaque matin utilise environ ${AGENT_CREDITS_PER_MONTH} crédits par mois : l'équivalent de ${Math.round(creditsToEur(AGENT_CREDITS_PER_MONTH))} € de votre forfait. Un salarié pour la même corvée : 4 000 €.`,
-              `An agent that chases your clients every morning uses about ${AGENT_CREDITS_PER_MONTH} credits a month: the equivalent of €${Math.round(creditsToEur(AGENT_CREDITS_PER_MONTH))} of your plan. An employee for the same chore: €4,000.`
+              `Un agent qui relance vos clients chaque matin utilise environ ${AGENT_CREDITS_PER_MONTH} crédits par mois, soit environ ${Math.round(creditsToEur(AGENT_CREDITS_PER_MONTH))} € de votre forfait. Il travaille automatiquement, sans oubli, et chaque action reste consultable.`,
+              `An agent that chases your clients every morning uses about ${AGENT_CREDITS_PER_MONTH} credits a month, about €${Math.round(creditsToEur(AGENT_CREDITS_PER_MONTH))} of your plan. It works automatically, never forgets, and every action stays available to review.`
             )}
           </p>
           <Link href="/produits/agents" className="inline-flex items-center gap-1.5 text-[14px] font-semibold text-[#0A0A0A] hover:gap-2.5 transition-all">{t("Découvrir les agents", "Explore agents")} <ArrowRight className="w-4 h-4" /></Link>
@@ -492,15 +550,15 @@ function WorkspaceSection() {
       <div className="relative max-w-6xl mx-auto grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
         <Reveal>
           <h2 className="text-[36px] sm:text-[52px] font-black text-[#0A0A0A] tracking-[-0.03em] leading-[0.98] mb-5">{t("Une mémoire", "A memory")} <span className="text-gradient">{t("qui grandit.", "that grows.")}</span></h2>
-          <p className="text-[16px] text-[#5B5B66] leading-relaxed mb-6 max-w-md">{t("Chaque demande enrichit un espace unique : clients, chantiers, documents, équipes, applications et historique. Plus vous utilisez Biltia, plus il devient pertinent.", "Every request enriches a single space: clients, job sites, documents, teams, apps and history. The more you use Biltia, the sharper it gets.")}</p>
-          <Link href="/produits/workspace" className="inline-flex items-center gap-1.5 text-[14px] font-semibold text-[#0A0A0A] hover:gap-2.5 transition-all">{t("Découvrir le Workspace", "Explore the Workspace")} <ArrowRight className="w-4 h-4" /></Link>
+          <p className="text-[16px] text-[#5B5B66] leading-relaxed mb-6 max-w-md">{t("Clients, chantiers, documents, équipes et historique sont réunis dans un même espace. Chaque nouvelle demande enrichit la mémoire de Biltia et lui permet de mieux comprendre votre entreprise.", "Clients, job sites, documents, teams and history are brought together in one place. Every new request enriches Biltia's memory and helps it understand your business better.")}</p>
+          <Link href="/produits/workspace" className="inline-flex items-center gap-1.5 text-[14px] font-semibold text-[#0A0A0A] hover:gap-2.5 transition-all">{t("Découvrir la mémoire de l'entreprise", "Explore the Workspace")} <ArrowRight className="w-4 h-4" /></Link>
         </Reveal>
         <Reveal delay={0.15}>
           <div className="glass rounded-[26px] p-6">
             <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-[#0A0A0A] flex items-center justify-center"><FolderKanban className="w-4 h-4 text-white" /></div>
-                <div><p className="text-[13px] font-semibold text-[#0A0A0A] leading-tight">Bâtiment Dumont</p><p className="text-[11px] text-[#9A9AA6]">Workspace</p></div>
+                <div><p className="text-[13px] font-semibold text-[#0A0A0A] leading-tight">Bâtiment Dumont</p><p className="text-[11px] text-[#9A9AA6]">{t("Mémoire de l'entreprise", "Workspace")}</p></div>
               </div>
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/70 text-[#4A4A56] text-[11px] font-medium border border-white/60"><span className="w-1.5 h-1.5 rounded-full bg-gradient-to-br from-indigo-500 to-pink-500 animate-glow-pulse" /> {t("vivant", "live")}</span>
             </div>
@@ -583,7 +641,7 @@ function CTASection() {
             <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") go(); }} placeholder={t("Décrivez-le…", "Describe it…")} className="flex-1 bg-transparent px-5 py-3 text-[15px] text-[#0A0A0A] placeholder-[#9A9AA6] focus:outline-none" />
             <button onClick={go} className="w-full sm:w-auto bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500 text-white font-semibold text-[14px] px-6 py-3.5 sm:py-3 rounded-full whitespace-nowrap flex items-center justify-center gap-1.5 shadow-[0_8px_24px_rgba(139,92,246,0.4)] hover:shadow-[0_10px_30px_rgba(139,92,246,0.55)] transition-shadow">{t("Commencer", "Get started")} <ArrowRight className="w-4 h-4" /></button>
           </div>
-          <p className="text-[12px] text-[#9A9AA6] mt-4">{t("Aucune carte bancaire requise.", "No credit card required.")} <Link href="/tarifs" className="underline underline-offset-2 hover:text-[#0A0A0A]">{t("Voir les tarifs", "See pricing")}</Link></p>
+          <p className="text-[12px] text-[#9A9AA6] mt-4">{t(`${TRIAL_DAYS} jours gratuits · Sans carte bancaire · Configuration en quelques minutes`, `${TRIAL_DAYS} days free · No credit card · Set up in minutes`)} · <Link href="/tarifs" className="underline underline-offset-2 hover:text-[#0A0A0A]">{t("Voir les tarifs", "See pricing")}</Link></p>
         </Reveal>
       </div>
     </section>
@@ -603,11 +661,11 @@ export default function Home() {
       />
       <SiteNav />
       <HeroSection />
-      <AgentsSection />
-      <ProductsSection />
       <DemoSection />
-      <TemplatesSection />
+      <ProductsSection />
+      <AgentsSection />
       <WorkspaceSection />
+      <TemplatesSection />
       <PhilosophySection />
       <CTASection />
       <SiteFooter />
