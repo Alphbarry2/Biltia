@@ -41,8 +41,9 @@ import { sendPushToUser } from "@/lib/push";
 import { createAgentRule } from "@/lib/agent-rules";
 import { connectorsForCapability } from "@/lib/capabilities";
 import { capabilityGate } from "@/lib/capability-gate";
-import { runAgentLoop, buildWorkspaceToolsSystem } from "@/lib/agent-tools";
+import { runAgentLoop, runAgentTool, buildWorkspaceToolsSystem, type ToolTrace } from "@/lib/agent-tools";
 import { answerNeedsWorkspace, WSB_TOOL_ADDENDUM } from "@/lib/answer-tools";
+import { requiresConfirmation } from "@/lib/action-risk";
 import { connectionSnapshot, buildConnectionsBlock } from "@/lib/connection-snapshot";
 import { toMessages, threadAsText } from "@/lib/chat-thread";
 import { canSendOutbound, sendOutboundEmail } from "@/lib/outbound-email";
@@ -1216,6 +1217,9 @@ export async function POST(req: Request) {
       // « Je t'écoute. De quoi as-tu besoin ? » alors que le besoin venait d'être
       // exprimé. Ce n'était pas un problème de modèle : on ne lui disait rien.
       history?: { role: "user" | "assistant"; content: string }[];
+      // WS-C : plan d'actions CONFIRMÉ renvoyé par la carte (« Confirmer et
+      // exécuter »). Présent → on exécute directement, sans repasser par le LLM.
+      confirmPlan?: { tool: string; input: Record<string, unknown> }[];
     };
     try {
       body = await req.json();
@@ -1301,6 +1305,51 @@ export async function POST(req: Request) {
         .single();
       sector = profile?.sector ?? null;
       preferences = normalizePreferences(profile?.preferences);
+    }
+
+    // ── WS-C : PHASE 2 — exécution d'un plan CONFIRMÉ par l'utilisateur ─────────
+    // La carte de confirmation renvoie les actions proposées après le « oui ».
+    // Aucun LLM : on re-valide (RBAC + tenant forcé via runAgentTool) et on exécute.
+    if (Array.isArray(body.confirmPlan) && body.confirmPlan.length > 0) {
+      const plan = body.confirmPlan;
+      const role = membership.role;
+      const CONFIRM_HOLD = isFounderEmail(user.email) ? 0 : ACTION_CREDITS.donnee;
+      if (CONFIRM_HOLD > 0) {
+        const { data: credited } = await supabase.rpc("deduct_credits", { p_amount: CONFIRM_HOLD });
+        if (!credited) {
+          return Response.json(
+            { error: pick(locale, "Crédits insuffisants. Rechargez votre compte pour continuer.", "Not enough credits. Top up your account to continue.") },
+            { status: 402 }
+          );
+        }
+      }
+      const traces: ToolTrace[] = [];
+      const actor = { tenantId, userId: user.id, label: "Assistant" };
+      let denied = 0;
+      for (const action of plan) {
+        const tool = typeof action?.tool === "string" ? action.tool : "";
+        const input = action?.input && typeof action.input === "object" ? (action.input as Record<string, unknown>) : {};
+        // Durcissement RBAC (le client de session garde RLS comme filet).
+        const isDelete = tool === "workspace_delete";
+        const isWrite =
+          tool === "workspace_create" || tool === "workspace_update" || tool === "workspace_transform" || tool === "send_email" || tool === "send_sms";
+        if (isDelete && !can(role, "data.delete")) { denied++; continue; }
+        if (isWrite && !can(role, "data.write")) { denied++; continue; }
+        await runAgentTool(supabase, actor, tool, input, traces);
+      }
+      const done = traces.length;
+      if (done === 0 && CONFIRM_HOLD > 0) {
+        const admin = createAdminClient();
+        if (admin) { try { await admin.rpc("refund_credits", { p_user_id: user.id, p_amount: CONFIRM_HOLD }); } catch { /* best-effort */ } }
+      }
+      const parts: string[] = [];
+      if (done > 0) parts.push(pick(locale, `✓ C'est fait (${done} opération${done > 1 ? "s" : ""}).`, `✓ Done (${done} operation${done > 1 ? "s" : ""}).`));
+      if (denied > 0) parts.push(pick(locale, "Certaines actions demandaient des droits que tu n'as pas.", "Some actions required permissions you don't have."));
+      return Response.json({
+        kind: "data",
+        message: parts.join(" ") || pick(locale, "Rien n'a été exécuté.", "Nothing was executed."),
+        creditsUsed: done > 0 ? CONFIRM_HOLD : 0,
+      });
     }
 
     // Tracking best-effort du coût des classifieurs Haiku (aiguillage kind +
@@ -2079,6 +2128,10 @@ Si la demande vise PLUSIEURS fiches d'un coup en SUPPRESSION ou en ÉCRASEMENT d
           // ci-dessus) ; si le modèle passe outre, il est stoppé net à 3 fiches.
           // Les opérations légitimes (1 fiche) restent très en deçà.
           maxDestructiveWrites: 3,
+          // WS-C : les actions sensibles (suppression, envoi, facture, ou création/
+          // MàJ si l'utilisateur a activé « toujours confirmer ») ne sont PAS
+          // exécutées ici — elles sont proposées, puis exécutées après confirmation.
+          confirmGate: (tool) => requiresConfirmation(tool, { alwaysConfirm: preferences.always_confirm }),
         });
 
         void trackAiUsage({
@@ -2091,6 +2144,22 @@ Si la demande vise PLUSIEURS fiches d'un coup en SUPPRESSION ou en ÉCRASEMENT d
           outputTokens: loop.usage.outputTokens,
           sector: sector ?? undefined,
         }).catch(() => {});
+
+        // WS-C : des actions sensibles ont été PROPOSÉES (non exécutées) → carte de
+        // confirmation. Si rien d'anodin n'a été exécuté dans cette passe, on
+        // rembourse le hold ; l'exécution (et le débit) auront lieu à la phase 2.
+        if (loop.proposed.length > 0) {
+          if (loop.traces.length === 0) await refundDataOp();
+          return Response.json({
+            kind: "data",
+            needsConfirm: true,
+            plan: loop.proposed,
+            message:
+              loop.finalText ||
+              pick(locale, "Confirme pour que je l'exécute.", "Confirm and I'll run it."),
+            creditsUsed: loop.traces.length > 0 ? DATA_HOLD : 0,
+          });
+        }
 
         // On ne facture une opération QUE si elle a ABOUTI : au moins une écriture
         // réussie (loop.traces n'est alimenté qu'aux create/update/delete/transform

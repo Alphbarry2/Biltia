@@ -515,6 +515,9 @@ export async function runAgentTool(
 
 // ── Boucle agentique partagée ────────────────────────────────────────────────
 
+/** WS-C : action sensible NON exécutée, en attente de confirmation de l'utilisateur. */
+export type ProposedAction = { tool: string; input: Record<string, unknown> };
+
 export type AgentLoopResult = {
   /** Texte final du modèle (chat) — null si un outil final (compose) a été appelé. */
   finalText: string | null;
@@ -524,6 +527,8 @@ export type AgentLoopResult = {
   traces: ToolTrace[];
   /** WS-E : étapes RÉDIGÉES (lectures + écritures) pour agent_run_steps. */
   steps: RunStepDraft[];
+  /** WS-C : actions interceptées par le confirmGate, à exécuter après confirmation. */
+  proposed: ProposedAction[];
   usage: { inputTokens: number; outputTokens: number };
   iterations: number;
 };
@@ -563,6 +568,13 @@ export async function runAgentLoop(opts: {
    * Utilisé par le chemin RÉPONSE du chat : une question ne doit jamais rien modifier.
    */
   readOnly?: boolean;
+  /**
+   * WS-C : portail de confirmation. Renvoie true pour une action SENSIBLE qui ne
+   * doit PAS être exécutée dans la boucle mais PROPOSÉE (collectée dans `proposed`,
+   * exécutée seulement après le « oui » de l'utilisateur). Les lectures et les
+   * écritures anodines (gate=false) s'exécutent normalement.
+   */
+  confirmGate?: (toolName: string, input: Record<string, unknown>) => boolean;
   maxIterations?: number;
   maxTokens?: number;
   /**
@@ -575,7 +587,7 @@ export async function runAgentLoop(opts: {
    */
   maxDestructiveWrites?: number;
 }): Promise<AgentLoopResult> {
-  const { model, system, userMessage, history, db, actor, finishTool, allowEmail = false, allowSms = false, allowDelete = true, readOnly = false, maxIterations = 6, maxTokens = 1500, maxDestructiveWrites = Infinity } = opts;
+  const { model, system, userMessage, history, db, actor, finishTool, allowEmail = false, allowSms = false, allowDelete = true, readOnly = false, confirmGate, maxIterations = 6, maxTokens = 1500, maxDestructiveWrites = Infinity } = opts;
 
   // WS-B : en lecture seule, on n'expose QUE list/get (aucune écriture ni envoi).
   const workspaceTools = readOnly
@@ -596,6 +608,7 @@ export async function runAgentLoop(opts: {
   }));
   const traces: ToolTrace[] = [];
   const steps: RunStepDraft[] = []; // WS-E : trace rédigée de CHAQUE appel d'outil (lecture incluse)
+  const proposed: ProposedAction[] = []; // WS-C : actions sensibles en attente de confirmation
   let inputTokens = 0;
   let outputTokens = 0;
   let destructiveWrites = 0; // suppressions + mises à jour déjà effectuées ce passage
@@ -614,7 +627,7 @@ export async function runAgentLoop(opts: {
         .map((b) => b.text)
         .join("\n")
         .trim();
-      return { finalText: text || null, finishInput: null, traces, steps, usage: { inputTokens, outputTokens }, iterations: i + 1 };
+      return { finalText: text || null, finishInput: null, traces, steps, proposed, usage: { inputTokens, outputTokens }, iterations: i + 1 };
     }
 
     // Outil final (compose) → mission terminée avec livrable structuré.
@@ -625,6 +638,7 @@ export async function runAgentLoop(opts: {
         finishInput: finish.input as Record<string, unknown>,
         traces,
         steps,
+        proposed,
         usage: { inputTokens, outputTokens },
         iterations: i + 1,
       };
@@ -633,6 +647,22 @@ export async function runAgentLoop(opts: {
     // Exécute chaque outil (workspace / app_records / email) et renvoie au modèle.
     const results: Anthropic.ToolResultBlockParam[] = [];
     for (const block of toolBlocks) {
+      // WS-C : action SENSIBLE (suppression, envoi, facture, ou création/MàJ selon
+      // les préférences) → on NE l'exécute PAS. On la collecte pour confirmation et
+      // on dit au modèle de la traiter comme « à confirmer » (au futur).
+      if (confirmGate && confirmGate(block.name, block.input as Record<string, unknown>)) {
+        proposed.push({ tool: block.name, input: block.input as Record<string, unknown> });
+        steps.push(draftToolStep(block.name, block.input as Record<string, unknown>, { pending: true }));
+        results.push({
+          type: "tool_result",
+          tool_use_id: block.id,
+          content: JSON.stringify({
+            pending_confirmation: true,
+            note: "Action mise EN ATTENTE de confirmation de l'utilisateur. Ne la considère PAS comme faite : dans ton récapitulatif, décris-la au FUTUR (« Je vais… ») comme une action À CONFIRMER.",
+          }),
+        });
+        continue;
+      }
       // FILET DE SÛRETÉ : au-delà du plafond d'écritures destructrices (opt-in),
       // on n'exécute PAS l'opération et on demande au modèle de s'arrêter pour
       // confirmation. Protège contre un « supprime/passe TOUTES les fiches »
@@ -668,6 +698,7 @@ export async function runAgentLoop(opts: {
     finishInput: null,
     traces,
     steps,
+    proposed,
     usage: { inputTokens, outputTokens },
     iterations: maxIterations,
   };

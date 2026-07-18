@@ -95,7 +95,13 @@ type Message = {
   /** Agent créé : carte structurée (badge « activé », déclencheur, action, coût,
    *  bouton « Voir l'agent ») affichée À LA PLACE de la bulle texte. */
   agentCard?: AgentCard;
+  /** WS-C : action(s) sensible(s) à confirmer — carte « Confirmer et exécuter ». */
+  confirmCard?: ConfirmCard;
 };
+
+/** WS-C : action proposée (non exécutée) + carte de confirmation dans le chat. */
+type ProposedAction = { tool: string; input: Record<string, unknown> };
+type ConfirmCard = { message: string; plan: ProposedAction[]; prompt: string };
 
 // Portée des données transmise à /api/generate (branchement de l'app).
 // Au niveau du module : `GenOpts` s'en sert, et `GenOpts` sert au retry.
@@ -2183,6 +2189,28 @@ export default function GeneratePage() {
         return;
       }
 
+      // WS-C : opération SENSIBLE (suppression, envoi, facture…) → carte de
+      // confirmation. Rien n'est écrit tant que l'utilisateur n'a pas cliqué
+      // « Confirmer et exécuter » (phase 2 côté serveur).
+      if (data.kind === "data" && data.needsConfirm && Array.isArray(data.plan) && data.plan.length) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: "",
+            confirmCard: {
+              message:
+                typeof data.message === "string" && data.message
+                  ? data.message
+                  : t("Confirme cette opération.", "Confirm this operation."),
+              plan: data.plan as ProposedAction[],
+              prompt: apiPrompt,
+            },
+          },
+        ]);
+        return;
+      }
+
       // Opération workspace exécutée depuis le chat (« ajoute un client… »,
       // « supprime le client… ») : confirmation factuelle, pas de génération.
       if (data.kind === "data" && typeof data.message === "string" && data.message) {
@@ -2839,7 +2867,64 @@ export default function GeneratePage() {
                 </div>
               )}
               <div className="max-w-[85%] flex flex-col items-start gap-2">
-                {msg.agentCard ? (
+                {msg.confirmCard ? (
+                  // WS-C : carte de confirmation. Rien n'est écrit tant que
+                  // « Confirmer et exécuter » n'a pas été cliqué (phase 2 serveur).
+                  <div className="w-full rounded-2xl border border-[#ECECF2] bg-white p-3.5">
+                    <div className="whitespace-pre-wrap text-sm leading-relaxed text-[#0A0A0A] mb-3">
+                      {msg.confirmCard.message}
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const plan = msg.confirmCard?.plan ?? [];
+                          const p = msg.confirmCard?.prompt ?? "";
+                          setMessages((prev) =>
+                            prev.map((m, j) => (j === i ? { role: "assistant", content: t("Exécution…", "Running…") } : m))
+                          );
+                          try {
+                            const r = await fetch("/api/generate", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ prompt: p, confirmPlan: plan }),
+                            });
+                            const d = await r.json().catch(() => ({}));
+                            const txt = !r.ok
+                              ? typeof d?.error === "string"
+                                ? d.error
+                                : t("L'exécution a échoué.", "Execution failed.")
+                              : typeof d?.message === "string" && d.message
+                                ? d.message
+                                : t("✓ C'est fait.", "✓ Done.");
+                            setMessages((prev) => prev.map((m, j) => (j === i ? { role: "assistant", content: txt } : m)));
+                            if (r.ok && typeof d?.creditsUsed === "number" && d.creditsUsed > 0) updateCreditsDisplay(d.creditsUsed);
+                          } catch {
+                            setMessages((prev) =>
+                              prev.map((m, j) =>
+                                j === i ? { role: "assistant", content: t("L'exécution a échoué. Réessayez.", "Execution failed. Try again.") } : m
+                              )
+                            );
+                          }
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-[#0A0A0A] text-white text-sm font-medium"
+                      >
+                        {t("Confirmer et exécuter", "Confirm and run")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setMessages((prev) =>
+                            prev.map((m, j) => (j === i ? { role: "assistant", content: t("D'accord, j'annule.", "Okay, cancelled.") } : m))
+                          )
+                        }
+                        className="px-3 py-1.5 rounded-xl border border-[#ECECF2] text-[#0A0A0A] text-sm"
+                      >
+                        {t("Annuler", "Cancel")}
+                      </button>
+                    </div>
+                  </div>
+                ) : msg.agentCard ? (
                   // Agent créé : la carte remplace la bulle (badge « activé »,
                   // déclencheur, action, coût, bouton « Voir l'agent »).
                   <AgentCreatedCard card={msg.agentCard} />
