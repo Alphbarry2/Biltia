@@ -11,9 +11,10 @@ test("actionTier : lectures = immediate", () => {
   assert.equal(actionTier("outil_inconnu"), "immediate");
 });
 
-test("actionTier : create/update = preference", () => {
+test("actionTier : create/update/avenant = preference", () => {
   assert.equal(actionTier("workspace_create"), "preference");
   assert.equal(actionTier("workspace_update"), "preference");
+  assert.equal(actionTier("create_avenant"), "preference");
 });
 
 test("actionTier : delete/transform/envois = mandatory", () => {

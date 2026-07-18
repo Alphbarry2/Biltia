@@ -1456,6 +1456,15 @@ export async function POST(req: Request) {
         kindMethod = k.method;
       }
     }
+
+    // ── Phase 2 : un AVENANT est un VRAI objet métier, pas du HTML. On re-route
+    // « prépare un avenant… » vers la voie OPÉRATIONNELLE (kind=data) : elle lit le
+    // devis source et appelle create_avenant (montants calculés SERVEUR). Les autres
+    // documents (courrier, PV, mise en demeure…) restent en génération HTML.
+    if (kind === "document" && docType === "avenant" && !isAutoFix && !isModification) {
+      kind = "data";
+      docType = null;
+    }
     const isAnswer = kind === "answer";
 
     // ── PORTE DE CAPACITÉ : la demande sort des capacités RÉELLES de Biltia
@@ -2114,6 +2123,9 @@ Si la demande vise PLUSIEURS fiches d'un coup en SUPPRESSION ou en ÉCRASEMENT d
 
 ## Prévenir quelqu'un (email / SMS) — TOUJOURS AVEC CONFIRMATION
 Tu peux aussi PRÉVENIR une personne concernée : send_email (et send_sms si disponible). Trouve d'abord son contact RÉEL dans le workspace (workspace_list sur clients/employees) — jamais de placeholder ([nom], XXX). Ces envois ne partent JAMAIS tout seuls : ils sont soumis à la confirmation de l'utilisateur (comme les suppressions). Tu RÉDIGES le message et tu le PROPOSES ; l'utilisateur validera avant l'envoi. Enchaîne naturellement dans le MÊME tour : « décale le chantier Dupont ET préviens l'équipe » = mets à jour la fiche PUIS prépare l'email aux employés concernés.
+
+## Créer un AVENANT (objet réel, pas du texte)
+Si on te demande un AVENANT (« prépare un avenant de X € pour les travaux sup. du chantier… ») : trouve d'abord le DEVIS source (workspace_list sur devis, par client / chantier / numéro), puis appelle create_avenant avec devis_id + les LIGNES supplémentaires (désignation, quantité, prix unitaire HT, taux de TVA). Le SERVEUR calcule les montants HT/TVA/TTC — ne les additionne JAMAIS toi-même. Résultat = un avenant en BROUILLON, lié au devis, chiffré correctement. Si tu ne trouves pas le devis source, demande le numéro ou le client — ne devine pas.
 
 ## Ta réponse finale (français, brève)
 - Opération faite → confirme FACTUELLEMENT ce qui a été fait, avec les valeurs clés (« ✓ Client **Jean Dupont** ajouté (06 12 34 56 78) »).

@@ -23,6 +23,7 @@ import { client } from "@/lib/llm";
 import { ENTITIES, ALLOWED_ENTITIES } from "./data-entities";
 import {
   runWorkspaceTransform,
+  avenantFromDevis,
   isTransformAction,
   TRANSFORM_ACTIONS,
   TRANSFORM_LABEL,
@@ -151,6 +152,35 @@ export const WORKSPACE_TOOLS: Anthropic.Tool[] = [
         source_id: { type: "string", description: "uuid de la fiche source (devis / demande / note)." },
       },
       required: ["action", "source_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_avenant",
+    description:
+      "Crée un AVENANT (un VRAI objet, pas du texte) à partir d'un devis existant : un nouveau devis de type « avenant », lié au devis source, avec les LIGNES SUPPLÉMENTAIRES. Le SERVEUR calcule les montants HT/TVA/TTC — tu ne fournis JAMAIS de total, SEULEMENT les lignes (désignation, quantité, prix unitaire HT, taux de TVA). Trouve d'abord le devis source (workspace_list sur devis), puis appelle cet outil.",
+    input_schema: {
+      type: "object",
+      properties: {
+        devis_id: { type: "string", description: "uuid du devis SOURCE." },
+        lignes: {
+          type: "array",
+          description: "Lignes supplémentaires de l'avenant.",
+          items: {
+            type: "object",
+            properties: {
+              designation: { type: "string", description: "Description de la prestation." },
+              quantite: { type: "number", description: "Quantité (défaut 1)." },
+              unite: { type: "string", description: "Unité (u, m², h, forfait…)." },
+              prix_unitaire_ht: { type: "number", description: "Prix unitaire HT (en euros)." },
+              taux_tva: { type: "number", description: "Taux de TVA en % (défaut 20 ; 10 ou 5,5 en rénovation)." },
+            },
+            required: ["designation", "prix_unitaire_ht"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["devis_id", "lignes"],
       additionalProperties: false,
     },
   },
@@ -506,6 +536,35 @@ export async function runAgentTool(
     });
     if (r.error) return { error: r.error };
     traces.push({ action: "create", description: `Transformation ${action} (source ${sourceId})` });
+    return { ok: true, row: r.data };
+  }
+
+  // ── Avenant depuis un devis (vrai objet ; montants calculés SERVEUR) ───────
+  if (toolName === "create_avenant") {
+    const devisId = String(input.devis_id ?? input.devisId ?? "");
+    const raw = Array.isArray(input.lignes) ? input.lignes : Array.isArray(input.lines) ? input.lines : [];
+    const lines = raw.map((item) => {
+      const o = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+      return {
+        designation: String(o.designation ?? ""),
+        quantite: o.quantite != null ? Number(o.quantite) : undefined,
+        unite: typeof o.unite === "string" ? o.unite : null,
+        prix_unitaire_ht: Number(o.prix_unitaire_ht) || 0,
+        taux_tva: o.taux_tva != null ? Number(o.taux_tva) : undefined,
+      };
+    });
+    const log = (act: string, description: string, entityId?: string | null) =>
+      logActivity(db, {
+        tenantId: actor.tenantId,
+        userId: actor.userId ?? undefined,
+        action: act,
+        entityType: "workspace",
+        entityId,
+        description: `${actor.label} — ${description}`,
+      });
+    const r = await avenantFromDevis({ from: (t: string) => db.from(t), tenantId: actor.tenantId, devisId, lines, log });
+    if (r.error) return { error: r.error };
+    traces.push({ action: "create", description: `Avenant créé (devis source ${devisId})` });
     return { ok: true, row: r.data };
   }
 

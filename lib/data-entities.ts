@@ -170,6 +170,8 @@ export const ENTITIES: Record<string, EntityDef> = {
       "statut (brouillon|envoye|accepte|refuse|expire), date_devis, date_validite (AAAA-MM-JJ), " +
       "montant_ht/montant_tva/montant_ttc (nombres), acompte_pct (nombre, % d'acompte demandé), " +
       "conditions (conditions de paiement), notes. " +
+      "type (devis|avenant) et parent_devis_id (uuid → devis d'origine) sont en LECTURE : pour créer un avenant, " +
+      "utilise l'outil create_avenant (le serveur calcule les montants), ne fabrique jamais un avenant à la main. " +
       "Le détail chiffré va dans l'entité `lignes` (une ligne par prestation).",
   },
   factures: {

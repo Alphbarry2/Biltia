@@ -16,6 +16,7 @@ import { getLocale } from "./i18n/server";
 import { pick } from "./i18n/config";
 
 import { ENTITIES } from "./data-entities";
+import { computeDevisLines, computeDevisTotals, type DevisLineInput } from "./devis-amounts";
 
 export const TRANSFORM_ACTIONS = [
   "chantier_from_devis",
@@ -411,6 +412,127 @@ export async function invoiceFromDevis(opts: {
       (facture.id as string) ?? null
     );
     return { data: facture };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Erreur base de données.", status: 400 };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 2 — AVENANT depuis un devis (VRAI objet metier, pas du HTML).
+//
+// Cree un `devis` type='avenant' lie a sa source (parent_devis_id), avec les
+// LIGNES SUPPLEMENTAIRES fournies. Les MONTANTS sont calcules SERVEUR (jamais par
+// le LLM), TVA par ligne. Meme famille qu'invoice_from_devis, mais standalone car
+// il recoit des lignes (au-dela d'un simple source_id).
+// ─────────────────────────────────────────────────────────────────────────────
+export async function avenantFromDevis(opts: {
+  from: FromFn;
+  tenantId: string;
+  devisId: string;
+  lines: DevisLineInput[];
+  log?: LogFn;
+}): Promise<TransformResult> {
+  const { from, tenantId, devisId } = opts;
+  const log: LogFn = opts.log ?? (() => {});
+  const locale = await getLocale();
+  if (!devisId) return { error: pick(locale, "Devis source manquant.", "Source quote missing."), status: 400 };
+
+  const computed = computeDevisLines(Array.isArray(opts.lines) ? opts.lines : []).filter(
+    (l) => l.designation && l.total_ht > 0
+  );
+  if (!computed.length) {
+    return {
+      error: pick(
+        locale,
+        "Aucune ligne d'avenant valide (désignation + prix unitaire requis).",
+        "No valid amendment line (designation + unit price required)."
+      ),
+      status: 400,
+    };
+  }
+
+  try {
+    const { data: dv, error: dErr } = await from("devis")
+      .select("id, numero, client_id, chantier_id")
+      .eq("tenant_id", tenantId)
+      .eq("id", devisId)
+      .single();
+    if (dErr || !dv) return { error: pick(locale, "Devis source introuvable.", "Source quote not found."), status: 404 };
+
+    const totals = computeDevisTotals(computed);
+
+    // Numéro AV-AAAA-NNN (séquence propre aux avenants ; base = max de l'année).
+    const year = new Date().getFullYear();
+    const pre = `AV-${year}-`;
+    const { data: nums } = await from("devis").select("numero").eq("tenant_id", tenantId).ilike("numero", `${pre}%`);
+    let seq = 0;
+    for (const r of (nums ?? []) as { numero: string | null }[]) {
+      const val = parseInt(String(r.numero || "").slice(pre.length), 10);
+      if (Number.isFinite(val) && val > seq) seq = val;
+    }
+
+    const today = new Date();
+    const dateDevis = today.toISOString().slice(0, 10);
+    const dateValidite = new Date(today.getTime() + 30 * 86_400_000).toISOString().slice(0, 10);
+
+    // Anti-collision de NUMÉRO uniquement (23505). Deux avenants créés en parallèle
+    // peuvent viser le même numéro → on réessaie le suivant.
+    let avenant: Record<string, unknown> | null = null;
+    let insErr: unknown = null;
+    for (let attempt = 1; attempt <= 6; attempt++) {
+      const numero = `${pre}${String(seq + attempt).padStart(3, "0")}`;
+      const { data: ins, error } = await from("devis")
+        .insert({
+          tenant_id: tenantId,
+          numero,
+          type: "avenant",
+          parent_devis_id: devisId,
+          client_id: dv.client_id ?? null,
+          chantier_id: dv.chantier_id ?? null,
+          statut: "brouillon",
+          date_devis: dateDevis,
+          date_validite: dateValidite,
+          montant_ht: totals.montant_ht,
+          montant_tva: totals.montant_tva,
+          montant_ttc: totals.montant_ttc,
+          notes: `Avenant au devis ${dv.numero ?? ""}`.trim(),
+        })
+        .select()
+        .single();
+      if (!error) {
+        avenant = ins as Record<string, unknown>;
+        break;
+      }
+      insErr = error;
+      if ((error as { code?: string }).code !== "23505") break;
+    }
+    if (!avenant) {
+      const raw = (insErr as { message?: string } | null)?.message;
+      return { error: raw || pick(locale, "Création de l'avenant impossible.", "Could not create the amendment."), status: 400 };
+    }
+
+    // Lignes de l'avenant (rattachées au nouvel avenant).
+    const avenantId = avenant.id as string;
+    const rows = computed.map((l) => ({
+      tenant_id: tenantId,
+      devis_id: avenantId,
+      designation: l.designation,
+      quantite: l.quantite,
+      unite: l.unite,
+      prix_unitaire_ht: l.prix_unitaire_ht,
+      taux_tva: l.taux_tva,
+      total_ht: l.total_ht,
+      position: l.position,
+    }));
+    const { error: lErr } = await from("lignes").insert(rows);
+    if (lErr) throw lErr;
+
+    await log(
+      "create",
+      `Avenant ${avenant.numero ?? ""} créé depuis le devis ${dv.numero ?? ""} — ${totals.montant_ht} € HT`.trim(),
+      avenantId
+    );
+    return { data: avenant };
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Erreur base de données.", status: 400 };
   }
