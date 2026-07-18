@@ -26,7 +26,7 @@ import { client, hasAnyLlmKey } from "@/lib/llm";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { computeNextRun, type AgentAction, type AgentSchedule, type AgentTrigger, type TeamFilter } from "./agent-rules";
 import { getEntitlementsForTenant } from "./entitlements";
-import { getWorkspaceContext, buildWorkspaceBlock } from "./workspace-context";
+import { getWorkspaceContextFor, buildWorkspaceBlock } from "./workspace-context";
 import { neutralizeMarkers, fenceUntrusted } from "./untrusted";
 import { runAgentLoop, buildWorkspaceToolsSystem, type ToolTrace } from "./agent-tools";
 import { getWatcher, buildFireKey, isSupplierRelanceWatcher, type WatcherDef, type WatcherMatch } from "./agent-watchers";
@@ -2217,12 +2217,43 @@ export async function executeRule(
     }
 
     // ── Contexte : le workspace est la mémoire de l'agent. ──────────────────
-    const [ctx, focusData, tenantRow] = await Promise.all([
-      getWorkspaceContext(admin, rule.tenant_id).catch(() => null),
+    // WS-D : constructeur canonique en mode admin (service_role) — filtre tenant
+    // explicite, aucune dépendance à auth.uid() (ce qui rendait ce bloc vide).
+    const [wsRes, focusData, tenantRow] = await Promise.all([
+      getWorkspaceContextFor({ db: admin, tenantId: rule.tenant_id, mode: "admin", userId: rule.created_by }).catch(() => null),
       action.type === "report" ? fetchFocusData(admin, rule.tenant_id) : Promise.resolve(""),
       admin.from("tenants").select("name").eq("id", rule.tenant_id).single(),
     ]);
     const companyName = tenantRow.data?.name ?? "l'entreprise";
+
+    // Observabilité minimale WS-D : trace NON sensible (jamais de noms/lignes).
+    if (wsRes) {
+      console.info(
+        JSON.stringify({
+          evt: "workspace_context",
+          rule_id: rule.id,
+          tenant_id: rule.tenant_id,
+          mode: "admin",
+          status: wsRes.meta.status,
+          empty: wsRes.meta.empty,
+          tenant_exists: wsRes.meta.tenantExists,
+          duration_ms: wsRes.meta.durationMs,
+          counts: wsRes.meta.counts,
+          chantiers_en_retard: wsRes.context?.chantiers_en_retard ?? 0,
+          fallback_used: wsRes.meta.fallbackUsed,
+        })
+      );
+    }
+
+    // Politique de contexte critique : un agent qui MODIFIE ou ENVOIE ne doit jamais
+    // agir sur un contexte critique incomplet. Pour act/send_email, un contexte
+    // "failed" (tenant introuvable OU source critique en échec) suspend le passage
+    // et le rejoue au prochain créneau (report/notify restent tolérants — ils informent).
+    if ((action.type === "act" || action.type === "send_email") && (wsRes?.meta.status ?? "failed") === "failed") {
+      await finishRun("failed", "Contexte workspace indisponible (donnée critique) — nouveau passage au prochain créneau.");
+      await reschedule();
+      return { status: "failed", summary: "contexte critique indisponible" };
+    }
 
     // ── Exécution agentique du passage (accès workspace complet). ───────────
     const composed = await compose({
@@ -2238,7 +2269,7 @@ export async function executeRule(
       instruction: action.contentInstruction || rule.instruction,
       recipientNames: (action.recipients ?? []).map((r) => r.name).join(", ") || "vous",
       companyName,
-      workspaceBlock: buildWorkspaceBlock(ctx),
+      workspaceBlock: buildWorkspaceBlock(wsRes),
       extraData: focusData,
       db: admin,
       tenantId: rule.tenant_id,

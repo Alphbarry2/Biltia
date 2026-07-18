@@ -41,6 +41,7 @@
     "node_modules",
     "node_modules.nosync",
     "node_modules *",
-    "node_modules [0-9]*"
+    "node_modules [0-9]*",
+    "**/*.test.ts"
   ]
 }
