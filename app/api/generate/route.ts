@@ -43,6 +43,8 @@ import { connectorsForCapability } from "@/lib/capabilities";
 import { capabilityGate } from "@/lib/capability-gate";
 import { runAgentLoop, runAgentTool, verifyExecutedTool, buildWorkspaceToolsSystem, type ToolTrace } from "@/lib/agent-tools";
 import { isVerifiableWrite, buildVerifiedReport, allVerified as allVerifiedFn, type ActionVerification } from "@/lib/action-verification";
+import { getCompanyProfile, companyProfileToDocumentBlock } from "@/lib/company-profile";
+import { tauxTvaPour } from "@/lib/tva";
 import { answerNeedsWorkspace, WSB_TOOL_ADDENDUM } from "@/lib/answer-tools";
 import { requiresConfirmation } from "@/lib/action-risk";
 import { connectionSnapshot, buildConnectionsBlock } from "@/lib/connection-snapshot";
@@ -895,29 +897,14 @@ async function fetchCompanyBlock(
   supabase: Awaited<ReturnType<typeof createClient>>,
   tenantId: string
 ): Promise<string> {
-  try {
-    const { data } = await supabase
-      .from("tenants")
-      .select("name, company_info")
-      .eq("id", tenantId)
-      .maybeSingle();
-    if (!data) return "";
-    const ci = (data.company_info ?? {}) as Record<string, string>;
-    const isBE = (ci.country ?? "").toUpperCase() === "BE";
-    const lines: string[] = [
-      "# FICHE ENTREPRISE ÉMETTRICE (TES propres infos — remplis l'en-tête du document avec, ne les redemande jamais)",
-    ];
-    if (data.name) lines.push(`- Nom : ${data.name}`);
-    if (ci.siret) lines.push(`- ${isBE ? "N° d'entreprise (BCE)" : "SIRET"} : ${ci.siret}`);
-    if (ci.vat) lines.push(`- N° TVA : ${ci.vat}`);
-    if (ci.address) lines.push(`- Adresse : ${ci.address}`);
-    if (ci.country) lines.push(`- Pays : ${ci.country}`);
-    if (lines.length === 1) return ""; // aucune info renseignée
-    lines.push("", "Un champ manquant ci-dessus → placeholder clair [entre crochets], jamais inventé.");
-    return lines.join("\n");
-  } catch {
-    return "";
-  }
+  // SOURCE CANONIQUE UNIQUE (lib/company-profile.ts) — le MÊME profil que le chat et
+  // l'agent, plus de logique parallèle. Enrichit l'en-tête (téléphone / email / logo
+  // que l'ancienne version omettait) sans casser les documents : un champ absent
+  // reste un placeholder côté modèle, jamais une valeur inventée. "" si rien.
+  const profile = await getCompanyProfile(supabase, tenantId, {
+    vatRatesForCountry: (c) => tauxTvaPour(c).map((t) => t.taux),
+  });
+  return companyProfileToDocumentBlock(profile);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

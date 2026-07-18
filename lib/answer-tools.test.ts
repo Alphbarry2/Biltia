@@ -42,6 +42,28 @@ test("entrée vide → false", () => {
   assert.equal(answerNeedsWorkspace(""), false);
 });
 
+// ── IDENTITÉ ENTREPRISE → déclenche les outils (company_profile_get) ──────────
+
+for (const q of [
+  "Quel est mon numéro de TVA ?",
+  "C'est quoi mon SIRET ?",
+  "Rappelle-moi notre raison sociale",
+  "Mon adresse d'entreprise ?",
+  "Quel est notre IBAN ?",
+]) {
+  test(`needsWorkspace = true (identité entreprise) : « ${q} »`, () => {
+    assert.equal(answerNeedsWorkspace(q), true);
+  });
+}
+
+test("« quel taux de TVA en rénovation ? » reste une question fiscale (pas l'identité)", () => {
+  assert.equal(answerNeedsWorkspace("Quel taux de TVA en rénovation ?"), false);
+});
+
+test("l'addendum mentionne company_profile_get", () => {
+  assert.match(WSB_TOOL_ADDENDUM, /company_profile_get/);
+});
+
 // ── Addendum : outils décrits + honnêteté + lecture seule ────────────────────
 
 test("l'addendum impose la recherche, l'honnêteté et la lecture seule", () => {

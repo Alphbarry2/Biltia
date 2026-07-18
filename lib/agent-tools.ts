@@ -48,6 +48,8 @@ import {
   type VerificationStatus,
 } from "./action-verification";
 import { listAppCollections, listAppRecords } from "./app-records";
+import { getCompanyProfile, formatCompanyProfileForModel, COMPANY_PROFILE_TOOL } from "./company-profile";
+import { tauxTvaPour } from "./tva";
 import { sendOutboundEmail } from "./outbound-email";
 import { sendSms } from "./outbound-sms";
 import { toMessages, type ChatTurn } from "./chat-thread";
@@ -288,6 +290,16 @@ appelle d'abord \`app_collections\` (inventaire), puis \`app_data_list(collectio
 pour lire. Ne réponds JAMAIS « je n'ai pas cette donnée » sans avoir vérifié les
 collections d'app — la donnée y est peut-être.
 
+## Les infos de TON entreprise (identité, coordonnées, légal)
+Dès qu'une mission a besoin des infos de l'ENTREPRISE (compléter un bon
+d'intervention / devis / facture avec le nom, le SIRET/BCE, le n° de TVA,
+l'adresse, le téléphone, l'email, le logo ; répondre « quel est mon numéro de
+TVA ? ») : appelle \`company_profile_get\`. Ne redemande JAMAIS une info qu'il
+renvoie. Les champs listés dans \`missing_fields\` ne sont pas renseignés dans
+Biltia — signale-les (« non renseigné »), ne les invente pas. Les coordonnées
+BANCAIRES (IBAN/BIC) ne sont lues que pour une facture / un document de paiement
+(\`include_banking=true\`) et ne partent jamais à l'extérieur sans action explicite.
+
 ## Règles d'opérateur (ABSOLUES)
 1. RÉSOUDRE AVANT D'AGIR : pour modifier/supprimer, commence par workspace_list (search) pour identifier LA fiche. Tu ne devines JAMAIS un id.
 2. AMBIGUÏTÉ = STOP : plusieurs fiches correspondent → tu ne modifies RIEN, tu listes les candidats dans ta réponse et tu demandes de préciser.
@@ -478,6 +490,19 @@ export async function runAgentTool(
       limit: Number(input.limit) || undefined,
     });
     return res as Record<string, unknown>;
+  }
+
+  // ── Profil de l'ENTREPRISE ACTIVE (lecture seule) ─────────────────────────
+  // Source canonique unique (lib/company-profile.ts). Tenant TOUJOURS forcé côté
+  // serveur (actor.tenantId) — le modèle ne fournit jamais de tenant. Les taux de
+  // TVA viennent du référentiel (lib/tva.ts). Bancaire uniquement sur demande.
+  if (toolName === "company_profile_get") {
+    const includeBanking = input.include_banking === true;
+    const profile = await getCompanyProfile(db, actor.tenantId, {
+      includeBanking,
+      vatRatesForCountry: (c) => tauxTvaPour(c).map((t) => t.taux),
+    });
+    return formatCompanyProfileForModel(profile);
   }
 
   // ── Envoi d'email (opt-in : le tool n'est proposé que si allowEmail) ──────
@@ -734,7 +759,10 @@ export async function runAgentLoop(opts: {
     : allowDelete
       ? WORKSPACE_TOOLS
       : WORKSPACE_TOOLS.filter((t) => t.name !== "workspace_delete");
-  const tools: Anthropic.Tool[] = [...workspaceTools, ...APP_DATA_TOOLS];
+  // company_profile_get : lecture seule, TOUJOURS disponible (chat data, réponses
+  // opérationnelles en lecture seule, exécuteur d'agents) — l'agent n'est plus
+  // aveugle à l'identité de sa propre entreprise.
+  const tools: Anthropic.Tool[] = [...workspaceTools, ...APP_DATA_TOOLS, COMPANY_PROFILE_TOOL as unknown as Anthropic.Tool];
   if (!readOnly && allowEmail) tools.push(SEND_EMAIL_TOOL);
   if (!readOnly && allowSms) tools.push(SEND_SMS_TOOL);
   if (finishTool) tools.push(finishTool);

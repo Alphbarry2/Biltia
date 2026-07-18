@@ -24,15 +24,26 @@ const RETRIEVE = /\b(retrouves?|retrouver|trouves?|trouver|cherches?|chercher|o[
 // Possessif → l'artisan parle de SES données.
 const POSSESSIVE = /\b(mes|mon|ma)\s+/i;
 
+// IDENTITÉ de l'entreprise (→ outil company_profile_get). Un possessif suivi d'un
+// terme d'identité (« mon numéro de TVA », « mon SIRET », « notre adresse »), OU un
+// terme d'identité sans ambiguïté (SIRET/SIREN/BCE/IBAN/BIC/raison sociale/mentions
+// légales). « quel TAUX de TVA ? » (savoir fiscal) ne matche PAS : il faut le
+// POSSESSIF ou un identifiant propre — jamais « taux de tva » seul.
+const COMPANY =
+  /\b(?:(?:mon|ma|mes|notre|nos)\s+(?:entreprise|soci[ée]t[ée]|num[ée]ro\s+de\s+tva|n°\s*de\s+tva|adresse|coordonn[ée]es|logo|siret|siren|bce|iban|raison\s+sociale)|siret|siren|\bbce\b|\biban\b|\bbic\b|raison\s+sociale|mentions?\s+l[ée]gales?|coordonn[ée]es\s+bancaires)\b/i;
+
 /**
  * Vrai quand la réponse a besoin des DONNÉES de l'entreprise (donc des outils de
  * lecture). Faux → question générale/métier, voie rapide streamée. Un faux positif
  * est peu coûteux (le modèle n'appellera pas d'outil s'il n'en a pas besoin) ; on
  * exige quand même une entité workspace ET une intention de consultation pour ne
- * pas basculer les simples « comment créer un devis ? ».
+ * pas basculer les simples « comment créer un devis ? ». Exception : une question
+ * sur l'IDENTITÉ de l'entreprise (TVA, SIRET, adresse…) suffit à elle seule —
+ * l'agent doit répondre depuis son profil réel (company_profile_get), pas inventer.
  */
 export function answerNeedsWorkspace(prompt: string): boolean {
   const p = prompt || "";
+  if (COMPANY.test(p)) return true;
   if (!ENTITY.test(p)) return false;
   return DATA_INTENT.test(p) || RETRIEVE.test(p) || POSSESSIVE.test(p);
 }
@@ -46,6 +57,7 @@ export const WSB_TOOL_ADDENDUM = `# CONSULTER LES DONNÉES (outils de LECTURE SE
 Tu disposes d'outils de LECTURE pour consulter les vraies données de l'entreprise :
 - workspace_list : lister/filtrer une entité (chantiers, clients, devis, factures, interventions…), avec recherche et filtres.
 - workspace_get : lire une fiche précise par son id.
+- company_profile_get : les infos de l'ENTREPRISE ACTIVE (raison sociale, SIRET/BCE, n° de TVA, adresse, téléphone, email, logo). Appelle-le pour toute question sur l'identité/les coordonnées de l'entreprise (« quel est mon numéro de TVA ? »). Les champs de missing_fields ne sont pas renseignés — dis-le, ne les invente pas.
 Tu peux aussi lister les collections d'applications de l'artisan si besoin.
 
 MÉTHODE :
