@@ -55,7 +55,8 @@ export function answerNeedsWorkspace(prompt: string): boolean {
  */
 export const WSB_TOOL_ADDENDUM = `# CONSULTER LES DONNÉES (outils de LECTURE SEULE)
 Tu disposes d'outils de LECTURE pour consulter les vraies données de l'entreprise :
-- workspace_list : lister/filtrer une entité (chantiers, clients, devis, factures, interventions…), avec recherche et filtres.
+- workspace_search : RETROUVER un objet désigné par un nom, une référence ou une adresse (« le chantier Dupont », « la facture FAC-2026-004 », « Karim »), tolérant aux fautes/accents. Renvoie resolution = unique | ambiguous | not_found : si ambiguous, demande lequel ; ne choisis pas au hasard.
+- workspace_list : lister/FILTRER une entité (par statut, relation…) — pas pour retrouver un objet nommé (utilise workspace_search).
 - workspace_get : lire une fiche précise par son id.
 - company_profile_get : les infos de l'ENTREPRISE ACTIVE (raison sociale, SIRET/BCE, n° de TVA, adresse, téléphone, email, logo). Appelle-le pour toute question sur l'identité/les coordonnées de l'entreprise (« quel est mon numéro de TVA ? »). Les champs de missing_fields ne sont pas renseignés — dis-le, ne les invente pas.
 Tu peux aussi lister les collections d'applications de l'artisan si besoin.

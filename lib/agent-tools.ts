@@ -49,6 +49,7 @@ import {
 } from "./action-verification";
 import { listAppCollections, listAppRecords } from "./app-records";
 import { getCompanyProfile, formatCompanyProfileForModel, COMPANY_PROFILE_TOOL } from "./company-profile";
+import { searchWorkspace, formatSearchForModel, searchColumnFor, WORKSPACE_SEARCH_TOOL } from "./workspace-search";
 import { tauxTvaPour } from "./tva";
 import { sendOutboundEmail } from "./outbound-email";
 import { sendSms } from "./outbound-sms";
@@ -64,18 +65,11 @@ type MinimalClient = {
 
 const ENTITY_ENUM = ALLOWED_ENTITIES;
 
-/** Colonne de recherche texte par entité (défaut : nom). */
-const SEARCH_COLUMN: Record<string, string> = {
-  catalogue: "designation",
-  lignes: "designation",
-  tasks: "title",
-  devis: "numero",
-  factures: "numero",
-  interventions: "type",
-  parc_installe: "type",
-  pointages: "date_pointage",
-  documents: "nom",
-};
+// La colonne de recherche texte de workspace_list vient désormais du REGISTRE
+// CANONIQUE (lib/workspace-search.ts, `searchColumnFor`) — même source que
+// workspace_search, plus de divergence. Fini le `ilike("nom", …)` sur des tables
+// SANS colonne « nom » (10 entités qui échouaient : contrats, demandes, commandes,
+// depenses, paiements, reserves, rappels, messages, notes, validations).
 
 function entityCatalog(): string {
   return ALLOWED_ENTITIES.map((k) => `- ${k} (${ENTITIES[k].label}) : ${ENTITIES[k].fields}`).join("\n");
@@ -300,9 +294,18 @@ Biltia — signale-les (« non renseigné »), ne les invente pas. Les coordonn�
 BANCAIRES (IBAN/BIC) ne sont lues que pour une facture / un document de paiement
 (\`include_banking=true\`) et ne partent jamais à l'extérieur sans action explicite.
 
+## Retrouver une fiche par son NOM ou sa RÉFÉRENCE — workspace_search
+Quand l'utilisateur DÉSIGNE un objet par un nom, un numéro, une adresse ou une
+formulation naturelle (« le chantier Dupont », « la facture FAC-2026-004 »,
+« Karim », « le chantier Dupon » avec une faute), utilise \`workspace_search\`
+(tolère casse, accents, tirets, petites fautes) plutôt que \`workspace_list\`. Il
+renvoie \`resolution\` : \`unique\` (agis dessus), \`ambiguous\` (NE choisis PAS :
+demande lequel en citant label + details) ou \`not_found\` (dis-le, n'invente pas
+d'id). Garde \`workspace_list\` pour FILTRER/LISTER par statut ou relation.
+
 ## Règles d'opérateur (ABSOLUES)
-1. RÉSOUDRE AVANT D'AGIR : pour modifier/supprimer, commence par workspace_list (search) pour identifier LA fiche. Tu ne devines JAMAIS un id.
-2. AMBIGUÏTÉ = STOP : plusieurs fiches correspondent → tu ne modifies RIEN, tu listes les candidats dans ta réponse et tu demandes de préciser.
+1. RÉSOUDRE AVANT D'AGIR : pour modifier/supprimer, identifie d'abord LA fiche via workspace_search (nom/référence) ou workspace_list (filtre). Tu ne devines JAMAIS un id.
+2. AMBIGUÏTÉ = STOP : plusieurs fiches correspondent (resolution ambiguous) → tu ne modifies RIEN, tu listes les candidats dans ta réponse et tu demandes de préciser.
 3. INTROUVABLE = HONNÊTETÉ : la fiche n'existe pas (workspace ET collections d'app vérifiés) → tu le dis, et tu proposes de la créer si pertinent.
 4. Champs : respecte STRICTEMENT les noms et enums du catalogue. Optionnel vide → omets la clé (jamais "").
 5. Relations : un champ *_id se remplit avec l'uuid d'une fiche EXISTANTE (workspace_list pour le trouver). Si la fiche liée n'existe pas, crée-la d'abord.
@@ -377,8 +380,10 @@ export async function runWorkspaceTool(
       const limit = Math.min(Math.max(Number(input.limit) || 20, 1), 50);
       let q = db.from(def.table).select("*").eq("tenant_id", tenantId);
       if (typeof input.search === "string" && input.search.trim()) {
-        const col = SEARCH_COLUMN[entity] ?? "nom";
-        q = q.ilike(col, `%${input.search.trim()}%`);
+        // Colonne de recherche RÉELLE (registre canonique) — jamais une colonne
+        // fantôme. `null` (entité sans champ texte) → pas d'ilike, pas d'erreur SQL.
+        const col = searchColumnFor(entity);
+        if (col) q = q.ilike(col, `%${input.search.trim()}%`);
       }
       if (input.match && typeof input.match === "object") {
         for (const [k, v] of Object.entries(input.match as Record<string, unknown>)) {
@@ -503,6 +508,19 @@ export async function runAgentTool(
       vatRatesForCountry: (c) => tauxTvaPour(c).map((t) => t.taux),
     });
     return formatCompanyProfileForModel(profile);
+  }
+
+  // ── Recherche canonique (lecture seule) ───────────────────────────────────
+  // Retrouve un objet par nom / référence / adresse, tolérant aux fautes, avec
+  // résolution d'ambiguïté. Tenant forcé serveur ; le modèle ne fournit ni table
+  // ni colonne SQL (registre canonique lib/workspace-search.ts).
+  if (toolName === "workspace_search") {
+    const resp = await searchWorkspace(db, actor.tenantId, {
+      query: typeof input.query === "string" ? input.query : "",
+      entity: typeof input.entity === "string" ? input.entity : undefined,
+      limit: Number(input.limit) || undefined,
+    });
+    return formatSearchForModel(resp);
   }
 
   // ── Envoi d'email (opt-in : le tool n'est proposé que si allowEmail) ──────
@@ -762,7 +780,12 @@ export async function runAgentLoop(opts: {
   // company_profile_get : lecture seule, TOUJOURS disponible (chat data, réponses
   // opérationnelles en lecture seule, exécuteur d'agents) — l'agent n'est plus
   // aveugle à l'identité de sa propre entreprise.
-  const tools: Anthropic.Tool[] = [...workspaceTools, ...APP_DATA_TOOLS, COMPANY_PROFILE_TOOL as unknown as Anthropic.Tool];
+  const tools: Anthropic.Tool[] = [
+    ...workspaceTools,
+    ...APP_DATA_TOOLS,
+    COMPANY_PROFILE_TOOL as unknown as Anthropic.Tool,
+    WORKSPACE_SEARCH_TOOL as unknown as Anthropic.Tool, // lecture seule, toujours dispo
+  ];
   if (!readOnly && allowEmail) tools.push(SEND_EMAIL_TOOL);
   if (!readOnly && allowSms) tools.push(SEND_SMS_TOOL);
   if (finishTool) tools.push(finishTool);

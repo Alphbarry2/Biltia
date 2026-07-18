@@ -60,8 +60,9 @@ test("« quel taux de TVA en rénovation ? » reste une question fiscale (pas l'
   assert.equal(answerNeedsWorkspace("Quel taux de TVA en rénovation ?"), false);
 });
 
-test("l'addendum mentionne company_profile_get", () => {
+test("l'addendum mentionne company_profile_get et workspace_search", () => {
   assert.match(WSB_TOOL_ADDENDUM, /company_profile_get/);
+  assert.match(WSB_TOOL_ADDENDUM, /workspace_search/);
 });
 
 // ── Addendum : outils décrits + honnêteté + lecture seule ────────────────────
