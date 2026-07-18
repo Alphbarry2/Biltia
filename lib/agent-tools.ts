@@ -54,6 +54,7 @@ import { tauxTvaPour } from "./tva";
 import { sendOutboundEmail } from "./outbound-email";
 import { sendSms } from "./outbound-sms";
 import { toMessages, type ChatTurn } from "./chat-thread";
+import { can } from "./permissions";
 
 // Client base minimal (session RLS ou service_role) — motif lib/activity.ts.
 type MinimalClient = {
@@ -698,6 +699,54 @@ export async function verifyExecutedTool(
 ): Promise<ActionVerification> {
   const schema = resolveVerifySchema(toolName, input);
   return verifyAction(db, actor, { toolName, input, result, ...schema }, VERIFY_DEPS);
+}
+
+export type ConfirmedAction = { tool: string; input: Record<string, unknown> };
+export type ConfirmedPlanResult = {
+  verifications: ActionVerification[];
+  traces: ToolTrace[];
+  done: number;
+  denied: number;
+  verified: boolean;
+  report: string;
+};
+
+/**
+ * Exécute un PLAN confirmé (tour 2 de la confirmation à 3 niveaux). Pour CHAQUE
+ * action : re-contrôle RBAC (le tenant reste forcé côté serveur), exécution RÉELLE,
+ * puis MÊME vérification déterministe que runAgentLoop. Une action VÉRIFIABLE qui
+ * ÉCHOUE (envoi refusé, écriture en erreur) est enregistrée comme vérification
+ * `failed` → elle apparaît « ✕ » dans le compte rendu, jamais silencieuse. Source
+ * UNIQUE partagée par la route (/api/generate) et les tests E2E.
+ */
+export async function executeConfirmedPlan(
+  db: MinimalClient,
+  actor: ToolActor,
+  role: string | null | undefined,
+  plan: ConfirmedAction[]
+): Promise<ConfirmedPlanResult> {
+  const traces: ToolTrace[] = [];
+  const verifications: ActionVerification[] = [];
+  let denied = 0;
+  for (const action of plan) {
+    const tool = typeof action?.tool === "string" ? action.tool : "";
+    const input = action?.input && typeof action.input === "object" ? (action.input as Record<string, unknown>) : {};
+    const isDelete = tool === "workspace_delete";
+    const isWrite =
+      tool === "workspace_create" || tool === "workspace_update" || tool === "workspace_transform" || tool === "send_email" || tool === "send_sms";
+    if (isDelete && !can(role, "data.delete")) { denied++; continue; }
+    if (isWrite && !can(role, "data.write")) { denied++; continue; }
+    const result = await runAgentTool(db, actor, tool, input, traces);
+    if (isVerifiableWrite(tool)) {
+      if ((result as { ok?: boolean }).ok) {
+        verifications.push(await verifyExecutedTool(db, actor, tool, input, result));
+      } else {
+        // Action confirmée qui ÉCHOUE → « ✕ » explicite, jamais un silence.
+        verifications.push({ status: "failed", toolName: tool, reason: String((result as { error?: unknown }).error ?? "échec"), verifiedAt: new Date().toISOString() });
+      }
+    }
+  }
+  return { verifications, traces, done: traces.length, denied, verified: allVerifiedFn(verifications), report: buildVerifiedReport(verifications) };
 }
 
 /**

@@ -41,8 +41,7 @@ import { sendPushToUser } from "@/lib/push";
 import { createAgentRule } from "@/lib/agent-rules";
 import { connectorsForCapability } from "@/lib/capabilities";
 import { capabilityGate } from "@/lib/capability-gate";
-import { runAgentLoop, runAgentTool, verifyExecutedTool, buildWorkspaceToolsSystem, type ToolTrace } from "@/lib/agent-tools";
-import { isVerifiableWrite, buildVerifiedReport, allVerified as allVerifiedFn, type ActionVerification } from "@/lib/action-verification";
+import { runAgentLoop, runAgentTool, executeConfirmedPlan, buildWorkspaceToolsSystem } from "@/lib/agent-tools";
 import { getCompanyProfile, companyProfileToDocumentBlock } from "@/lib/company-profile";
 import { tauxTvaPour } from "@/lib/tva";
 import { answerNeedsWorkspace, WSB_TOOL_ADDENDUM } from "@/lib/answer-tools";
@@ -1301,7 +1300,6 @@ export async function POST(req: Request) {
     // Aucun LLM : on re-valide (RBAC + tenant forcé via runAgentTool) et on exécute.
     if (Array.isArray(body.confirmPlan) && body.confirmPlan.length > 0) {
       const plan = body.confirmPlan;
-      const role = membership.role;
       const CONFIRM_HOLD = isFounderEmail(user.email) ? 0 : ACTION_CREDITS.donnee;
       if (CONFIRM_HOLD > 0) {
         const { data: credited } = await supabase.rpc("deduct_credits", { p_amount: CONFIRM_HOLD });
@@ -1312,45 +1310,24 @@ export async function POST(req: Request) {
           );
         }
       }
-      const traces: ToolTrace[] = [];
       const actor = { tenantId, userId: user.id, label: "Assistant", fromEmail: user.email ?? null };
-      let denied = 0;
-      // VÉRIFICATION POST-ACTION — MÊME chemin que runAgentLoop (verifyExecutedTool) :
-      // aucune implémentation divergente. On relit l'état SERVEUR final (tenant forcé)
-      // après chaque écriture réellement exécutée.
-      const verifications: ActionVerification[] = [];
-      for (const action of plan) {
-        const tool = typeof action?.tool === "string" ? action.tool : "";
-        const input = action?.input && typeof action.input === "object" ? (action.input as Record<string, unknown>) : {};
-        // Durcissement RBAC (le client de session garde RLS comme filet).
-        const isDelete = tool === "workspace_delete";
-        const isWrite =
-          tool === "workspace_create" || tool === "workspace_update" || tool === "workspace_transform" || tool === "send_email" || tool === "send_sms";
-        if (isDelete && !can(role, "data.delete")) { denied++; continue; }
-        if (isWrite && !can(role, "data.write")) { denied++; continue; }
-        // Exécution RÉELLE (tenant forcé + colonnes whitelistées côté serveur).
-        const result = await runAgentTool(supabase, actor, tool, input, traces);
-        if (isVerifiableWrite(tool) && (result as { ok?: boolean }).ok) {
-          verifications.push(await verifyExecutedTool(supabase, actor, tool, input, result));
-        }
-      }
-      const done = traces.length;
-      if (done === 0 && CONFIRM_HOLD > 0) {
+      // VÉRIFICATION POST-ACTION — chemin UNIQUE partagé avec les tests E2E
+      // (executeConfirmedPlan) : RBAC re-contrôlé, tenant forcé, chaque écriture
+      // relue et vérifiée, et une action confirmée qui ÉCHOUE ressort « ✕ ».
+      const planRes = await executeConfirmedPlan(supabase, actor, membership.role, plan);
+      if (planRes.done === 0 && CONFIRM_HOLD > 0) {
         const admin = createAdminClient();
         if (admin) { try { await admin.rpc("refund_credits", { p_user_id: user.id, p_amount: CONFIRM_HOLD }); } catch { /* best-effort */ } }
       }
-      // Compte rendu DÉTERMINISTE (✓ vérifié / ⚠ écart / ✕ échec / • envoi accepté) —
-      // JAMAIS un « c'est fait » global tant qu'une action n'est pas vérifiée.
-      const report = buildVerifiedReport(verifications);
       const parts: string[] = [];
-      if (report) parts.push(report);
-      else if (done > 0) parts.push(pick(locale, `✓ C'est fait (${done} opération${done > 1 ? "s" : ""}).`, `✓ Done (${done} operation${done > 1 ? "s" : ""}).`));
-      if (denied > 0) parts.push(pick(locale, "Certaines actions demandaient des droits que tu n'as pas.", "Some actions required permissions you don't have."));
+      if (planRes.report) parts.push(planRes.report);
+      else if (planRes.done > 0) parts.push(pick(locale, `✓ C'est fait (${planRes.done} opération${planRes.done > 1 ? "s" : ""}).`, `✓ Done (${planRes.done} operation${planRes.done > 1 ? "s" : ""}).`));
+      if (planRes.denied > 0) parts.push(pick(locale, "Certaines actions demandaient des droits que tu n'as pas.", "Some actions required permissions you don't have."));
       return Response.json({
         kind: "data",
         message: parts.join("\n\n") || pick(locale, "Rien n'a été exécuté.", "Nothing was executed."),
-        verified: allVerifiedFn(verifications),
-        creditsUsed: done > 0 ? CONFIRM_HOLD : 0,
+        verified: planRes.verified,
+        creditsUsed: planRes.done > 0 ? CONFIRM_HOLD : 0,
       });
     }
 
