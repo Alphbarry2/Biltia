@@ -13,8 +13,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
+// Clé factice → le classifieur emprunte le chemin LLM (que l'on intercepte),
+// au lieu de court-circuiter sur l'heuristique. Aucune vraie clé, aucun appel réseau.
+process.env.ANTHROPIC_API_KEY ||= "e2e-test-key";
+
 import { runAgentLoop, executeConfirmedPlan, buildWorkspaceToolsSystem } from "@/lib/agent-tools";
 import { requiresConfirmation } from "@/lib/action-risk";
+import { classifyKind } from "@/lib/kind-router";
 import { client } from "@/lib/llm";
 import { createFakeSupabase } from "./fake-supabase.mjs";
 
@@ -66,8 +71,15 @@ function extractResults(messages) {
 
 let uid = 0;
 function makeMissionModel() {
-  return async ({ messages }) => {
+  return async (params) => {
+    const { messages } = params;
     const usage = { input_tokens: 12, output_tokens: 8 };
+    // ── Étape CLASSIFICATION : la demande naturelle est un ordre sur des DONNÉES →
+    //    kind = "data" (le chemin opérationnel de /api/generate).
+    const isClassify = (params.tools || []).some((t) => t.name === "classify_request") || params.tool_choice?.name === "classify_request";
+    if (isClassify) {
+      return { content: [{ type: "tool_use", id: `k${++uid}`, name: "classify_request", input: { kind: "data", doc_type: "", email_to: "", email_subject: "", email_body: "", task_audience: "", targets_open_app: false, out_of_scope: false, oos_alternative: "", confidence: 0.96 } }], usage, stop_reason: "tool_use" };
+    }
     const say = (text) => ({ content: [{ type: "text", text }], usage, stop_reason: "end_turn" });
     const T = (name, input) => ({ type: "tool_use", id: `t${++uid}`, name, input });
     const emit = (blocks) => ({ content: blocks, usage, stop_reason: "tool_use" });
@@ -118,12 +130,16 @@ function makeMissionModel() {
 
 const confirmGate = (tool) => requiresConfirmation(tool, { alwaysConfirm: true });
 
-async function runTurn1(db) {
+// Parcours réel : message → CLASSIFICATION → boucle data (recherche → lecture →
+// proposition → …). Renvoie le kind classé + le résultat de la boucle (tour 1).
+async function runTurn1(db, mission = MISSION) {
   client.messages.create = makeMissionModel();
-  return runAgentLoop({
-    model: "test-model", system: buildWorkspaceToolsSystem(), userMessage: MISSION, history: [], db, actor: ACTOR,
+  const classified = await classifyKind({ prompt: mission, sector: null, useLLM: true, hasExistingApp: false, history: [] });
+  const loop = await runAgentLoop({
+    model: "test-model", system: buildWorkspaceToolsSystem(), userMessage: mission, history: [], db, actor: ACTOR,
     allowEmail: true, allowSms: false, maxIterations: 6, maxTokens: 1000, confirmGate,
   });
+  return { kind: classified.kind, classified, loop };
 }
 
 function toolSequence(loop) {
@@ -139,7 +155,8 @@ test("E2E-A · nominal : recherche → propose → confirme → exécute → vé
   const sb = createFakeSupabase(baseSeed());
 
   // ── TOUR 1 : rien n'est exécuté, tout est proposé ────────────────────────────
-  const loop = await runTurn1(sb);
+  const { kind, loop } = await runTurn1(sb);
+  assert.equal(kind, "data", "message naturel classé comme opération sur données");
   console.log("[A] séquence outils :", toolSequence(loop).join(" → "));
   console.log("[A] itérations :", loop.iterations, "| étapes outils :", loop.steps.length, "| proposées :", loop.proposed.length);
   assert.equal(loop.proposed.length, 6, "6 actions proposées (1 chantier + 3 tâches + 2 emails)");
@@ -198,7 +215,8 @@ test("E2E-B · échec partiel : chantier ok, 2/3 tâches, 1 email accepté, 1 em
   // La 3e tâche (A-t3) reste « bloquée » : sa mise à jour n'aboutit pas en base.
   const sb = createFakeSupabase(baseSeed(), { blockUpdates: new Set(["tasks:A-t3"]) });
 
-  const loop = await runTurn1(sb);
+  const { kind, loop } = await runTurn1(sb);
+  assert.equal(kind, "data", "message naturel classé comme opération sur données");
   assert.equal(loop.proposed.length, 6);
   const res = await executeConfirmedPlan(sb, ACTOR, "owner", loop.proposed);
   console.log("[B] compte rendu :\n" + res.report);
@@ -233,7 +251,8 @@ test("E2E-C · ambiguïté : deux chantiers Dupont → resolution ambiguous, auc
     { id: "A-ch2", tenant_id: "tenant-A", nom: "Toiture Dupont", client_id: "A-client", statut: "planifie", date_debut: "2026-08-20", date_fin_prevue: "2026-08-25" },
   ]));
 
-  const loop = await runTurn1(sb);
+  const { kind, loop } = await runTurn1(sb);
+  assert.equal(kind, "data", "message naturel classé comme opération sur données");
   console.log("[C] séquence outils :", toolSequence(loop).join(" → "));
   console.log("[C] réponse :", loop.finalText);
   assert.equal(loop.proposed.length, 0, "aucune action proposée");
