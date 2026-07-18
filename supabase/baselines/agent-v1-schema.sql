@@ -26,10 +26,17 @@ create table if not exists public.tenant_members (
   primary key (tenant_id, user_id)
 );
 
+-- ⚠️ Les COLONNES ci-dessous ne sont pas décoratives : elles correspondent EXACTEMENT
+-- aux `selectFields` du registre de recherche (lib/workspace-search.ts). PostgREST
+-- REJETTE toute colonne inexistante dans un select → une colonne manquante casse
+-- workspace_search en production. Le baseline doit donc les exposer toutes pour les
+-- entités traversées par le parcours de référence.
+
 create table if not exists public.clients (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references public.tenants(id) on delete cascade,
   nom text,
+  siret text, email text, tel text, ville text, type text,
   created_at timestamptz not null default now()
 );
 
@@ -37,6 +44,7 @@ create table if not exists public.employees (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references public.tenants(id) on delete cascade,
   nom text, prenom text, email text, adresse text, statut text default 'actif',
+  role text, corps_metier text, tel text,
   created_at timestamptz not null default now()
 );
 
@@ -45,6 +53,8 @@ create table if not exists public.chantiers (
   tenant_id uuid not null references public.tenants(id) on delete cascade,
   nom text,
   client_id uuid references public.clients(id),
+  chef_chantier_id uuid, site_id uuid,          -- relations du registre (uuid libres)
+  adresse text, ville text, description text,    -- selectFields secondaires
   statut text default 'en_attente',
   date_debut date, date_fin_prevue date, date_fin_reelle date,
   created_at timestamptz not null default now()
@@ -54,6 +64,7 @@ create table if not exists public.tasks (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references public.tenants(id) on delete cascade,
   title text,
+  description text,
   chantier_id uuid references public.chantiers(id),
   assignee_id uuid references public.employees(id),
   status text default 'todo',

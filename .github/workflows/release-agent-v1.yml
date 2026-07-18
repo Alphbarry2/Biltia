@@ -79,7 +79,17 @@ jobs:
             echo "SUPABASE_SERVICE_ROLE_KEY=$SRK"
           } >> "$GITHUB_ENV"
       - name: E2E réel (parcours vertical + RLS + isolation tenant)
-        run: E2E_ROOT="$PWD" node --test --experimental-strip-types --import ./e2e/register.mjs e2e/postgres-e2e.mjs
+        run: |
+          set +e
+          E2E_ROOT="$PWD" node --test --experimental-strip-types --import ./e2e/register.mjs e2e/postgres-e2e.mjs 2>&1 | tee /tmp/e2e.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            grep -nE 'not ok|AssertionError|Error:|expected|actual|message:|code:|hint:|details:|at .*postgres-e2e' /tmp/e2e.log \
+              | head -25 | while IFS= read -r line; do
+                echo "::error::$(printf '%s' "$line" | tr -d '\r' | sed 's/%/%25/g')"
+              done
+          fi
+          exit "$code"
       - name: Arrêter Supabase
         if: always()
         run: supabase stop || true
