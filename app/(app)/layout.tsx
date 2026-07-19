@@ -16,11 +16,11 @@ import { useT, useLocale } from "@/lib/i18n/context";
 import {
   Home,
   Boxes,
-  Library,
-  Activity,
   Settings,
   Plug,
   Bot,
+  Users,
+  CreditCard,
   LogOut,
   Zap,
   Menu,
@@ -28,6 +28,7 @@ import {
   Plus,
   PanelLeftClose,
   PanelLeftOpen,
+  ChevronsUpDown,
   Sparkles,
   Gift,
 } from "lucide-react";
@@ -47,6 +48,7 @@ function Sidebar({
   const router = useRouter();
   const [packsOpen, setPacksOpen] = useState(false);
   const [refOpen, setRefOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
 
   // TOUT vient de la session partagée (components/session-provider). La sidebar
   // faisait avant sa PROPRE chaîne : getUser() → user_credits → membership →
@@ -71,14 +73,14 @@ function Sidebar({
     router.push("/login");
   };
 
+  // Navigation principale réduite à 3 destinations (Demander / Consulter / Déléguer).
+  // Le reste (Bibliothèque, Connecteurs, Activité, Paramètres) reste joignable mais
+  // n'occupe plus la nav : il vit dans le menu du compte, en contextuel, ou via
+  // « Voir tout ». Aucune route n'est supprimée — juste retirée du menu de gauche.
   const nav = [
     { label: t("Accueil", "Home"), href: "/dashboard", icon: <Home className="w-4 h-4" /> },
     { label: t("Entreprise", "Workspace"), href: "/workspace", icon: <Boxes className="w-4 h-4" /> },
-    { label: t("Bibliothèque", "Library"), href: "/library", icon: <Library className="w-4 h-4" /> },
     { label: t("Agents", "Agents"), href: "/agents", icon: <Bot className="w-4 h-4" /> },
-    { label: t("Connecteurs", "Connectors"), href: "/connectors", icon: <Plug className="w-4 h-4" /> },
-    { label: t("Activité", "Activity"), href: "/activity", icon: <Activity className="w-4 h-4" /> },
-    { label: t("Paramètres", "Settings"), href: "/settings", icon: <Settings className="w-4 h-4" /> },
   ];
 
   const initial = (email || userName || "?")[0].toUpperCase();
@@ -121,8 +123,7 @@ function Sidebar({
         {nav.map(({ label, href, icon }) => {
           const active =
             pathname === href ||
-            pathname.startsWith(href + "/") ||
-            (href === "/library" && pathname.startsWith("/apps"));
+            pathname.startsWith(href + "/");
           return (
             <Link
               key={href}
@@ -200,49 +201,77 @@ function Sidebar({
       </div>
       <CreditPacksDialog open={packsOpen} onClose={() => setPacksOpen(false)} />
 
-      {/* Parrainage : inviter son réseau BTP, gagner des crédits (façon Lovable) */}
-      <div className="px-2.5 pb-3">
-        {collapsed ? (
-          <button
-            type="button"
-            onClick={() => setRefOpen(true)}
-            title={t("Parrainage — gagner des crédits", "Referral — earn credits")}
-            className="flex w-full items-center justify-center py-2.5 rounded-xl hover:bg-black/[0.04] transition-colors"
-          >
-            <Gift className="w-4 h-4 text-[#7C3AED]" />
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setRefOpen(true)}
-            className="flex w-full items-center gap-2 rounded-xl border border-[#E7E7E4] bg-white px-3 py-2.5 text-[13px] font-semibold text-[#0A0A0A] transition-colors hover:bg-[#F7F4FD]"
-          >
-            <Gift className="w-4 h-4 text-[#7C3AED]" /> {t("Gagner des crédits", "Earn credits")}
-          </button>
-        )}
-      </div>
-      <ReferralDialog open={refOpen} onClose={() => setRefOpen(false)} />
-
-      {/* User */}
-      <div className="px-2.5 pb-4 border-t border-[#EDEDE9] pt-3 flex-shrink-0">
-        <div className={`flex items-center gap-3 py-1.5 ${collapsed ? "justify-center px-0" : "px-2"}`}>
+      {/* Compte : un seul point d'entrée en bas → menu déroulant. Y vivent désormais
+          les destinations retirées de la nav principale (Paramètres, Connexions,
+          Équipe, Abonnement) + le parrainage + la déconnexion. Les liens Équipe /
+          Abonnement pointent vers les sections existantes de /settings (deep-link),
+          pas de nouvelles routes. */}
+      <div className="relative px-2.5 pb-4 border-t border-[#EDEDE9] pt-3 flex-shrink-0">
+        <button
+          type="button"
+          onClick={() => setAccountOpen((v) => !v)}
+          aria-expanded={accountOpen}
+          title={collapsed ? (userName || email) : undefined}
+          className={`flex w-full items-center gap-3 rounded-xl py-2 transition-colors hover:bg-black/[0.04] ${collapsed ? "justify-center px-0" : "px-2"}`}
+        >
           <div className="w-7 h-7 rounded-full bg-[#0A0A0A] flex items-center justify-center flex-shrink-0">
             <span className="text-[10px] font-bold text-white">{initial}</span>
           </div>
           {!collapsed && (
             <>
-              <p className="text-xs text-[#6E6E6C] truncate flex-1 min-w-0">{email || "…"}</p>
-              <button
-                onClick={handleLogout}
-                className="text-[#9A9A97] hover:text-[#0A0A0A] transition-colors"
-                title={t("Déconnexion", "Log out")}
-              >
-                <LogOut className="w-3.5 h-3.5" />
-              </button>
+              <span className="flex-1 min-w-0 text-left">
+                <span className="block text-xs font-semibold text-[#0A0A0A] truncate">{userName || email || "…"}</span>
+                {userName && <span className="block text-[11px] text-[#9A9A97] truncate">{email}</span>}
+              </span>
+              <ChevronsUpDown className="w-3.5 h-3.5 text-[#9A9A97] flex-shrink-0" />
             </>
           )}
-        </div>
+        </button>
+
+        {accountOpen && (
+          <>
+            {/* Ferme au clic en dehors */}
+            <div className="fixed inset-0 z-40" onClick={() => setAccountOpen(false)} />
+            <div
+              className={`absolute bottom-full mb-2 z-50 rounded-2xl border border-[#ECECF2] bg-white shadow-[0_16px_50px_rgba(17,24,39,0.14)] p-1.5 anim-pop-up ${collapsed ? "left-2 w-56" : "left-2.5 right-2.5"}`}
+            >
+              {[
+                { icon: Settings, label: t("Paramètres", "Settings"), href: "/settings" },
+                { icon: Plug, label: t("Connexions", "Connections"), href: "/connectors" },
+                { icon: Users, label: t("Équipe", "Team"), href: "/settings?section=team" },
+                ...(canBill
+                  ? [{ icon: CreditCard, label: t("Abonnement", "Subscription"), href: "/settings?section=billing" }]
+                  : []),
+              ].map(({ icon: Icon, label, href }) => (
+                <Link
+                  key={href}
+                  href={href}
+                  onClick={() => { setAccountOpen(false); onClose?.(); }}
+                  className="flex items-center gap-2.5 w-full px-3 py-2 rounded-xl text-[13px] text-[#2A2A32] hover:bg-[#F4F4F7] transition-colors"
+                >
+                  <Icon className="w-4 h-4 text-[#6E6E6C] flex-shrink-0" /> {label}
+                </Link>
+              ))}
+              <button
+                type="button"
+                onClick={() => { setAccountOpen(false); setRefOpen(true); }}
+                className="flex items-center gap-2.5 w-full px-3 py-2 rounded-xl text-[13px] text-[#2A2A32] hover:bg-[#F4F4F7] transition-colors"
+              >
+                <Gift className="w-4 h-4 text-[#6E6E6C] flex-shrink-0" /> {t("Gagner des crédits", "Earn credits")}
+              </button>
+              <div className="my-1 border-t border-[#EFEFF3]" />
+              <button
+                type="button"
+                onClick={() => { setAccountOpen(false); handleLogout(); }}
+                className="flex items-center gap-2.5 w-full px-3 py-2 rounded-xl text-[13px] text-[#D95C4A] hover:bg-[#fdf2f0] transition-colors"
+              >
+                <LogOut className="w-4 h-4 flex-shrink-0" /> {t("Déconnexion", "Log out")}
+              </button>
+            </div>
+          </>
+        )}
       </div>
+      <ReferralDialog open={refOpen} onClose={() => setRefOpen(false)} />
     </aside>
   );
 }

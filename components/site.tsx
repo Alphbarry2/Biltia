@@ -8,7 +8,7 @@ import {
   useMotionValue, useSpring,
 } from "framer-motion";
 import {
-  Menu, X, ChevronDown, ChevronLeft, ChevronRight, ArrowRight,
+  Menu, X, ChevronLeft, ChevronRight, ArrowRight,
   FileText, LayoutGrid, Zap, ScanLine, MessageCircle, FolderKanban, Bot,
   Monitor, Tablet, Smartphone,
 } from "lucide-react";
@@ -99,21 +99,23 @@ export function Mesh() {
 
 export function SiteNav() {
   const t = useT();
-  const locale = useLocale();
-  // Nom + accroche des produits dans la langue de l'interface (drop-down « Products »
-  // + menu mobile) : sans ça, la coquille est traduite mais le contenu reste FR.
-  const products = PRODUCTS.map((p) => localizeProduct(p, locale));
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
-  const [menu, setMenu] = useState(false);
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     const fn = () => setScrolled(window.scrollY > 12);
     window.addEventListener("scroll", fn, { passive: true });
     return () => window.removeEventListener("scroll", fn);
   }, []);
-  const openMenu = () => { if (closeTimer.current) clearTimeout(closeTimer.current); setMenu(true); };
-  const scheduleClose = () => { closeTimer.current = setTimeout(() => setMenu(false), 120); };
+  // Nav réduite : on raconte l'usage (comment ça marche / agents / solutions), plus
+  // le catalogue de 7 produits. Les ancres pointent vers la landing en absolu pour
+  // fonctionner depuis n'importe quelle page publique. Les pages /produits/[slug]
+  // existent toujours (SEO) mais ne sont plus dans la nav — elles vivent au footer.
+  const links = [
+    { href: "/#demo", label: t("Comment ça marche", "How it works") },
+    { href: "/#agents", label: t("Agents", "Agents") },
+    { href: "/#solutions", label: t("Solutions", "Solutions") },
+    { href: "/tarifs", label: t("Tarifs", "Pricing") },
+  ];
 
   return (
     <>
@@ -131,46 +133,16 @@ export function SiteNav() {
           </div>
 
           <div className="hidden md:flex items-center gap-1">
-            <div className="relative" onMouseEnter={openMenu} onMouseLeave={scheduleClose}>
-              <button className="flex items-center gap-1 px-3.5 py-2 rounded-lg text-[14px] text-[#5B5B66] hover:text-[#0A0A0A] hover:bg-black/[0.04] transition-colors font-medium">
-                {t("Produits", "Products")} <ChevronDown className={`w-3.5 h-3.5 transition-transform ${menu ? "rotate-180" : ""}`} />
-              </button>
-              <AnimatePresence>
-                {menu && (
-                  <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: 0.2, ease: EASE }}
-                    className="absolute left-1/2 -translate-x-1/2 top-full pt-3">
-                    <div className="glass rounded-[22px] p-2.5 w-[560px] grid grid-cols-2 gap-1.5 shadow-[0_30px_80px_rgba(60,40,120,0.18)]">
-                      {products.map((p) => {
-                        const Icon = PRODUCT_ICONS[p.icon];
-                        return (
-                          <Link key={p.slug} href={`/produits/${p.slug}`} onClick={() => setMenu(false)}
-                            className="group flex items-start gap-3 rounded-2xl p-3 hover:bg-white/70 transition-colors">
-                            <span className="w-9 h-9 rounded-xl flex items-center justify-center text-white flex-shrink-0" style={{ background: `linear-gradient(135deg, ${p.accent[0]}, ${p.accent[1]})` }}>
-                              <Icon className="w-[18px] h-[18px]" />
-                            </span>
-                            <span className="min-w-0">
-                              <span className="block text-[13.5px] font-semibold text-[#0A0A0A]">{p.name}</span>
-                              <span className="block text-[12px] text-[#7A7A86] leading-snug">{p.tagline}</span>
-                            </span>
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-            <Link href="/#demo" className="px-3.5 py-2 rounded-lg text-[14px] text-[#5B5B66] hover:text-[#0A0A0A] hover:bg-black/[0.04] transition-colors font-medium">{t("En action", "In action")}</Link>
-            <Link href="/connecteurs" className="px-3.5 py-2 rounded-lg text-[14px] text-[#5B5B66] hover:text-[#0A0A0A] hover:bg-black/[0.04] transition-colors font-medium">{t("Connecteurs", "Connectors")}</Link>
-            <Link href="/blog" className="px-3.5 py-2 rounded-lg text-[14px] text-[#5B5B66] hover:text-[#0A0A0A] hover:bg-black/[0.04] transition-colors font-medium">{t("Blog", "Blog")}</Link>
-            <Link href="/tarifs" className="px-3.5 py-2 rounded-lg text-[14px] text-[#5B5B66] hover:text-[#0A0A0A] hover:bg-black/[0.04] transition-colors font-medium">{t("Tarifs", "Pricing")}</Link>
+            {links.map((l) => (
+              <Link key={l.href} href={l.href} className="px-3.5 py-2 rounded-lg text-[14px] text-[#5B5B66] hover:text-[#0A0A0A] hover:bg-black/[0.04] transition-colors font-medium">{l.label}</Link>
+            ))}
           </div>
 
           <div className="flex items-center gap-2">
             <LanguageSwitcher variant="nav" className="hidden sm:block" />
             <a href="/login" className="hidden sm:inline-flex px-4 py-2 text-[14px] text-[#5B5B66] hover:text-[#0A0A0A] font-medium transition-colors">{t("Se connecter", "Sign in")}</a>
             <Magnetic>
-              <a href="/signup" className={`${BLACK} text-[14px] font-semibold px-5 py-2.5 rounded-full inline-flex items-center gap-1.5`}>{t("Commencer", "Get started")}</a>
+              <a href="/signup" className={`${BLACK} text-[14px] font-semibold px-5 py-2.5 rounded-full inline-flex items-center gap-1.5`}>{t("Essayer Biltia", "Try Biltia")}</a>
             </Magnetic>
           </div>
         </div>
@@ -183,27 +155,14 @@ export function SiteNav() {
             <Mesh />
             <button onClick={() => setOpen(false)} aria-label={t("Fermer", "Close")} className="absolute top-5 right-5 w-9 h-9 rounded-[11px] bg-black/[0.05] flex items-center justify-center z-10"><X className="w-[18px] h-[18px]" /></button>
             <div className="min-h-[100dvh] flex flex-col justify-center px-6 py-20 gap-6">
-              <p className="text-[12px] font-bold uppercase tracking-wider text-[#9A9AA6]">{t("Produits", "Products")}</p>
-              <div className="grid gap-2">
-                {products.map((p) => {
-                  const Icon = PRODUCT_ICONS[p.icon];
-                  return (
-                    <Link key={p.slug} href={`/produits/${p.slug}`} onClick={() => setOpen(false)} className="glass flex items-center gap-3 rounded-2xl p-3">
-                      <span className="w-9 h-9 rounded-xl flex items-center justify-center text-white flex-shrink-0" style={{ background: `linear-gradient(135deg, ${p.accent[0]}, ${p.accent[1]})` }}><Icon className="w-[18px] h-[18px]" /></span>
-                      <span className="text-[14px] font-semibold text-[#0A0A0A]">{p.name}</span>
-                    </Link>
-                  );
-                })}
-              </div>
-              <div className="flex flex-wrap items-center gap-x-5 gap-y-3 pt-2 text-[16px] font-semibold text-[#0A0A0A]">
-                <Link href="/#demo" onClick={() => setOpen(false)}>{t("En action", "In action")}</Link>
-                <Link href="/connecteurs" onClick={() => setOpen(false)}>{t("Connecteurs", "Connectors")}</Link>
-                <Link href="/blog" onClick={() => setOpen(false)}>{t("Blog", "Blog")}</Link>
-                <Link href="/tarifs" onClick={() => setOpen(false)}>{t("Tarifs", "Pricing")}</Link>
+              <div className="flex flex-col gap-3 text-[20px] font-bold text-[#0A0A0A]">
+                {links.map((l) => (
+                  <Link key={l.href} href={l.href} onClick={() => setOpen(false)}>{l.label}</Link>
+                ))}
                 <Link href="/login" onClick={() => setOpen(false)}>{t("Se connecter", "Sign in")}</Link>
               </div>
               <div className="pt-1"><LanguageSwitcher variant="nav" /></div>
-              <a href="/signup" className={`${BLACK} font-semibold px-8 py-3.5 rounded-full text-[15px] text-center`}>{t("Commencer", "Get started")}</a>
+              <a href="/signup" className={`${BLACK} font-semibold px-8 py-3.5 rounded-full text-[15px] text-center`}>{t("Essayer Biltia", "Try Biltia")}</a>
             </div>
           </motion.div>
         )}
@@ -609,7 +568,7 @@ export function SiteFooter() {
           <div className="flex items-center gap-2.5 mb-3">
             <BiltiaLogo className="h-6 w-auto text-[#0A0A0A]" />
           </div>
-          <p className="text-[13px] text-[#7A7A86] max-w-[260px] leading-relaxed">{t("L'OS conversationnel du BTP. Décrivez votre problème. Biltia crée l'outil, le document ou l'automatisation dont vous avez besoin.", "The conversational OS for construction. Describe your problem. Biltia builds the tool, the document, or the automation you need.")}</p>
+          <p className="text-[13px] text-[#7A7A86] max-w-[280px] leading-relaxed">{t("Décrivez ce qui doit être fait. Biltia utilise les données de votre entreprise pour réaliser vos tâches, préparer vos documents et automatiser ce qui revient chaque semaine.", "Describe what needs doing. Biltia uses your company's data to carry out your tasks, prepare your documents, and automate what comes back every week.")}</p>
           {/* LinkedIn : lien externe (nouvel onglet) + rel de sécurité. L'URL vient
               de lib/brand-entity.ts, la même qui alimente le sameAs du JSON-LD. */}
           <a
@@ -625,7 +584,7 @@ export function SiteFooter() {
           </a>
         </div>
         <div>
-          <p className="text-[12px] font-bold uppercase tracking-wider text-[#9A9AA6] mb-3">{t("Produits", "Products")}</p>
+          <p className="text-[12px] font-bold uppercase tracking-wider text-[#9A9AA6] mb-3">{t("Solutions", "Solutions")}</p>
           <ul className="space-y-2">
             {products.slice(0, 5).map((p) => (
               <li key={p.slug}><Link href={`/produits/${p.slug}`} className="text-[13.5px] text-[#5B5B66] hover:text-[#0A0A0A] transition-colors">{p.name}</Link></li>
